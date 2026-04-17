@@ -1,0 +1,201 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* 暗色主题 (默认) */
+  :root, .dark {
+    --bg-primary: #020617;
+    --bg-secondary: #0f172a;
+    --bg-tertiary: #1e293b;
+    --bg-hover: #334155;
+    --border-color: #475569;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+  }
+
+  /* 浅色主题 */
+  .light {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-tertiary: #f1f5f9;
+    --bg-hover: #e2e8f0;
+    --border-color: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+  }
+
+  body {
+    @apply font-mono;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+  }
+}
+
+@layer components {
+  /* 现代细滚动条 - 默认样式 */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+    transition: background 0.2s ease;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  /* 暗色主题滚动条变量 */
+  .dark {
+    --scrollbar-thumb: rgba(100, 116, 139, 0.72);
+    --scrollbar-thumb-hover: rgba(148, 163, 184, 0.95);
+    --scrollbar-track: rgba(15, 23, 42, 0.35);
+  }
+
+  /* 浅色主题滚动条变量 */
+  .light {
+    --scrollbar-thumb: rgba(148, 163, 184, 0.75);
+    --scrollbar-thumb-hover: rgba(100, 116, 139, 0.95);
+    --scrollbar-track: rgba(226, 232, 240, 0.65);
+  }
+
+  /* 现代滚动条 - 更宽更明显 */
+  .scrollbar-modern {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  .scrollbar-modern::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-modern::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 9999px;
+    margin-block: 6px;
+  }
+
+  .scrollbar-modern::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--scrollbar-thumb) 0%, color-mix(in srgb, var(--scrollbar-thumb) 82%, #ffffff 18%) 100%);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    min-height: 36px;
+    transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+  }
+
+  .scrollbar-modern::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, var(--scrollbar-thumb-hover) 0%, color-mix(in srgb, var(--scrollbar-thumb-hover) 78%, #ffffff 22%) 100%);
+    background-clip: padding-box;
+  }
+
+  .scrollbar-modern::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-hover);
+    background-clip: padding-box;
+  }
+
+  /* 隐藏滚动条但保持功能 */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 圆角滚动条 */
+  .scrollbar-rounded::-webkit-scrollbar {
+    border-radius: 9999px;
+  }
+}
+
+.xterm {
+  @apply h-full;
+}
+
+/* 让 xterm.js 自己处理滚动条，确保可以正常拖动 */
+.xterm-viewport {
+  overflow-y: auto !important;
+  pointer-events: auto !important;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 10px !important;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4) !important;
+  border-radius: 5px !important;
+  min-height: 30px !important;
+  cursor: pointer !important;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7) !important;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:active {
+  background: rgba(148, 163, 184, 0.9) !important;
+}
+
+/* 确保滚动条区域可以正常交互 */
+.xterm-scroll-area,
+.xterm-viewport * {
+  pointer-events: auto !important;
+}
+
+/* 暗色主题终端 */
+.dark .xterm {
+  background-color: #020617 !important;
+}
+
+/* 浅色主题终端 */
+.light .xterm {
+  background-color: #ffffff !important;
+}
+
+/* 自定义动画 */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.2s ease-out;
+}
+
+/* 选中文字样式 */
+::selection {
+  @apply bg-blue-500/30;
+}

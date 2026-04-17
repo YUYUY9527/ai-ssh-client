@@ -1,0 +1,129 @@
+export type IPCResult<T = void> = SuccessResult<T> | ErrorResult;
+
+export type SuccessResult<T = void> = T extends void
+  ? {
+      success: true;
+    }
+  : {
+      success: true;
+      data: T;
+    };
+
+export interface ErrorResult {
+  success: false;
+  error: string;
+  code?: string;
+}
+
+export function success(): SuccessResult<void>;
+export function success<T>(data: T): SuccessResult<T>;
+export function success<T = void>(data?: T): SuccessResult<T> {
+  if (arguments.length === 0) {
+    return { success: true } as SuccessResult<T>;
+  }
+  return { success: true, data: data as T } as SuccessResult<T>;
+}
+
+export function error(err: string, code?: string): ErrorResult {
+  return { success: false, error: err, code };
+}
+
+export interface SSHConnectResult {
+  sessionId: string;
+}
+
+export interface SSessionsResult {
+  sessions: Array<{
+    connectionId: string;
+    isConnected: boolean;
+    isConnecting: boolean;
+    reconnectAttempts: number;
+    lastError?: string;
+  }>;
+}
+
+export interface AIUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+export interface AIChatResponse {
+  content: string;
+  model?: string;
+  finishReason?: string;
+  requestId?: string;
+  usage?: AIUsage;
+}
+
+export interface AIChatResult extends AIChatResponse {}
+
+export interface AIProvidersResult<T = any> {
+  providers: T[];
+}
+
+export interface ConnectionsResult<T = any> {
+  connections: T[];
+}
+
+export interface CommandHistoryResult<T = any> {
+  history: T[];
+}
+
+export interface QuickCommandsResult<T = any> {
+  commands: T[];
+}
+
+export interface QuickCommandGroupsResult<T = any> {
+  groups: T[];
+}
+
+export interface SettingsResult<T = any> {
+  settings: T;
+}
+
+export interface DirectoryListResult<T = any> {
+  files: T[];
+}
+
+export interface FileDownloadResult {
+  localPath: string;
+}
+
+export interface FileUploadResult {
+  remotePath: string;
+}
+
+export interface FileSelectResult {
+  canceled: boolean;
+  filePath: string;
+  fileName: string;
+}
+
+export interface ImportIssue {
+  scope: 'root' | 'connection' | 'provider' | 'settings' | 'command-history' | 'quick-command' | 'quick-command-group';
+  index?: number;
+  id?: string;
+  reason: string;
+}
+
+export interface ImportDataResult {
+  imported: {
+    connections: number;
+    aiProviders: number;
+    settings: number;
+    quickCommands: number;
+    quickCommandGroups: number;
+  };
+  skipped: ImportIssue[];
+}
+
+export interface AIProviderSecretStatusResult {
+  providerId: string;
+  hasApiKey: boolean;
+  maskedApiKey?: string;
+}
+
+export interface ExportDataResult<T = any> {
+  data: T;
+}

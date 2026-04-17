@@ -1,0 +1,26 @@
+appId: com.aisshclient.app
+productName: AI SSH Client
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - package.json
+
+win:
+  target:
+    - nsis
+    - portable
+  icon: build/icon
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+portable:
+  artifactName: AI-SSH-Client-portable.exe
