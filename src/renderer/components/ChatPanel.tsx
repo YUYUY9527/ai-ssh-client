@@ -12,6 +12,9 @@ import type { AIProviderConfig, AIProviderType, CommandHistoryItem, AIProviderSu
 
 interface ChatPanelProps {
   onCommandRequest?: (command: string) => void;
+  input: string;
+  onInputChange: (value: string) => void;
+  focusInputToken?: number;
 }
 
 interface ProviderFormState {
@@ -53,8 +56,7 @@ function getProviderTypeLabel(type: AIProviderType): string {
   }
 }
 
-export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
-  const [input, setInput] = useState('');
+export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputToken = 0 }: ChatPanelProps) {
   const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [editingProvider, setEditingProvider] = useState<AIProviderSummary | null>(null);
@@ -76,6 +78,8 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
+  const providerTestResultRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const {
     providers,
@@ -120,6 +124,18 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
 
   const [providerForm, setProviderForm] = useState<ProviderFormState>(EMPTY_PROVIDER_FORM);
 
+  const scrollProviderEditorToBottom = useCallback(() => {
+    const container = contentScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      });
+    });
+  }, []);
 
   const getCommandDescription = (command: string): string | null => {
     const parts = command.trim().split(/\s+/);
@@ -207,16 +223,21 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
     }, 100);
   };
 
+  const handleClearConversation = () => {
+    onInputChange('');
+    setLocalError(null);
+    setToastInfo(null);
+    clearError();
+    clearMessages();
+    reset();
+  };
+
   const handleApproveCommand = () => {
     setApprovalResult('approved');
-    setPendingApproval(null);
   };
 
   const handleRejectCommand = () => {
     setApprovalResult('rejected');
-    setPendingApproval(null, true);
-    pauseTask();
-    completeTask(false, '用户拒绝执行命令');
   };
 
   const handlePasteToTerminal = useCallback((command: string) => {
@@ -251,8 +272,17 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
   }, []);
 
   useEffect(() => {
+    if (showProviderSettings || showHistory) {
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, showProviderSettings, showHistory]);
+
+  useEffect(() => {
+    if (focusInputToken > 0 && !showProviderSettings && !showHistory) {
+      inputRef.current?.focus();
+    }
+  }, [focusInputToken, showProviderSettings, showHistory]);
 
   const scrollToTop = () => {
     if (contentScrollRef.current) {
@@ -275,7 +305,7 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
     }
     setLocalError(null);
     const userInput = input;
-    setInput('');
+    onInputChange('');
 
     if (mode === 'agent') {
       if (agentState === 'paused' && pendingQuestion) {
@@ -446,9 +476,29 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
     return () => clearTimeout(timer);
   }, [toastInfo]);
 
-  const canTestProvider = Boolean(
-    providerForm.baseUrl.trim() && (providerForm.apiKey.trim() || (editingProvider?.id && providerSecretState.hasApiKey))
-  );
+  useEffect(() => {
+    if (!showProviderSettings || (!localError && !toastInfo)) {
+      return;
+    }
+    providerTestResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [localError, toastInfo, showProviderSettings]);
+
+  useEffect(() => {
+    if (!showProviderSettings || editingProvider === null) {
+      return;
+    }
+    scrollProviderEditorToBottom();
+  }, [editingProvider, showProviderSettings, scrollProviderEditorToBottom]);
+
+  useEffect(() => {
+    if (!showProviderSettings || editingProvider === null) {
+      return;
+    }
+    if (providerSecretState.isLoading) {
+      return;
+    }
+    scrollProviderEditorToBottom();
+  }, [editingProvider, providerSecretState.hasApiKey, providerSecretState.isLoading, showProviderSettings, scrollProviderEditorToBottom]);
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-slate-800">
@@ -517,7 +567,14 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
       <div ref={contentScrollRef} className="flex-1 overflow-y-auto scrollbar-modern pr-1 p-3 space-y-3">
         {!showProviderSettings && !showHistory && (
           <>
-            {mode === 'agent' && <AgentThinking onRetry={handleRetryTask} />}
+            {mode === 'agent' && (
+              <AgentThinking
+                onPause={pauseTask}
+                onResume={resumeTask}
+                onCancel={cancelTask}
+                onRetry={handleRetryTask}
+              />
+            )}
             {mode === 'agent' && <AgentExecutor />}
 
             {messages.map((message) => (
@@ -788,7 +845,7 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     onClick={testConnection}
-                    disabled={isTestingConnection || !canTestProvider}
+                    disabled={isTestingConnection}
                     className="px-4 py-2 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-white"
                   >
                     {isTestingConnection ? '测试中...' : '测试连接'}
@@ -806,6 +863,23 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
                     保存
                   </button>
                 </div>
+                {(localError || toastInfo) && (
+                  <div ref={providerTestResultRef} className="space-y-2">
+                    {localError && (
+                      <div className="p-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between">
+                        <span className="text-xs text-red-600 dark:text-red-400">{localError}</span>
+                        <button onClick={() => setLocalError(null)} className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                    {toastInfo && (
+                      <div className={`p-2 rounded-lg text-xs ${toastInfo.type === 'success' ? 'bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400' : toastInfo.type === 'error' ? 'bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400' : 'bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'}`}>
+                        {toastInfo.message}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -888,13 +962,14 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
 
           <div className="flex gap-2">
             <textarea
+              ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={activeProviderId ? (mode === 'agent' ? '描述你要完成的任务...' : '询问 Linux 命令问题...') : '请先配置并激活 AI 供应商'}
               disabled={isLoading || !activeProviderId}
               rows={3}
-              className="flex-1 resize-none bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 resize-none overflow-y-auto bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:opacity-50 disabled:cursor-not-allowed [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600/70 [&::-webkit-scrollbar-thumb]:hover:bg-slate-400/80 dark:[&::-webkit-scrollbar-thumb]:hover:bg-slate-500/80"
             />
             <div className="flex flex-col gap-2">
               <button
@@ -905,7 +980,7 @@ export function ChatPanel({ onCommandRequest }: ChatPanelProps) {
                 <Send className="w-4 h-4" />
               </button>
               <button
-                onClick={() => clearMessages()}
+                onClick={handleClearConversation}
                 className="px-3 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-lg transition-colors text-slate-600 dark:text-slate-300"
                 title="清空对话"
               >

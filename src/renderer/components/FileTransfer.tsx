@@ -120,7 +120,10 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
   // 格式化时间
   const formatTime = (timestamp: number): string => {
     if (!timestamp) return '-';
-    return new Date(timestamp).toLocaleString('zh-CN');
+    const date = new Date(timestamp);
+    const pad = (value: number) => value.toString().padStart(2, '0');
+
+    return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   };
 
   // 获取文件类型
@@ -400,7 +403,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
           {/* File List */}
           <div
             ref={dropZoneRef}
-            className={`flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500 ${isDragOver ? 'bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-500 ring-inset' : ''}`}
+            className={`file-transfer-scroll flex-1 overflow-y-auto p-2 ${isDragOver ? 'bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-500 ring-inset' : ''}`}
           >
             {loading ? (
               <div className="flex items-center justify-center h-full">
@@ -420,33 +423,34 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
             ) : (
               <div className="space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-12 gap-2 px-3 py-1 text-xs text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-slate-700">
-                  <div className="col-span-5">名称</div>
-                  <div className="col-span-2">类型</div>
-                  <div className="col-span-2 text-right">大小</div>
-                  <div className="col-span-3 text-right">修改时间</div>
+                <div className="grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 px-3 py-1 text-xs text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-slate-700">
+                  <div>名称</div>
+                  <div>类型</div>
+                  <div className="text-right">大小</div>
+                  <div className="text-right">修改时间</div>
+                  <div />
                 </div>
                 {files.map((file, index) => (
                   <div
                     key={index}
                     onClick={() => file.isDirectory ? navigateTo(file.path) : setSelectedFile(file)}
                     onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
-                    className="grid grid-cols-12 gap-2 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer transition-colors group"
+                    className="grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer transition-colors group"
                   >
-                    <div className="col-span-5 flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
                       {getFileIcon(file)}
                       <span className="truncate text-sm text-slate-900 dark:text-white">{file.name}</span>
                     </div>
-                    <div className="col-span-2 flex items-center text-sm text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center min-w-0 text-sm text-slate-500 dark:text-slate-400">
                       {getFileType(file)}
                     </div>
-                    <div className="col-span-2 text-right text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-right text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
                       {file.isDirectory ? '-' : formatSize(file.size)}
                     </div>
-                    <div className="col-span-2 text-right text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-right text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
                       {formatTime(file.mtime)}
                     </div>
-                    <div className="col-span-1 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                       {!file.isDirectory && (
                         <button
                           onClick={(e) => {
@@ -475,7 +479,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
           {/* Transfer Tasks Sidebar */}
           {transferTasks.length > 0 && (
-            <div className="w-64 border-l border-slate-200 dark:border-slate-700 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500">
+            <div className="file-transfer-scroll w-64 border-l border-slate-200 dark:border-slate-700 overflow-y-auto">
               <div className="p-3 border-b border-slate-200 dark:border-slate-700">
                 <h3 className="text-sm font-medium text-slate-900 dark:text-white">传输任务</h3>
               </div>

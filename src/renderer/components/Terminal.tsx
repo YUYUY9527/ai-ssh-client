@@ -15,6 +15,7 @@ function ContextMenu({
   onCopy,
   onPaste,
   onPasteToInput,
+  onPasteToAI,
   onClose,
 }: {
   x: number;
@@ -22,6 +23,7 @@ function ContextMenu({
   onCopy: () => void;
   onPaste: () => void;
   onPasteToInput: () => void;
+  onPasteToAI: () => void;
   onClose: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -91,6 +93,13 @@ function ContextMenu({
       >
         <Edit3 className="w-4 h-4" />
         粘贴到终端输入栏
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onPasteToAI(); }}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+      >
+        <Edit3 className="w-4 h-4" />
+        粘贴到AI助手
       </button>
     </div>
   );
@@ -580,6 +589,7 @@ const COMMON_COMMANDS = [
 interface TerminalProps {
   connectionId: string | null;
   onCommandRequest?: (command: string) => void;
+  onPasteToAI?: (text: string) => void;
   theme?: 'dark' | 'light' | 'system';
   settings?: AppSettings;
 }
@@ -808,7 +818,7 @@ const getEffectiveTheme = (theme: 'dark' | 'light' | 'system'): 'dark' | 'light'
   return theme;
 };
 
-export function Terminal({ connectionId, onCommandRequest, theme: themeProp, settings }: TerminalProps) {
+export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: themeProp, settings }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -1029,6 +1039,31 @@ export function Terminal({ connectionId, onCommandRequest, theme: themeProp, set
         closeContextMenu();
       });
     }
+  };
+
+  const handlePasteToAI = () => {
+    if (!xtermRef.current) {
+      closeContextMenu();
+      return;
+    }
+
+    const selectedText = xtermRef.current.getSelection();
+
+    if (selectedText && selectedText.trim()) {
+      onPasteToAI?.(selectedText);
+      closeContextMenu();
+      return;
+    }
+
+    navigator.clipboard.readText().then((clipboardText) => {
+      if (clipboardText) {
+        onPasteToAI?.(clipboardText);
+      }
+      closeContextMenu();
+    }).catch((err) => {
+      console.error('Failed to read clipboard:', err);
+      closeContextMenu();
+    });
   };
 
   // 辅助函数：处理粘贴到输入栏
@@ -1436,7 +1471,7 @@ export function Terminal({ connectionId, onCommandRequest, theme: themeProp, set
 
   return (
     <div
-      className={`flex-1 relative bg-slate-100 dark:bg-slate-950`}
+      className={`flex-1 relative overflow-hidden bg-slate-100 dark:bg-slate-950`}
       onContextMenu={handleContextMenu}
     >
       {/* Terminal Toolbar */}
@@ -1562,25 +1597,28 @@ export function Terminal({ connectionId, onCommandRequest, theme: themeProp, set
       )}
 
       {/* Terminal Container */}
-      <div 
-        ref={terminalRef} 
-        className="absolute inset-0 pr-1 pl-2 pt-2 pb-2"
-        style={{
-          cursor: 'text'
-        }}
-      />
+      <div className="absolute inset-0 p-2">
+        <div
+          ref={terminalRef}
+          className="h-full w-full overflow-hidden rounded-lg"
+          style={{
+            cursor: 'text'
+          }}
+        />
+      </div>
 
       {/* 右键菜单 */}
       {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onCopy={handleCopy}
-          onPaste={handlePaste}
-          onPasteToInput={handlePasteToInput}
-          onClose={closeContextMenu}
-        />
-      )}
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onCopy={handleCopy}
+            onPaste={handlePaste}
+            onPasteToInput={handlePasteToInput}
+            onPasteToAI={handlePasteToAI}
+            onClose={closeContextMenu}
+          />
+        )}
 
       {/* No Connection State */}
       {!connectionId && (

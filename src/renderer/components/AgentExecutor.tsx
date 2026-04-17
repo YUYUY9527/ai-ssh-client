@@ -39,6 +39,17 @@ const extractKeyOutput = (output: string, maxLength: number): string => {
   return result.length > maxLength ? '...\n' + result.slice(-maxLength + 10) : result;
 };
 
+const stripAnsi = (text: string): string => text
+  // OSC sequences like: ESC ] 0;title BEL
+  .replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, '')
+  // CSI / other ANSI sequences
+  .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+
+const normalizeTerminalText = (text: string): string => stripAnsi(text)
+  .replace(/\r/g, '\n')
+  .replace(/\u0000/g, '')
+  .replace(/[ \t]+\n/g, '\n');
+
 // 解析 AI 响应中的 JSON
 const parseAgentResponse = (content: string): AgentResponse | null => {
   let cleanContent = content.trim();
@@ -82,7 +93,8 @@ const parseAgentResponse = (content: string): AgentResponse | null => {
 
 // 检测终端是否阻塞（等待用户输入）
 const detectTerminalBlocking = (output: string): { isBlocking: boolean; prompt: string } => {
-  const lastLines = output.split('\n').slice(-3).join('\n').toLowerCase();
+  const normalizedOutput = normalizeTerminalText(output);
+  const lastLines = normalizedOutput.split('\n').slice(-5).join('\n').toLowerCase();
   const blockingPatterns = [
     // Y/N 确认
     { pattern: /\[y\/n\]/i, prompt: 'Y/N 确认' },
@@ -90,6 +102,15 @@ const detectTerminalBlocking = (output: string): { isBlocking: boolean; prompt: 
     { pattern: /yes\/no/i, prompt: 'Yes/No 确认' },
     { pattern: /\(yes\/no\)/i, prompt: 'Yes/No 确认' },
     { pattern: /\(y\/n\)/i, prompt: 'Y/N 确认' },
+    { pattern: /remove regular file.*[?？]/i, prompt: 'rm 删除确认' },
+    { pattern: /remove directory.*[?？]/i, prompt: 'rm 目录删除确认' },
+    { pattern: /overwrite .*[\?:：]?\s*$/i, prompt: '覆盖确认' },
+    { pattern: /是否删除.*[?？]/i, prompt: '删除确认' },
+    { pattern: /是否删除(?:普通|常规)?文件.*[?？]/i, prompt: '删除确认' },
+    { pattern: /是否覆盖.*[?？]/i, prompt: '覆盖确认' },
+    { pattern: /确认删除.*[?？]/i, prompt: '删除确认' },
+    { pattern: /确认覆盖.*[?？]/i, prompt: '覆盖确认' },
+    { pattern: /是否继续.*[?？]/i, prompt: '继续确认' },
     // 密码与密钥
     { pattern: /password:\s*$/i, prompt: '密码输入' },
     { pattern: /passphrase\s*(for|:)/i, prompt: '密钥密码' },
@@ -127,6 +148,75 @@ const detectTerminalBlocking = (output: string): { isBlocking: boolean; prompt: 
   return { isBlocking: false, prompt: '' };
 };
 
+const hasShellPrompt = (output: string): boolean => {
+  const tail = normalizeTerminalText(output).split('\n').slice(-5).join('\n');
+  const promptPatterns = [
+    /\]\s*#\s*$/m,
+    /\]\s*\$\s*$/m,
+    /^.*>\s*$/m,
+    /^.*#\s*$/m,
+    /^.*\$\s*$/m,
+    /\w+@[\w.-]+:\S+#\s*$/m,
+    /\w+@[\w.-]+:\S+\$\s*$/m,
+    /\[[^\]]+@[^\]]+\][#$]\s*$/m,
+  ];
+
+  return promptPatterns.some((pattern) => pattern.test(tail));
+};
+
+const isLikelyLongRunningCommand = (command: string): boolean => {
+  const normalized = command.toLowerCase();
+  const patterns = [
+    /\bgit\s+clone\b/,
+    /\bnpm\s+(install|ci|update)\b/,
+    /\byarn\s+(install|add|upgrade)\b/,
+    /\bpnpm\s+(install|add|update)\b/,
+    /\bbun\s+install\b/,
+    /\bpip(?:3)?\s+install\b/,
+    /\buv\s+(pip\s+install|sync)\b/,
+    /\bpoetry\s+install\b/,
+    /\bcomposer\s+install\b/,
+    /\bcargo\s+(build|install|check|test)\b/,
+    /\bgo\s+(build|test|get|install)\b/,
+    /\bapt(-get)?\s+(install|upgrade|update)\b/,
+    /\byum\s+(install|update)\b/,
+    /\bdnf\s+(install|update|upgrade)\b/,
+    /\bpacman\s+-S\b/,
+    /\bbrew\s+(install|upgrade|update)\b/,
+    /\b(make|cmake|gradle|mvn|docker\s+build)\b/,
+    /\b(wget|curl)\b/,
+    /\bscp\b/,
+    /\brsync\b/,
+  ];
+
+  return patterns.some((pattern) => pattern.test(normalized));
+};
+
+const DUPLICATE_COMMAND_COOLDOWN_MS = 8000;
+
+const normalizeCommand = (command: string): string => command.trim().replace(/\s+/g, ' ');
+
+const isSafeRepeatableCommand = (command: string): boolean => {
+  const normalized = normalizeCommand(command).toLowerCase();
+  const patterns = [
+    /^(ls|ll)\b/,
+    /^pwd$/,
+    /^whoami$/,
+    /^id$/,
+    /^stat\b/,
+    /^test\b/,
+    /^find\b/,
+    /^cat\b/,
+    /^head\b/,
+    /^tail\b/,
+    /^grep\b/,
+    /^du\b/,
+    /^df\b/,
+  ];
+
+  return patterns.some((pattern) => pattern.test(normalized));
+};
+
 export function AgentExecutor() {
   const {
     currentTask,
@@ -143,6 +233,7 @@ export function AgentExecutor() {
     setApprovalResult,
     setPendingQuestion,
     setPendingInput,
+    setPendingTerminalPrompt,
     trimAgentContext,
     taskHistory,
   } = useAgentStore();
@@ -157,11 +248,63 @@ export function AgentExecutor() {
   const stepIdCounter = useRef(0);
   const stepCountRef = useRef(0);
   const lastCommandOutputRef = useRef('');
-  const executedCommandSetRef = useRef<Set<string>>(new Set());
+  const commandExecutionHistoryRef = useRef<Map<string, number>>(new Map());
   const taskVersionRef = useRef(0);
   const initializedTaskIdRef = useRef<string | null>(null);
+  const pausedAgentResponseRef = useRef<{
+    taskVersion: number;
+    thinkStepId: string;
+    aiResponse: AgentResponse;
+  } | null>(null);
+  const agentStateRef = useRef(agentState);
+
+  useEffect(() => {
+    agentStateRef.current = agentState;
+  }, [agentState]);
 
   const generateStepId = useCallback(() => `${Date.now()}-${++stepIdCounter.current}`, []);
+
+  const shouldHaltProgress = useCallback((taskVersion?: number): boolean => {
+    if (agentStateRef.current !== 'thinking') {
+      return true;
+    }
+    if (typeof taskVersion === 'number' && taskVersionRef.current !== taskVersion) {
+      return true;
+    }
+    return false;
+  }, []);
+
+  const shouldBlockRepeatedCommand = useCallback((command: string): boolean => {
+    const normalized = normalizeCommand(command);
+    if (!normalized || isSafeRepeatableCommand(normalized)) {
+      return false;
+    }
+
+    const lastExecutedAt = commandExecutionHistoryRef.current.get(normalized);
+    if (!lastExecutedAt) {
+      return false;
+    }
+
+    return Date.now() - lastExecutedAt < DUPLICATE_COMMAND_COOLDOWN_MS;
+  }, []);
+
+  const markCommandExecuted = useCallback((command: string) => {
+    const normalized = normalizeCommand(command);
+    if (!normalized) {
+      return;
+    }
+
+    commandExecutionHistoryRef.current.set(normalized, Date.now());
+
+    if (commandExecutionHistoryRef.current.size > 100) {
+      const now = Date.now();
+      for (const [key, executedAt] of commandExecutionHistoryRef.current.entries()) {
+        if (now - executedAt > DUPLICATE_COMMAND_COOLDOWN_MS * 10) {
+          commandExecutionHistoryRef.current.delete(key);
+        }
+      }
+    }
+  }, []);
 
   const notifyTaskCompletion = useCallback(async (success: boolean, reason: string) => {
     if (!window.electronAPI) {
@@ -305,20 +448,17 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
       }
 
       const commandSentTime = Date.now();
+      const isLongRunningCommand = isLikelyLongRunningCommand(command);
 
       // 等待输出
       await new Promise<void>((resolve) => {
-        let outputStableCount = 0;
         let lastCheckLength = 0;
-        let checkCount = 0;
-        let outputStableSince: number | null = null;
         let lastGrowTime = Date.now(); // 最后一次输出增长的时间
-        const minWaitMs = 3000; // 最小等待时间 3 秒
-        const maxWaitMs = 20000; // 最大等待时间 20 秒
-        const noGrowthTimeoutMs = 2000; // 输出不增长的超时时间 2 秒
+        const minWaitMs = isLongRunningCommand ? 10000 : 3000;
+        const maxWaitMs = isLongRunningCommand ? 300000 : 20000;
+        const noGrowthTimeoutMs = isLongRunningCommand ? 15000 : 2000;
 
         const checkOutput = () => {
-          checkCount++;
           const currentOutput = terminalOutputRef.current;
           const blocking = detectTerminalBlocking(currentOutput);
 
@@ -327,37 +467,12 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
             return;
           }
 
-          // 检测命令提示符
-          let hasSeenPrompt = false;
-          if (currentOutput.length > 0) {
-            const promptPatterns = [
-              /\]\s*#\s*$/, /\]\s*\$\s*$/, />\s*$/, /#\s*$/, /\$\s*$/,
-              /\w+@[\w\-]+:\S+#?\s*$/, /\w+@[\w\-]+:\S+\$\s*$/,
-            ];
-            const lastLine = currentOutput.split('\n').pop() || '';
-            for (const pattern of promptPatterns) {
-              if (pattern.test(lastLine)) {
-                hasSeenPrompt = true;
-                break;
-              }
-            }
-          }
+          const hasSeenPrompt = currentOutput.length > 0 && hasShellPrompt(currentOutput);
 
           // 检测输出增长
           if (currentOutput.length > lastCheckLength) {
             lastGrowTime = Date.now();
-          }
-
-          // 检测输出稳定性
-          if (currentOutput.length > 0 && currentOutput.length === lastCheckLength) {
-            outputStableCount++;
-            if (outputStableCount >= 5 && outputStableSince === null) {
-              outputStableSince = Date.now();
-            }
-          } else {
-            outputStableCount = 0;
             lastCheckLength = currentOutput.length;
-            outputStableSince = null;
           }
 
           const elapsed = Date.now() - commandSentTime;
@@ -369,7 +484,10 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
           // 2. 输出停止增长超过 2 秒且总时间超过最小等待时间且输出足够
           // 3. 达到最大等待时间
           const canStopByPrompt = hasSeenPrompt && timeSinceLastGrowth > 1000;
-          const canStopByNoGrowth = timeSinceLastGrowth > noGrowthTimeoutMs && elapsed > minWaitMs && hasEnoughOutput;
+          const canStopByNoGrowth = !isLongRunningCommand
+            && timeSinceLastGrowth > noGrowthTimeoutMs
+            && elapsed > minWaitMs
+            && hasEnoughOutput;
           const canStopByTimeout = elapsed > maxWaitMs;
           const shouldStop = canStopByPrompt || canStopByNoGrowth || canStopByTimeout;
 
@@ -389,6 +507,7 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
       // 检测阻塞
       const blocking = detectTerminalBlocking(lastCommandOutputRef.current);
       if (blocking.isBlocking) {
+        setPendingTerminalPrompt(blocking.prompt);
         const blockStepId = generateStepId();
         addThinkingStep({
           id: blockStepId,
@@ -424,6 +543,7 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
           setTimeout(pollForUnblock, 500);
         });
 
+        setPendingTerminalPrompt(null);
         updateThinkingStep(blockStepId, { status: 'completed' });
       }
 
@@ -435,16 +555,18 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
       });
       return terminalOutputRef.current;
     }
-  }, [activeConnectionId, executeCommand, generateStepId, addThinkingStep, updateThinkingStep, agentState]);
+  }, [activeConnectionId, executeCommand, generateStepId, addThinkingStep, updateThinkingStep, agentState, setPendingTerminalPrompt]);
 
   const finishTask = useCallback((success: boolean, reason: string) => {
     isProcessingRef.current = false;
+    pausedAgentResponseRef.current = null;
     void notifyTaskCompletion(success, reason);
     completeTask(success, success ? undefined : reason, success ? reason : undefined);
   }, [completeTask, notifyTaskCompletion]);
 
   const runAgentLoop = useCallback(async () => {
     if (!currentTask || !activeConnectionId || !activeProviderId) return;
+    if (shouldHaltProgress()) return;
     if (isProcessingRef.current) return;
     if (stepCountRef.current >= (config.maxExecutionSteps || 10)) {
       finishTask(false, '超过最大执行步数限制');
@@ -455,22 +577,42 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
     const myTaskVersion = taskVersionRef.current;
 
     try {
-      stepCountRef.current += 1;
-      const thinkStepId = generateStepId();
-      addThinkingStep({
-        id: thinkStepId,
-        type: 'understanding',
-        title: stepCountRef.current === 1 ? '思考过程' : `第 ${stepCountRef.current} 步：分析决策`,
-        content: '正在分析当前状态并决定下一步操作...',
-        timestamp: Date.now(),
-        status: 'in_progress',
-      });
+      let thinkStepId: string;
+      let aiResponse: AgentResponse | null;
+      const pausedResponse = pausedAgentResponseRef.current;
 
-      const aiResponse = await callAgentAI(currentTask.userInput, lastCommandOutputRef.current);
+      if (pausedResponse && pausedResponse.taskVersion === myTaskVersion) {
+        thinkStepId = pausedResponse.thinkStepId;
+        aiResponse = pausedResponse.aiResponse;
+        pausedAgentResponseRef.current = null;
+      } else {
+        stepCountRef.current += 1;
+        thinkStepId = generateStepId();
+        addThinkingStep({
+          id: thinkStepId,
+          type: 'understanding',
+          title: stepCountRef.current === 1 ? '思考过程' : `第 ${stepCountRef.current} 步：分析决策`,
+          content: '正在分析当前状态并决定下一步操作...',
+          timestamp: Date.now(),
+          status: 'in_progress',
+        });
 
-      if (taskVersionRef.current !== myTaskVersion) {
-        isProcessingRef.current = false;
-        return;
+        aiResponse = await callAgentAI(currentTask.userInput, lastCommandOutputRef.current);
+
+        if (aiResponse && shouldHaltProgress(myTaskVersion)) {
+          pausedAgentResponseRef.current = {
+            taskVersion: myTaskVersion,
+            thinkStepId,
+            aiResponse,
+          };
+          isProcessingRef.current = false;
+          return;
+        }
+
+        if (shouldHaltProgress(myTaskVersion)) {
+          isProcessingRef.current = false;
+          return;
+        }
       }
 
       if (!aiResponse) {
@@ -501,14 +643,16 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
         return;
       }
 
-      if (executedCommandSetRef.current.has(command)) {
+      if (shouldBlockRepeatedCommand(command)) {
         finishTask(false, `检测到重复命令，已阻止执行：${command}`);
         return;
       }
 
       pendingCommandRef.current = command;
       const risk = useAIStore.getState().analyzeCommand(command);
-      const needsApproval = risk.riskLevel === 'critical' || (risk.riskLevel === 'high' && config.approveHighRisk) || (risk.riskLevel === 'medium' && config.approveMediumRisk);
+      const needsApproval = risk.riskLevel === 'critical'
+        || (risk.riskLevel === 'high' && config.approveHighRisk !== false)
+        || (risk.riskLevel === 'medium' && config.approveMediumRisk !== false);
 
       if (needsApproval) {
         setPendingApproval({ command, riskLevel: risk.riskLevel });
@@ -526,13 +670,18 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
         status: 'in_progress',
       });
 
-      executedCommandSetRef.current.add(command);
+      markCommandExecuted(command);
       const output = await executeCommandAndWait(command, execStepId);
+      if (shouldHaltProgress(myTaskVersion)) {
+        updateThinkingStep(execStepId, { status: 'completed', content: `${command}\n\n${extractKeyOutput(output, 1500)}` });
+        isProcessingRef.current = false;
+        return;
+      }
       updateThinkingStep(execStepId, { status: 'completed', content: `${command}\n\n${extractKeyOutput(output, 1500)}` });
 
       isProcessingRef.current = false;
       setTimeout(() => {
-        if (taskVersionRef.current === myTaskVersion) {
+        if (!shouldHaltProgress(myTaskVersion)) {
           runAgentLoop();
         }
       }, 100);
@@ -555,6 +704,9 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
     executeCommandAndWait,
     setPendingApproval,
     setPendingQuestion,
+    shouldBlockRepeatedCommand,
+    markCommandExecuted,
+    shouldHaltProgress,
   ]);
 
   useEffect(() => {
@@ -562,15 +714,16 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
 
     const isNewTask = initializedTaskIdRef.current !== currentTask.id;
 
-    if (isNewTask) {
-      initializedTaskIdRef.current = currentTask.id;
-      taskVersionRef.current += 1;
-      stepCountRef.current = 0;
-      lastCommandOutputRef.current = '';
-      terminalOutputRef.current = '';
-      localFullOutputRef.current = '';
+      if (isNewTask) {
+        initializedTaskIdRef.current = currentTask.id;
+        taskVersionRef.current += 1;
+        stepCountRef.current = 0;
+        pausedAgentResponseRef.current = null;
+        lastCommandOutputRef.current = '';
+        terminalOutputRef.current = '';
+        localFullOutputRef.current = '';
       agentMessagesRef.current = [];
-      executedCommandSetRef.current.clear();
+      commandExecutionHistoryRef.current.clear();
 
       if (window.electronAPI) {
         window.electronAPI.agentStartTask(currentTask.id, activeConnectionId).then(() => {
@@ -588,13 +741,14 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
   }, [currentTask?.id, activeConnectionId, agentState, pendingApproval, pendingQuestion, runAgentLoop]);
 
   useEffect(() => {
-    if (!pendingApproval || approvalResult === 'pending') return;
+    if (!pendingApproval || approvalResult == null) return;
 
     const command = pendingApproval.command;
     const currentVersion = taskVersionRef.current;
 
     if (approvalResult === 'approved') {
-      setApprovalResult('pending');
+      isProcessingRef.current = true;
+      setApprovalResult(null);
       setPendingApproval(null);
 
       const execStepId = generateStepId();
@@ -607,24 +761,28 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
         status: 'in_progress',
       });
 
-      executedCommandSetRef.current.add(command);
+      markCommandExecuted(command);
       executeCommandAndWait(command, execStepId).then((output) => {
         updateThinkingStep(execStepId, { status: 'completed', content: `${command}\n\n${extractKeyOutput(output, 1500)}` });
+        isProcessingRef.current = false;
         setTimeout(() => {
-          if (taskVersionRef.current === currentVersion) {
+          if (!shouldHaltProgress(currentVersion)) {
             runAgentLoop();
           }
         }, 100);
+      }).catch((error) => {
+        isProcessingRef.current = false;
+        finishTask(false, error instanceof Error ? error.message : '审批后的命令执行失败');
       });
       return;
     }
 
     if (approvalResult === 'rejected') {
-      setApprovalResult('pending');
+      setApprovalResult(null);
       setPendingApproval(null);
       finishTask(false, '用户拒绝执行命令');
     }
-  }, [approvalResult, pendingApproval, setApprovalResult, setPendingApproval, generateStepId, addThinkingStep, executeCommandAndWait, updateThinkingStep, runAgentLoop, finishTask]);
+  }, [approvalResult, pendingApproval, setApprovalResult, setPendingApproval, generateStepId, addThinkingStep, executeCommandAndWait, updateThinkingStep, runAgentLoop, finishTask, markCommandExecuted, shouldHaltProgress]);
 
   useEffect(() => {
     if (!pendingQuestion || !pendingInput) return;
@@ -637,11 +795,11 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
 
     const currentVersion = taskVersionRef.current;
     setTimeout(() => {
-      if (taskVersionRef.current === currentVersion) {
+      if (!shouldHaltProgress(currentVersion)) {
         runAgentLoop();
       }
     }, 100);
-  }, [pendingQuestion, pendingInput, setPendingInput, setPendingQuestion, runAgentLoop]);
+  }, [pendingQuestion, pendingInput, setPendingInput, setPendingQuestion, runAgentLoop, shouldHaltProgress]);
 
   return null;
 }

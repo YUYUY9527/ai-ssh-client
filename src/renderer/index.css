@@ -32,6 +32,18 @@
     background-color: var(--bg-primary);
     color: var(--text-primary);
   }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+  }
 }
 
 @layer components {
@@ -59,6 +71,14 @@
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-button,
+  .scrollbar-modern::-webkit-scrollbar-button,
+  .xterm-viewport::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+    display: none;
   }
 
   /* 暗色主题滚动条变量 */
@@ -119,6 +139,21 @@
 
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+
+  .file-transfer-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .file-transfer-scroll::-webkit-scrollbar,
+  .file-transfer-scroll::-webkit-scrollbar-button,
+  .file-transfer-scroll::-webkit-scrollbar-track,
+  .file-transfer-scroll::-webkit-scrollbar-thumb {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+    background: transparent !important;
   }
 
   /* 圆角滚动条 */

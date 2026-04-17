@@ -13,7 +13,8 @@ import {
   Pause,
   RotateCcw,
   ChevronRight,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
 import { useAgentStore } from '../store/useAgentStore';
 import type { ThinkingStep, AgentState } from '../../shared/types';
@@ -150,8 +151,14 @@ interface StepGroup {
   summary: string;
 }
 
+function getExecutionCommand(content: string): string {
+  const normalized = content.trim();
+  const firstLine = normalized.split('\n').find((line) => line.trim().length > 0);
+  return firstLine || normalized;
+}
+
 export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThinkingProps) {
-  const { currentTask, agentState, config } = useAgentStore();
+  const { currentTask, agentState, config, pendingTerminalPrompt } = useAgentStore();
   const [userExpandedGroups, setUserExpandedGroups] = useState<Set<number>>(new Set()); // 用户手动展开的组
   const [userCollapsedGroups, setUserCollapsedGroups] = useState<Set<number>>(new Set()); // 用户手动折叠的组
   const [showAllGroups, setShowAllGroups] = useState(false);
@@ -305,19 +312,15 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
 
   const toggleGroup = (groupIndex: number) => {
     const isCurrentlyExpanded = getExpandedGroups.has(groupIndex);
-    const isLastGroup = groupIndex === stepGroups.length - 1;
     
     if (isCurrentlyExpanded) {
       // 折叠：添加到 userCollapsedGroups，从 userExpandedGroups 移除
-      // 注意：最后一轮在执行中时不能折叠
-      if (!isLastGroup || agentState === 'finished' || agentState === 'error') {
-        setUserCollapsedGroups(prev => new Set(prev).add(groupIndex));
-        setUserExpandedGroups(prev => {
-          const next = new Set(prev);
-          next.delete(groupIndex);
-          return next;
-        });
-      }
+      setUserCollapsedGroups(prev => new Set(prev).add(groupIndex));
+      setUserExpandedGroups(prev => {
+        const next = new Set(prev);
+        next.delete(groupIndex);
+        return next;
+      });
     } else {
       // 展开：添加到 userExpandedGroups，从 userCollapsedGroups 移除
       setUserExpandedGroups(prev => new Set(prev).add(groupIndex));
@@ -349,6 +352,12 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
               {stateInfo.icon}
               {stateInfo.label}
             </span>
+            {pendingTerminalPrompt && (
+              <span className="flex items-center gap-1 text-xs text-amber-500">
+                <AlertCircle className="w-3 h-3" />
+                等待终端输入
+              </span>
+            )}
             <span className="text-xs text-slate-400">
               {durationSeconds}s
             </span>
@@ -376,6 +385,12 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
         <p className="text-sm leading-6 text-slate-600 dark:text-slate-300 mb-3">
           {currentTask.userInput}
         </p>
+
+        {pendingTerminalPrompt && (
+          <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+            终端正在等待你的输入：{pendingTerminalPrompt}。请先在终端中完成交互，智能体会继续等待。
+          </div>
+        )}
 
         {/* 控制按钮 */}
         {(agentState === 'thinking' || agentState === 'planning' || agentState === 'executing' || agentState === 'observing') && (
@@ -527,7 +542,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1.5">
                                 <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                                  {step.title}
+                                  {step.type === 'execution' ? '执行命令' : step.title}
                                 </span>
                                 {step.status === 'in_progress' && (
                                   <span className="px-1.5 py-0.5 rounded text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400">
@@ -541,11 +556,24 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                                   <XCircle className="w-3.5 h-3.5 text-red-500" />
                                 )}
                               </div>
-                              <Tooltip content={step.content}>
-                                <p className="text-xs leading-6 text-slate-500 dark:text-slate-400 line-clamp-2 whitespace-pre-wrap cursor-help">
-                                  {step.content}
-                                </p>
-                              </Tooltip>
+                              {step.type === 'execution' ? (
+                                <Tooltip content={step.content}>
+                                  <div className="cursor-help">
+                                    <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                      执行命令
+                                    </p>
+                                    <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-200 break-all font-mono">
+                                      {getExecutionCommand(step.content)}
+                                    </p>
+                                  </div>
+                                </Tooltip>
+                              ) : (
+                                <Tooltip content={step.content}>
+                                  <p className="text-xs leading-6 text-slate-500 dark:text-slate-400 line-clamp-2 whitespace-pre-wrap cursor-help">
+                                    {step.content}
+                                  </p>
+                                </Tooltip>
+                              )}
                             </div>
                           </div>
                         ))}

@@ -67,6 +67,8 @@ function App() {
     startedAt: number;
   } | null>(null);
   const [showChatPanel, setShowChatPanel] = useState(true);
+  const [chatInput, setChatInput] = useState('');
+  const [chatInputFocusToken, setChatInputFocusToken] = useState(0);
   const [showFileTransfer, setShowFileTransfer] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<CommandSuggestion | null>(null);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -187,6 +189,21 @@ function App() {
     }
   }, [loadConnections, loadProviders, addTerminalOutput]);
 
+  useEffect(() => {
+    const { updateConfig } = useAgentStore.getState();
+    updateConfig({
+      enabled: settings.agentEnabled ?? true,
+      autoExecute: settings.agentAutoExecute ?? true,
+      requireApprovalForRisk: true,
+      approveHighRisk: settings.approveHighRisk ?? true,
+      approveMediumRisk: settings.approveMediumRisk ?? false,
+      maxExecutionSteps: settings.agentMaxExecutionSteps ?? 20,
+      maxContextMessages: settings.agentMaxContextMessages ?? 20,
+      maxTerminalOutputLength: settings.agentMaxTerminalOutputLength ?? 8000,
+      trimContextEnabled: settings.agentTrimContextEnabled ?? true,
+    });
+  }, [settings]);
+
   const updateTabState = (connectionId: string, state: SSHSessionState) => {
     setOpenTabs(prev => prev.map(tab =>
       tab.id === connectionId
@@ -303,6 +320,17 @@ function App() {
       setTimeout(() => setCommandStatus(null), 2000);
     }
   };
+
+  const handlePasteToAI = useCallback((text: string) => {
+    const cleanText = text.replace(/[\r\n]+$/, '');
+    if (!cleanText) {
+      return;
+    }
+
+    setShowChatPanel(true);
+    setChatInput((prev) => prev ? `${prev}\n${cleanText}` : cleanText);
+    setChatInputFocusToken((prev) => prev + 1);
+  }, []);
 
   const handleRejectCommand = () => {
     setPendingCommand(null);
@@ -675,6 +703,9 @@ function App() {
     updateConfig({
       enabled: newSettings.agentEnabled ?? true,
       autoExecute: newSettings.agentAutoExecute ?? true,
+      requireApprovalForRisk: true,
+      approveHighRisk: newSettings.approveHighRisk ?? true,
+      approveMediumRisk: newSettings.approveMediumRisk ?? false,
       maxExecutionSteps: newSettings.agentMaxExecutionSteps ?? 20,
       maxContextMessages: newSettings.agentMaxContextMessages ?? 20,
       maxTerminalOutputLength: newSettings.agentMaxTerminalOutputLength ?? 8000,
@@ -1144,6 +1175,7 @@ function App() {
           <Terminal
             connectionId={activeTabId}
             onCommandRequest={handleCommandRequest}
+            onPasteToAI={handlePasteToAI}
             theme={theme}
             settings={settings}
           />
@@ -1170,7 +1202,12 @@ function App() {
               className="bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col"
               style={{ width: `${chatPanelWidth}px` }}
             >
-              <ChatPanel onCommandRequest={handleCommandRequest} />
+              <ChatPanel
+                onCommandRequest={handleCommandRequest}
+                input={chatInput}
+                onInputChange={setChatInput}
+                focusInputToken={chatInputFocusToken}
+              />
             </div>
           </>
         )}

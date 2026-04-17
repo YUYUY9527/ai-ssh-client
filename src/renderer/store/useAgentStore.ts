@@ -42,6 +42,10 @@ interface AgentStore {
   pendingInput: string | null;
   setPendingInput: (input: string | null) => void;
 
+  // 终端等待用户交互输入
+  pendingTerminalPrompt: string | null;
+  setPendingTerminalPrompt: (prompt: string | null) => void;
+
   // 任务历史
   taskHistory: AgentTask[];
   addTaskToHistory: (task: AgentTask) => void;
@@ -87,7 +91,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     autoExecute: true,
     maxExecutionSteps: 20,
     requireApprovalForRisk: true,
-    approveHighRisk: false,
+    approveHighRisk: true,
     approveMediumRisk: true,
     // 上下文管理配置
     maxContextMessages: 20,      // 默认保留 20 条消息
@@ -119,6 +123,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   // 用户对 pendingQuestion 的回答
   pendingInput: null,
   setPendingInput: (input) => set({ pendingInput: input }),
+
+  // 终端交互等待
+  pendingTerminalPrompt: null,
+  setPendingTerminalPrompt: (prompt) => set({ pendingTerminalPrompt: prompt }),
 
   // 任务历史
   taskHistory: [],
@@ -243,6 +251,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       pendingApproval: null,
       pendingQuestion: null,
       pendingInput: null,
+      pendingTerminalPrompt: null,
       approvalResult: null,
     };
   }),
@@ -261,6 +270,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     pendingApproval: null,
     pendingQuestion: null,
     pendingInput: null,
+    pendingTerminalPrompt: null,
     approvalResult: null,
   }),
 }));
