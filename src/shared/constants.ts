@@ -58,6 +58,7 @@ export const IPC_CHANNELS = {
 
   // 智能体模式
   AGENT_START_TASK: 'agent-start-task',
+  AGENT_STOP_TASK: 'agent-stop-task',
   AGENT_PAUSE_TASK: 'agent-pause-task',
   AGENT_RESUME_TASK: 'agent-resume-task',
   AGENT_EXECUTE_COMMAND: 'agent-execute-command',

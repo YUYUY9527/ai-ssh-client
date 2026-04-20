@@ -193,6 +193,7 @@ const isLikelyLongRunningCommand = (command: string): boolean => {
 };
 
 const DUPLICATE_COMMAND_COOLDOWN_MS = 8000;
+const MAX_LOCAL_AGENT_OUTPUT_SIZE = 256 * 1024;
 
 const normalizeCommand = (command: string): string => command.trim().replace(/\s+/g, ' ');
 
@@ -215,6 +216,19 @@ const isSafeRepeatableCommand = (command: string): boolean => {
   ];
 
   return patterns.some((pattern) => pattern.test(normalized));
+};
+
+const appendTail = (current: string, chunk: string, maxSize: number): string => {
+  if (!chunk) {
+    return current;
+  }
+
+  const next = current + chunk;
+  if (next.length <= maxSize) {
+    return next;
+  }
+
+  return next.slice(-Math.floor(maxSize * 0.75));
 };
 
 export function AgentExecutor() {
@@ -251,6 +265,7 @@ export function AgentExecutor() {
   const commandExecutionHistoryRef = useRef<Map<string, number>>(new Map());
   const taskVersionRef = useRef(0);
   const initializedTaskIdRef = useRef<string | null>(null);
+  const taskConnectionIdRef = useRef<string | null>(null);
   const pausedAgentResponseRef = useRef<{
     taskVersion: number;
     thinkStepId: string;
@@ -323,19 +338,28 @@ export function AgentExecutor() {
     });
   }, []);
 
+  const stopAgentTaskBridge = useCallback(() => {
+    const targetConnectionId = taskConnectionIdRef.current;
+    if (!window.electronAPI || !targetConnectionId) {
+      return;
+    }
+
+    void window.electronAPI.agentStopTask(targetConnectionId);
+  }, []);
+
   // 监听终端输出（本地累积 fullOutput，避免 IPC 传输二次增长）
   const localFullOutputRef = useRef<string>('');
   useEffect(() => {
     if (!window.electronAPI) return;
     const cleanup = window.electronAPI.onAgentTerminalOutput?.((data) => {
-      if (data.connectionId === activeConnectionId) {
-        // 本地累积完整输出
-        localFullOutputRef.current += data.data;
+      if (data.connectionId === taskConnectionIdRef.current) {
+        // 本地只保留尾部窗口，避免长任务输出持续抬高 renderer 内存。
+        localFullOutputRef.current = appendTail(localFullOutputRef.current, data.data, MAX_LOCAL_AGENT_OUTPUT_SIZE);
         terminalOutputRef.current = localFullOutputRef.current;
       }
     });
     return () => cleanup?.();
-  }, [activeConnectionId]);
+  }, []);
 
   // 调用 AI
   const callAgentAI = useCallback(async (userInput: string, lastOutput: string = ''): Promise<AgentResponse | null> => {
@@ -439,10 +463,16 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
   const executeCommandAndWait = useCallback(async (command: string, execStepId: string): Promise<string> => {
     // 清空本地输出引用（重要：避免累积旧输出）
     terminalOutputRef.current = '';
+    localFullOutputRef.current = '';
+    const targetConnectionId = taskConnectionIdRef.current;
 
     try {
+      if (!targetConnectionId) {
+        throw new Error('Agent task connection not found');
+      }
+
       if (window.electronAPI) {
-        await window.electronAPI.agentExecuteCommand(activeConnectionId!, command);
+        await window.electronAPI.agentExecuteCommand(targetConnectionId, command);
       } else {
         executeCommand(command);
       }
@@ -555,14 +585,15 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
       });
       return terminalOutputRef.current;
     }
-  }, [activeConnectionId, executeCommand, generateStepId, addThinkingStep, updateThinkingStep, agentState, setPendingTerminalPrompt]);
+  }, [executeCommand, generateStepId, addThinkingStep, updateThinkingStep, agentState, setPendingTerminalPrompt]);
 
   const finishTask = useCallback((success: boolean, reason: string) => {
     isProcessingRef.current = false;
     pausedAgentResponseRef.current = null;
+    stopAgentTaskBridge();
     void notifyTaskCompletion(success, reason);
     completeTask(success, success ? undefined : reason, success ? reason : undefined);
-  }, [completeTask, notifyTaskCompletion]);
+  }, [completeTask, notifyTaskCompletion, stopAgentTaskBridge]);
 
   const runAgentLoop = useCallback(async () => {
     if (!currentTask || !activeConnectionId || !activeProviderId) return;
@@ -716,6 +747,7 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
 
       if (isNewTask) {
         initializedTaskIdRef.current = currentTask.id;
+        taskConnectionIdRef.current = activeConnectionId;
         taskVersionRef.current += 1;
         stepCountRef.current = 0;
         pausedAgentResponseRef.current = null;
@@ -726,7 +758,7 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
       commandExecutionHistoryRef.current.clear();
 
       if (window.electronAPI) {
-        window.electronAPI.agentStartTask(currentTask.id, activeConnectionId).then(() => {
+        window.electronAPI.agentStartTask(currentTask.id, taskConnectionIdRef.current!).then(() => {
           runAgentLoop();
         });
       } else {
@@ -739,6 +771,13 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
       runAgentLoop();
     }
   }, [currentTask?.id, activeConnectionId, agentState, pendingApproval, pendingQuestion, runAgentLoop]);
+
+  useEffect(() => {
+    return () => {
+      stopAgentTaskBridge();
+      taskConnectionIdRef.current = null;
+    };
+  }, [stopAgentTaskBridge]);
 
   useEffect(() => {
     if (!pendingApproval || approvalResult == null) return;

@@ -86,11 +86,12 @@ declare global {
       onSftpUploadProgress: (callback: (data: { connectionId: string; filename: string; progress: number }) => void) => () => void;
 
       agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
+      agentStopTask: (connectionId: string) => Promise<IPCResult>;
       agentPauseTask: () => Promise<IPCResult>;
       agentResumeTask: () => Promise<IPCResult>;
       agentExecuteCommand: (connectionId: string, command: string) => Promise<IPCResult>;
       agentCommandApproval: (approved: boolean) => Promise<IPCResult>;
-      onAgentTerminalOutput: (callback: (data: { connectionId: string; data: string; fullOutput: string }) => void) => () => void;
+      onAgentTerminalOutput: (callback: (data: { connectionId: string; data: string }) => void) => () => void;
       onAgentCommandApproval: (callback: (data: { approved: boolean; command: any }) => void) => () => void;
 
       onSystemResume: (callback: (data: { timestamp: number }) => void) => () => void;

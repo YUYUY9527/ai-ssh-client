@@ -8,9 +8,6 @@ interface SSHSession {
   connection: SSHConnection;
   reconnectAttempts: number;
   reconnectTimer?: NodeJS.Timeout;
-  // 智能体模式：终端输出缓存
-  outputBuffer: string;
-  outputListeners: ((data: string) => void)[];
   // 终端尺寸
   cols: number;
   rows: number;
@@ -74,8 +71,6 @@ export class SSHConnectionManager {
               shell: stream,
               connection,
               reconnectAttempts: 0,
-              outputBuffer: '',
-              outputListeners: [],
               cols,
               rows,
             });

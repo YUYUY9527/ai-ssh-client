@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import type { SSHConnection, SSHSessionState, CommandHistoryItem } from '../../shared/types';
 import type { IPCResult } from '../../shared/ipc-types';
 
-// 单个连接的终端输出最大保留字节数（约 100KB，足够回滚查看）
-// 超过此大小时，截断旧数据保留最新部分
+// 单个连接的终端输出最大保留字节数（约 100KB）。
+// 保留更多切换标签后的恢复上下文，避免明显削弱终端历史体验。
 const MAX_TERMINAL_OUTPUT_SIZE = 100 * 1024;
 
 interface SessionState {
@@ -187,14 +187,24 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   addTerminalOutput: (connectionId: string, data: string) => {
+    if (!data) {
+      return;
+    }
+
     set((state) => {
       const currentOutput = state.terminalOutputs[connectionId] || '';
       let newOutput = currentOutput + data;
+
       // 滚动窗口：超过最大大小时截断旧数据，保留最新的 80%
       if (newOutput.length > MAX_TERMINAL_OUTPUT_SIZE) {
         const keepSize = Math.floor(MAX_TERMINAL_OUTPUT_SIZE * 0.8);
         newOutput = newOutput.slice(-keepSize);
       }
+
+      if (newOutput === currentOutput) {
+        return state;
+      }
+
       return {
         terminalOutputs: {
           ...state.terminalOutputs,

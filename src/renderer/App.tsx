@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { Suspense, lazy, useEffect, useState, useRef, useCallback } from 'react';
 import {
   Terminal as TerminalIcon,
   MessageSquare,
@@ -31,16 +31,32 @@ import {
   Pencil,
 } from 'lucide-react';
 import { Terminal } from './components/Terminal';
-import { ChatPanel } from './components/ChatPanel';
-import { CommandApproval } from './components/CommandApproval';
-import { SettingsPanel } from './components/SettingsPanel';
-import { FileTransfer } from './components/FileTransfer';
 import { useConnectionStore } from './store/useConnectionStore';
 import { useAIStore } from './store/useAIStore';
 import { useAgentStore } from './store/useAgentStore';
 import { useTheme } from './hooks/useTheme';
 import type { CommandSuggestion, SSHSessionState, SSHConnection, QuickCommand, QuickCommandGroup } from '../shared/types';
 import type { AppSettings } from '../shared/types';
+
+const ChatPanel = lazy(async () => {
+  const module = await import('./components/ChatPanel');
+  return { default: module.ChatPanel };
+});
+
+const CommandApproval = lazy(async () => {
+  const module = await import('./components/CommandApproval');
+  return { default: module.CommandApproval };
+});
+
+const SettingsPanel = lazy(async () => {
+  const module = await import('./components/SettingsPanel');
+  return { default: module.SettingsPanel };
+});
+
+const FileTransfer = lazy(async () => {
+  const module = await import('./components/FileTransfer');
+  return { default: module.FileTransfer };
+});
 
 // Tab 类型
 interface Tab {
@@ -55,6 +71,29 @@ interface DragState {
   isDragging: boolean;
   draggedTabId: string | null;
   dragOverTabId: string | null;
+}
+
+function LazySidebarFallback({ width }: { width: number }) {
+  return (
+    <div
+      className="bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-sm text-slate-500 dark:text-slate-400"
+      style={{ width: `${width}px` }}
+    >
+      <Loader2 className="w-5 h-5 animate-spin mb-2" />
+      正在加载面板...
+    </div>
+  );
+}
+
+function LazyModalFallback() {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-6 py-5 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+        <Loader2 className="w-5 h-5 animate-spin" />
+        正在加载...
+      </div>
+    </div>
+  );
 }
 
 function App() {
@@ -95,6 +134,10 @@ function App() {
   const [showQuickCommandForm, setShowQuickCommandForm] = useState(false);
   const [showQuickGroupForm, setShowQuickGroupForm] = useState(false);
   const quickCommandsDropdownRef = useRef<HTMLDivElement>(null);
+  const pendingSshOutputRef = useRef<Map<string, string[]>>(new Map());
+  const outputFlushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commandStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tab右键菜单
   const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tabId: string; tabName: string } | null>(null);
@@ -128,66 +171,6 @@ function App() {
 
   // 命令执行状态
   const [commandStatus, setCommandStatus] = useState<{ command: string; status: 'pending' | 'success' | 'error'; timestamp: number } | null>(null);
-
-  useEffect(() => {
-    if (window.electronAPI) {
-      loadConnections();
-      loadProviders();
-      loadQuickCommands();
-
-      // 监听 SSH 数据
-      const cleanupSshData = window.electronAPI.onSshData(({ connectionId, data, type, state }) => {
-        if (type === 'state' && state) {
-          updateTabState(connectionId, state);
-          return;
-        }
-
-        if (data) {
-          addTerminalOutput(connectionId, data);
-          scheduleCommandNotification(connectionId, data);
-        }
-      });
-
-      // 监听 SSH 错误
-      const cleanupSshError = window.electronAPI.onSshError?.(({ connectionId, error }) => {
-        addTerminalOutput(connectionId, `\r\n\x1b[31m错误: ${error}\x1b[0m\r\n`);
-      });
-
-      // 监听 SSH 关闭
-      const cleanupSshClose = window.electronAPI.onSshClose?.((connectionId) => {
-        handleConnectionClose(connectionId);
-      });
-
-      // 监听系统从睡眠恢复，检查 SSH 连接状态
-      const cleanupSystemResume = (window.electronAPI as any).onSystemResume?.(() => {
-        console.log('[App] System resumed from sleep, checking SSH connections...');
-        // 延迟 2 秒后检查连接状态，给网络恢复一些时间
-        setTimeout(async () => {
-          const result = await window.electronAPI?.sshGetSessions();
-          if (result?.success && result.sessions) {
-            const activeSessions = new Set(result.sessions.map((s: any) => s.connectionId));
-            // 检查所有已连接的 tab，如果 SSH session 不在了就标记为断开
-            setOpenTabs(prev => prev.map(tab => {
-              if (tab.isConnected && !activeSessions.has(tab.id)) {
-                return { ...tab, isConnected: false, isConnecting: false };
-              }
-              return tab;
-            }));
-          }
-        }, 2000);
-      });
-
-      return () => {
-        if (pendingCommandNotificationRef.current?.timer) {
-          clearTimeout(pendingCommandNotificationRef.current.timer);
-        }
-        cleanupSshData();
-        cleanupSshError?.();
-        cleanupSshClose?.();
-        cleanupSystemResume?.();
-      };
-    }
-  }, [loadConnections, loadProviders, addTerminalOutput]);
 
   useEffect(() => {
     const { updateConfig } = useAgentStore.getState();
@@ -299,7 +282,10 @@ function App() {
 
       if (!result?.success) {
         setCommandStatus({ command, status: 'error', timestamp: Date.now() });
-        setTimeout(() => setCommandStatus(null), 3000);
+        if (commandStatusTimeoutRef.current) {
+          clearTimeout(commandStatusTimeoutRef.current);
+        }
+        commandStatusTimeoutRef.current = setTimeout(() => setCommandStatus(null), 3000);
         return;
       }
 
@@ -317,7 +303,10 @@ function App() {
       }
 
       setCommandStatus(prev => prev?.command === command ? { ...prev, status: 'success' } : prev);
-      setTimeout(() => setCommandStatus(null), 2000);
+      if (commandStatusTimeoutRef.current) {
+        clearTimeout(commandStatusTimeoutRef.current);
+      }
+      commandStatusTimeoutRef.current = setTimeout(() => setCommandStatus(null), 2000);
     }
   };
 
@@ -367,6 +356,114 @@ function App() {
       pendingCommandNotificationRef.current = null;
     }, 1200);
   }, [showCommandNotification]);
+
+  const flushPendingSshOutput = useCallback(() => {
+    outputFlushHandleRef.current = null;
+
+    const pendingEntries = Array.from(pendingSshOutputRef.current.entries());
+    pendingSshOutputRef.current.clear();
+
+    for (const [connectionId, chunks] of pendingEntries) {
+      if (!chunks.length) {
+        continue;
+      }
+
+      const chunk = chunks.join('');
+      addTerminalOutput(connectionId, chunk);
+      scheduleCommandNotification(connectionId, chunk);
+    }
+  }, [addTerminalOutput, scheduleCommandNotification]);
+
+  const queueTerminalOutput = useCallback((connectionId: string, data: string) => {
+    if (!data) {
+      return;
+    }
+
+    const current = pendingSshOutputRef.current.get(connectionId);
+    if (current) {
+      current.push(data);
+    } else {
+      pendingSshOutputRef.current.set(connectionId, [data]);
+    }
+
+    if (outputFlushHandleRef.current == null) {
+      outputFlushHandleRef.current = setTimeout(() => {
+        flushPendingSshOutput();
+      }, 16);
+    }
+  }, [flushPendingSshOutput]);
+
+  useEffect(() => {
+    if (!window.electronAPI) {
+      return;
+    }
+
+    loadConnections();
+    loadProviders();
+    loadQuickCommands();
+
+    const cleanupSshData = window.electronAPI.onSshData(({ connectionId, data, type, state }) => {
+      if (type === 'state' && state) {
+        updateTabState(connectionId, state);
+        return;
+      }
+
+      if (data) {
+        queueTerminalOutput(connectionId, data);
+      }
+    });
+
+    const cleanupSshError = window.electronAPI.onSshError?.(({ connectionId, error }) => {
+      queueTerminalOutput(connectionId, `\r\n\x1b[31m错误: ${error}\x1b[0m\r\n`);
+    });
+
+    const cleanupSshClose = window.electronAPI.onSshClose?.((connectionId) => {
+      handleConnectionClose(connectionId);
+    });
+
+    const cleanupSystemResume = (window.electronAPI as any).onSystemResume?.(() => {
+      console.log('[App] System resumed from sleep, checking SSH connections...');
+      if (resumeCheckTimeoutRef.current != null) {
+        clearTimeout(resumeCheckTimeoutRef.current);
+      }
+      resumeCheckTimeoutRef.current = setTimeout(async () => {
+        const result = await window.electronAPI?.sshGetSessions();
+        if (result?.success && result.sessions) {
+          const activeSessions = new Set(result.sessions.map((s: any) => s.connectionId));
+          setOpenTabs(prev => prev.map(tab => {
+            if (tab.isConnected && !activeSessions.has(tab.id)) {
+              return { ...tab, isConnected: false, isConnecting: false };
+            }
+            return tab;
+          }));
+        }
+      }, 2000);
+    });
+
+    return () => {
+      if (pendingCommandNotificationRef.current?.timer) {
+        clearTimeout(pendingCommandNotificationRef.current.timer);
+      }
+      pendingCommandNotificationRef.current = null;
+      if (outputFlushHandleRef.current != null) {
+        clearTimeout(outputFlushHandleRef.current);
+        outputFlushHandleRef.current = null;
+      }
+      if (resumeCheckTimeoutRef.current != null) {
+        clearTimeout(resumeCheckTimeoutRef.current);
+        resumeCheckTimeoutRef.current = null;
+      }
+      if (commandStatusTimeoutRef.current != null) {
+        clearTimeout(commandStatusTimeoutRef.current);
+        commandStatusTimeoutRef.current = null;
+      }
+      flushPendingSshOutput();
+      cleanupSshData();
+      cleanupSshError?.();
+      cleanupSshClose?.();
+      cleanupSystemResume?.();
+    };
+  }, [flushPendingSshOutput, loadConnections, loadProviders, queueTerminalOutput]);
 
   const getConnectionStatus = () => {
     const currentTab = openTabs.find(tab => tab.id === activeTabId);
@@ -1173,6 +1270,7 @@ function App() {
         {/* Terminal Area */}
         <div className="flex-1 flex flex-col min-w-0">
           <Terminal
+            key={activeTabId ?? 'no-connection'}
             connectionId={activeTabId}
             onCommandRequest={handleCommandRequest}
             onPasteToAI={handlePasteToAI}
@@ -1198,17 +1296,19 @@ function App() {
               }`} />
             </div>
             {/* 侧边栏内容 */}
-            <div 
-              className="bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col"
-              style={{ width: `${chatPanelWidth}px` }}
-            >
-              <ChatPanel
-                onCommandRequest={handleCommandRequest}
-                input={chatInput}
-                onInputChange={setChatInput}
-                focusInputToken={chatInputFocusToken}
-              />
-            </div>
+            <Suspense fallback={<LazySidebarFallback width={chatPanelWidth} />}>
+              <div 
+                className="bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col"
+                style={{ width: `${chatPanelWidth}px` }}
+              >
+                <ChatPanel
+                  onCommandRequest={handleCommandRequest}
+                  input={chatInput}
+                  onInputChange={setChatInput}
+                  focusInputToken={chatInputFocusToken}
+                />
+              </div>
+            </Suspense>
           </>
         )}
       </div>
@@ -1239,19 +1339,23 @@ function App() {
 
       {/* Settings Panel */}
       {showSettings && (
-        <SettingsPanel
-          settings={settings}
-          onSave={handleSaveSettings}
-          onClose={() => setShowSettings(false)}
-        />
+        <Suspense fallback={<LazyModalFallback />}>
+          <SettingsPanel
+            settings={settings}
+            onSave={handleSaveSettings}
+            onClose={() => setShowSettings(false)}
+          />
+        </Suspense>
       )}
 
       {/* File Transfer Modal */}
       {showFileTransfer && activeTabId && (
-        <FileTransfer
-          connectionId={activeTabId}
-          onClose={() => setShowFileTransfer(false)}
-        />
+        <Suspense fallback={<LazyModalFallback />}>
+          <FileTransfer
+            connectionId={activeTabId}
+            onClose={() => setShowFileTransfer(false)}
+          />
+        </Suspense>
       )}
 
       {/* Connection Edit Modal */}
@@ -1420,11 +1524,13 @@ function App() {
 
       {/* Command Approval Modal */}
       {pendingCommand && (
-        <CommandApproval
-          command={pendingCommand}
-          onApprove={handleApproveCommand}
-          onReject={handleRejectCommand}
-        />
+        <Suspense fallback={<LazyModalFallback />}>
+          <CommandApproval
+            command={pendingCommand}
+            onApprove={handleApproveCommand}
+            onReject={handleRejectCommand}
+          />
+        </Suspense>
       )}
     </div>
   );

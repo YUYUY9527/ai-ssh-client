@@ -39,6 +39,7 @@ const IPC_CHANNELS = {
   SFTP_DOWNLOAD_FILE: 'sftp-download-file',
   SFTP_UPLOAD_FILE: 'sftp-upload-file',
   AGENT_START_TASK: 'agent-start-task',
+  AGENT_STOP_TASK: 'agent-stop-task',
   AGENT_PAUSE_TASK: 'agent-pause-task',
   AGENT_RESUME_TASK: 'agent-resume-task',
   AGENT_EXECUTE_COMMAND: 'agent-execute-command',
@@ -196,6 +197,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   agentStartTask: (taskId: string, connectionId: string): Promise<IPCResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.AGENT_START_TASK, taskId, connectionId),
+  agentStopTask: (connectionId: string): Promise<IPCResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AGENT_STOP_TASK, connectionId),
   agentPauseTask: (): Promise<IPCResult> => ipcRenderer.invoke(IPC_CHANNELS.AGENT_PAUSE_TASK),
   agentResumeTask: (): Promise<IPCResult> => ipcRenderer.invoke(IPC_CHANNELS.AGENT_RESUME_TASK),
   agentExecuteCommand: (connectionId: string, command: string): Promise<IPCResult> =>
@@ -203,7 +206,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCommandApproval: (approved: boolean): Promise<IPCResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.AGENT_COMMAND_APPROVAL, approved),
 
-  onAgentTerminalOutput: (callback: (data: { connectionId: string; data: string; fullOutput: string }) => void) => {
+  onAgentTerminalOutput: (callback: (data: { connectionId: string; data: string }) => void) => {
     return addListener(IPC_CHANNELS.AGENT_TERMINAL_OUTPUT, callback);
   },
 

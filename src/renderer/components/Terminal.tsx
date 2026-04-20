@@ -8,6 +8,8 @@ import { useConnectionStore } from '../store/useConnectionStore';
 import { useTheme } from '../hooks/useTheme';
 import type { CommandHistoryItem, QuickCommand, AppSettings } from '../../shared/types';
 
+const XTERM_SCROLLBACK_LINES = 10000;
+
 // 右键菜单组件
 function ContextMenu({
   x,
@@ -1195,7 +1197,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     });
 
     // 确保 xterm 不会在本地处理某些转义序列
-    term.options.scrollback = 10000;
+    term.options.scrollback = XTERM_SCROLLBACK_LINES;
 
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
@@ -1368,7 +1370,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
               // 刷新历史命令
               const historyResult = await window.electronAPI.getCommandHistory();
               if (historyResult.success) {
-                setCommandHistory(historyResult.history);
+                setCommandHistory(Array.isArray(historyResult.data?.history) ? historyResult.data.history : []);
               }
             }
           })();

@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron';
+import type { ClientChannel } from 'ssh2';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { sshManager } from '../ssh/connection-manager';
 
@@ -21,44 +22,63 @@ let agentState: AgentState = {
 
 export function setupAgentIpcHandlers(mainWindow: BrowserWindow) {
   // 保存每个连接的 agent 监听器引用
-  const agentListeners: Map<string, (data: Buffer) => void> = new Map();
+  const agentListeners: Map<string, { handler: (data: Buffer) => void; shell: ClientChannel; closeHandler: () => void }> = new Map();
+  let activeConnectionId: string | null = null;
+
+  const detachAgentListener = (connectionId: string | null) => {
+    if (!connectionId) {
+      return;
+    }
+
+    const listenerEntry = agentListeners.get(connectionId);
+    if (listenerEntry) {
+      listenerEntry.shell.removeListener('data', listenerEntry.handler);
+      const session = sshManager.getSession(connectionId);
+      session?.client.removeListener('close', listenerEntry.closeHandler);
+    }
+    agentListeners.delete(connectionId);
+    if (activeConnectionId === connectionId) {
+      activeConnectionId = null;
+    }
+  };
 
   // 开始智能体任务
   ipcMain.handle(IPC_CHANNELS.AGENT_START_TASK, async (_event, taskId: string, connectionId: string) => {
     agentState.currentTaskId = taskId;
     agentState.isPaused = false;
     agentState.pendingCommand = null;
+    detachAgentListener(activeConnectionId);
 
     const session = sshManager.getSession(connectionId);
     
     if (session?.shell) {
-      // 清空缓冲区
-      session.outputBuffer = '';
-      
-      // 先移除旧的监听器（防止重复）
-      const oldHandler = agentListeners.get(connectionId);
-      if (oldHandler) {
-        session.shell.removeListener('data', oldHandler);
-      }
-      
       // 创建 agent 专用监听器
       const agentHandler = (data: Buffer) => {
         const dataStr = data.toString();
-        session.outputBuffer += dataStr;
-        
-        // 只发送增量数据，不发送完整累积输出（避免二次增长传输）
-        // 渲染进程的 AgentExecutor 会自行累积 fullOutput
         mainWindow.webContents.send(IPC_CHANNELS.AGENT_TERMINAL_OUTPUT, {
           connectionId,
           data: dataStr,
         });
       };
+      const closeHandler = () => {
+        detachAgentListener(connectionId);
+      };
       
       // 保存引用并添加监听器
-      agentListeners.set(connectionId, agentHandler);
+      activeConnectionId = connectionId;
+      agentListeners.set(connectionId, { handler: agentHandler, shell: session.shell, closeHandler });
       session.shell.on('data', agentHandler);
+      session.client.once('close', closeHandler);
     }
 
+    return { success: true };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.AGENT_STOP_TASK, async (_event, connectionId: string) => {
+    detachAgentListener(connectionId);
+    agentState.currentTaskId = null;
+    agentState.isPaused = false;
+    agentState.pendingCommand = null;
     return { success: true };
   });
 
@@ -81,9 +101,6 @@ export function setupAgentIpcHandlers(mainWindow: BrowserWindow) {
       if (!session?.shell) {
         return { success: false, error: 'Session not found' };
       }
-
-      // 清空缓冲区，准备接收新命令的输出
-      session.outputBuffer = '';
       
       // 执行命令（添加换行符）
       sshManager.executeCommand(connectionId, command + '\n');
