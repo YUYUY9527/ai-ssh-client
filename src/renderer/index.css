@@ -28,9 +28,10 @@
   }
 
   body {
-    @apply font-mono;
+    @apply font-sans;
     background-color: var(--bg-primary);
     color: var(--text-primary);
+    font-feature-settings: "tnum";
   }
 
   input[type="number"] {
@@ -47,6 +48,130 @@
 }
 
 @layer components {
+  .app-shell {
+    @apply flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+  }
+
+  .app-header {
+    @apply flex h-12 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-3 dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .app-title-mark {
+    @apply flex h-7 w-7 items-center justify-center rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-300;
+  }
+
+  .toolbar-group {
+    @apply flex items-center gap-1 rounded-md border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950;
+  }
+
+  .toolbar-button {
+    @apply inline-flex h-8 items-center justify-center gap-1.5 rounded px-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+  }
+
+  .toolbar-button-primary {
+    @apply inline-flex h-8 items-center justify-center gap-1.5 rounded bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .toolbar-button-active {
+    @apply bg-cyan-50 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300;
+  }
+
+  .icon-button {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+  }
+
+  .icon-button-active {
+    @apply bg-cyan-50 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300;
+  }
+
+  .app-popover {
+    @apply absolute top-full z-50 mt-1 max-h-96 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl shadow-slate-950/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/40;
+  }
+
+  .app-popover-header {
+    @apply flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400;
+  }
+
+  .app-popover-row {
+    @apply flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-800;
+  }
+
+  .workspace-tabbar {
+    @apply flex h-9 flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .workspace-tab {
+    @apply flex h-8 cursor-pointer items-center gap-2 rounded px-2.5 text-sm text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+  }
+
+  .workspace-tab-active {
+    @apply bg-white text-slate-950 shadow-sm ring-1 ring-slate-200 dark:bg-slate-950 dark:text-white dark:ring-slate-800;
+  }
+
+  .status-dot {
+    @apply h-2 w-2 flex-shrink-0 rounded-full;
+  }
+
+  .app-main {
+    @apply flex min-h-0 flex-1 overflow-hidden bg-slate-100 dark:bg-slate-950;
+  }
+
+  .ai-resizer {
+    @apply relative flex w-1 cursor-ew-resize items-center justify-center bg-slate-200 transition-colors hover:bg-cyan-500 dark:bg-slate-800 dark:hover:bg-cyan-500;
+  }
+
+  .ai-panel-shell {
+    @apply flex min-h-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .app-footer {
+    @apply flex h-6 flex-shrink-0 items-center justify-between border-t border-slate-200 bg-slate-50 px-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400;
+  }
+
+  .panel-header {
+    @apply border-b border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .segmented-control {
+    @apply grid grid-cols-2 gap-1 rounded-md border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950;
+  }
+
+  .segment-button {
+    @apply rounded px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800;
+  }
+
+  .segment-button-active {
+    @apply bg-cyan-600 text-white hover:bg-cyan-600 dark:text-white dark:hover:bg-cyan-600;
+  }
+
+  .message-bubble {
+    @apply rounded-md border p-3;
+  }
+
+  .message-bubble-assistant {
+    @apply border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950;
+  }
+
+  .message-bubble-user {
+    @apply border-cyan-600 bg-cyan-600 text-white;
+  }
+
+  .terminal-control {
+    @apply inline-flex h-8 items-center justify-center rounded border border-slate-200 bg-white px-2 text-slate-600 shadow-sm shadow-slate-950/5 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+  }
+
+  .terminal-control-active {
+    @apply border-cyan-500 bg-cyan-600 text-white hover:bg-cyan-500 hover:text-white dark:border-cyan-500 dark:bg-cyan-600 dark:text-white dark:hover:bg-cyan-500;
+  }
+
+  .terminal-empty-state {
+    @apply absolute inset-0 flex items-center justify-center bg-slate-100 text-slate-500 dark:bg-slate-950 dark:text-slate-400;
+  }
+
+  .terminal-empty-icon {
+    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300;
+  }
+
   /* 现代细滚动条 - 默认样式 */
   .scrollbar-thin {
     scrollbar-width: thin;

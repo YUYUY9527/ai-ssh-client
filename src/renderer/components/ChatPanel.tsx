@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Bot, User, Settings, Plus, Trash2, Sparkles, History, Clock, X, RotateCcw, Cpu, Zap, Key } from 'lucide-react';
+import { Send, Bot, User, Settings, Plus, Trash2, History, Clock, X, RotateCcw, Cpu, Zap, Key, Lightbulb } from 'lucide-react';
 import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -501,17 +501,17 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
   }, [editingProvider, providerSecretState.hasApiKey, providerSecretState.isLoading, showProviderSettings, scrollProviderEditorToBottom]);
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-slate-800">
-      <div className="p-3 border-b border-slate-200 dark:border-slate-700">
+    <div className="h-full flex flex-col bg-white dark:bg-slate-900">
+      <div className="panel-header">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-500" />
+            <Cpu className="w-4 h-4 text-cyan-600 dark:text-cyan-300" />
             <span className="font-medium text-slate-900 dark:text-white">AI 助手</span>
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setShowHistory(!showHistory)}
-              className={`p-1.5 rounded transition-colors ${showHistory ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+              className={`icon-button h-7 w-7 ${showHistory ? 'icon-button-active' : ''}`}
               title="命令历史"
             >
               <History className="w-4 h-4" />
@@ -524,7 +524,7 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
                   resetProviderEditor();
                 }
               }}
-              className={`p-1.5 rounded transition-colors ${showProviderSettings ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+              className={`icon-button h-7 w-7 ${showProviderSettings ? 'icon-button-active' : ''}`}
               title="供应商配置"
             >
               <Settings className="w-4 h-4" />
@@ -532,16 +532,16 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
           </div>
         </div>
 
-        <div className="flex items-center gap-2 mb-3">
+        <div className="segmented-control mb-3">
           <button
             onClick={() => handleModeChange('agent')}
-            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${mode === 'agent' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}
+            className={`segment-button ${mode === 'agent' ? 'segment-button-active' : ''}`}
           >
             智能体模式
           </button>
           <button
             onClick={() => handleModeChange('assistant')}
-            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${mode === 'assistant' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}
+            className={`segment-button ${mode === 'assistant' ? 'segment-button-active' : ''}`}
           >
             助手模式
           </button>
@@ -564,7 +564,7 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
 
       </div>
 
-      <div ref={contentScrollRef} className="flex-1 overflow-y-auto scrollbar-modern pr-1 p-3 space-y-3">
+      <div ref={contentScrollRef} className="flex-1 overflow-y-auto scrollbar-modern p-3 pr-1 space-y-3">
         {!showProviderSettings && !showHistory && (
           <>
             {mode === 'agent' && (
@@ -580,12 +580,12 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
             {messages.map((message) => (
               <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}>
                 {message.role !== 'user' && (
-                  <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
                     <Bot className="w-4 h-4 text-slate-600 dark:text-slate-300" />
                   </div>
                 )}
                 <div className={`max-w-[85%] ${message.role === 'user' ? 'order-first' : ''}`}>
-                  <div className={`p-3 rounded-lg border ${message.role === 'user' ? 'bg-blue-600 text-white border-blue-500 rounded-tr-none' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-tl-none'}`}>
+                  <div className={`message-bubble ${message.role === 'user' ? 'message-bubble-user' : 'message-bubble-assistant'}`}>
                     {message.role === 'user' ? (
                       <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
                     ) : (
@@ -598,18 +598,18 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
                   </div>
                 </div>
                 {message.role === 'user' && (
-                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-cyan-200 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-500/10">
+                    <User className="w-4 h-4 text-cyan-700 dark:text-cyan-300" />
                   </div>
                 )}
               </div>
             ))}
             {isLoading && (
               <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
                   <Bot className="w-4 h-4 text-slate-600 dark:text-slate-300" />
                 </div>
-                <div className="p-3 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg rounded-tl-none">
+                <div className="message-bubble message-bubble-assistant">
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1">
                       <div className="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -618,7 +618,7 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
                     </div>
                     <button
                       onClick={() => useAIStore.getState().cancelMessage()}
-                      className="ml-2 px-2 py-0.5 text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 border border-slate-300 dark:border-slate-600 rounded transition-colors"
+                      className="ml-2 rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-500 transition-colors hover:text-red-500 dark:border-slate-700 dark:text-slate-400 dark:hover:text-red-400"
                       title="停止生成"
                     >
                       停止
@@ -917,7 +917,7 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
               <code className="text-sm font-mono text-red-600 dark:text-red-400 break-all">{pendingApproval.command}</code>
               {getCommandDescription(pendingApproval.command) && (
                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 flex items-start gap-1">
-                  <span className="text-slate-500 dark:text-slate-400">💡</span>
+                  <Lightbulb className="mt-0.5 h-3 w-3 flex-shrink-0 text-slate-500 dark:text-slate-400" />
                   <span>{getCommandDescription(pendingApproval.command)}</span>
                 </p>
               )}
@@ -944,7 +944,7 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
       )}
 
       {!showProviderSettings && !showHistory && (
-        <div className="p-3 border-t border-slate-200 dark:border-slate-700">
+        <div className="border-t border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
           {(error || localError) && (
             <div className="mb-2 p-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between">
               <span className="text-xs text-red-600 dark:text-red-400">{error || localError}</span>
@@ -969,19 +969,19 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
               placeholder={activeProviderId ? (mode === 'agent' ? '描述你要完成的任务...' : '询问 Linux 命令问题...') : '请先配置并激活 AI 供应商'}
               disabled={isLoading || !activeProviderId}
               rows={3}
-              className="flex-1 resize-none overflow-y-auto bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:opacity-50 disabled:cursor-not-allowed [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600/70 [&::-webkit-scrollbar-thumb]:hover:bg-slate-400/80 dark:[&::-webkit-scrollbar-thumb]:hover:bg-slate-500/80"
+              className="flex-1 resize-none overflow-y-auto rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-500 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600/70 [&::-webkit-scrollbar-thumb]:hover:bg-slate-400/80 dark:[&::-webkit-scrollbar-thumb]:hover:bg-slate-500/80"
             />
             <div className="flex flex-col gap-2">
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || isLoading || !activeProviderId}
-                className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors text-white"
+                className="toolbar-button-primary h-auto px-3 py-2"
               >
                 <Send className="w-4 h-4" />
               </button>
               <button
                 onClick={handleClearConversation}
-                className="px-3 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-lg transition-colors text-slate-600 dark:text-slate-300"
+                className="toolbar-button h-auto px-3 py-2"
                 title="清空对话"
               >
                 <RotateCcw className="w-4 h-4" />

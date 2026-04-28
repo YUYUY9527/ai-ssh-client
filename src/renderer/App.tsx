@@ -811,29 +811,34 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+    <div className="app-shell">
       {/* Header */}
-      <header className="h-12 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center px-4 justify-between">
-        <div className="flex items-center gap-3">
-          <TerminalIcon className="w-5 h-5 text-blue-500" />
-          <h1 className="font-semibold text-sm">AI SSH Client</h1>
+      <header className="app-header">
+        <div className="flex items-center gap-2">
+          <div className="app-title-mark">
+            <TerminalIcon className="w-4 h-4" />
+          </div>
+          <div className="mr-2 leading-tight">
+            <h1 className="text-sm font-semibold tracking-wide">AI SSH Client</h1>
+            <p className="text-[10px] uppercase text-slate-500 dark:text-slate-500">secure shell workspace</p>
+          </div>
           {/* 连接按钮 */}
           <div className="relative" ref={connectionDropdownRef}>
             <button
               onClick={() => setShowConnectionDropdown(!showConnectionDropdown)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm transition-colors"
+              className="toolbar-button-primary"
             >
               <Plug className="w-4 h-4" />
               连接
             </button>
             {/* 连接下拉菜单 */}
             {showConnectionDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-80 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500">
-                <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">选择连接</span>
+              <div className="app-popover left-0 w-80 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500">
+                <div className="app-popover-header">
+                  <span>选择连接</span>
                   <button
                     onClick={() => { setEditingConnection({ id: '', name: '', host: '', port: 22, username: '' }); setShowConnectionDropdown(false); }}
-                    className="p-1 text-blue-500 hover:text-blue-400 transition-colors"
+                    className="icon-button h-7 w-7"
                     title="新建连接"
                   >
                     <Plus className="w-4 h-4" />
@@ -847,7 +852,7 @@ function App() {
                   connections.map((conn) => (
                     <div
                       key={conn.id}
-                      className="group flex items-center px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                      className="group flex items-center px-3 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
                     >
                       <button
                         onClick={() => { handleConnect(conn.id, conn.name); setShowConnectionDropdown(false); }}
@@ -862,14 +867,14 @@ function App() {
                       <div className="hidden group-hover:flex items-center gap-1">
                         <button
                           onClick={(e) => { e.stopPropagation(); setEditingConnection(conn); setShowConnectionDropdown(false); }}
-                          className="p-1.5 text-slate-500 hover:text-blue-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors"
+                          className="icon-button h-7 w-7"
                           title="编辑"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeletingConnection(conn.id); setShowConnectionDropdown(false); }}
-                          className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors"
+                          className="icon-button h-7 w-7 hover:text-red-500 dark:hover:text-red-400"
                           title="删除"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -885,7 +890,7 @@ function App() {
           {activeTabId && (
             <button
               onClick={() => setShowFileTransfer(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded text-slate-700 dark:text-slate-300 text-sm transition-colors"
+              className="toolbar-button"
               title="文件传输"
             >
               <FolderUp className="w-4 h-4" />
@@ -898,7 +903,7 @@ function App() {
             <div className="relative" ref={quickCommandsDropdownRef}>
               <button
                 onClick={() => setShowQuickCommands(!showQuickCommands)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded text-slate-700 dark:text-slate-300 text-sm transition-colors"
+                className={`toolbar-button ${showQuickCommands ? 'toolbar-button-active' : ''}`}
                 title="快速命令"
               >
                 <Zap className="w-4 h-4" />
@@ -908,17 +913,17 @@ function App() {
 
               {/* 快速命令下拉菜单 */}
               {showQuickCommands && (
-                <div className="absolute top-full left-0 mt-1 w-80 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+                <div className="app-popover left-0 w-80">
                   {/* 头部 */}
-                  <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">快速命令</span>
+                  <div className="app-popover-header">
+                    <span>快速命令</span>
                     <div className="flex gap-1">
                       <button
                         onClick={() => {
                           setShowQuickGroupForm(true);
                           setShowQuickCommandForm(false);
                         }}
-                        className="p-1 text-blue-500 hover:text-blue-400 transition-colors"
+                        className="icon-button h-7 w-7"
                         title="新建分组"
                       >
                         <FolderUp className="w-4 h-4" />
@@ -928,7 +933,7 @@ function App() {
                           setShowQuickCommandForm(true);
                           setShowQuickGroupForm(false);
                         }}
-                        className="p-1 text-blue-500 hover:text-blue-400 transition-colors"
+                        className="icon-button h-7 w-7"
                         title="新建命令"
                       >
                         <Plus className="w-4 h-4" />
@@ -938,7 +943,7 @@ function App() {
 
                   {/* 新建分组表单 */}
                   {showQuickGroupForm && (
-                    <div className="p-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                    <div className="p-3 border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
                       <div className="space-y-2">
                         <input
                           type="text"
@@ -975,7 +980,7 @@ function App() {
 
                   {/* 新建命令表单 */}
                   {showQuickCommandForm && (
-                    <div className="p-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                    <div className="p-3 border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
                       <div className="space-y-2">
                         <input
                           type="text"
@@ -1134,24 +1139,24 @@ function App() {
         </div>
         <div className="flex items-center gap-2">
           {/* Theme Toggle */}
-          <div className="flex items-center bg-slate-200 dark:bg-slate-900 rounded-lg p-1">
+          <div className="toolbar-group">
             <button
               onClick={() => changeTheme('light')}
-              className={`p-1.5 rounded transition-colors ${theme === 'light' ? 'bg-blue-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+              className={`icon-button h-7 w-7 ${theme === 'light' ? 'icon-button-active' : ''}`}
               title="浅色主题"
             >
               <Sun className="w-4 h-4" />
             </button>
             <button
               onClick={() => changeTheme('dark')}
-              className={`p-1.5 rounded transition-colors ${theme === 'dark' ? 'bg-blue-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+              className={`icon-button h-7 w-7 ${theme === 'dark' ? 'icon-button-active' : ''}`}
               title="深色主题"
             >
               <Moon className="w-4 h-4" />
             </button>
             <button
               onClick={() => changeTheme('system')}
-              className={`p-1.5 rounded transition-colors ${theme === 'system' ? 'bg-blue-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+              className={`icon-button h-7 w-7 ${theme === 'system' ? 'icon-button-active' : ''}`}
               title="跟随系统"
             >
               <Monitor className="w-4 h-4" />
@@ -1159,14 +1164,14 @@ function App() {
           </div>
           <button
             onClick={() => setShowChatPanel(!showChatPanel)}
-            className={`p-2 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors ${showChatPanel ? 'text-blue-500' : 'text-slate-600 dark:text-slate-400'}`}
+            className={`icon-button ${showChatPanel ? 'icon-button-active' : ''}`}
             title="AI 助手"
           >
             <MessageSquare className="w-4 h-4" />
           </button>
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="p-2 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-400"
+            className={`icon-button ${showSettings ? 'icon-button-active' : ''}`}
             title="设置"
           >
             <Settings className="w-4 h-4" />
@@ -1176,7 +1181,7 @@ function App() {
 
       {/* Tab Bar */}
       {openTabs.length > 0 && (
-        <div className="h-9 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center px-2 gap-1 overflow-x-auto">
+        <div className="workspace-tabbar">
           {openTabs.map((tab) => (
             <div
               key={tab.id}
@@ -1188,15 +1193,15 @@ function App() {
               onDragEnd={handleDragEnd}
               onClick={() => handleTabClick(tab.id)}
               onContextMenu={(e) => handleTabContextMenu(e, tab)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-t cursor-pointer text-sm transition-all group ${
+              className={`workspace-tab group ${
                 activeTabId === tab.id
-                  ? 'bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-white border-b-2 border-blue-500'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700'
-              } ${dragState.dragOverTabId === tab.id ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300' : ''} ${
+                  ? 'workspace-tab-active'
+                  : ''
+              } ${dragState.dragOverTabId === tab.id ? 'bg-cyan-50 ring-1 ring-cyan-300 dark:bg-cyan-500/10 dark:ring-cyan-800' : ''} ${
                 dragState.isDragging && dragState.draggedTabId === tab.id ? 'opacity-50' : ''
               }`}
             >
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+              <span className={`status-dot ${
                 tab.isConnecting ? 'bg-yellow-500 animate-pulse' :
                 tab.isConnected ? 'bg-green-500' : 'bg-slate-500'
               }`} />
@@ -1266,7 +1271,7 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="app-main">
         {/* Terminal Area */}
         <div className="flex-1 flex flex-col min-w-0">
           <Terminal
@@ -1285,20 +1290,20 @@ function App() {
             {/* 拖动柄 - 改为小的可点击区域，避免覆盖滚动条 */}
             <div
               onMouseDown={startResizing}
-              className="w-1 bg-slate-200 dark:bg-slate-700 hover:bg-blue-400 dark:hover:bg-blue-500 cursor-ew-resize transition-colors relative flex items-center justify-center"
+              className="ai-resizer"
               title="拖动调整宽度"
             >
               {/* 拖动指示点 */}
               <div className={`w-0.5 h-6 rounded-full transition-colors ${
                 isResizing 
-                  ? 'bg-blue-600 dark:bg-blue-400' 
+                  ? 'bg-cyan-600 dark:bg-cyan-300' 
                   : 'bg-slate-400 dark:bg-slate-500'
               }`} />
             </div>
             {/* 侧边栏内容 */}
             <Suspense fallback={<LazySidebarFallback width={chatPanelWidth} />}>
               <div 
-                className="bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col"
+                className="ai-panel-shell"
                 style={{ width: `${chatPanelWidth}px` }}
               >
                 <ChatPanel
@@ -1314,7 +1319,7 @@ function App() {
       </div>
 
       {/* Footer */}
-      <footer className="h-6 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex items-center px-4 justify-between text-xs text-slate-500 flex-shrink-0">
+      <footer className="app-footer">
         <div className="flex items-center gap-3">
           <div className={`flex items-center gap-2 ${status.color}`}>
             {status.icon}

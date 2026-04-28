@@ -1473,14 +1473,14 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
   return (
     <div
-      className={`flex-1 relative overflow-hidden bg-slate-100 dark:bg-slate-950`}
+      className="relative flex-1 overflow-hidden bg-slate-100 dark:bg-slate-950"
       onContextMenu={handleContextMenu}
     >
       {/* Terminal Toolbar */}
       <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
         <button
           onClick={() => setFontSize(prev => Math.max(prev - 2, 10))}
-          className="p-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+          className="terminal-control"
           title="缩小 (Ctrl+-)"
         >
           <ZoomOut className="w-4 h-4" />
@@ -1488,16 +1488,14 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
         <span className="text-xs text-slate-500 dark:text-slate-400 px-1">{fontSize}px</span>
         <button
           onClick={() => setFontSize(prev => Math.min(prev + 2, 24))}
-          className="p-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+          className="terminal-control"
           title="放大 (Ctrl++)"
         >
           <ZoomIn className="w-4 h-4" />
         </button>
         <button
           onClick={() => setShowSearch(prev => !prev)}
-          className={`p-1.5 rounded transition-colors ${
-            showSearch ? 'bg-blue-600 text-white' : 'bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
+          className={`terminal-control ${showSearch ? 'terminal-control-active' : ''}`}
           title="搜索 (Ctrl+F)"
         >
           <Search className="w-4 h-4" />
@@ -1507,7 +1505,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
         <div className="relative">
           <button
             onClick={() => setShowThemeSelector(prev => !prev)}
-            className="p-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+            className="terminal-control"
             title="切换主题"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1516,14 +1514,14 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
           </button>
 
           {showThemeSelector && (
-            <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 min-w-[160px] z-20">
+            <div className="app-popover right-0 min-w-[160px] py-1">
               {Object.keys(TERMINAL_THEMES).map(themeKey => (
                 <button
                   key={themeKey}
                   onClick={() => handleThemeChange(themeKey)}
                   className={`w-full px-3 py-1.5 text-left text-sm transition-colors ${
                     terminalTheme === themeKey
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-cyan-600 text-white'
                       : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
@@ -1543,7 +1541,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
       {/* Search Bar */}
       {showSearch && (
-        <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-white dark:bg-slate-800 rounded-lg p-2 shadow-lg border border-slate-200 dark:border-slate-700">
+        <div className="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-md border border-slate-200 bg-white p-2 shadow-lg shadow-slate-950/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/30">
           <Search className="w-4 h-4 text-slate-500 dark:text-slate-400" />
           <input
             type="text"
@@ -1572,8 +1570,8 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
       {/* 自动补全提示 - 输入时自动展示 */}
       {settings?.showTerminalOutputPrompt !== false && showAutocomplete && autocompleteSuggestions.length > 0 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl overflow-hidden min-w-[300px] max-w-[500px]">
-          <div className="px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+        <div className="absolute bottom-6 left-1/2 z-20 min-w-[300px] max-w-[500px] -translate-x-1/2 overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl shadow-slate-950/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/40">
+          <div className="border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
             输入时自动补全 - ↑↓ 选择 / Ctrl+E 应用 / Esc 关闭
           </div>
           {autocompleteSuggestions.map((suggestion, index) => (
@@ -1582,16 +1580,16 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
               onClick={(e) => { e.stopPropagation(); applyAutocomplete(suggestion.command); }}
               className={`w-full px-3 py-2 text-left flex items-center gap-3 transition-colors ${
                 index === autocompleteIndex
-                  ? 'bg-blue-500 text-white'
+                  ? 'bg-cyan-600 text-white'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
               }`}
             >
               <TerminalIcon className={`w-4 h-4 flex-shrink-0 ${
-                index === autocompleteIndex ? 'text-blue-200' : 'text-blue-500'
+                index === autocompleteIndex ? 'text-cyan-100' : 'text-cyan-600 dark:text-cyan-300'
               }`} />
               <code className="flex-1 font-mono text-sm truncate">{suggestion.command}</code>
               <span className={`text-xs ${
-                index === autocompleteIndex ? 'text-blue-200' : 'text-slate-400'
+                index === autocompleteIndex ? 'text-cyan-100' : 'text-slate-400'
               }`}>{suggestion.description}</span>
             </button>
           ))}
@@ -1602,7 +1600,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       <div className="absolute inset-0 p-2">
         <div
           ref={terminalRef}
-          className="h-full w-full overflow-hidden rounded-lg"
+          className="h-full w-full overflow-hidden rounded-md ring-1 ring-slate-200 dark:ring-slate-800"
           style={{
             cursor: 'text'
           }}
@@ -1624,9 +1622,11 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
       {/* No Connection State */}
       {!connectionId && (
-        <div className="absolute inset-0 flex items-center justify-center text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-950">
+        <div className="terminal-empty-state">
           <div className="text-center">
-            <div className="text-4xl mb-4">🐚</div>
+            <div className="terminal-empty-icon">
+              <TerminalIcon className="h-5 w-5" />
+            </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">选择一个连接并点击"连接"开始</p>
           </div>
         </div>
