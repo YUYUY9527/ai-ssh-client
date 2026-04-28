@@ -1,140 +1,134 @@
 # AI SSH Client
 
-一个集成 AI 大模型的现代 SSH 客户端，支持用自然语言操控 Linux 系统。
+English | [简体中文](README.zh-CN.md)
 
-## 功能特性
+AI SSH Client is a desktop SSH client that combines multi-session terminal access, SFTP file transfer, and AI-assisted Linux command workflows. It is built with Electron, React, TypeScript, xterm.js, and Tailwind CSS.
 
-- 🔐 **SSH 连接管理** - 支持密码和密钥认证，保存多个连接配置
-- 💻 **终端仿真** - 基于 xterm.js 的高性能终端
-- 🤖 **AI 集成** - 灵活配置多个 AI 供应商，支持 OpenAI 兼容接口
-- 💬 **自然语言控制** - 用自然语言描述操作，AI 自动生成命令
-- ✅ **命令审批** - 每步命令执行前需要用户确认
-- ⚠️ **风险提示** - 危险操作（如 rm -rf）会有特殊警告提示
+## Features
 
-### 新增功能 (v1.1.0)
+- SSH connection management with password and private-key authentication.
+- Multi-tab terminal workspace with reconnect, keepalive, tab switching, and tab reordering.
+- xterm.js terminal with search, font-size controls, theme selection, command autocomplete, and command history.
+- AI assistant and agent modes for Linux command help and task execution.
+- Multiple AI providers, including OpenAI-compatible endpoints, Anthropic, Gemini, and Ollama.
+- Command risk analysis and approval gates for dangerous operations.
+- SFTP browser for listing remote directories, uploading files, downloading files, and tracking transfer progress.
+- Quick commands and command groups for frequently used shell snippets.
+- Light, dark, and system themes.
+- Import and export for app configuration data.
+- Local secret storage for SSH credentials and AI API keys.
 
-- 📑 **多会话支持** - 同时连接多个 SSH 服务器，每个连接在独立的 Tab 页中运行
-- 🔄 **自动重连** - 连接断开后自动尝试重连（指数退避策略）
-- 🔒 **SSH Keepalive** - 定期发送 Keepalive 包，防止长时间空闲导致连接断开
-- 🔍 **终端搜索** - Ctrl+F 搜索终端内容
-- 🔎 **字体大小调节** - Ctrl++/Ctrl+- 调整字体大小
-- 📋 **命令历史记录** - 记录所有 AI 执行的命令，可追溯
-- ⚡ **快速命令** - 保存常用命令的快捷方式
-- 🔑 **私钥文件选择** - 支持点击选择私钥文件，而非粘贴
-- 🌗 **浅色主题** - 支持暗色/浅色/跟随系统三种主题模式
-- 💾 **导入/导出** - 备份和恢复所有配置
+## Security Notes
 
-## 技术栈
+- Renderer access is restricted through Electron preload APIs. The renderer does not receive a generic IPC invoke escape hatch.
+- SSH passwords, private keys, passphrases, and AI API keys are stored separately from normal configuration data.
+- The app uses Electron `safeStorage` when encryption is available, with a local plaintext fallback only when the platform cannot provide encryption.
+- Private-key files can only be read after selection through the native file picker.
+- Agent-driven command execution still passes through command risk checks and execution logging.
 
-- **桌面框架**: Electron
-- **前端框架**: React + TypeScript
-- **构建工具**: Vite
-- **终端**: xterm.js
-- **SSH**: ssh2
-- **状态管理**: Zustand
-- **样式**: Tailwind CSS
-- **存储**: electron-store
+## Tech Stack
 
-## 快速开始
+- Desktop runtime: Electron
+- UI: React + TypeScript
+- Build: Vite
+- Terminal: xterm.js
+- SSH/SFTP: ssh2
+- State management: Zustand
+- Styling: Tailwind CSS
+- Storage: electron-store
 
-### 安装依赖
+## Getting Started
+
+Install dependencies:
 
 ```bash
-cd ai-ssh-client
 npm install
 ```
 
-### 开发模式
+Start the development app:
 
 ```bash
 npm run dev
 ```
 
-### 构建
+Build the app:
 
 ```bash
 npm run build
 ```
 
-## 使用说明
+Package a Windows build:
 
-### 1. 配置 SSH 连接
-
-- 点击左侧面板的"新建连接"
-- 填写连接信息（主机、端口、用户名、密码或私钥）
-- 私钥可通过点击按钮选择文件导入
-- 保存后点击"连接"
-
-### 2. 配置 AI 供应商
-
-- 点击右上角的设置图标
-- 添加 AI 供应商（支持 OpenAI 兼容接口）
-- 填写 API Key、API 地址、模型名称
-- 设为激活状态
-
-### 3. 使用 AI 助手
-
-- 在右侧面板输入自然语言需求，例如：
-  - "查看当前目录"
-  - "创建一个 test 文件夹"
-  - "查看 nginx 状态"
-- AI 会生成对应的 Linux 命令
-- 点击"执行命令"按钮
-- 在确认弹窗中审查命令，确认后执行
-
-## 项目结构
-
+```bash
+npm run dist:win
 ```
+
+Create a portable Windows build:
+
+```bash
+npm run dist:portable
+```
+
+## Usage
+
+1. Create an SSH connection from the connection menu.
+2. Enter host, port, username, and either password or private-key credentials.
+3. Connect to open a terminal tab.
+4. Configure an AI provider from the AI panel settings.
+5. Ask the assistant for Linux command help, or use agent mode to execute a task through guarded command steps.
+6. Use the transfer button when connected to browse remote files through SFTP.
+
+## Project Structure
+
+```text
 ai-ssh-client/
 ├── src/
-│   ├── main/              # Electron 主进程
-│   │   ├── ai/           # AI 供应商管理
-│   │   ├── ipc/          # IPC 通信处理
-│   │   ├── ssh/          # SSH 连接管理
-│   │   ├── storage/      # 数据存储
-│   │   ├── index.ts      # 主进程入口
-│   │   └── preload.ts    # 预加载脚本
-│   ├── renderer/          # React 渲染进程
-│   │   ├── components/   # UI 组件
-│   │   ├── store/        # 状态管理
-│   │   ├── hooks/        # 自定义 Hooks
-│   │   ├── App.tsx       # 主应用
-│   │   └── main.tsx      # 渲染入口
-│   └── shared/            # 共享代码（类型、常量）
-├── docs/                  # 文档
+│   ├── main/             # Electron main process
+│   │   ├── ai/           # AI provider management
+│   │   ├── ipc/          # IPC handlers
+│   │   ├── security/     # Command policy and guard logic
+│   │   ├── ssh/          # SSH and SFTP connection management
+│   │   ├── storage/      # Settings and secret storage
+│   │   ├── index.ts      # Main process entry
+│   │   └── preload.ts    # Preload bridge exposed to renderer
+│   ├── renderer/         # React renderer process
+│   │   ├── components/   # UI components
+│   │   ├── hooks/        # Renderer hooks
+│   │   ├── store/        # Zustand stores
+│   │   ├── App.tsx       # Main workspace UI
+│   │   └── main.tsx      # Renderer entry
+│   └── shared/           # Shared types, constants, and IPC contracts
+├── docs/                 # Project notes and analysis docs
 ├── package.json
-├── tsconfig.json
 ├── vite.config.ts
 └── tailwind.config.js
 ```
 
-## 快捷键
+## Scripts
 
-| 快捷键 | 功能 |
-|--------|------|
-| Ctrl+F | 搜索终端内容 |
-| Ctrl++ | 放大字体 |
-| Ctrl+- | 缩小字体 |
-| F11 | 切换全屏 |
-| Escape | 关闭搜索框 |
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start Vite and Electron in development mode. |
+| `npm run build` | Build main and renderer bundles. |
+| `npm run preview` | Preview the renderer bundle. |
+| `npm run pack` | Build and package an unpacked Electron app. |
+| `npm run dist` | Build distributable packages. |
+| `npm run dist:win` | Build Windows distributables. |
+| `npm run dist:portable` | Build a Windows portable executable. |
 
-## 危险命令检测
+## Keyboard Shortcuts
 
-系统会自动检测以下类型的命令并给出风险提示：
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+F` | Search terminal output. |
+| `Ctrl++` | Increase terminal font size. |
+| `Ctrl+-` | Decrease terminal font size. |
+| `Esc` | Close terminal search or autocomplete. |
 
-- **极度危险**: rm -rf, mkfs, dd if=, fork 炸弹等
-- **高风险**: rm -r, dd, chmod 777, format 等
-- **中等风险**: rm, mv, cp, chmod, kill 等
-- **安全**: 普通查看、导航命令
+## Data and Backups
 
-## 数据备份
+Connection metadata, settings, quick commands, and AI provider metadata are stored locally through `electron-store`. Sensitive SSH and AI secrets are stored in separate secret stores. Use the import/export tools in settings to back up or restore portable configuration data.
 
-通过设置中的"导入/导出"功能可以：
-
-- **导出**: 将所有配置（连接、AI供应商、快速命令等）导出为 JSON 文件
-- **导入-覆盖**: 用备份文件替换所有配置
-- **导入-合并**: 将备份中的新配置添加到现有配置中
-
-## 许可证
+## License
 
 MIT

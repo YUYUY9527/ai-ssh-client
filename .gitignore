@@ -37,10 +37,14 @@ pnpm-debug.log*
 *.tsbuildinfo
 
 # Local agent/tool state
+.omx/
 .claude/
 .claw/
 .workbuddy/
 .clawd-todos.json
+
+# Local development diagnostics
+dev-*.log
 
 # Packaging artifacts
 *.exe
