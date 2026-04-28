@@ -56,8 +56,8 @@ export function useSshEventBindings(options: UseSshEventBindingsOptions = {}) {
       // 延迟 2 秒后检查连接状态，给网络恢复一些时间
       setTimeout(async () => {
         const result = await window.electronAPI?.sshGetSessions();
-        if (result?.success && result.sessions) {
-          const activeSessions = new Set(result.sessions.map((s: any) => s.connectionId));
+        if (result?.success && result.data?.sessions) {
+          const activeSessions = new Set(result.data.sessions.map((s: any) => s.connectionId));
           // 通知上层检查所有已连接的 tab
           console.log('[SSH Events] Active sessions after resume:', activeSessions);
         }
@@ -75,8 +75,8 @@ export function useSshEventBindings(options: UseSshEventBindingsOptions = {}) {
   // 返回一个检查会话状态的方法
   const checkSessions = useCallback(async () => {
     const result = await window.electronAPI?.sshGetSessions();
-    if (result?.success && result.sessions) {
-      return result.sessions;
+    if (result?.success && result.data?.sessions) {
+      return result.data.sessions;
     }
     return [];
   }, []);
@@ -96,8 +96,8 @@ export async function checkConnectionsAfterResume(
   
   setTimeout(async () => {
     const result = await window.electronAPI?.sshGetSessions();
-    if (result?.success && result.sessions) {
-      const activeSessions = new Set(result.sessions.map((s: any) => s.connectionId));
+    if (result?.success && result.data?.sessions) {
+      const activeSessions = new Set(result.data.sessions.map((s: any) => s.connectionId));
       // 检查所有已连接的 tab，如果 SSH session 不在了就标记为断开
       onUpdateTabs(prev => prev.map(tab => {
         if (tab.isConnected && !activeSessions.has(tab.id)) {

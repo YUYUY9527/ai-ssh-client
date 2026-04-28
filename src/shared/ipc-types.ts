@@ -100,6 +100,10 @@ export interface FileSelectResult {
   fileName: string;
 }
 
+export interface PrivateKeyFileResult {
+  content: string;
+}
+
 export interface ImportIssue {
   scope: 'root' | 'connection' | 'provider' | 'settings' | 'command-history' | 'quick-command' | 'quick-command-group';
   index?: number;

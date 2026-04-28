@@ -41,7 +41,7 @@ export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
         });
       }
 
-      return { success: true, sessionId };
+      return { success: true, data: { sessionId } };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
@@ -103,7 +103,7 @@ export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle(IPC_CHANNELS.SSH_GET_SESSIONS, async () => {
     const states = sshManager.getSessionStates();
-    return { success: true, sessions: states };
+    return { success: true, data: { sessions: states } };
   });
 
   ipcMain.handle(IPC_CHANNELS.SSH_TEST_CONNECTION, async (_event, connection: SSHConnection) => {
@@ -128,7 +128,7 @@ export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(IPC_CHANNELS.SFTP_LIST_DIRECTORY, async (_event, connectionId: string, remotePath: string) => {
     try {
       const files = await sshManager.listDirectory(connectionId, remotePath || '/');
-      return { success: true, files };
+      return { success: true, data: { files } };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
@@ -149,7 +149,7 @@ export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
       }
 
       await sshManager.downloadFile(connectionId, remotePath, result.filePath);
-      return { success: true, localPath: result.filePath };
+      return { success: true, data: { localPath: result.filePath } };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
@@ -170,7 +170,7 @@ export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
       };
 
       await sshManager.uploadFile(connectionId, localPath, remotePath, sendProgress);
-      return { success: true, remotePath };
+      return { success: true, data: { remotePath } };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }

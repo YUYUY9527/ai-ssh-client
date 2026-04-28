@@ -74,8 +74,8 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
     try {
       if (window.electronAPI) {
         const result = await window.electronAPI.listDirectory(connectionId, path);
-        if (result.success) {
-          setFiles(result.files);
+        if (result.success && result.data) {
+          setFiles(result.data.files);
           setCurrentPath(path);
         } else {
           setError(result.error || '加载目录失败');
@@ -209,10 +209,10 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
         title: '选择要上传的文件',
         properties: ['openFile'],
       });
-      if (result.canceled || !result.filePath) {
+      if (!result.success || result.data?.canceled || !result.data?.filePath) {
         return;
       }
-      selectedPath = result.filePath;
+      selectedPath = result.data.filePath;
     }
 
     if (!selectedPath) {

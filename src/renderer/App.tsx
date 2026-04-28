@@ -428,8 +428,8 @@ function App() {
       }
       resumeCheckTimeoutRef.current = setTimeout(async () => {
         const result = await window.electronAPI?.sshGetSessions();
-        if (result?.success && result.sessions) {
-          const activeSessions = new Set(result.sessions.map((s: any) => s.connectionId));
+        if (result?.success && result.data?.sessions) {
+          const activeSessions = new Set(result.data.sessions.map((s: any) => s.connectionId));
           setOpenTabs(prev => prev.map(tab => {
             if (tab.isConnected && !activeSessions.has(tab.id)) {
               return { ...tab, isConnected: false, isConnecting: false };

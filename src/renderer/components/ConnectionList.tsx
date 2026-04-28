@@ -128,10 +128,10 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       ],
     });
 
-    if (result.success && result.filePath) {
-      const contentResult = await window.electronAPI.invoke('read-file', result.filePath);
-      if (contentResult.success && contentResult.content) {
-        setFormData(prev => ({ ...prev, privateKey: contentResult.content }));
+    if (result.success && result.data?.filePath) {
+      const contentResult = await window.electronAPI.readPrivateKeyFile(result.data.filePath);
+      if (contentResult.success && contentResult.data?.content) {
+        setFormData(prev => ({ ...prev, privateKey: contentResult.data.content }));
       }
     }
   };

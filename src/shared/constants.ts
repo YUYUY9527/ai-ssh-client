@@ -50,6 +50,7 @@ export const IPC_CHANNELS = {
 
   // 文件选择
   SELECT_FILE: 'select-file',
+  READ_PRIVATE_KEY_FILE: 'read-private-key-file',
 
   // SFTP 文件传输
   SFTP_LIST_DIRECTORY: 'sftp-list-directory',

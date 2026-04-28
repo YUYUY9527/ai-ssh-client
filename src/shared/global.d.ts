@@ -22,6 +22,7 @@ import type {
   QuickCommandGroupsResult,
   SettingsResult,
   FileSelectResult,
+  PrivateKeyFileResult,
   DirectoryListResult,
   FileDownloadResult,
   FileUploadResult,
@@ -79,6 +80,7 @@ declare global {
       importData: (data: any, options?: { merge?: boolean }) => Promise<IPCResult>;
 
       selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<IPCResult<FileSelectResult>>;
+      readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;
 
       listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult<any>>>;
       downloadFile: (connectionId: string, remotePath: string) => Promise<IPCResult<FileDownloadResult>>;
@@ -95,8 +97,6 @@ declare global {
       onAgentCommandApproval: (callback: (data: { approved: boolean; command: any }) => void) => () => void;
 
       onSystemResume: (callback: (data: { timestamp: number }) => void) => () => void;
-
-      invoke: (channel: string, ...args: any[]) => Promise<any>;
     };
   }
 }

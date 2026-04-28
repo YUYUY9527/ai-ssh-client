@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import type { ClientChannel } from 'ssh2';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { sshManager } from '../ssh/connection-manager';
+import { checkCommandGuard, logCommandExecution } from '../security';
 
 // 全局智能体状态
 interface AgentState {
@@ -101,6 +102,18 @@ export function setupAgentIpcHandlers(mainWindow: BrowserWindow) {
       if (!session?.shell) {
         return { success: false, error: 'Session not found' };
       }
+
+      const guardResult = checkCommandGuard(command);
+      if (!guardResult.allowed) {
+        console.warn(`[AGENT_EXECUTE_COMMAND] Blocked dangerous command: ${command.substring(0, 50)}...`);
+        return {
+          success: false,
+          error: guardResult.reason || '命令被安全策略阻止',
+          riskLevel: guardResult.riskLevel,
+        };
+      }
+
+      logCommandExecution(connectionId, command, guardResult.riskLevel);
       
       // 执行命令（添加换行符）
       sshManager.executeCommand(connectionId, command + '\n');

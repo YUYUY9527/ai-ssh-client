@@ -1,5 +1,6 @@
 import { Client, ClientChannel } from 'ssh2';
 import type { SSHConnection, SSHSessionState, SFTPFileInfo } from '../../shared/types';
+import { getSettings } from '../storage/settings-storage';
 
 interface SSHSession {
   client: Client;
@@ -17,10 +18,21 @@ export class SSHConnectionManager {
   private sessions: Map<string, SSHSession> = new Map();
   private keepaliveInterval: number = 60000;
 
+  private getConnectionSettings() {
+    const settings = getSettings();
+    return {
+      keepaliveIntervalMs: Math.max(0, settings.keepaliveInterval || 0) * 1000,
+      keepaliveCountMax: Math.max(1, settings.keepaliveCountMax || 3),
+      autoReconnect: settings.autoReconnect !== false,
+      maxReconnectAttempts: Math.max(1, settings.maxReconnectAttempts || 5),
+    };
+  }
+
   async connect(connection: SSHConnection, onStateChange?: (state: SSHSessionState) => void, cols: number = 80, rows: number = 24): Promise<string> {
     return new Promise((resolve, reject) => {
       const client = new Client();
       const sessionId = connection.id;
+      const connectionSettings = this.getConnectionSettings();
 
       // 如果已有该会话，先断开
       if (this.sessions.has(sessionId)) {
@@ -39,8 +51,8 @@ export class SSHConnectionManager {
         port: connection.port,
         username: connection.username,
         readyTimeout: 30000,
-        keepaliveInterval: this.keepaliveInterval,
-        keepaliveCountMax: 3,
+        keepaliveInterval: connectionSettings.keepaliveIntervalMs,
+        keepaliveCountMax: connectionSettings.keepaliveCountMax,
       };
 
       if (connection.privateKey) {
@@ -120,7 +132,19 @@ export class SSHConnectionManager {
       return false;
     }
 
-    if (session.reconnectAttempts >= 5) {
+    const connectionSettings = this.getConnectionSettings();
+    if (!connectionSettings.autoReconnect) {
+      onStateChange?.({
+        connectionId,
+        isConnected: false,
+        isConnecting: false,
+        reconnectAttempts: session.reconnectAttempts,
+        lastError: 'Auto reconnect disabled',
+      });
+      return false;
+    }
+
+    if (session.reconnectAttempts >= connectionSettings.maxReconnectAttempts) {
       console.error(`Max reconnect attempts reached for ${connectionId}`);
       onStateChange?.({
         connectionId,

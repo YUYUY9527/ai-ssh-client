@@ -1,5 +1,4 @@
 import { ipcMain, Notification, BrowserWindow } from 'electron';
-import { readFile } from 'fs/promises';
 import { IPC_CHANNELS } from '../../shared/constants';
 import {
   getSettings,
@@ -299,7 +298,7 @@ export function setupSettingsIpcHandlers(getMainWindow?: () => BrowserWindow | n
       const data: ImportPayload = {
         version: '1.3.0',
         exportDate: new Date().toISOString(),
-        connections: connectionStorage.getConnections(),
+        connections: connectionStorage.getExportConnections(),
         aiProviders: providerConfigs,
         settings: getSettings(),
         commandHistory: getCommandHistory(),
@@ -383,15 +382,6 @@ export function setupSettingsIpcHandlers(getMainWindow?: () => BrowserWindow | n
       });
 
       return { success: true, data: { imported, skipped } };
-    } catch (error) {
-      return { success: false, error: (error as Error).message };
-    }
-  });
-
-  ipcMain.handle('read-file', async (_event, filePath: string): Promise<IPCResult<{ content: string }>> => {
-    try {
-      const content = await readFile(filePath, 'utf-8');
-      return { success: true, data: { content } };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }

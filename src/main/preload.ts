@@ -1,52 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-const IPC_CHANNELS = {
-  SSH_CONNECT: 'ssh-connect',
-  SSH_DISCONNECT: 'ssh-disconnect',
-  SSH_EXECUTE: 'ssh-execute',
-  SSH_EXECUTE_SYNC: 'ssh-execute-sync',
-  SSH_DATA: 'ssh-data',
-  SSH_ERROR: 'ssh-error',
-  SSH_CLOSE: 'ssh-close',
-  SSH_GET_SESSIONS: 'ssh-get-sessions',
-  SSH_RECONNECT: 'ssh-reconnect',
-  SSH_TEST_CONNECTION: 'ssh-test-connection',
-  SSH_RESIZE: 'ssh-resize',
-  AI_CHAT: 'ai-chat',
-  AI_CANCEL_CHAT: 'ai-cancel-chat',
-  AI_GET_PROVIDERS: 'ai-get-providers',
-  AI_SAVE_PROVIDER: 'ai-save-provider',
-  AI_DELETE_PROVIDER: 'ai-delete-provider',
-  AI_TEST_PROVIDER: 'ai-test-provider',
-  AI_SET_ACTIVE_PROVIDER: 'ai-set-active-provider',
-  AI_GET_PROVIDER_SECRET_STATUS: 'ai-get-provider-secret-status',
-  GET_CONNECTIONS: 'get-connections',
-  SAVE_CONNECTION: 'save-connection',
-  DELETE_CONNECTION: 'delete-connection',
-  GET_COMMAND_HISTORY: 'get-command-history',
-  ADD_COMMAND_HISTORY: 'add-command-history',
-  CLEAR_COMMAND_HISTORY: 'clear-command-history',
-  GET_QUICK_COMMANDS: 'get-quick-commands',
-  SAVE_QUICK_COMMAND: 'save-quick-command',
-  DELETE_QUICK_COMMAND: 'delete-quick-command',
-  GET_QUICK_COMMAND_GROUPS: 'get-quick-command-groups',
-  SAVE_QUICK_COMMAND_GROUP: 'save-quick-command-group',
-  DELETE_QUICK_COMMAND_GROUP: 'delete-quick-command-group',
-  GET_SETTINGS: 'get-settings',
-  SAVE_SETTINGS: 'save-settings',
-  SHOW_SYSTEM_NOTIFICATION: 'show-system-notification',
-  SELECT_FILE: 'select-file',
-  SFTP_LIST_DIRECTORY: 'sftp-list-directory',
-  SFTP_DOWNLOAD_FILE: 'sftp-download-file',
-  SFTP_UPLOAD_FILE: 'sftp-upload-file',
-  AGENT_START_TASK: 'agent-start-task',
-  AGENT_STOP_TASK: 'agent-stop-task',
-  AGENT_PAUSE_TASK: 'agent-pause-task',
-  AGENT_RESUME_TASK: 'agent-resume-task',
-  AGENT_EXECUTE_COMMAND: 'agent-execute-command',
-  AGENT_TERMINAL_OUTPUT: 'agent-terminal-output',
-  AGENT_COMMAND_APPROVAL: 'agent-command-approval',
-} as const;
-
+import { IPC_CHANNELS } from '../shared/constants';
 import type {
   SSHConnection,
   AIProviderConfig,
@@ -69,6 +22,7 @@ import type {
   QuickCommandGroupsResult,
   SettingsResult,
   FileSelectResult,
+  PrivateKeyFileResult,
   DirectoryListResult,
   FileDownloadResult,
   FileUploadResult,
@@ -181,8 +135,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }): Promise<IPCResult<FileSelectResult>> =>
     ipcRenderer.invoke(IPC_CHANNELS.SELECT_FILE, options || {}),
-
-  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+  readPrivateKeyFile: (filePath: string): Promise<IPCResult<PrivateKeyFileResult>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.READ_PRIVATE_KEY_FILE, filePath),
 
   listDirectory: (connectionId: string, remotePath: string): Promise<IPCResult<DirectoryListResult<any>>> =>
     ipcRenderer.invoke(IPC_CHANNELS.SFTP_LIST_DIRECTORY, connectionId, remotePath),

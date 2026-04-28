@@ -7,7 +7,7 @@ export function setupConnectionIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.GET_CONNECTIONS, async () => {
     try {
       const connections = connectionStorage.getConnections();
-      return { success: true, connections };
+      return { success: true, data: { connections } };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }

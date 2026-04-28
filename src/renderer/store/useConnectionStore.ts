@@ -50,8 +50,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   loadConnections: async () => {
     if (!window.electronAPI) return;
     const result = await window.electronAPI.getConnections();
-    if (result.success) {
-      set({ connections: result.connections });
+    if (result.success && result.data) {
+      set({ connections: result.data.connections });
     }
   },
 
