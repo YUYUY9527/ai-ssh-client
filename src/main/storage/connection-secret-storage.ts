@@ -78,7 +78,14 @@ export class ConnectionSecretStorage {
     for (const key of ['password', 'privateKey', 'passphrase'] as const) {
       const rawValue = rawSecrets[key];
       if (rawValue) {
-        secrets[key] = this.unprotectString(rawValue);
+        try {
+          secrets[key] = this.unprotectString(rawValue);
+        } catch (error) {
+          console.warn(
+            `[ConnectionSecretStorage] Unable to decrypt ${key} for connection ${connectionId}. The field will be treated as empty.`,
+            error instanceof Error ? error.message : error
+          );
+        }
       }
     }
 

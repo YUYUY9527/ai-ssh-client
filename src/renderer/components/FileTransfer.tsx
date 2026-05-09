@@ -94,7 +94,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
   // 获取文件图标
   const getFileIcon = (file: FileItem) => {
-    if (file.isDirectory) return <Folder className="w-5 h-5 text-blue-400" />;
+    if (file.isDirectory) return <Folder className="w-5 h-5 text-teal-400" />;
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext || '')) {
       return <Image className="w-5 h-5 text-purple-400" />;
@@ -316,40 +316,40 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 w-full max-w-4xl max-h-[80vh] flex flex-col">
+      <div className="industrial-modal w-full max-w-4xl max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <div className="industrial-modal-header">
           <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-            <Folder className="w-5 h-5 text-blue-500" />
+            <Folder className="w-5 h-5 text-teal-500" />
             文件传输 - SFTP
           </h2>
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded"
+            className="icon-button"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Toolbar */}
-        <div className="p-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+        <div className="p-3 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] flex items-center gap-2 bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))]">
           <button
             onClick={goHome}
-            className="p-1.5 text-slate-500 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+            className="icon-button"
             title="家目录"
           >
             <Home className="w-4 h-4" />
           </button>
           <button
             onClick={goUp}
-            className="p-1.5 text-slate-500 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+            className="icon-button"
             title="上级目录"
           >
             <ChevronRight className="w-4 h-4 rotate-180" />
           </button>
           <button
             onClick={() => loadDirectory(currentPath)}
-            className="p-1.5 text-slate-500 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+            className="icon-button"
             title="刷新"
           >
             <RefreshCw className="w-4 h-4" />
@@ -364,13 +364,13 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
                 loadDirectory(currentPath);
               }
             }}
-            className="flex-1 px-2 py-1 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+            className="industrial-input flex-1 py-1"
             placeholder="输入路径后按回车跳转..."
           />
           <div className="flex-1" />
           <button
             onClick={() => handleUpload()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm transition-colors"
+            className="industrial-button-primary px-3 py-1.5"
           >
             <Upload className="w-4 h-4" />
             上传
@@ -378,10 +378,10 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
         </div>
 
         {/* Path Breadcrumb */}
-        <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex items-center gap-1 text-sm overflow-x-auto">
+        <div className="px-3 py-2 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_66%,var(--bg-secondary))] flex items-center gap-1 text-sm overflow-x-auto">
           <button
             onClick={() => navigateTo('/')}
-            className="text-slate-500 hover:text-blue-500 whitespace-nowrap"
+            className="text-slate-500 hover:text-teal-500 whitespace-nowrap"
           >
             /
           </button>
@@ -390,7 +390,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
               <ChevronRight className="w-3 h-3 text-slate-400 mx-0.5" />
               <button
                 onClick={() => navigateTo('/' + pathParts.slice(0, index + 1).join('/'))}
-                className="text-slate-500 hover:text-blue-500 whitespace-nowrap"
+                className="text-slate-500 hover:text-teal-500 whitespace-nowrap"
               >
                 {part}
               </button>
@@ -403,11 +403,11 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
           {/* File List */}
           <div
             ref={dropZoneRef}
-            className={`file-transfer-scroll flex-1 overflow-y-auto p-2 ${isDragOver ? 'bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-500 ring-inset' : ''}`}
+            className={`file-transfer-scroll relative flex-1 overflow-y-auto p-2 ${isDragOver ? 'bg-teal-50 dark:bg-teal-900/20 ring-2 ring-teal-500 ring-inset' : ''}`}
           >
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
               </div>
             ) : error ? (
               <div className="flex items-center justify-center h-full text-red-500">
@@ -423,7 +423,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
             ) : (
               <div className="space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 px-3 py-1 text-xs text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-slate-700">
+                <div className="industrial-table-head grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3">
                   <div>名称</div>
                   <div>类型</div>
                   <div className="text-right">大小</div>
@@ -435,7 +435,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
                     key={index}
                     onClick={() => file.isDirectory ? navigateTo(file.path) : setSelectedFile(file)}
                     onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
-                    className="grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer transition-colors group"
+                    className="grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 px-3 py-2 hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)] rounded-sm cursor-pointer transition-colors group"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       {getFileIcon(file)}
@@ -457,7 +457,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
                             e.stopPropagation();
                             handleDownload(file);
                           }}
-                          className="p-1 text-blue-500 hover:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded transition-colors"
+                          className="icon-button h-7 w-7 text-teal-500"
                           title="下载"
                         >
                           <Download className="w-4 h-4" />
@@ -471,25 +471,25 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
             {/* Drag overlay */}
             {isDragOver && (
-              <div className="absolute inset-0 flex items-center justify-center bg-blue-500/20 border-2 border-dashed border-blue-500 rounded-lg pointer-events-none">
-                <div className="text-blue-500 font-medium">释放后将弹出文件选择对话框</div>
+              <div className="absolute inset-0 flex items-center justify-center bg-teal-500/20 border-2 border-dashed border-teal-500 rounded-sm pointer-events-none">
+                <div className="text-teal-500 font-medium">释放后将弹出文件选择对话框</div>
               </div>
             )}
           </div>
 
           {/* Transfer Tasks Sidebar */}
           {transferTasks.length > 0 && (
-            <div className="file-transfer-scroll w-64 border-l border-slate-200 dark:border-slate-700 overflow-y-auto">
-              <div className="p-3 border-b border-slate-200 dark:border-slate-700">
+            <div className="file-transfer-scroll w-64 border-l border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] overflow-y-auto bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
+              <div className="p-3 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]">
                 <h3 className="text-sm font-medium text-slate-900 dark:text-white">传输任务</h3>
               </div>
               <div className="p-2 space-y-2">
                 {transferTasks.map(task => (
-                  <div key={task.id} className="p-2 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                  <div key={task.id} className="industrial-card p-2">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5 min-w-0">
                         {task.type === 'upload' ? (
-                          <Upload className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                          <Upload className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
                         ) : (
                           <Download className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
                         )}
@@ -499,16 +499,16 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
                       </div>
                       <button
                         onClick={() => removeTask(task.id)}
-                        className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                        className="icon-button h-6 w-6"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
                       {task.status === 'transferring' && (
-                        <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-sm overflow-hidden">
                           <div
-                            className="h-full bg-blue-500 rounded-full transition-all"
+                            className="h-full bg-teal-500 rounded-sm transition-all"
                             style={{ width: `${task.progress}%` }}
                           />
                         </div>
@@ -528,7 +528,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+        <div className="p-3 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between bg-[color-mix(in_srgb,var(--bg-primary)_56%,var(--bg-secondary))]">
           <span>{files.length} 个项目</span>
           <span>SFTP 传输</span>
         </div>

@@ -9,6 +9,22 @@ import { useTheme } from '../hooks/useTheme';
 import type { CommandHistoryItem, QuickCommand, AppSettings } from '../../shared/types';
 
 const XTERM_SCROLLBACK_LINES = 10000;
+const MIN_TERMINAL_FONT_SIZE = 10;
+const MAX_TERMINAL_FONT_SIZE = 24;
+const DEFAULT_TERMINAL_FONT_FAMILY = 'JetBrains Mono, Source Code Pro, Consolas, monospace';
+
+function clampTerminalFontSize(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 14;
+  }
+
+  return Math.min(Math.max(Math.round(value ?? 14), MIN_TERMINAL_FONT_SIZE), MAX_TERMINAL_FONT_SIZE);
+}
+
+function getTerminalFontFamily(value: string | undefined): string {
+  const normalized = value?.trim();
+  return normalized || DEFAULT_TERMINAL_FONT_FAMILY;
+}
 
 // 右键菜单组件
 function ContextMenu({
@@ -71,34 +87,34 @@ function ContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 min-w-[160px]"
+      className="app-popover fixed top-auto mt-0 py-1 min-w-[160px]"
       style={{ left: position.x, top: position.y }}
     >
       <button
         onClick={(e) => { e.stopPropagation(); onCopy(); }}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
       >
         <Copy className="w-4 h-4" />
         复制
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onPaste(); }}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
       >
         <Clipboard className="w-4 h-4" />
         粘贴
       </button>
-      <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+      <div className="border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] my-1" />
       <button
         onClick={(e) => { e.stopPropagation(); onPasteToInput(); }}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
       >
         <Edit3 className="w-4 h-4" />
         粘贴到终端输入栏
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onPasteToAI(); }}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
       >
         <Edit3 className="w-4 h-4" />
         粘贴到AI助手
@@ -599,48 +615,48 @@ interface TerminalProps {
 // 终端主题配置 - 扩展多个预设
 export const TERMINAL_THEMES: Record<string, any> = {
   dark: {
-    background: '#020617',
-    foreground: '#F8FAFC',
-    cursor: '#3B82F6',
-    selectionBackground: '#1E40AF',
-    black: '#0F172A',
-    red: '#EF4444',
-    green: '#10B981',
-    yellow: '#F59E0B',
-    blue: '#3B82F6',
-    magenta: '#EC4899',
-    cyan: '#06B6D4',
-    white: '#CBD5E1',
-    brightBlack: '#475569',
-    brightRed: '#F87171',
-    brightGreen: '#34D399',
-    brightYellow: '#FBBF24',
-    brightBlue: '#60A5FA',
-    brightMagenta: '#F472B6',
-    brightCyan: '#22D3EE',
-    brightWhite: '#F8FAFC',
+    background: '#060b10',
+    foreground: '#e7ece7',
+    cursor: '#14b8a6',
+    selectionBackground: '#0d3b38',
+    black: '#0c1319',
+    red: '#f87171',
+    green: '#34d399',
+    yellow: '#fbbf24',
+    blue: '#60a5fa',
+    magenta: '#f472b6',
+    cyan: '#2dd4bf',
+    white: '#cdd6cf',
+    brightBlack: '#5e6b69',
+    brightRed: '#fca5a5',
+    brightGreen: '#6ee7b7',
+    brightYellow: '#fcd34d',
+    brightBlue: '#93c5fd',
+    brightMagenta: '#f9a8d4',
+    brightCyan: '#5eead4',
+    brightWhite: '#f5f7f2',
   },
   light: {
-    background: '#F8FAFC',
-    foreground: '#0F172A',
-    cursor: '#2563EB',
-    selectionBackground: '#DBEAFE',
-    black: '#1E293B',
-    red: '#DC2626',
-    green: '#059669',
-    yellow: '#D97706',
-    blue: '#2563EB',
-    magenta: '#DB2777',
-    cyan: '#0891B2',
-    white: '#E2E8F0',
-    brightBlack: '#64748B',
-    brightRed: '#F87171',
-    brightGreen: '#34D399',
-    brightYellow: '#FBBF24',
-    brightBlue: '#3B82F6',
-    brightMagenta: '#F472B6',
-    brightCyan: '#22D3EE',
-    brightWhite: '#0F172A',
+    background: '#f6f2e8',
+    foreground: '#1f2a27',
+    cursor: '#0f766e',
+    selectionBackground: '#bfe3de',
+    black: '#1f2a27',
+    red: '#dc2626',
+    green: '#0f766e',
+    yellow: '#b45309',
+    blue: '#1d4ed8',
+    magenta: '#be185d',
+    cyan: '#0f766e',
+    white: '#d9d2c3',
+    brightBlack: '#6b776f',
+    brightRed: '#ef4444',
+    brightGreen: '#14b8a6',
+    brightYellow: '#d97706',
+    brightBlue: '#2563eb',
+    brightMagenta: '#db2777',
+    brightCyan: '#14b8a6',
+    brightWhite: '#111827',
   },
   // 额外主题
   monokai: {
@@ -829,7 +845,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [fontSize, setFontSize] = useState(14);
+  const [fontSize, setFontSize] = useState(() => clampTerminalFontSize(settings?.fontSize));
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const [terminalTheme, setTerminalTheme] = useState(settings?.terminalTheme || 'dark');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -837,6 +853,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
   const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const initTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isAlternateScreenRef = useRef(false);
   
   // 如果没有传入 theme，则使用 useTheme hook
   const { theme: hookTheme } = useTheme();
@@ -861,6 +878,18 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       window.electronAPI.sshResize(connectionId, cols, rows);
     }
   }, [connectionId]);
+
+  const syncAlternateScreenState = useCallback(() => {
+    const isAlternateScreen = xtermRef.current?.buffer.active.type === 'alternate';
+    if (isAlternateScreenRef.current !== isAlternateScreen) {
+      isAlternateScreenRef.current = isAlternateScreen;
+      if (isAlternateScreen) {
+        currentInputRef.current = '';
+        setShowAutocomplete(false);
+      }
+    }
+    return isAlternateScreen;
+  }, []);
 
   // 加载命令历史和快速命令
   useEffect(() => {
@@ -962,6 +991,11 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       return;
     }
 
+    if (syncAlternateScreenState()) {
+      setShowAutocomplete(false);
+      return;
+    }
+
     const term = xtermRef.current;
     const currentInput = currentInputRef.current;
 
@@ -982,7 +1016,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
     // 4. 关闭补全提示
     setShowAutocomplete(false);
-  }, [connectionId]);
+  }, [connectionId, syncAlternateScreenState]);
 
   // 终端右键菜单
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -1084,6 +1118,15 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
   // 合并的全局键盘监听 - 处理自动补全、搜索、字体等
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isAlternateScreen = xtermRef.current?.buffer.active.type === 'alternate';
+      if (isAlternateScreen) {
+        isAlternateScreenRef.current = true;
+        if (showAutocomplete) {
+          setShowAutocomplete(false);
+        }
+        return;
+      }
+
       // 自动补全导航
       if (showAutocomplete) {
         if (e.key === 'ArrowDown') {
@@ -1121,11 +1164,11 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       }
       if (e.ctrlKey && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
-        setFontSize(prev => Math.min(prev + 2, 24));
+        setFontSize(prev => Math.min(prev + 2, MAX_TERMINAL_FONT_SIZE));
       }
       if (e.ctrlKey && e.key === '-') {
         e.preventDefault();
-        setFontSize(prev => Math.max(prev - 2, 10));
+        setFontSize(prev => Math.max(prev - 2, MIN_TERMINAL_FONT_SIZE));
       }
       if (e.key === 'Escape' && showSearch) {
         setShowSearch(false);
@@ -1142,6 +1185,12 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       setTerminalTheme(settings.terminalTheme);
     }
   }, [settings?.terminalTheme]);
+
+  // 当 settings 中的字体设置变化时，同步到终端
+  useEffect(() => {
+    const nextFontSize = clampTerminalFontSize(settings?.fontSize);
+    setFontSize(prev => (prev === nextFontSize ? prev : nextFontSize));
+  }, [settings?.fontSize]);
 
   // 更新终端主题
   const updateTerminalTheme = useCallback(() => {
@@ -1185,7 +1234,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
     const term = new XTerm({
       theme: TERMINAL_THEMES[terminalTheme],
-      fontFamily: 'JetBrains Mono, Source Code Pro, Consolas, monospace',
+      fontFamily: getTerminalFontFamily(settings?.fontFamily),
       fontSize: fontSize,
       lineHeight: 1.4,
       cursorBlink: true,
@@ -1256,6 +1305,11 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     term.write('\x1b[1;33m等待服务器响应...\x1b[0m\r\n\r\n');
     lastWrittenRef.current = '';
     currentInputRef.current = '';
+    isAlternateScreenRef.current = false;
+
+    const writeParsedDisposable = term.onWriteParsed(() => {
+      syncAlternateScreenState();
+    });
 
     // 设置 ResizeObserver 监听容器尺寸变化 - 添加防抖避免频繁触发
     resizeObserverRef.current = new ResizeObserver(() => {
@@ -1295,10 +1349,11 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
       }
+      writeParsedDisposable.dispose();
       term.dispose();
       xtermRef.current = null;
     };
-  }, [connectionId, resizeSSH]);
+  }, [connectionId, resizeSSH, syncAlternateScreenState]);
 
   // 将命令写入终端（用于从 AI 复制命令到终端输入）
   useEffect(() => {
@@ -1326,6 +1381,16 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     }
   }, [fontSize, resizeSSH]);
 
+  // 处理字体族变化
+  useEffect(() => {
+    if (xtermRef.current) {
+      xtermRef.current.options.fontFamily = getTerminalFontFamily(settings?.fontFamily);
+      fitAddonRef.current?.fit();
+      const { cols, rows } = xtermRef.current;
+      resizeSSH(cols, rows);
+    }
+  }, [settings?.fontFamily, resizeSSH]);
+
   // 监听 xterm 输入 - 简单、稳定的方式
   useEffect(() => {
     if (!xtermRef.current || !connectionId) {
@@ -1346,6 +1411,12 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       // 直接发送到 SSH - 使用同步 IPC 发送，不等待返回值
       if (connectionId && window.electronAPI) {
         window.electronAPI.sshExecuteSync(connectionId, data);
+      }
+
+      if (syncAlternateScreenState()) {
+        currentInputRef.current = '';
+        setShowAutocomplete(false);
+        return;
       }
 
       // 跟踪当前输入，仅用于显示补全
@@ -1473,21 +1544,21 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
   return (
     <div
-      className="relative flex-1 overflow-hidden bg-slate-100 dark:bg-slate-950"
+      className="terminal-shell"
       onContextMenu={handleContextMenu}
     >
       {/* Terminal Toolbar */}
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+      <div className="terminal-toolbar">
         <button
-          onClick={() => setFontSize(prev => Math.max(prev - 2, 10))}
+          onClick={() => setFontSize(prev => Math.max(prev - 2, MIN_TERMINAL_FONT_SIZE))}
           className="terminal-control"
           title="缩小 (Ctrl+-)"
         >
           <ZoomOut className="w-4 h-4" />
         </button>
-        <span className="text-xs text-slate-500 dark:text-slate-400 px-1">{fontSize}px</span>
+        <span className="terminal-toolbar-badge">{fontSize}px</span>
         <button
-          onClick={() => setFontSize(prev => Math.min(prev + 2, 24))}
+          onClick={() => setFontSize(prev => Math.min(prev + 2, MAX_TERMINAL_FONT_SIZE))}
           className="terminal-control"
           title="放大 (Ctrl++)"
         >
@@ -1519,15 +1590,15 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
                 <button
                   key={themeKey}
                   onClick={() => handleThemeChange(themeKey)}
-                  className={`w-full px-3 py-1.5 text-left text-sm transition-colors ${
+                  className={`app-popover-row text-sm ${
                     terminalTheme === themeKey
-                      ? 'bg-cyan-600 text-white'
+                      ? 'bg-teal-600 text-white'
                       : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <div
-                      className="w-4 h-4 rounded border border-slate-300 dark:border-slate-600"
+                      className="w-4 h-4 rounded-sm border border-slate-300 dark:border-slate-600"
                       style={{ background: TERMINAL_THEMES[themeKey].background }}
                     />
                     {THEME_NAMES[themeKey]}
@@ -1541,7 +1612,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
       {/* Search Bar */}
       {showSearch && (
-        <div className="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-md border border-slate-200 bg-white p-2 shadow-lg shadow-slate-950/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/30">
+        <div className="terminal-search-panel">
           <Search className="w-4 h-4 text-slate-500 dark:text-slate-400" />
           <input
             type="text"
@@ -1553,16 +1624,16 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
               }
             }}
             placeholder="搜索..."
-            className="bg-transparent border-none outline-none text-sm text-slate-900 dark:text-white w-48"
+            className="w-48 bg-transparent text-sm text-slate-900 outline-none dark:text-white"
             autoFocus
           />
-          <button onClick={handleSearchPrev} className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+          <button onClick={handleSearchPrev} className="icon-button h-7 w-7">
             ↑
           </button>
-          <button onClick={handleSearchNext} className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+          <button onClick={handleSearchNext} className="icon-button h-7 w-7">
             ↓
           </button>
-          <button onClick={() => { setShowSearch(false); setSearchQuery(''); }} className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+          <button onClick={() => { setShowSearch(false); setSearchQuery(''); }} className="icon-button h-7 w-7">
             ✕
           </button>
         </div>
@@ -1570,8 +1641,8 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
       {/* 自动补全提示 - 输入时自动展示 */}
       {settings?.showTerminalOutputPrompt !== false && showAutocomplete && autocompleteSuggestions.length > 0 && (
-        <div className="absolute bottom-6 left-1/2 z-20 min-w-[300px] max-w-[500px] -translate-x-1/2 overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl shadow-slate-950/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/40">
-          <div className="border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+        <div className="terminal-autocomplete-panel">
+          <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_74%,var(--bg-secondary))] px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400">
             输入时自动补全 - ↑↓ 选择 / Ctrl+E 应用 / Esc 关闭
           </div>
           {autocompleteSuggestions.map((suggestion, index) => (
@@ -1580,16 +1651,16 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
               onClick={(e) => { e.stopPropagation(); applyAutocomplete(suggestion.command); }}
               className={`w-full px-3 py-2 text-left flex items-center gap-3 transition-colors ${
                 index === autocompleteIndex
-                  ? 'bg-cyan-600 text-white'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
+                  ? 'bg-teal-600 text-white'
+                  : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)] text-slate-700 dark:text-slate-300'
               }`}
             >
               <TerminalIcon className={`w-4 h-4 flex-shrink-0 ${
-                index === autocompleteIndex ? 'text-cyan-100' : 'text-cyan-600 dark:text-cyan-300'
+                index === autocompleteIndex ? 'text-teal-100' : 'text-teal-600 dark:text-teal-300'
               }`} />
               <code className="flex-1 font-mono text-sm truncate">{suggestion.command}</code>
               <span className={`text-xs ${
-                index === autocompleteIndex ? 'text-cyan-100' : 'text-slate-400'
+                index === autocompleteIndex ? 'text-teal-100' : 'text-slate-400'
               }`}>{suggestion.description}</span>
             </button>
           ))}
@@ -1600,7 +1671,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       <div className="absolute inset-0 p-2">
         <div
           ref={terminalRef}
-          className="h-full w-full overflow-hidden rounded-md ring-1 ring-slate-200 dark:ring-slate-800"
+          className="terminal-frame"
           style={{
             cursor: 'text'
           }}

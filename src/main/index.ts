@@ -15,6 +15,14 @@ const APP_USER_MODEL_ID = 'com.aisshclient.app';
 // IPC 通道常量
 const DRAG_DROP_CHANNEL = 'drag-drop-files';
 
+function getAppIconPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'build', 'icon.ico');
+  }
+
+  return path.join(process.cwd(), 'build', 'icon.ico');
+}
+
 app.setName(APP_NAME);
 if (process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID);
@@ -60,6 +68,7 @@ function createWindow() {
     frame: true,
     titleBarStyle: 'default',
     autoHideMenuBar: true, // 默认隐藏菜单栏，按 Alt 显示
+    icon: getAppIconPath(),
     show: false,
     backgroundColor: settings.theme === 'light' ? '#F8FAFC' : '#020617',
   });

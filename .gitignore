@@ -6,6 +6,10 @@ node_modules/
 # Build outputs
 dist/
 build/
+!build/
+!build/icon.svg
+!build/icon-1024.png
+!build/icon.ico
 release/
 
 # IDE

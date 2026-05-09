@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="AI SSH Client">
+  <defs>
+    <linearGradient id="base" x1="42" y1="18" x2="214" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#12343a"/>
+      <stop offset="0.5" stop-color="#081016"/>
+      <stop offset="1" stop-color="#020609"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="42" y1="24" x2="214" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="0.58" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="96" y1="58" x2="168" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a7f3d0"/>
+      <stop offset="0.42" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.08 0 0 0 0 0.72 0 0 0 0 0.65 0 0 0 0.7 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect x="18" y="18" width="220" height="220" rx="44" fill="url(#base)"/>
+  <rect x="24" y="24" width="208" height="208" rx="38" fill="none" stroke="url(#edge)" stroke-width="8"/>
+  <path d="M61 78h69l23 50-23 50H61l26-50-26-50Z" fill="#0b1419" stroke="#2dd4bf" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M91 76l-25 52 25 52" fill="none" stroke="#f5f7f2" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M126 62l-21 66h39l-16 66 60-84h-42l20-48h-40Z" fill="url(#bolt)" filter="url(#glow)" stroke="#ccfbf1" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M66 202h94" stroke="#f97316" stroke-width="12" stroke-linecap="round"/>
+</svg>

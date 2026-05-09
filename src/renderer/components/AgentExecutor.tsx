@@ -187,6 +187,29 @@ const isLikelyLongRunningCommand = (command: string): boolean => {
     /\b(wget|curl)\b/,
     /\bscp\b/,
     /\brsync\b/,
+    /\bfind\s+\/\b/,
+    /\bfind\s+\S+\s+.*(-name|-type|-exec|-size|-mtime|-ctime|-atime)\b/,
+    /\bgrep\s+.*\s+\/\b/,
+    /\bgrep\s+.*\s+(-r|-R|--recursive)\b/,
+    /\bdu\s+.*\s+\/\b/,
+    /\bjournalctl\b/,
+  ];
+
+  return patterns.some((pattern) => pattern.test(normalized));
+};
+
+const shouldWaitForShellPrompt = (command: string): boolean => {
+  const normalized = command.toLowerCase();
+  const patterns = [
+    /\bfind\s+\/\b/,
+    /\bfind\s+\S+\s+.*(-name|-type|-exec|-size|-mtime|-ctime|-atime)\b/,
+    /\bgrep\s+.*\s+\/\b/,
+    /\bgrep\s+.*\s+(-r|-R|--recursive)\b/,
+    /\bdu\s+.*\s+\/\b/,
+    /\bjournalctl\b/,
+    /\btail\s+-f\b/,
+    /\btop\b/,
+    /\bhtop\b/,
   ];
 
   return patterns.some((pattern) => pattern.test(normalized));
@@ -479,13 +502,14 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
 
       const commandSentTime = Date.now();
       const isLongRunningCommand = isLikelyLongRunningCommand(command);
+      const mustWaitForPrompt = shouldWaitForShellPrompt(command);
 
       // 等待输出
       await new Promise<void>((resolve) => {
         let lastCheckLength = 0;
         let lastGrowTime = Date.now(); // 最后一次输出增长的时间
         const minWaitMs = isLongRunningCommand ? 10000 : 3000;
-        const maxWaitMs = isLongRunningCommand ? 300000 : 20000;
+        const maxWaitMs = mustWaitForPrompt ? 900000 : (isLongRunningCommand ? 300000 : 20000);
         const noGrowthTimeoutMs = isLongRunningCommand ? 15000 : 2000;
 
         const checkOutput = () => {
@@ -513,8 +537,8 @@ ${task.finishReason ? `结果：${task.finishReason}` : ''}`;
           // 1. 看到提示符且等待超过 1 秒且输出停止增长超过 1 秒
           // 2. 输出停止增长超过 2 秒且总时间超过最小等待时间且输出足够
           // 3. 达到最大等待时间
-          const canStopByPrompt = hasSeenPrompt && timeSinceLastGrowth > 1000;
-          const canStopByNoGrowth = !isLongRunningCommand
+          const canStopByPrompt = hasSeenPrompt && elapsed > minWaitMs && timeSinceLastGrowth > 1000;
+          const canStopByNoGrowth = !mustWaitForPrompt && !isLongRunningCommand
             && timeSinceLastGrowth > noGrowthTimeoutMs
             && elapsed > minWaitMs
             && hasEnoughOutput;

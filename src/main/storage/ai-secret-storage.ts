@@ -80,7 +80,16 @@ export class AISecretStorage {
     if (!raw) {
       return '';
     }
-    return this.unprotectString(raw);
+
+    try {
+      return this.unprotectString(raw);
+    } catch (error) {
+      console.warn(
+        `[AISecretStorage] Unable to decrypt API key for provider ${providerId}. The provider will be treated as missing an API key.`,
+        error instanceof Error ? error.message : error
+      );
+      return '';
+    }
   }
 
   getSecretStatus(providerId: string): { providerId: string; hasApiKey: boolean; maskedApiKey?: string } {

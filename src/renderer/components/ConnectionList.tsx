@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Server, MonitorPlay, Square, Search, Copy, RefreshCw, Globe, Key } from 'lucide-react';
+import { Plus, Trash2, Server, MonitorPlay, Square, Search, Copy, RefreshCw, Globe, Key, X } from 'lucide-react';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { SSHConnection } from '../../shared/types';
@@ -175,7 +175,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
   return (
     <div className="flex flex-col h-full">
       {/* Search */}
-      <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+      <div className="p-2 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] flex-shrink-0">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -183,7 +183,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="搜索连接..."
-            className="w-full pl-8 pr-2 py-1.5 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+            className="industrial-input w-full py-1.5 pl-8 pr-2"
           />
         </div>
       </div>
@@ -192,7 +192,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       <div className="p-2 flex-shrink-0">
         <button
           onClick={handleAddConnection}
-          className="flex items-center gap-2 w-full p-2 text-sm bg-blue-600 hover:bg-blue-500 rounded transition-colors text-white"
+          className="industrial-button-primary w-full p-2"
         >
           <Plus className="w-4 h-4" />
           新建连接
@@ -212,10 +212,10 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
             <div
               key={connection.id}
               onContextMenu={(e) => handleContextMenu(e, connection)}
-              className={`p-2 mb-1 rounded border transition-colors ${
+              className={`p-2 mb-1 rounded-sm border transition-colors ${
                 activeConnectionId === connection.id
-                  ? 'border-blue-500 bg-blue-500/10'
-                  : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'
+                  ? 'border-teal-500 bg-teal-500/10'
+                  : 'border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_68%,var(--bg-secondary))] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
               }`}
             >
               <div className="flex items-start justify-between">
@@ -240,7 +240,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 {activeConnectionId === connection.id ? (
                   <button
                     onClick={() => handleDisconnect(connection.id)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-500 rounded transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-500 rounded-sm transition-colors text-white"
                   >
                     <Square className="w-3 h-3" />
                     断开
@@ -248,7 +248,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 ) : (
                   <button
                     onClick={() => handleConnect(connection)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 hover:bg-green-500 rounded transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-teal-600 hover:bg-teal-500 rounded-sm transition-colors text-white"
                   >
                     <MonitorPlay className="w-3 h-3" />
                     连接
@@ -256,7 +256,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 )}
                 <button
                   onClick={() => handleEditConnection(connection)}
-                  className="p-1 text-slate-400 hover:text-white rounded transition-colors"
+                  className="icon-button h-6 w-6"
                   title="编辑"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -265,7 +265,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 </button>
                 <button
                   onClick={() => handleDeleteConnection(connection.id)}
-                  className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+                  className="icon-button h-6 w-6 hover:text-red-500"
                   title="删除"
                 >
                   <Trash2 className="w-3 h-3" />
@@ -280,30 +280,30 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 min-w-[160px]"
+          className="app-popover fixed top-auto mt-0 py-1 min-w-[160px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
             onClick={() => handleCopyConnection(contextMenu.connection)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <Copy className="w-4 h-4" />
             复制连接
           </button>
           <button
             onClick={() => handleReconnect(contextMenu.connection)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <RefreshCw className="w-4 h-4" />
             重新连接
           </button>
-          <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+          <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
           <button
             onClick={() => {
               handleEditConnection(contextMenu.connection);
               closeContextMenu();
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             编辑
           </button>
@@ -313,7 +313,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               closeContextMenu();
               handleDeleteConnection(connId);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+            className="app-popover-row text-sm text-red-600 dark:text-red-400"
           >
             <Trash2 className="w-4 h-4" />
             删除
@@ -324,45 +324,50 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       {/* Add/Edit Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4 text-slate-900 dark:text-white">
-              {editingConnection ? '编辑连接' : '新建连接'}
-            </h3>
-            <div className="space-y-3">
+          <div className="industrial-modal w-full max-w-md">
+            <div className="industrial-modal-header">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                {editingConnection ? '编辑连接' : '新建连接'}
+              </h3>
+              <button onClick={() => setShowAddModal(false)} className="icon-button">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 p-6">
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="连接名称"
-                className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                className="industrial-input w-full"
               />
               <input
                 type="text"
                 value={formData.host}
                 onChange={(e) => setFormData(prev => ({ ...prev, host: e.target.value }))}
                 placeholder="主机地址"
-                className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                className="industrial-input w-full"
               />
               <input
                 type="number"
                 value={formData.port}
                 onChange={(e) => setFormData(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
                 placeholder="端口"
-                className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                className="industrial-input w-full"
               />
               <input
                 type="text"
                 value={formData.username}
                 onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
                 placeholder="用户名"
-                className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                className="industrial-input w-full"
               />
               <input
                 type="password"
                 value={formData.password}
                 onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
                 placeholder="密码"
-                className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                className="industrial-input w-full"
               />
               <div className="text-xs text-slate-500">或者使用私钥认证：</div>
               <textarea
@@ -370,11 +375,11 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 onChange={(e) => setFormData(prev => ({ ...prev, privateKey: e.target.value }))}
                 placeholder="粘贴私钥内容..."
                 rows={4}
-                className="w-full p-2 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white resize-none"
+                className="industrial-input w-full resize-none font-mono text-xs"
               />
               <button
                 onClick={handleSelectFile}
-                className="text-xs text-blue-500 hover:text-blue-400"
+                className="text-xs font-medium text-teal-600 hover:text-teal-500 dark:text-teal-400"
               >
                 选择私钥文件
               </button>
@@ -384,20 +389,20 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                   value={formData.passphrase}
                   onChange={(e) => setFormData(prev => ({ ...prev, passphrase: e.target.value }))}
                   placeholder="私钥密码（可选）"
-                  className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                  className="industrial-input w-full"
                 />
               )}
             </div>
-            <div className="flex gap-2 mt-4">
+            <div className="industrial-modal-footer">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="flex-1 p-2 text-sm bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded transition-colors text-slate-700 dark:text-slate-300"
+                className="industrial-button-secondary flex-1"
               >
                 取消
               </button>
               <button
                 onClick={handleSaveConnection}
-                className="flex-1 p-2 text-sm bg-blue-600 hover:bg-blue-500 rounded transition-colors text-white"
+                className="industrial-button-primary flex-1"
               >
                 保存
               </button>

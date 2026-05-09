@@ -341,10 +341,10 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
   return (
     <div className="flex flex-col h-full max-h-full gap-4">
       {/* 任务头部 */}
-      <div className="flex-shrink-0 p-4 bg-slate-50 dark:bg-slate-900/90 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+      <div className="agent-task-card flex-shrink-0">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-2.5">
-            <Brain className="w-4 h-4 text-blue-500" />
+            <Brain className="w-4 h-4 text-teal-500" />
             <span className="font-medium text-sm text-slate-900 dark:text-white">智能体任务</span>
           </div>
           <div className="flex items-center gap-2.5">
@@ -387,7 +387,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
         </p>
 
         {pendingTerminalPrompt && (
-          <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <div className="mb-3 rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
             终端正在等待你的输入：{pendingTerminalPrompt}。请先在终端中完成交互，智能体会继续等待。
           </div>
         )}
@@ -396,7 +396,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
         {(agentState === 'thinking' || agentState === 'planning' || agentState === 'executing' || agentState === 'observing') && (
           <button
             onClick={onPause}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-sm hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors"
           >
             <Pause className="w-3 h-3" />
             暂停
@@ -407,14 +407,14 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
           <div className="flex gap-2">
             <button
               onClick={onResume}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-sm hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
             >
               <Play className="w-3 h-3" />
               继续
             </button>
             <button
               onClick={onCancel}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-sm hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
             >
               <X className="w-3 h-3" />
               取消
@@ -425,7 +425,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
         {agentState === 'error' && (
           <button
             onClick={onRetry}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 rounded-sm hover:bg-teal-200 dark:hover:bg-teal-900/50 transition-colors"
           >
             <RotateCcw className="w-3 h-3" />
             重试
@@ -468,25 +468,17 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                 return (
                   <div
                     key={group.stepNumber}
-                    className={`border rounded-xl overflow-hidden transition-all ${
-                      isCurrentlyActive
-                        ? 'border-blue-300 dark:border-blue-700 shadow-sm shadow-blue-500/10'
-                        : 'border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50'
-                    }`}
+                    className={`agent-round-card ${isCurrentlyActive ? 'agent-round-card-active' : ''}`}
                   >
                     {/* 组标题 - 可点击折叠 */}
                     <button
                       onClick={() => toggleGroup(actualIndex)}
-                      className={`w-full px-3 py-3 flex items-center gap-3 text-left transition-colors ${
-                        isCurrentlyActive
-                          ? 'bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/80'
-                      }`}
+                      className="agent-round-header"
                     >
                       {/* 状态指示器 */}
-                      <span className={`flex-shrink-0 ${isCurrentlyActive ? 'text-blue-500' : 'text-slate-400'}`}>
+                      <span className={`flex-shrink-0 ${isCurrentlyActive ? 'text-teal-500' : 'text-slate-400'}`}>
                         {isCurrentlyActive ? (
-                          <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
+                          <div className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse" />
                         ) : latestStep.status === 'completed' ? (
                           <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
                         ) : latestStep.status === 'failed' ? (
@@ -497,9 +489,9 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                       </span>
 
                       {/* 轮次标签 */}
-                      <span className={`flex-shrink-0 px-2 py-1 rounded-md text-xs font-medium ${
+                      <span className={`flex-shrink-0 px-2 py-1 rounded-sm text-xs font-medium ${
                         isCurrentlyActive
-                          ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400'
+                          ? 'bg-teal-100 dark:bg-teal-900/50 text-teal-600 dark:text-teal-400'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                       }`}>
                         第{group.stepNumber}轮
@@ -525,12 +517,12 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
 
                     {/* 展开的步骤详情 */}
                     {isExpanded && (
-                      <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50">
+                      <div className="agent-step-list">
                         {group.steps.map((step) => (
                           <div
                             key={step.id}
-                            className={`px-3 py-3 flex items-start gap-3 border-b border-slate-100 dark:border-slate-700 last:border-b-0 ${
-                              step.status === 'in_progress' ? 'bg-blue-50/60 dark:bg-blue-900/10' : ''
+                            className={`agent-step-row ${
+                              step.status === 'in_progress' ? 'bg-teal-50/60 dark:bg-teal-900/10' : ''
                             }`}
                           >
                             {/* 步骤图标 */}
@@ -545,7 +537,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                                   {step.type === 'execution' ? '执行命令' : step.title}
                                 </span>
                                 {step.status === 'in_progress' && (
-                                  <span className="px-1.5 py-0.5 rounded text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400">
+                                  <span className="px-1.5 py-0.5 rounded-sm text-xs bg-teal-100 dark:bg-teal-900/50 text-teal-600 dark:text-teal-400">
                                     进行中
                                   </span>
                                 )}
@@ -589,9 +581,9 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
 
       {/* 最终结果总结 */}
       {(agentState === 'finished' || agentState === 'error') && (
-        <div className={`flex-shrink-0 p-4 rounded-xl border ${
+        <div className={`agent-result-card flex-shrink-0 ${
           agentState === 'finished'
-            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            ? ''
             : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
         }`}>
           <div className="flex items-center gap-2.5 mb-3">

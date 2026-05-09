@@ -10,6 +10,14 @@ files:
   - dist/**/*
   - package.json
 
+extraResources:
+  - from: build
+    to: build
+    filter:
+      - icon.ico
+      - icon-1024.png
+      - icon.svg
+
 win:
   target:
     - nsis

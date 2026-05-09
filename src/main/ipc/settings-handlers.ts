@@ -14,7 +14,7 @@ import {
   deleteQuickCommandGroup,
 } from '../storage/settings-storage';
 import { connectionStorage } from '../storage/connection-storage';
-import { aiManager } from '../ai/manager';
+import { getAIManager } from '../ai/manager';
 import type {
   AppSettings,
   CommandHistoryItem,
@@ -166,6 +166,8 @@ function sanitizeImportData(data: unknown): ImportPayload {
 }
 
 export function setupSettingsIpcHandlers(getMainWindow?: () => BrowserWindow | null) {
+  const aiManager = getAIManager();
+
   ipcMain.handle(IPC_CHANNELS.GET_SETTINGS, async (): Promise<IPCResult<{ settings: AppSettings }>> => {
     try {
       return { success: true, data: { settings: getSettings() } };

@@ -5,26 +5,36 @@
 @layer base {
   /* 暗色主题 (默认) */
   :root, .dark {
-    --bg-primary: #020617;
-    --bg-secondary: #0f172a;
-    --bg-tertiary: #1e293b;
-    --bg-hover: #334155;
-    --border-color: #475569;
-    --text-primary: #f8fafc;
-    --text-secondary: #cbd5e1;
-    --text-muted: #94a3b8;
+    --bg-primary: #080c10;
+    --bg-secondary: #0f151b;
+    --bg-tertiary: #172027;
+    --bg-hover: #26323a;
+    --border-color: #31404a;
+    --text-primary: #f5f7f2;
+    --text-secondary: #c9d3cc;
+    --text-muted: #8a9992;
+    --accent-primary: #14b8a6;
+    --accent-strong: #f97316;
+    --surface-shadow: 0 18px 55px rgba(0, 0, 0, 0.32);
   }
 
   /* 浅色主题 */
   .light {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f8fafc;
-    --bg-tertiary: #f1f5f9;
-    --bg-hover: #e2e8f0;
-    --border-color: #cbd5e1;
-    --text-primary: #0f172a;
-    --text-secondary: #334155;
-    --text-muted: #64748b;
+    --bg-primary: #f3f1ea;
+    --bg-secondary: #fcfbf6;
+    --bg-tertiary: #ebe7db;
+    --bg-hover: #ded8c9;
+    --border-color: #c8c0af;
+    --text-primary: #18211f;
+    --text-secondary: #43504a;
+    --text-muted: #6f7b74;
+    --accent-primary: #0f766e;
+    --accent-strong: #c2410c;
+    --surface-shadow: 0 16px 42px rgba(63, 54, 39, 0.13);
+  }
+
+  html {
+    background-color: var(--bg-primary);
   }
 
   body {
@@ -32,6 +42,7 @@
     background-color: var(--bg-primary);
     color: var(--text-primary);
     font-feature-settings: "tnum";
+    letter-spacing: 0;
   }
 
   input[type="number"] {
@@ -45,67 +56,134 @@
     appearance: none;
     margin: 0;
   }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent-primary) 70%, #ffffff);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
   .app-shell {
-    @apply flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+    @apply flex h-screen flex-col overflow-hidden text-slate-900 dark:text-slate-100;
+    background:
+      linear-gradient(90deg, rgba(20, 184, 166, 0.06) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(249, 115, 22, 0.05) 1px, transparent 1px),
+      var(--bg-primary);
+    background-size: 36px 36px, 36px 36px, auto;
   }
 
   .app-header {
-    @apply flex h-12 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-3 dark:border-slate-800 dark:bg-slate-900;
+    @apply flex h-14 flex-shrink-0 items-center justify-between border-b px-3;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent-primary) 20%, transparent);
   }
 
   .app-title-mark {
-    @apply flex h-7 w-7 items-center justify-center rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-300;
+    @apply flex h-8 w-8 items-center justify-center rounded-sm border text-teal-700 dark:text-teal-200;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 18%, transparent), transparent 64%);
+    border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-color));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffffff 8%, transparent);
   }
 
   .toolbar-group {
-    @apply flex items-center gap-1 rounded-md border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950;
+    @apply flex items-center gap-1 rounded-sm border p-1;
+    background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
   }
 
   .toolbar-button {
-    @apply inline-flex h-8 items-center justify-center gap-1.5 rounded px-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-transparent px-2.5 text-sm font-medium text-slate-700 transition-colors hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300 dark:hover:text-white;
+    background: transparent;
+  }
+
+  .toolbar-button:hover {
+    background: color-mix(in srgb, var(--bg-hover) 72%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
   }
 
   .toolbar-button-primary {
-    @apply inline-flex h-8 items-center justify-center gap-1.5 rounded bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-sm border px-3 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    background: linear-gradient(180deg, #138a7f, #0f6f68);
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, #082f2c);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 10px 24px rgba(20, 184, 166, 0.18);
+  }
+
+  .toolbar-button-primary:hover {
+    background: linear-gradient(180deg, #169f92, #117b72);
   }
 
   .toolbar-button-active {
-    @apply bg-cyan-50 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300;
+    @apply text-teal-800 dark:text-teal-200;
+    background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-color));
   }
 
   .icon-button {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+    @apply inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-transparent text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+  }
+
+  .icon-button:hover {
+    background: color-mix(in srgb, var(--bg-hover) 76%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
   }
 
   .icon-button-active {
-    @apply bg-cyan-50 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300;
+    @apply text-teal-800 dark:text-teal-200;
+    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 52%, var(--border-color));
   }
 
   .app-popover {
-    @apply absolute top-full z-50 mt-1 max-h-96 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl shadow-slate-950/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/40;
+    @apply absolute top-full z-50 mt-2 max-h-96 overflow-y-auto rounded-sm border shadow-xl;
+    background: var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
+    box-shadow: var(--surface-shadow);
   }
 
   .app-popover-header {
-    @apply flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400;
+    @apply flex items-center justify-between border-b px-3 py-2 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    letter-spacing: 0.08em;
   }
 
   .app-popover-row {
-    @apply flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-800;
+    @apply flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-colors;
+  }
+
+  .app-popover-row:hover {
+    background: color-mix(in srgb, var(--bg-hover) 74%, transparent);
   }
 
   .workspace-tabbar {
-    @apply flex h-9 flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 dark:border-slate-800 dark:bg-slate-900;
+    @apply flex h-10 flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
   }
 
   .workspace-tab {
-    @apply flex h-8 cursor-pointer items-center gap-2 rounded px-2.5 text-sm text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+    @apply flex h-8 cursor-pointer items-center gap-2 rounded-sm border border-transparent px-2.5 text-sm text-slate-600 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+  }
+
+  .workspace-tab:hover {
+    background: color-mix(in srgb, var(--bg-hover) 62%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 58%, transparent);
   }
 
   .workspace-tab-active {
-    @apply bg-white text-slate-950 shadow-sm ring-1 ring-slate-200 dark:bg-slate-950 dark:text-white dark:ring-slate-800;
+    @apply text-slate-950 shadow-sm dark:text-white;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 96%, #ffffff), var(--bg-primary));
+    border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-color));
+    box-shadow: inset 0 2px 0 var(--accent-primary);
   }
 
   .status-dot {
@@ -113,63 +191,275 @@
   }
 
   .app-main {
-    @apply flex min-h-0 flex-1 overflow-hidden bg-slate-100 dark:bg-slate-950;
+    @apply flex min-h-0 flex-1 overflow-hidden;
+    background: color-mix(in srgb, var(--bg-primary) 96%, #000000);
   }
 
   .ai-resizer {
-    @apply relative flex w-1 cursor-ew-resize items-center justify-center bg-slate-200 transition-colors hover:bg-cyan-500 dark:bg-slate-800 dark:hover:bg-cyan-500;
+    @apply relative flex w-1 cursor-ew-resize items-center justify-center transition-colors;
+    background: color-mix(in srgb, var(--border-color) 58%, transparent);
+  }
+
+  .ai-resizer:hover {
+    background: var(--accent-primary);
   }
 
   .ai-panel-shell {
-    @apply flex min-h-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
+    @apply flex min-h-0 flex-col border-l;
+    background: var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
+    box-shadow: -18px 0 48px rgba(0, 0, 0, 0.14);
   }
 
   .app-footer {
-    @apply flex h-6 flex-shrink-0 items-center justify-between border-t border-slate-200 bg-slate-50 px-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400;
+    @apply flex h-7 flex-shrink-0 items-center justify-between border-t px-3 text-xs text-slate-500 dark:text-slate-400;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
   }
 
   .panel-header {
-    @apply border-b border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900;
+    @apply border-b p-3;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 44%),
+      var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
   .segmented-control {
-    @apply grid grid-cols-2 gap-1 rounded-md border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950;
+    @apply grid grid-cols-2 gap-1 rounded-sm border p-1;
+    background: var(--bg-primary);
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
   .segment-button {
-    @apply rounded px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800;
+    @apply cursor-pointer rounded-sm border border-transparent px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors dark:text-slate-400;
+  }
+
+  .segment-button:hover {
+    background: color-mix(in srgb, var(--bg-hover) 68%, transparent);
   }
 
   .segment-button-active {
-    @apply bg-cyan-600 text-white hover:bg-cyan-600 dark:text-white dark:hover:bg-cyan-600;
+    @apply text-white dark:text-white;
+    background: linear-gradient(180deg, #0f8f84, #0c6f68);
+    border-color: color-mix(in srgb, var(--accent-primary) 64%, #063b36);
   }
 
   .message-bubble {
-    @apply rounded-md border p-3;
+    @apply rounded-sm border p-3;
   }
 
   .message-bubble-assistant {
-    @apply border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950;
+    background: color-mix(in srgb, var(--bg-primary) 74%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
   }
 
   .message-bubble-user {
-    @apply border-cyan-600 bg-cyan-600 text-white;
+    @apply text-white;
+    background: linear-gradient(180deg, #0f766e, #115e59);
+    border-color: color-mix(in srgb, var(--accent-primary) 76%, #083f3b);
   }
 
   .terminal-control {
-    @apply inline-flex h-8 items-center justify-center rounded border border-slate-200 bg-white px-2 text-slate-600 shadow-sm shadow-slate-950/5 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white;
+    @apply inline-flex h-8 cursor-pointer items-center justify-center rounded-sm border px-2 text-slate-600 shadow-sm shadow-slate-950/5 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+    background: var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+  }
+
+  .terminal-control:hover {
+    background: color-mix(in srgb, var(--bg-hover) 76%, transparent);
   }
 
   .terminal-control-active {
-    @apply border-cyan-500 bg-cyan-600 text-white hover:bg-cyan-500 hover:text-white dark:border-cyan-500 dark:bg-cyan-600 dark:text-white dark:hover:bg-cyan-500;
+    @apply text-white hover:text-white dark:text-white;
+    background: linear-gradient(180deg, #0f8f84, #0c6f68);
+    border-color: color-mix(in srgb, var(--accent-primary) 70%, #063b36);
   }
 
   .terminal-empty-state {
-    @apply absolute inset-0 flex items-center justify-center bg-slate-100 text-slate-500 dark:bg-slate-950 dark:text-slate-400;
+    @apply absolute inset-0 flex items-center justify-center text-slate-500 dark:text-slate-400;
+    background:
+      radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent-primary) 11%, transparent), transparent 34%),
+      var(--bg-primary);
   }
 
   .terminal-empty-icon {
-    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300;
+    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-sm border text-slate-500 shadow-sm dark:text-slate-300;
+    background: var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+  }
+
+  .terminal-shell {
+    @apply relative flex-1 overflow-hidden;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 6%, transparent) 1px, transparent 1px),
+      linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 4%, transparent) 1px, transparent 1px),
+      color-mix(in srgb, var(--bg-primary) 96%, #000);
+    background-size: 30px 30px, 30px 30px, auto;
+  }
+
+  .terminal-toolbar {
+    @apply absolute right-2 top-2 z-10 flex items-center gap-1 rounded-sm border p-1;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(4px);
+  }
+
+  .terminal-toolbar-badge {
+    @apply inline-flex h-8 items-center rounded-sm border px-2 text-xs font-medium text-slate-500 dark:text-slate-400;
+    background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .terminal-search-panel {
+    @apply absolute left-2 top-2 z-10 flex items-center gap-1 rounded-sm border p-2;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  }
+
+  .terminal-autocomplete-panel {
+    @apply absolute bottom-6 left-1/2 z-20 min-w-[320px] max-w-[560px] -translate-x-1/2 overflow-hidden rounded-sm border;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24);
+  }
+
+  .terminal-frame {
+    @apply h-full w-full overflow-hidden rounded-sm border;
+    border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  }
+
+  .industrial-modal {
+    @apply rounded-sm border;
+    background: var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
+    box-shadow: var(--surface-shadow);
+  }
+
+  .industrial-modal-header {
+    @apply flex items-center justify-between border-b p-4;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 12%, transparent), transparent 48%),
+      color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .industrial-modal-footer {
+    @apply flex items-center justify-end gap-2 border-t p-4;
+    background: color-mix(in srgb, var(--bg-primary) 56%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .industrial-input {
+    @apply rounded-sm border px-3 py-2 text-sm text-slate-900 transition-colors dark:text-white;
+    background: var(--bg-primary);
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+  }
+
+  .industrial-input:focus {
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
+    outline: none;
+  }
+
+  .industrial-card {
+    @apply rounded-sm border;
+    background: color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  }
+
+  .industrial-button-primary {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-sm border px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    background: linear-gradient(180deg, #138a7f, #0f6f68);
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, #082f2c);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset, 0 12px 24px rgba(20, 184, 166, 0.14);
+  }
+
+  .industrial-button-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, #169f92, #117b72);
+  }
+
+  .industrial-button-secondary {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-sm border px-4 py-2 text-sm font-medium text-slate-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-200;
+    background: color-mix(in srgb, var(--bg-hover) 52%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+  }
+
+  .industrial-button-secondary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bg-hover) 82%, transparent);
+  }
+
+  .industrial-button-danger {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-sm border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors;
+  }
+
+  .industrial-button-danger:hover {
+    @apply bg-red-500;
+  }
+
+  .industrial-field-label {
+    @apply mb-1.5 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
+    letter-spacing: 0.08em;
+  }
+
+  .industrial-setting-row {
+    @apply flex items-center justify-between gap-4 rounded-sm border p-3;
+    background: color-mix(in srgb, var(--bg-primary) 58%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+  }
+
+  .industrial-table-head {
+    @apply border-b px-3 py-2 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    letter-spacing: 0.08em;
+  }
+
+  .agent-task-card {
+    @apply rounded-sm border p-4;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 42%),
+      color-mix(in srgb, var(--bg-primary) 68%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .agent-round-card {
+    @apply overflow-hidden rounded-sm border transition-colors;
+    background: color-mix(in srgb, var(--bg-primary) 64%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .agent-round-card-active {
+    border-color: color-mix(in srgb, var(--accent-primary) 66%, var(--border-color));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 16%, transparent), 0 14px 34px rgba(20, 184, 166, 0.08);
+  }
+
+  .agent-round-header {
+    @apply flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left transition-colors;
+    background: color-mix(in srgb, var(--bg-primary) 52%, var(--bg-secondary));
+  }
+
+  .agent-round-header:hover {
+    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+  }
+
+  .agent-step-list {
+    @apply border-t;
+    background: color-mix(in srgb, var(--bg-primary) 74%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  }
+
+  .agent-step-row {
+    @apply flex items-start gap-3 border-b px-3 py-3 last:border-b-0;
+    border-color: color-mix(in srgb, var(--border-color) 58%, transparent);
+  }
+
+  .agent-result-card {
+    @apply rounded-sm border p-4;
+    background: color-mix(in srgb, #052e25 34%, var(--bg-secondary));
+    border-color: color-mix(in srgb, #22c55e 54%, var(--border-color));
   }
 
   /* 现代细滚动条 - 默认样式 */
@@ -306,18 +596,18 @@
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4) !important;
-  border-radius: 5px !important;
+  background: rgba(20, 184, 166, 0.34) !important;
+  border-radius: 3px !important;
   min-height: 30px !important;
   cursor: pointer !important;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.7) !important;
+  background: rgba(20, 184, 166, 0.62) !important;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:active {
-  background: rgba(148, 163, 184, 0.9) !important;
+  background: rgba(20, 184, 166, 0.84) !important;
 }
 
 /* 确保滚动条区域可以正常交互 */
@@ -328,12 +618,12 @@
 
 /* 暗色主题终端 */
 .dark .xterm {
-  background-color: #020617 !important;
+  background-color: #060b10 !important;
 }
 
 /* 浅色主题终端 */
 .light .xterm {
-  background-color: #ffffff !important;
+  background-color: #f6f2e8 !important;
 }
 
 /* 自定义动画 */

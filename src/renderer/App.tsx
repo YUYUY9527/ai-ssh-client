@@ -1,6 +1,5 @@
 import { Suspense, lazy, useEffect, useState, useRef, useCallback } from 'react';
 import {
-  Terminal as TerminalIcon,
   MessageSquare,
   Settings,
   Server,
@@ -31,6 +30,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { Terminal } from './components/Terminal';
+import { AppIcon } from './components/AppIcon';
 import { useConnectionStore } from './store/useConnectionStore';
 import { useAIStore } from './store/useAIStore';
 import { useAgentStore } from './store/useAgentStore';
@@ -816,7 +816,7 @@ function App() {
       <header className="app-header">
         <div className="flex items-center gap-2">
           <div className="app-title-mark">
-            <TerminalIcon className="w-4 h-4" />
+            <AppIcon className="h-6 w-6" />
           </div>
           <div className="mr-2 leading-tight">
             <h1 className="text-sm font-semibold tracking-wide">AI SSH Client</h1>
@@ -833,7 +833,7 @@ function App() {
             </button>
             {/* 连接下拉菜单 */}
             {showConnectionDropdown && (
-              <div className="app-popover left-0 w-80 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500">
+              <div className="app-popover left-0 w-80 scrollbar-modern">
                 <div className="app-popover-header">
                   <span>选择连接</span>
                   <button
@@ -852,13 +852,15 @@ function App() {
                   connections.map((conn) => (
                     <div
                       key={conn.id}
-                      className="group flex items-center px-3 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
+                      className="group mx-2 my-1 flex items-center rounded-sm border border-[color-mix(in_srgb,var(--border-color)_68%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] px-2 py-2 transition-colors hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
                     >
                       <button
                         onClick={() => { handleConnect(conn.id, conn.name); setShowConnectionDropdown(false); }}
                         className="flex-1 flex items-center gap-2 text-left"
                       >
-                        <Server className="w-4 h-4 text-slate-400" />
+                        <span className="flex h-7 w-7 items-center justify-center rounded-sm border border-teal-500/40 bg-teal-500/10">
+                          <Server className="w-4 h-4 text-teal-500" />
+                        </span>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm text-slate-900 dark:text-white truncate">{conn.name}</div>
                           <div className="text-xs text-slate-500">{conn.username}@{conn.host}:{conn.port}</div>
@@ -913,7 +915,7 @@ function App() {
 
               {/* 快速命令下拉菜单 */}
               {showQuickCommands && (
-                <div className="app-popover left-0 w-80">
+                <div className="app-popover scrollbar-modern left-0 w-80">
                   {/* 头部 */}
                   <div className="app-popover-header">
                     <span>快速命令</span>
@@ -943,32 +945,32 @@ function App() {
 
                   {/* 新建分组表单 */}
                   {showQuickGroupForm && (
-                    <div className="p-3 border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
+                    <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] p-3">
                       <div className="space-y-2">
                         <input
                           type="text"
                           value={newQuickGroup.name}
                           onChange={(e) => setNewQuickGroup({ ...newQuickGroup, name: e.target.value })}
                           placeholder="分组名称"
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                          className="industrial-input w-full py-1"
                         />
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
                             value={newQuickGroup.color}
                             onChange={(e) => setNewQuickGroup({ ...newQuickGroup, color: e.target.value })}
-                            className="w-8 h-8 rounded cursor-pointer"
+                            className="h-8 w-8 cursor-pointer rounded-sm border border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-transparent p-0.5"
                           />
                           <div className="flex-1 flex gap-1">
                             <button
                               onClick={handleSaveQuickGroup}
-                              className="flex-1 px-2 py-1 text-xs bg-blue-500 hover:bg-blue-400 text-white rounded transition-colors"
+                              className="industrial-button-primary flex-1 px-2 py-1 text-xs"
                             >
                               保存
                             </button>
                             <button
                               onClick={() => setShowQuickGroupForm(false)}
-                              className="flex-1 px-2 py-1 text-xs bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded transition-colors"
+                              className="industrial-button-secondary flex-1 px-2 py-1 text-xs"
                             >
                               取消
                             </button>
@@ -980,34 +982,34 @@ function App() {
 
                   {/* 新建命令表单 */}
                   {showQuickCommandForm && (
-                    <div className="p-3 border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
+                    <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] p-3">
                       <div className="space-y-2">
                         <input
                           type="text"
                           value={newQuickCommand.name}
                           onChange={(e) => setNewQuickCommand({ ...newQuickCommand, name: e.target.value })}
                           placeholder="命令名称"
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                          className="industrial-input w-full py-1"
                         />
                         <input
                           type="text"
                           value={newQuickCommand.command}
                           onChange={(e) => setNewQuickCommand({ ...newQuickCommand, command: e.target.value })}
                           placeholder="命令内容"
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                          className="industrial-input w-full py-1 font-mono"
                         />
                         <input
                           type="text"
                           value={newQuickCommand.description}
                           onChange={(e) => setNewQuickCommand({ ...newQuickCommand, description: e.target.value })}
                           placeholder="描述（可选）"
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                          className="industrial-input w-full py-1"
                         />
                         {quickCommandGroups.length > 0 && (
                           <select
                             value={newQuickCommand.groupId}
                             onChange={(e) => setNewQuickCommand({ ...newQuickCommand, groupId: e.target.value })}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                            className="industrial-input w-full py-1"
                           >
                             <option value="">无分组</option>
                             {quickCommandGroups.map((group) => (
@@ -1018,13 +1020,13 @@ function App() {
                         <div className="flex gap-1">
                           <button
                             onClick={handleSaveQuickCommand}
-                            className="flex-1 px-2 py-1 text-xs bg-blue-500 hover:bg-blue-400 text-white rounded transition-colors"
+                            className="industrial-button-primary flex-1 px-2 py-1 text-xs"
                           >
                             保存
                           </button>
                           <button
                             onClick={() => setShowQuickCommandForm(false)}
-                            className="flex-1 px-2 py-1 text-xs bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded transition-colors"
+                            className="industrial-button-secondary flex-1 px-2 py-1 text-xs"
                           >
                             取消
                           </button>
@@ -1048,14 +1050,14 @@ function App() {
 
                           return (
                             <div key={group.id} className="mb-3">
-                              <div className="flex items-center justify-between px-2 py-1 mb-1">
+                              <div className="mb-1 flex items-center justify-between border-b border-[color-mix(in_srgb,var(--border-color)_56%,transparent)] px-2 py-1">
                                 <div className="flex items-center gap-2">
-                                  <div className="w-3 h-3 rounded" style={{ backgroundColor: group.color }} />
-                                  <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{group.name}</span>
+                                  <div className="h-3 w-3 rounded-sm border border-white/20" style={{ backgroundColor: group.color }} />
+                                  <span className="text-xs font-semibold uppercase text-slate-700 dark:text-slate-300">{group.name}</span>
                                 </div>
                                 <button
                                   onClick={() => handleDeleteQuickGroup(group.id)}
-                                  className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                                  className="icon-button h-6 w-6 hover:text-red-500"
                                 >
                                   <Trash2 className="w-3 h-3" />
                                 </button>
@@ -1063,7 +1065,7 @@ function App() {
                               {groupCommands.map((cmd) => (
                                 <div
                                   key={cmd.id}
-                                  className="group flex items-center px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+                                  className="group mx-1 flex items-center rounded-sm border border-transparent px-2 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--border-color)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
                                 >
                                   <button
                                     onClick={() => handlePasteCommand(cmd.command)}
@@ -1079,13 +1081,13 @@ function App() {
                                         setNewQuickCommand({ name: cmd.name, command: cmd.command, description: cmd.description || '', groupId: cmd.groupId || '' });
                                         setShowQuickCommandForm(true);
                                       }}
-                                      className="p-1 text-slate-400 hover:text-blue-500 transition-colors"
+                                      className="icon-button h-6 w-6"
                                     >
                                       <Pencil className="w-3 h-3" />
                                     </button>
                                     <button
                                       onClick={() => handleDeleteQuickCommand(cmd.id)}
-                                      className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                                      className="icon-button h-6 w-6 hover:text-red-500"
                                     >
                                       <Trash2 className="w-3 h-3" />
                                     </button>
@@ -1100,7 +1102,7 @@ function App() {
                         {quickCommands.filter(c => !c.groupId).map((cmd) => (
                           <div
                             key={cmd.id}
-                            className="group flex items-center px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+                            className="group mx-1 flex items-center rounded-sm border border-transparent px-2 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--border-color)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
                           >
                             <button
                               onClick={() => handlePasteCommand(cmd.command)}
@@ -1116,13 +1118,13 @@ function App() {
                                   setNewQuickCommand({ name: cmd.name, command: cmd.command, description: cmd.description || '', groupId: cmd.groupId || '' });
                                   setShowQuickCommandForm(true);
                                 }}
-                                className="p-1 text-slate-400 hover:text-blue-500 transition-colors"
+                                className="icon-button h-6 w-6"
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
                               <button
                                 onClick={() => handleDeleteQuickCommand(cmd.id)}
-                                className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                                className="icon-button h-6 w-6 hover:text-red-500"
                               >
                                 <Trash2 className="w-3 h-3" />
                               </button>
@@ -1366,74 +1368,74 @@ function App() {
       {/* Connection Edit Modal */}
       {editingConnection !== null && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 w-full max-w-md">
-            <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+          <div className="industrial-modal w-full max-w-md">
+            <div className="industrial-modal-header">
               <h3 className="font-semibold text-slate-900 dark:text-white">
                 {editingConnection?.id ? '编辑连接' : '新建连接'}
               </h3>
               <button
                 onClick={() => setEditingConnection(null)}
-                className="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded"
+                className="icon-button"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-4 space-y-4">
               <div>
-                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">连接名称</label>
+                <label className="industrial-field-label">连接名称</label>
                 <input
                   type="text"
                   value={editingConnection?.name || ''}
                   onChange={(e) => setEditingConnection(prev => prev ? { ...prev, name: e.target.value } : null)}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                  className="industrial-input w-full"
                   placeholder="我的服务器"
                 />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
-                  <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">主机</label>
+                  <label className="industrial-field-label">主机</label>
                   <input
                     type="text"
                     value={editingConnection?.host || ''}
                     onChange={(e) => setEditingConnection(prev => prev ? { ...prev, host: e.target.value } : null)}
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                    className="industrial-input w-full"
                     placeholder="192.168.1.100"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">端口</label>
+                  <label className="industrial-field-label">端口</label>
                   <input
                     type="number"
                     value={editingConnection?.port || 22}
                     onChange={(e) => setEditingConnection(prev => prev ? { ...prev, port: parseInt(e.target.value) || 22 } : null)}
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                    className="industrial-input w-full"
                     placeholder="22"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">用户名</label>
+                <label className="industrial-field-label">用户名</label>
                 <input
                   type="text"
                   value={editingConnection?.username || ''}
                   onChange={(e) => setEditingConnection(prev => prev ? { ...prev, username: e.target.value } : null)}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                  className="industrial-input w-full"
                   placeholder="root"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">密码</label>
+                <label className="industrial-field-label">密码</label>
                 <input
                   type="password"
                   value={editingConnection?.password || ''}
                   onChange={(e) => setEditingConnection(prev => prev ? { ...prev, password: e.target.value } : null)}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                  className="industrial-input w-full"
                   placeholder="••••••••"
                 />
               </div>
               {/* 测试连接结果 */}
               {connectionTestResult && (
-                <div className={`flex items-center gap-2 px-3 py-2 rounded ${
+                <div className={`industrial-card flex items-center gap-2 px-3 py-2 ${
                   connectionTestResult.success 
                     ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' 
                     : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
@@ -1452,7 +1454,7 @@ function App() {
                 <button
                   onClick={handleTestConnection}
                   disabled={testingConnection || !editingConnection?.host || !editingConnection?.username}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-slate-900 dark:text-white"
+                  className="industrial-button-secondary"
                 >
                   {testingConnection ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1469,7 +1471,7 @@ function App() {
                       setEditingConnection(null);
                       setConnectionTestResult(null);
                     }}
-                    className="px-4 py-2 text-sm bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded transition-colors text-slate-900 dark:text-white"
+                    className="industrial-button-secondary"
                   >
                     取消
                   </button>
@@ -1486,7 +1488,7 @@ function App() {
                       }
                     }}
                     disabled={!editingConnection?.name || !editingConnection?.host || !editingConnection?.username}
-                    className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-white"
+                    className="industrial-button-primary"
                   >
                     保存
                   </button>
@@ -1500,8 +1502,8 @@ function App() {
       {/* Delete Confirmation Modal */}
       {deletingConnection && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 w-full max-w-sm">
-            <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="industrial-modal w-full max-w-sm">
+            <div className="industrial-modal-header">
               <h3 className="font-semibold text-slate-900 dark:text-white">确认删除</h3>
             </div>
             <div className="p-4">
@@ -1509,16 +1511,16 @@ function App() {
                 确定要删除这个连接配置吗？此操作无法撤销。
               </p>
             </div>
-            <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+            <div className="industrial-modal-footer">
               <button
                 onClick={() => setDeletingConnection(null)}
-                className="px-4 py-2 text-sm bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded transition-colors text-slate-900 dark:text-white"
+                className="industrial-button-secondary"
               >
                 取消
               </button>
               <button
                 onClick={handleDeleteConnection}
-                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 rounded transition-colors text-white"
+                className="industrial-button-danger"
               >
                 删除
               </button>

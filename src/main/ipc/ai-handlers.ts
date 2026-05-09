@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
-import { aiManager } from '../ai/manager';
+import { getAIManager } from '../ai/manager';
 import type { AIProviderConfig, Message } from '../../shared/types';
 import type { IPCResult, AIChatResult, AIProvidersResult, AIProviderSecretStatusResult, ErrorResult } from '../../shared/ipc-types';
 import { AIProviderError } from '../ai/provider';
@@ -18,6 +18,8 @@ function asIPCErrorResult<T = void>(error: unknown): IPCResult<T> {
 }
 
 export function setupAIIpcHandlers() {
+  const aiManager = getAIManager();
+
   ipcMain.handle(IPC_CHANNELS.AI_CHAT, async (_event, providerId: string, messages: Message[], options?: { requestId?: string }): Promise<IPCResult<AIChatResult>> => {
     try {
       const response = await aiManager.chat(providerId, messages, options);

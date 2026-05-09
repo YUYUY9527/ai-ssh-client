@@ -181,4 +181,12 @@ export class AIManager {
   }
 }
 
-export const aiManager = new AIManager();
+let aiManagerInstance: AIManager | null = null;
+
+export function getAIManager(): AIManager {
+  if (!aiManagerInstance) {
+    aiManagerInstance = new AIManager();
+  }
+
+  return aiManagerInstance;
+}

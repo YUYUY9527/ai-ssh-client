@@ -501,7 +501,7 @@ export function ChatPanel({ onCommandRequest, input, onInputChange, focusInputTo
   }, [editingProvider, providerSecretState.hasApiKey, providerSecretState.isLoading, showProviderSettings, scrollProviderEditorToBottom]);
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-slate-900">
+    <div className="h-full flex flex-col bg-[var(--bg-secondary)]">
       <div className="panel-header">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
