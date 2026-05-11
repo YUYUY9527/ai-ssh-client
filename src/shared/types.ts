@@ -94,6 +94,7 @@ export interface SSHSessionState {
 
 // 应用设置
 export interface AppSettings {
+  language: string;
   theme: 'dark' | 'light' | 'system';
   fontSize: number;
   fontFamily: string;

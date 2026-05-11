@@ -1,5 +1,6 @@
 import { AlertTriangle, Info } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { useI18n } from '../i18n';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -16,13 +17,17 @@ export function ConfirmDialog({
   isOpen,
   title,
   message,
-  confirmText = '确认',
-  cancelText = '取消',
+  confirmText,
+  cancelText,
   onConfirm,
   onCancel,
   type = 'warning',
 }: ConfirmDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const { t } = useI18n();
+
+  const resolvedConfirmText = confirmText ?? t('common.confirm');
+  const resolvedCancelText = cancelText ?? t('common.cancel');
 
   // 自动聚焦到确认按钮
   useEffect(() => {
@@ -68,7 +73,7 @@ export function ConfirmDialog({
                      bg-slate-100 dark:bg-slate-700 rounded-md
                      hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
           >
-            {cancelText}
+            {resolvedCancelText}
           </button>
           <button
             ref={confirmButtonRef}
@@ -77,7 +82,7 @@ export function ConfirmDialog({
                      bg-blue-600 rounded-md
                      hover:bg-blue-500 transition-colors"
           >
-            {confirmText}
+            {resolvedConfirmText}
           </button>
         </div>
       </div>

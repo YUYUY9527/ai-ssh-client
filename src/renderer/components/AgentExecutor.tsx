@@ -3,6 +3,7 @@ import { AgentRuntime, type AgentRuntimeSnapshot } from '../agent/agent-runtime'
 import { useAgentStore } from '../store/useAgentStore';
 import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
+import { t } from '../i18n';
 
 export function AgentExecutor() {
   const {
@@ -79,8 +80,8 @@ export function AgentExecutor() {
         return;
       }
 
-      const title = success ? 'AI 任务执行完成' : 'AI 任务执行失败';
-      const body = reason.trim() || (success ? '任务完成' : '任务失败');
+      const title = success ? t('agent.notifications.taskCompleted') : t('agent.notifications.taskFailed');
+      const body = reason.trim() || (success ? t('agent.notifications.completed') : t('agent.notifications.failed'));
       await window.electronAPI.showSystemNotification(title, body, {
         onlyWhenAppInBackground: true,
       });

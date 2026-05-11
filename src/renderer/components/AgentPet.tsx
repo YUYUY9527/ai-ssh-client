@@ -5,6 +5,7 @@ import { useAgentStore } from '../store/useAgentStore';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { AgentExecutor } from './AgentExecutor';
 import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
+import { useI18n, t } from '../i18n';
 import type { AgentTask, ThinkingStep } from '../../shared/types';
 
 /** 小机器人头像(纯 CSS 绘制,和右下角按钮同款) */
@@ -57,14 +58,14 @@ function formatDuration(task: AgentTask): string {
 
 function getStepCommand(step: ThinkingStep): string {
   const match = step.content.match(/命令：(.+?)(?:\n|$)/);
-  return match?.[1]?.trim() || step.content.split('\n')[0]?.trim() || '执行命令';
+  return match?.[1]?.trim() || step.content.split('\n')[0]?.trim() || t('agent.conversation.executeCommand');
 }
 
 function getTaskStatus(task: AgentTask): { label: string; tone: 'running' | 'success' | 'error' | 'idle' } {
-  if (task.state === 'finished') return { label: '已完成', tone: 'success' };
-  if (task.state === 'error') return { label: '出错', tone: 'error' };
-  if (task.state === 'paused') return { label: '已暂停', tone: 'idle' };
-  return { label: '执行中', tone: 'running' };
+  if (task.state === 'finished') return { label: t('agent.conversation.completed'), tone: 'success' };
+  if (task.state === 'error') return { label: t('agent.conversation.error'), tone: 'error' };
+  if (task.state === 'paused') return { label: t('agent.conversation.paused'), tone: 'idle' };
+  return { label: t('agent.conversation.running'), tone: 'running' };
 }
 
 function getTaskSummary(task: AgentTask): string {
@@ -74,13 +75,14 @@ function getTaskSummary(task: AgentTask): string {
   const latestStep = [...task.thinkingSteps].reverse().find((step) => step.content.trim());
   if (latestStep) return latestStep.content.replace(/\s+/g, ' ').slice(0, 180);
 
-  return task.state === 'finished' ? '任务已完成。' : '正在分析任务并观察终端输出。';
+  return task.state === 'finished' ? t('agent.conversation.taskCompleted') : t('agent.conversation.analyzing');
 }
 
 function AgentThinkingStep({ step }: { step: ThinkingStep }) {
   const [showFull, setShowFull] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const paragraphRef = useRef<HTMLParagraphElement>(null);
+  const { t } = useI18n();
 
   // 真实判断内容是否被 line-clamp 截断:对比 scrollHeight 与 clientHeight。
   // 字符长度阈值不靠谱 —— 中文 10 字就能占满 3 行,但 length 只有 10。
@@ -113,7 +115,7 @@ function AgentThinkingStep({ step }: { step: ThinkingStep }) {
           onClick={() => setShowFull(!showFull)}
           className="agent-chat-step-detail-button"
         >
-          {showFull ? '收起思考详情' : '查看思考详情'}
+          {showFull ? t('agent.conversation.collapseDetails') : t('agent.conversation.expandDetails')}
         </button>
       )}
     </div>
@@ -122,6 +124,7 @@ function AgentThinkingStep({ step }: { step: ThinkingStep }) {
 
 function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent: boolean }) {
   const [expanded, setExpanded] = useState(isCurrent && task.state !== 'finished');
+  const { t } = useI18n();
   const status = getTaskStatus(task);
   const commandSteps = task.thinkingSteps.filter((step) => step.type === 'execution');
   const observationSteps = task.thinkingSteps.filter((step) => step.type === 'observation');
@@ -178,7 +181,7 @@ function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent
               className="agent-chat-detail-toggle"
             >
               {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              {expanded ? '收起执行过程' : '查看执行过程'}
+              {expanded ? t('agent.conversation.collapseProcess') : t('agent.conversation.expandProcess')}
             </button>
           )}
 
@@ -186,7 +189,7 @@ function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent
             <div className="agent-chat-detail">
               {commandSteps.length > 0 && (
                 <div className="space-y-2">
-                  <div className="agent-chat-detail-label">执行命令</div>
+                  <div className="agent-chat-detail-label">{t('agent.conversation.executedCommands')}</div>
                   {commandSteps.map((step) => (
                     <code key={step.id} className="agent-chat-command">
                       {getStepCommand(step)}
@@ -197,7 +200,7 @@ function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent
 
               {detailSteps.length > 0 && (
                 <div className="space-y-2">
-                  <div className="agent-chat-detail-label">思考与观察</div>
+                  <div className="agent-chat-detail-label">{t('agent.conversation.thinkingAndObserving')}</div>
                   {detailSteps.map((step) => (
                     <AgentThinkingStep key={step.id} step={step} />
                   ))}
@@ -220,6 +223,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const [localError, setLocalError] = useState<string | null>(null);
   const { providers, activeProviderId } = useAIStore();
   const { activeConnectionId } = useConnectionStore();
+  const { t } = useI18n();
   const {
     currentTask,
     agentState,
@@ -314,17 +318,17 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     if (!text) return;
 
     if (!config.enabled) {
-      setLocalError('智能体已在设置中禁用');
+      setLocalError(t('agent.errors.disabled'));
       return;
     }
 
     if (!activeProviderId) {
-      setLocalError('请先在设置里配置并激活 AI 供应商');
+      setLocalError(t('agent.errors.noProvider'));
       return;
     }
 
     if (!activeConnectionId) {
-      setLocalError('请先连接一个 SSH 会话');
+      setLocalError(t('agent.errors.noConnection'));
       return;
     }
 
@@ -343,7 +347,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
       return;
     }
 
-    setLocalError('当前任务仍在运行，请先等待完成或取消任务');
+    setLocalError(t('agent.errors.taskRunning'));
   };
 
   const handleClear = () => {
@@ -374,43 +378,43 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white">终端智能体</h2>
+                  <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white">{t('agent.title')}</h2>
                   {isBusy && <span className="h-2 w-2 rounded-full bg-teal-400 animate-pulse" />}
                 </div>
                 <p className="truncate text-xs text-slate-500">
-                  {activeConnection ? `${activeConnection.username}@${activeConnection.host}` : '未连接 SSH'}
+                  {activeConnection ? `${activeConnection.username}@${activeConnection.host}` : t('agent.notConnected')}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-1">
               {(agentState === 'thinking' || agentState === 'planning' || agentState === 'executing' || agentState === 'observing') && (
                 <>
-                  <button onClick={pauseTask} className="agent-pet-header-action" title="暂停">
+                  <button onClick={pauseTask} className="agent-pet-header-action" title={t('agent.actions.pause')}>
                     <Pause className="h-3.5 w-3.5" />
-                    <span>暂停</span>
+                    <span>{t('agent.actions.pause')}</span>
                   </button>
-                  <button onClick={cancelTask} className="agent-pet-header-action" title="取消">
+                  <button onClick={cancelTask} className="agent-pet-header-action" title={t('agent.actions.cancel')}>
                     <XCircle className="h-3.5 w-3.5" />
-                    <span>取消</span>
+                    <span>{t('agent.actions.cancel')}</span>
                   </button>
                 </>
               )}
               {agentState === 'paused' && (
                 <>
-                  <button onClick={resumeTask} className="agent-pet-header-action agent-pet-header-action-primary" title="继续">
+                  <button onClick={resumeTask} className="agent-pet-header-action agent-pet-header-action-primary" title={t('agent.actions.resume')}>
                     <Play className="h-3.5 w-3.5" />
-                    <span>继续</span>
+                    <span>{t('agent.actions.resume')}</span>
                   </button>
-                  <button onClick={cancelTask} className="agent-pet-header-action" title="取消">
+                  <button onClick={cancelTask} className="agent-pet-header-action" title={t('agent.actions.cancel')}>
                     <XCircle className="h-3.5 w-3.5" />
-                    <span>取消</span>
+                    <span>{t('agent.actions.cancel')}</span>
                   </button>
                 </>
               )}
-              <button onClick={onOpenSettings} className="icon-button h-7 w-7" title="AI 供应商设置">
+              <button onClick={onOpenSettings} className="icon-button h-7 w-7" title={t('settings.tabs.providers')}>
                 <Settings className="h-4 w-4" />
               </button>
-              <button onClick={() => onOpenChange(false)} className="icon-button h-7 w-7" title="收起">
+              <button onClick={() => onOpenChange(false)} className="icon-button h-7 w-7" title={t('common.close')}>
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -419,11 +423,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
           <div className="agent-pet-status-strip">
             <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
               <PlugZap className="h-3.5 w-3.5 text-teal-500" />
-              {activeProvider ? activeProvider.name : '未激活供应商'}
+              {activeProvider ? activeProvider.name : t('aiProvider.noProviders')}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Terminal className="h-3.5 w-3.5 text-orange-500" />
-              {agentState === 'idle' ? '待命' : agentState === 'finished' ? '完成' : agentState === 'error' ? '异常' : '执行中'}
+              {agentState === 'idle' ? t('agent.status.idle') : agentState === 'finished' ? t('agent.status.finished') : agentState === 'error' ? t('agent.status.error') : t('agent.status.running')}
             </span>
           </div>
 
@@ -432,8 +436,8 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               <div className="agent-pet-empty">
                 <RobotFaceMini />
                 <div>
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">告诉我你想在终端里完成什么。</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">我会观察终端输出、生成命令并按风险设置请求确认。</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{t('agent.empty.title')}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{t('agent.empty.description')}</p>
                 </div>
               </div>
             )}
@@ -450,7 +454,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               <div className="agent-pet-approval">
                 <div className="mb-2 flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-orange-400" />
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white">命令需要审批</span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white">{t('agent.approval.title')}</span>
                 </div>
                 <code className="block break-all rounded-sm bg-black/20 px-2 py-2 font-mono text-xs text-orange-200">
                   {pendingApproval.command}
@@ -459,8 +463,8 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                   <p className="mt-2 text-xs leading-5 text-slate-400">{getCommandDescription(pendingApproval.command)}</p>
                 )}
                 <div className="mt-3 flex gap-2">
-                  <button onClick={() => setApprovalResult('rejected')} className="industrial-button-secondary flex-1 px-3 py-1.5 text-xs">拒绝</button>
-                  <button onClick={() => setApprovalResult('approved')} className="industrial-button-primary flex-1 px-3 py-1.5 text-xs">批准执行</button>
+                  <button onClick={() => setApprovalResult('rejected')} className="industrial-button-secondary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.reject')}</button>
+                  <button onClick={() => setApprovalResult('approved')} className="industrial-button-primary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.approve')}</button>
                 </div>
               </div>
             )}
@@ -487,13 +491,13 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               onKeyDown={handleKeyDown}
               rows={3}
               className="industrial-input min-h-[76px] flex-1 resize-none"
-              placeholder={pendingQuestion ? '补充信息后按 Enter...' : '例如：帮我检查 nginx 为什么启动失败'}
+              placeholder={pendingQuestion ? t('agent.input.answerPlaceholder') : t('agent.input.placeholder')}
             />
             <div className="flex flex-col gap-2">
-              <button onClick={handleSend} disabled={!input.trim() || (isBusy && !pendingQuestion) || Boolean(pendingApproval)} className="industrial-button-primary h-9 w-10 px-0 py-0" title="发送">
+              <button onClick={handleSend} disabled={!input.trim() || (isBusy && !pendingQuestion) || Boolean(pendingApproval)} className="industrial-button-primary h-9 w-10 px-0 py-0" title={t('agent.actions.send')}>
                 {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
-              <button onClick={handleClear} className="industrial-button-secondary h-9 w-10 px-0 py-0" title="重置">
+              <button onClick={handleClear} className="industrial-button-secondary h-9 w-10 px-0 py-0" title={t('common.reset')}>
                 <RotateCcw className="h-4 w-4" />
               </button>
             </div>
@@ -505,7 +509,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
         ref={buttonRef}
         className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${agentState === 'finished' ? 'agent-pet-button-done' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''}`}
         onClick={() => onOpenChange(!isOpen)}
-        title="终端智能体"
+        title={t('agent.title')}
       >
         <span className="agent-pet-face">
           <span className="agent-pet-ear agent-pet-ear-left" />

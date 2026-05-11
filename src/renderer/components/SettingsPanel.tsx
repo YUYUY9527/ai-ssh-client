@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { X, Terminal, Wifi, Shield, Bell, Bot, KeyRound } from 'lucide-react';
+import { X, Terminal, Wifi, Shield, Bell, Bot, KeyRound, Globe } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
+import { useI18n, useI18nStore, localeNames } from '../i18n';
+import type { Locale } from '../i18n';
 import type { AppSettings } from '../../shared/types';
 
 interface SettingsPanelProps {
@@ -10,7 +12,7 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
-type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'security' | 'notifications' | 'agent';
+type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'security' | 'notifications' | 'agent' | 'language';
 
 interface ToggleButtonProps {
   enabled: boolean;
@@ -63,13 +65,16 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     setActiveTab(initialTab);
   }, [initialTab]);
 
+  const { t } = useI18n();
+
   const tabs = [
-    { id: 'terminal', label: '终端', icon: Terminal },
-    { id: 'ssh', label: 'SSH', icon: Wifi },
-    { id: 'providers', label: '供应商', icon: KeyRound },
-    { id: 'agent', label: '智能体', icon: Bot },
-    { id: 'security', label: '安全', icon: Shield },
-    { id: 'notifications', label: '通知', icon: Bell },
+    { id: 'terminal', label: t('settings.tabs.terminal'), icon: Terminal },
+    { id: 'ssh', label: t('settings.tabs.ssh'), icon: Wifi },
+    { id: 'providers', label: t('settings.tabs.providers'), icon: KeyRound },
+    { id: 'agent', label: t('settings.tabs.agent'), icon: Bot },
+    { id: 'security', label: t('settings.tabs.security'), icon: Shield },
+    { id: 'notifications', label: t('settings.tabs.notifications'), icon: Bell },
+    { id: 'language', label: t('settings.tabs.language'), icon: Globe },
   ] as const;
 
   return (
@@ -77,7 +82,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
       <div className="industrial-modal w-full max-w-2xl max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="industrial-modal-header">
-          <h2 className="font-semibold text-slate-900 dark:text-white">设置</h2>
+          <h2 className="font-semibold text-slate-900 dark:text-white">{t('settings.title')}</h2>
           <button
             onClick={onClose}
             className="icon-button"
@@ -110,12 +115,12 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
           <div className="flex-1 p-6 overflow-y-auto scrollbar-modern">
             {activeTab === 'terminal' && (
               <div className="space-y-6">
-                <h3 className="font-medium text-slate-900 dark:text-white">终端设置</h3>
+                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.terminal.title')}</h3>
 
                 {/* 字体大小 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    字体大小
+                    {t('settings.terminal.fontSize')}
                   </label>
                   <div className="flex items-center gap-4">
                     <input
@@ -135,26 +140,28 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 {/* 字体 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    字体
+                    {t('settings.terminal.fontFamily')}
                   </label>
                   <select
                     value={localSettings.fontFamily}
                     onChange={(e) => setLocalSettings({ ...localSettings, fontFamily: e.target.value })}
                     className="industrial-input w-full"
                   >
-                    <option value="JetBrains Mono, Source Code Pro, Consolas, monospace">JetBrains Mono</option>
-                    <option value="Source Code Pro, Consolas, monospace">Source Code Pro</option>
-                    <option value="Consolas, monospace">Consolas</option>
-                    <option value="Menlo, Monaco, monospace">Menlo</option>
-                    <option value="Ubuntu Mono, monospace">Ubuntu Mono</option>
+                    <option value="Consolas, 'Courier New', monospace">Consolas</option>
+                    <option value="'Cascadia Code', Consolas, monospace">Cascadia Code</option>
+                    <option value="'Fira Code', Consolas, monospace">Fira Code</option>
+                    <option value="'JetBrains Mono', Consolas, monospace">JetBrains Mono</option>
+                    <option value="'Source Code Pro', Consolas, monospace">Source Code Pro</option>
+                    <option value="'Courier New', monospace">Courier New</option>
+                    <option value="monospace">System Monospace</option>
                   </select>
                 </div>
 
                 {/* 自动补全提示窗口 */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="text-sm text-slate-600 dark:text-slate-400">自动补全提示</label>
-                    <p className="text-xs text-slate-500">输入时显示命令自动补全提示窗口</p>
+                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.autocomplete')}</label>
+                    <p className="text-xs text-slate-500">{t('settings.terminal.autocompleteDesc')}</p>
                   </div>
                   <ToggleButton
                     enabled={localSettings.showTerminalOutputPrompt ?? true}
@@ -166,12 +173,12 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
             {activeTab === 'ssh' && (
               <div className="space-y-6">
-                <h3 className="font-medium text-slate-900 dark:text-white">SSH 设置</h3>
+                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.ssh.title')}</h3>
 
                 {/* Keepalive 间隔 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    Keepalive 间隔（秒）
+                    {t('settings.ssh.keepaliveInterval')}
                   </label>
                   <input
                     type="number"
@@ -181,13 +188,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     onChange={(e) => setLocalSettings({ ...localSettings, keepaliveInterval: parseInt(e.target.value) || 0 })}
                     className="industrial-input w-full"
                   />
-                  <p className="text-xs text-slate-500 mt-1">设置为 0 表示禁用 Keepalive</p>
+                  <p className="text-xs text-slate-500 mt-1">{t('settings.ssh.keepaliveDisableHint')}</p>
                 </div>
 
                 {/* 最大 Keepalive 次数 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    最大 Keepalive 失败次数
+                    {t('settings.ssh.keepaliveCountMax')}
                   </label>
                   <input
                     type="number"
@@ -202,8 +209,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 {/* 自动重连 */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="text-sm text-slate-600 dark:text-slate-400">自动重连</label>
-                    <p className="text-xs text-slate-500">连接断开时自动尝试重新连接</p>
+                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.ssh.autoReconnect')}</label>
+                    <p className="text-xs text-slate-500">{t('settings.ssh.autoReconnectDesc')}</p>
                   </div>
                   <ToggleButton
                     enabled={localSettings.autoReconnect}
@@ -215,7 +222,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 {localSettings.autoReconnect && (
                   <div>
                     <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                      最大重连次数
+                      {t('settings.ssh.maxReconnectAttempts')}
                     </label>
                     <input
                       type="number"
@@ -232,23 +239,23 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
             {activeTab === 'agent' && (
               <div className="space-y-6">
-                <h3 className="font-medium text-slate-900 dark:text-white">智能体设置</h3>
+                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.agent.title')}</h3>
 
                 <div className="industrial-card border-teal-500/50 bg-teal-500/10 p-4">
                   <p className="text-sm text-teal-700 dark:text-teal-300">
-                    AI 智能体可以自动执行命令来完成任务。请谨慎配置安全选项。
+                    {t('settings.agent.description')}
                   </p>
                 </div>
 
                 {/* 执行控制 */}
                 <div>
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">执行控制</h4>
+                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.agent.executionControl')}</h4>
 
                   <div className="space-y-4">
                     <div className="industrial-setting-row">
                       <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">启用智能体模式</label>
-                        <p className="text-xs text-slate-500">允许 AI 自动执行命令</p>
+                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.enableAgent')}</label>
+                        <p className="text-xs text-slate-500">{t('settings.agent.autoExecuteDesc')}</p>
                       </div>
                       <ToggleButton
                         enabled={localSettings.agentEnabled ?? true}
@@ -258,8 +265,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
                     <div className="industrial-setting-row">
                       <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">自动执行</label>
-                        <p className="text-xs text-slate-500">自动执行命令，无需手动确认</p>
+                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.autoExecute')}</label>
+                        <p className="text-xs text-slate-500">{t('settings.agent.autoExecuteDesc')}</p>
                       </div>
                       <ToggleButton
                         enabled={localSettings.agentAutoExecute ?? true}
@@ -268,8 +275,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     </div>
 
                     <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">最大执行步数</label>
-                      <p className="text-xs text-slate-500 mb-2">智能体单次任务最多执行的命令数</p>
+                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.maxSteps')}</label>
+                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.maxStepsDesc')}</p>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
@@ -313,12 +320,12 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
                 {/* 上下文管理 */}
                 <div>
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">上下文管理</h4>
+                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.agent.contextManagement')}</h4>
 
                   <div className="space-y-4">
                     <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">最大上下文消息数</label>
-                      <p className="text-xs text-slate-500 mb-2">保留的对话历史消息数量</p>
+                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.maxContextMessages')}</label>
+                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.maxContextMessagesDesc')}</p>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
@@ -359,8 +366,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     </div>
 
                     <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">终端输出最大长度</label>
-                      <p className="text-xs text-slate-500 mb-2">发送给 AI 的终端输出最大字符数（0 表示不限制）</p>
+                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.maxTerminalOutput')}</label>
+                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.maxTerminalOutputDesc')}</p>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
@@ -402,8 +409,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
                     <div className="industrial-setting-row">
                       <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">自动裁剪上下文</label>
-                        <p className="text-xs text-slate-500">超过限制时自动裁剪旧消息</p>
+                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.autoTrimContext')}</label>
+                        <p className="text-xs text-slate-500">{t('settings.agent.autoTrimContextDesc')}</p>
                       </div>
                       <ToggleButton
                         enabled={localSettings.agentTrimContextEnabled ?? true}
@@ -412,8 +419,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     </div>
 
                     <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">任务上下文轮数</label>
-                      <p className="text-xs text-slate-500 mb-2">保留最近N轮完成的任务作为上下文（实现任务联动）</p>
+                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.taskContextRounds')}</label>
+                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.taskContextRoundsDesc')}</p>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
@@ -463,23 +470,23 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
             {activeTab === 'security' && (
               <div className="space-y-6">
-                <h3 className="font-medium text-slate-900 dark:text-white">安全设置</h3>
+                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.security.title')}</h3>
 
                 <div className="industrial-card border-yellow-500/50 bg-yellow-500/10 p-4">
                   <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                    当前密码以明文形式存储在本地配置文件中。建议使用系统密钥链或设置主密码来保护你的凭据。
+                    {t('settings.security.storageWarning')}
                   </p>
                 </div>
 
                 {/* 命令审批 */}
                 <div>
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">命令审批</h4>
+                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.security.commandApproval')}</h4>
 
                   <div className="space-y-4">
                     <div className="industrial-setting-row">
                       <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">审批高风险命令</label>
-                        <p className="text-xs text-slate-500">如 rm, chmod, kill 等</p>
+                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.security.approveHighRisk')}</label>
+                        <p className="text-xs text-slate-500">{t('settings.security.approveHighRiskDesc')}</p>
                       </div>
                       <ToggleButton
                         enabled={localSettings.approveHighRisk ?? true}
@@ -489,8 +496,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
                     <div className="industrial-setting-row">
                       <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">审批中风险命令</label>
-                        <p className="text-xs text-slate-500">如 mv, cp 等可能造成数据丢失的操作</p>
+                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.security.approveMediumRisk')}</label>
+                        <p className="text-xs text-slate-500">{t('settings.security.approveMediumRiskDesc')}</p>
                       </div>
                       <ToggleButton
                         enabled={localSettings.approveMediumRisk ?? false}
@@ -500,8 +507,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
                     <div className="industrial-setting-row">
                       <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">记住本次选择</label>
-                        <p className="text-xs text-slate-500">审批后记住本次会话的选择</p>
+                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.security.rememberChoice')}</label>
+                        <p className="text-xs text-slate-500">{t('settings.security.rememberChoiceDesc')}</p>
                       </div>
                       <ToggleButton
                         enabled={localSettings.rememberChoice ?? true}
@@ -515,13 +522,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
             {activeTab === 'notifications' && (
               <div className="space-y-6">
-                <h3 className="font-medium text-slate-900 dark:text-white">通知设置</h3>
+                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.notifications.title')}</h3>
 
                 <div className="space-y-4">
                   <div className="industrial-setting-row">
                     <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">连接状态通知</label>
-                      <p className="text-xs text-slate-500">连接断开或重连时显示通知</p>
+                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.notifications.connectionNotifications')}</label>
+                      <p className="text-xs text-slate-500">{t('settings.notifications.connectionNotificationsDesc')}</p>
                     </div>
                     <ToggleButton
                       enabled={localSettings.connectionNotifications ?? true}
@@ -531,13 +538,48 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
                   <div className="industrial-setting-row">
                     <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">命令执行完成通知</label>
-                      <p className="text-xs text-slate-500">AI 执行的命令完成时显示系统通知</p>
+                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.notifications.commandNotifications')}</label>
+                      <p className="text-xs text-slate-500">{t('settings.notifications.commandNotificationsDesc')}</p>
                     </div>
                     <ToggleButton
                       enabled={localSettings.commandNotifications ?? false}
                       onChange={(value) => setLocalSettings({ ...localSettings, commandNotifications: value })}
                     />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'language' && (
+              <div className="space-y-6">
+                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.language.title')}</h3>
+
+                <div>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                    {t('settings.language.selectLanguage')}
+                  </label>
+                  <p className="text-xs text-slate-500 mb-3">{t('settings.language.selectLanguageDesc')}</p>
+                  <div className="grid gap-2">
+                    {(Object.entries(localeNames) as Array<[Locale, string]>).map(([locale, name]) => (
+                      <button
+                        key={locale}
+                        onClick={() => {
+                          setLocalSettings({ ...localSettings, language: locale });
+                          useI18nStore.getState().setLocale(locale);
+                        }}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-sm border text-sm transition-colors ${
+                          localSettings.language === locale
+                            ? 'border-teal-500 bg-teal-600/10 text-teal-600 dark:text-teal-400'
+                            : 'border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        <Globe className="w-4 h-4" />
+                        <span className="font-medium">{name}</span>
+                        {localSettings.language === locale && (
+                          <span className="ml-auto text-xs text-teal-500">✓</span>
+                        )}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -551,13 +593,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             onClick={onClose}
             className="industrial-button-secondary"
           >
-            取消
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="industrial-button-primary"
           >
-            保存
+            {t('common.save')}
           </button>
         </div>
       </div>

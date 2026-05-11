@@ -238,9 +238,10 @@ export const COMMAND_DESCRIPTIONS: Record<string, string> = {
 
 // 默认应用设置
 export const DEFAULT_SETTINGS = {
+  language: 'zh-CN' as const,
   theme: 'dark' as const,
   fontSize: 14,
-  fontFamily: 'JetBrains Mono, Source Code Pro, Consolas, monospace',
+  fontFamily: 'Consolas, \'Courier New\', monospace',
   keepaliveInterval: 60,
   keepaliveCountMax: 3,
   autoReconnect: true,

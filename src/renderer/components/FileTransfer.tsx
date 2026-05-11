@@ -16,6 +16,7 @@ import {
   CheckCircle,
   Trash2,
 } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface FileItem {
   name: string;
@@ -41,6 +42,7 @@ interface FileTransferProps {
 }
 
 export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
+  const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState('/home');
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -78,7 +80,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
           setFiles(result.data.files);
           setCurrentPath(path);
         } else {
-          setError(result.error || '加载目录失败');
+          setError(result.error || t('fileTransfer.loadFailed'));
         }
       }
     } catch (err) {
@@ -128,19 +130,19 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
   // 获取文件类型
   const getFileType = (file: FileItem): string => {
-    if (file.isDirectory) return '目录';
+    if (file.isDirectory) return t('fileTransfer.fileTypes.directory');
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    if (['', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico'].includes(ext)) return '图片';
-    if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2', 'xz'].includes(ext)) return '压缩包';
-    if (['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'conf', 'log', 'ini', 'cfg'].includes(ext)) return '文本';
-    if (['js', 'ts', 'tsx', 'jsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'rb', 'php', 'sh', 'bash', 'zsh'].includes(ext)) return '代码';
+    if (['', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico'].includes(ext)) return t('fileTransfer.fileTypes.image');
+    if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2', 'xz'].includes(ext)) return t('fileTransfer.fileTypes.archive');
+    if (['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'conf', 'log', 'ini', 'cfg'].includes(ext)) return t('fileTransfer.fileTypes.text');
+    if (['js', 'ts', 'tsx', 'jsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'rb', 'php', 'sh', 'bash', 'zsh'].includes(ext)) return t('fileTransfer.fileTypes.code');
     if (['html', 'css', 'scss', 'sass', 'less'].includes(ext)) return 'Web';
-    if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext)) return '音频';
-    if (['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'].includes(ext)) return '视频';
+    if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext)) return t('fileTransfer.fileTypes.audio');
+    if (['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'].includes(ext)) return t('fileTransfer.fileTypes.video');
     if (['pdf'].includes(ext)) return 'PDF';
     if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'Office';
-    if (ext) return ext.toUpperCase() + ' 文件';
-    return '文件';
+    if (ext) return ext.toUpperCase() + ' ' + t('fileTransfer.fileTypes.file');
+    return t('fileTransfer.fileTypes.file');
   };
 
   // 导航到路径
@@ -206,7 +208,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
     // 如果没有提供本地路径，使用 selectFile 选择文件
     if (!selectedPath && window.electronAPI) {
       const result = await window.electronAPI.selectFile({
-        title: '选择要上传的文件',
+        title: t('common.upload'),
         properties: ['openFile'],
       });
       if (!result.success || result.data?.canceled || !result.data?.filePath) {
@@ -289,7 +291,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
       // 在 contextIsolation 模式下，无法直接获取拖拽文件的路径
       // 所以弹出文件选择对话框，让用户选择要上传的文件
-      console.log('检测到文件拖拽，打开文件选择对话框');
+      console.log('File drag detected, opening file picker');
       await handleUpload();
     };
 
@@ -321,7 +323,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
         <div className="industrial-modal-header">
           <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             <Folder className="w-5 h-5 text-teal-500" />
-            文件传输 - SFTP
+            {t('fileTransfer.title')}
           </h2>
           <button
             onClick={onClose}
@@ -336,21 +338,21 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
           <button
             onClick={goHome}
             className="icon-button"
-            title="家目录"
+            title={t('fileTransfer.homeDir')}
           >
             <Home className="w-4 h-4" />
           </button>
           <button
             onClick={goUp}
             className="icon-button"
-            title="上级目录"
+            title={t('fileTransfer.parentDir')}
           >
             <ChevronRight className="w-4 h-4 rotate-180" />
           </button>
           <button
             onClick={() => loadDirectory(currentPath)}
             className="icon-button"
-            title="刷新"
+            title={t('common.refresh')}
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -365,7 +367,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
               }
             }}
             className="industrial-input flex-1 py-1"
-            placeholder="输入路径后按回车跳转..."
+            placeholder={t('fileTransfer.pathPlaceholder')}
           />
           <div className="flex-1" />
           <button
@@ -373,7 +375,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
             className="industrial-button-primary px-3 py-1.5"
           >
             <Upload className="w-4 h-4" />
-            上传
+            {t('common.upload')}
           </button>
         </div>
 
@@ -417,17 +419,17 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
             ) : files.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-slate-400">
                 <Folder className="w-12 h-12 mb-2 opacity-50" />
-                <p className="text-sm">空目录</p>
-                <p className="text-xs mt-1">拖拽文件到此处将自动弹出选择对话框</p>
+                <p className="text-sm">{t('fileTransfer.emptyDir')}</p>
+                <p className="text-xs mt-1">{t('fileTransfer.dragHint')}</p>
               </div>
             ) : (
               <div className="space-y-1">
                 {/* Header */}
                 <div className="industrial-table-head grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3">
-                  <div>名称</div>
-                  <div>类型</div>
-                  <div className="text-right">大小</div>
-                  <div className="text-right">修改时间</div>
+                  <div>{t('fileTransfer.tableHeaders.name')}</div>
+                  <div>{t('fileTransfer.tableHeaders.type')}</div>
+                  <div className="text-right">{t('fileTransfer.tableHeaders.size')}</div>
+                  <div className="text-right">{t('fileTransfer.tableHeaders.modified')}</div>
                   <div />
                 </div>
                 {files.map((file, index) => (
@@ -458,7 +460,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
                             handleDownload(file);
                           }}
                           className="icon-button h-7 w-7 text-teal-500"
-                          title="下载"
+                          title={t('common.download')}
                         >
                           <Download className="w-4 h-4" />
                         </button>
@@ -472,7 +474,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
             {/* Drag overlay */}
             {isDragOver && (
               <div className="absolute inset-0 flex items-center justify-center bg-teal-500/20 border-2 border-dashed border-teal-500 rounded-sm pointer-events-none">
-                <div className="text-teal-500 font-medium">释放后将弹出文件选择对话框</div>
+                <div className="text-teal-500 font-medium">{t('fileTransfer.dropHint')}</div>
               </div>
             )}
           </div>
@@ -481,7 +483,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
           {transferTasks.length > 0 && (
             <div className="file-transfer-scroll w-64 border-l border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] overflow-y-auto bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
               <div className="p-3 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]">
-                <h3 className="text-sm font-medium text-slate-900 dark:text-white">传输任务</h3>
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white">{t('fileTransfer.transferTasks')}</h3>
               </div>
               <div className="p-2 space-y-2">
                 {transferTasks.map(task => (
@@ -531,8 +533,8 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
         {/* Footer */}
         <div className="p-3 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between bg-[color-mix(in_srgb,var(--bg-primary)_56%,var(--bg-secondary))]">
-          <span>{files.length} 个项目</span>
-          <span>SFTP 传输</span>
+          <span>{t('fileTransfer.itemCount', { count: files.length })}</span>
+          <span>SFTP</span>
         </div>
       </div>
     </div>

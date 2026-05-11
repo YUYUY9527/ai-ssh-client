@@ -17,6 +17,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useAgentStore } from '../store/useAgentStore';
+import { useI18n } from '../i18n';
 import type { ThinkingStep, AgentState } from '../../shared/types';
 
 // 悬停气泡组件
@@ -122,16 +123,30 @@ interface AgentThinkingProps {
   onCancel?: () => void;
 }
 
-const stateLabels: Record<AgentState, { label: string; color: string; icon: React.ReactNode }> = {
-  idle: { label: '待机', color: 'text-slate-500', icon: <Brain className="w-3 h-3" /> },
-  thinking: { label: '思考中', color: 'text-blue-500', icon: <Brain className="w-3 h-3 animate-pulse" /> },
-  planning: { label: '规划中', color: 'text-purple-500', icon: <ListTodo className="w-3 h-3 animate-pulse" /> },
-  executing: { label: '执行中', color: 'text-yellow-500', icon: <Terminal className="w-3 h-3 animate-pulse" /> },
-  observing: { label: '观察中', color: 'text-cyan-500', icon: <Eye className="w-3 h-3 animate-pulse" /> },
-  paused: { label: '已暂停', color: 'text-orange-500', icon: <Pause className="w-3 h-3" /> },
-  finished: { label: '已完成', color: 'text-green-500', icon: <CheckCircle2 className="w-3 h-3" /> },
-  error: { label: '出错', color: 'text-red-500', icon: <XCircle className="w-3 h-3" /> },
+const stateLabels: Record<AgentState, { color: string; icon: React.ReactNode }> = {
+  idle: { color: 'text-slate-500', icon: <Brain className="w-3 h-3" /> },
+  thinking: { color: 'text-blue-500', icon: <Brain className="w-3 h-3 animate-pulse" /> },
+  planning: { color: 'text-purple-500', icon: <ListTodo className="w-3 h-3 animate-pulse" /> },
+  executing: { color: 'text-yellow-500', icon: <Terminal className="w-3 h-3 animate-pulse" /> },
+  observing: { color: 'text-cyan-500', icon: <Eye className="w-3 h-3 animate-pulse" /> },
+  paused: { color: 'text-orange-500', icon: <Pause className="w-3 h-3" /> },
+  finished: { color: 'text-green-500', icon: <CheckCircle2 className="w-3 h-3" /> },
+  error: { color: 'text-red-500', icon: <XCircle className="w-3 h-3" /> },
 };
+
+function getStateLabel(state: AgentState, t: (key: string) => string): string {
+  const labels: Record<AgentState, string> = {
+    idle: t('agent.states.idle'),
+    thinking: t('agent.states.thinking'),
+    planning: t('agent.states.planning'),
+    executing: t('agent.states.executing'),
+    observing: t('agent.states.observing'),
+    paused: t('agent.states.paused'),
+    finished: t('agent.states.finished'),
+    error: t('agent.states.error'),
+  };
+  return labels[state];
+}
 
 const stepTypeIcons: Record<ThinkingStep['type'], React.ReactNode> = {
   understanding: <Brain className="w-3 h-3" />,
@@ -159,6 +174,7 @@ function getExecutionCommand(content: string): string {
 
 export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThinkingProps) {
   const { currentTask, agentState, config, pendingTerminalPrompt } = useAgentStore();
+  const { t } = useI18n();
   const [userExpandedGroups, setUserExpandedGroups] = useState<Set<number>>(new Set()); // 用户手动展开的组
   const [userCollapsedGroups, setUserCollapsedGroups] = useState<Set<number>>(new Set()); // 用户手动折叠的组
   const [showAllGroups, setShowAllGroups] = useState(false);
@@ -170,14 +186,14 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
     // 优先检查是否有完成步骤
     const completeStep = steps.find(s => s.type === 'complete' && s.status === 'completed');
     if (completeStep) {
-      return '任务完成';
+      return t('agent.task.taskCompleted');
     }
 
     const commands = steps.filter(s => s.type === 'execution' && s.status === 'completed');
     if (commands.length > 0) {
       const cmdContents = commands.map(s => {
         const match = s.content.match(/命令：(.+?)(?:\n|$)/);
-        return match ? match[1] : '执行命令';
+        return match ? match[1] : t('agent.conversation.executeCommand');
       });
       if (cmdContents.length === 1) {
         return `执行: ${cmdContents[0]}`;
@@ -345,17 +361,17 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-2.5">
             <Brain className="w-4 h-4 text-teal-500" />
-            <span className="font-medium text-sm text-slate-900 dark:text-white">智能体任务</span>
+            <span className="font-medium text-sm text-slate-900 dark:text-white">{t('agent.task.title')}</span>
           </div>
           <div className="flex items-center gap-2.5">
             <span className={`flex items-center gap-1 text-xs ${stateInfo.color}`}>
               {stateInfo.icon}
-              {stateInfo.label}
+              {getStateLabel(agentState, t)}
             </span>
             {pendingTerminalPrompt && (
               <span className="flex items-center gap-1 text-xs text-amber-500">
                 <AlertCircle className="w-3 h-3" />
-                等待终端输入
+                {t('agent.task.waitingTerminalInput')}
               </span>
             )}
             <span className="text-xs text-slate-400">
@@ -388,7 +404,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
 
         {pendingTerminalPrompt && (
           <div className="mb-3 rounded-sm border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-            终端正在等待你的输入：{pendingTerminalPrompt}。请先在终端中完成交互，智能体会继续等待。
+            {t('agent.task.terminalWaitingHint', { prompt: pendingTerminalPrompt })}
           </div>
         )}
 
@@ -399,7 +415,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-sm hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors"
           >
             <Pause className="w-3 h-3" />
-            暂停
+            {t('agent.actions.pause')}
           </button>
         )}
 
@@ -410,14 +426,14 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-sm hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
             >
               <Play className="w-3 h-3" />
-              继续
+              {t('agent.actions.resume')}
             </button>
             <button
               onClick={onCancel}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-sm hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
             >
               <X className="w-3 h-3" />
-              取消
+              {t('agent.actions.cancel')}
             </button>
           </div>
         )}
@@ -428,7 +444,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 rounded-sm hover:bg-teal-200 dark:hover:bg-teal-900/50 transition-colors"
           >
             <RotateCcw className="w-3 h-3" />
-            重试
+            {t('common.retry')}
           </button>
         )}
 
@@ -441,7 +457,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
         {stepGroups.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-6">
-            等待智能体开始思考...
+            {t('agent.task.waitingThinking')}
           </p>
         ) : (
           <div className="space-y-3 pb-1">
@@ -451,7 +467,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                   onClick={() => setShowAllGroups(!showAllGroups)}
                   className="text-xs text-blue-500 hover:text-blue-400 transition-colors"
                 >
-                  {showAllGroups ? '收起' : `查看全部 ${stepGroups.length} 轮`}
+                  {showAllGroups ? t('agent.task.collapse') : t('agent.task.viewAll', { count: stepGroups.length })}
                 </button>
               </div>
             )}
@@ -534,11 +550,11 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1.5">
                                 <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                                  {step.type === 'execution' ? '执行命令' : step.title}
+                                  {step.type === 'execution' ? t('agent.conversation.executeCommand') : step.title}
                                 </span>
                                 {step.status === 'in_progress' && (
                                   <span className="px-1.5 py-0.5 rounded-sm text-xs bg-teal-100 dark:bg-teal-900/50 text-teal-600 dark:text-teal-400">
-                                    进行中
+                                    {t('agent.states.executing')}
                                   </span>
                                 )}
                                 {step.status === 'completed' && (
@@ -552,7 +568,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                                 <Tooltip content={step.content}>
                                   <div className="cursor-help">
                                     <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-                                      执行命令
+                                      {t('agent.conversation.executeCommand')}
                                     </p>
                                     <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-200 break-all font-mono">
                                       {getExecutionCommand(step.content)}
@@ -597,7 +613,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                 ? 'text-green-800 dark:text-green-300'
                 : 'text-red-800 dark:text-red-300'
             }`}>
-              {agentState === 'finished' ? '任务完成' : '任务出错'}
+              {agentState === 'finished' ? t('agent.task.taskCompleted') : t('agent.task.taskError')}
             </h4>
           </div>
 

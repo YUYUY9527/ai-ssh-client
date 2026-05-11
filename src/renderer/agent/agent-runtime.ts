@@ -1,4 +1,5 @@
 import { AGENT_SYSTEM_PROMPT } from '../../shared/constants';
+import { t } from '../i18n';
 import type {
   AgentConfig,
   AgentResponse,
@@ -505,7 +506,7 @@ export class AgentRuntime {
     const capturedVersion = this.taskVersion;
 
     if (this.stepCount >= (this.snapshot.config.maxExecutionSteps || 10)) {
-      this.finishTask(false, '超过最大执行步数限制');
+      this.finishTask(false, t('agent.finishReasons.maxSteps'));
       return;
     }
 
@@ -515,8 +516,8 @@ export class AgentRuntime {
     this.actions.addThinkingStep({
       id: thinkStepId,
       type: 'understanding',
-      title: this.stepCount === 1 ? '思考过程' : `第 ${this.stepCount} 步:分析决策`,
-      content: '正在分析当前状态并决定下一步操作...',
+      title: this.stepCount === 1 ? t('agent.thinking.process') : t('agent.thinking.stepAnalysis', { step: this.stepCount }),
+      content: t('agent.thinking.analyzing'),
       timestamp: Date.now(),
       status: 'in_progress',
     });
@@ -529,18 +530,18 @@ export class AgentRuntime {
         // 由 pause / cancel 终止,走对应路径,这里不做收尾
         return;
       }
-      const msg = error instanceof Error ? error.message : '未知错误';
-      this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: `AI 请求失败:${msg}` });
+      const msg = error instanceof Error ? error.message : t('aiErrors.defaultError');
+      this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: t('agent.thinking.aiRequestFailed', { error: msg }) });
       if (!this.isCurrent(capturedVersion)) return;
-      this.finishTask(false, 'AI 响应失败');
+      this.finishTask(false, t('agent.finishReasons.aiFailed'));
       return;
     }
 
     if (!this.isCurrent(capturedVersion)) return;
 
     if (!aiResponse) {
-      this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: '无法解析 AI 响应' });
-      this.finishTask(false, 'AI 响应无效');
+      this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: t('agent.thinking.cannotParse') });
+      this.finishTask(false, t('agent.finishReasons.aiInvalid'));
       return;
     }
 
@@ -550,24 +551,24 @@ export class AgentRuntime {
     });
 
     if (aiResponse.decision === 'finish') {
-      this.finishTask(true, aiResponse.finishReason || '任务完成');
+      this.finishTask(true, aiResponse.finishReason || t('agent.notifications.completed'));
       return;
     }
 
     if (aiResponse.decision === 'ask') {
       this.status = 'awaitingQuestion';
-      this.actions.setPendingQuestion(aiResponse.question || '需要更多信息');
+      this.actions.setPendingQuestion(aiResponse.question || t('agent.thinking.analyzing'));
       return;
     }
 
     const command = aiResponse.command?.trim();
     if (!command) {
-      this.finishTask(false, 'AI 未提供可执行命令');
+      this.finishTask(false, t('agent.finishReasons.noCommand'));
       return;
     }
 
     if (this.shouldBlockRepeatedCommand(command)) {
-      this.finishTask(false, `检测到重复命令,已阻止执行:${command}`);
+      this.finishTask(false, t('agent.finishReasons.duplicateCommand', { command }));
       return;
     }
 
@@ -610,8 +611,8 @@ export class AgentRuntime {
         return;
       }
       if (!this.isCurrent(capturedVersion)) return;
-      const msg = error instanceof Error ? error.message : '命令执行失败';
-      this.actions.updateThinkingStep(execStepId, { status: 'failed', content: `命令执行失败:${msg}` });
+      const msg = error instanceof Error ? error.message : t('agent.finishReasons.aiFailed');
+      this.actions.updateThinkingStep(execStepId, { status: 'failed', content: msg });
       this.finishTask(false, msg);
       return;
     }
@@ -641,7 +642,7 @@ export class AgentRuntime {
     this.seenApprovalResult = null;
 
     if (result === 'rejected') {
-      this.finishTask(false, '用户拒绝执行命令');
+      this.finishTask(false, t('agent.finishReasons.userRejected'));
       return;
     }
 
@@ -852,11 +853,11 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
       if (reason === 'timeout') {
         // 告知用户这次只是超时拉回,不直接算失败
         this.actions.updateThinkingStep(execStepId, {
-          content: `${command}\n\n⚠️ 命令执行超过上限,已提前结束等待。`,
+          content: t('agent.finishReasons.commandTimeout', { command }),
         });
       }
       if (reason === 'closed') {
-        throw new Error('SSH 连接已断开');
+        throw new Error(t('agent.finishReasons.connectionLost'));
       }
 
       return finalOutput;
@@ -975,8 +976,8 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
         this.actions.addThinkingStep({
           id: blockStepId,
           type: 'observation',
-          title: '终端等待输入',
-          content: `⚠️ 检测到终端正在等待输入:${prompt}\n\n请在终端中手动输入继续...`,
+          title: t('agent.thinking.terminalWaiting'),
+          content: t('agent.thinking.terminalWaitingContent', { prompt }),
           timestamp: Date.now(),
           status: 'in_progress',
         });
@@ -1033,8 +1034,8 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
     this.actions.addThinkingStep({
       id: blockStepId,
       type: 'observation',
-      title: '终端等待输入',
-      content: `⚠️ 检测到终端正在等待输入:${prompt}\n\n请在终端中手动输入继续...`,
+      title: t('agent.thinking.terminalWaiting'),
+      content: t('agent.thinking.terminalWaitingContent', { prompt }),
       timestamp: Date.now(),
       status: 'in_progress',
     });

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AIProviderConfig, AIProviderSummary, Message, CommandSuggestion } from '../../shared/types';
 import type { AIChatResponse } from '../../shared/ipc-types';
 import { extractCommand, riskAnalysisToSuggestion } from '../ai';
+import { t } from '../i18n';
 
 export type ContextStrategy = 'keep-all' | 'keep-recent' | 'keep-summary';
 
@@ -27,28 +28,28 @@ function formatAIErrorMessage(message: string, code?: string): string {
   const normalized = `${code || ''} ${message}`.toLowerCase();
 
   if (normalized.includes('provider_not_found') || normalized.includes('not found or not active')) {
-    return '当前 AI 供应商不可用，请确认已正确激活。';
+    return t('aiErrors.providerNotFound');
   }
   if (normalized.includes('缺少 api key') || normalized.includes('auth') || normalized.includes('401') || normalized.includes('403')) {
-    return '鉴权失败，请检查 API Key 是否正确、是否过期。';
+    return t('aiErrors.authFailed');
   }
   if (normalized.includes('timeout') || normalized.includes('超时')) {
-    return '请求超时，请检查网络状态或稍后重试。';
+    return t('aiErrors.timeout');
   }
   if (normalized.includes('429') || normalized.includes('rate')) {
-    return '请求过于频繁，请稍后再试或切换模型。';
+    return t('aiErrors.rateLimited');
   }
   if (normalized.includes('network') || normalized.includes('fetch') || normalized.includes('failed to fetch')) {
-    return '网络请求失败，请检查 API 地址和网络连接。';
+    return t('aiErrors.networkFailed');
   }
   if (normalized.includes('invalid_response') || normalized.includes('响应格式无效')) {
-    return 'AI 返回了无法解析的结果，请重试或切换模型。';
+    return t('aiErrors.invalidResponse');
   }
   if (normalized.includes('invalid_config')) {
-    return 'AI 供应商配置无效，请检查地址、模型和密钥配置。';
+    return t('aiErrors.invalidConfig');
   }
 
-  return message || 'AI 响应失败，请稍后重试';
+  return message || t('aiErrors.defaultError');
 }
 
 function buildChatContext(params: {
@@ -199,7 +200,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         set({
           isLoading: false,
           currentRequestId: null,
-          error: formatAIErrorMessage(result.error || 'AI 响应失败，请稍后重试', result.code),
+          error: formatAIErrorMessage(result.error || t('aiErrors.defaultError'), result.code),
         });
         return;
       }
@@ -225,7 +226,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         get().trimContext();
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'AI 响应失败，请稍后重试';
+      const message = error instanceof Error ? error.message : t('aiErrors.defaultError');
       set({
         isLoading: false,
         currentRequestId: null,
@@ -238,7 +239,7 @@ export const useAIStore = create<AIState>((set, get) => ({
     const requestId = get().currentRequestId;
     if (!window.electronAPI || !requestId) return;
     await window.electronAPI.cancelAIChat(requestId);
-    set({ isLoading: false, currentRequestId: null, error: '已取消当前请求' });
+    set({ isLoading: false, currentRequestId: null, error: t('aiErrors.canceled') });
   },
 
   addMessage: (message: Message) => {

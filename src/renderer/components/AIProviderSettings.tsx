@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Pencil, Plus, Power, Trash2, X } from 'lucide-react';
 import { useAIStore } from '../store/useAIStore';
 import { ConfirmDialog } from './ConfirmDialog';
+import { useI18n } from '../i18n';
 import type { AIProviderConfig, AIProviderSummary, AIProviderType } from '../../shared/types';
 
 interface ProviderFormState {
@@ -44,6 +45,7 @@ function getProviderTypeLabel(type: AIProviderType): string {
 }
 
 export function AIProviderSettings() {
+  const { t } = useI18n();
   const {
     providers,
     activeProviderId,
@@ -131,12 +133,12 @@ export function AIProviderSettings() {
     const hasNewApiKey = providerForm.apiKey.trim().length > 0;
 
     if (!providerForm.baseUrl.trim()) {
-      setStatusMessage({ type: 'error', text: '请填写 API 地址' });
+      setStatusMessage({ type: 'error', text: t('aiProvider.fillApiUrl') });
       return;
     }
 
     if (!hasExistingSecret && !hasNewApiKey) {
-      setStatusMessage({ type: 'error', text: '请填写 API Key' });
+      setStatusMessage({ type: 'error', text: t('aiProvider.fillApiKey') });
       return;
     }
 
@@ -146,7 +148,7 @@ export function AIProviderSettings() {
     try {
       const testProvider: AIProviderConfig = {
         id: editingProvider?.id || `test-${Date.now()}`,
-        name: providerForm.name || '测试供应商',
+        name: providerForm.name || t('aiProvider.testProvider'),
         type: providerForm.type,
         apiKey: providerForm.apiKey.trim() || undefined,
         baseUrl: providerForm.baseUrl.trim(),
@@ -156,12 +158,12 @@ export function AIProviderSettings() {
 
       const result = await window.electronAPI.testAIProvider(testProvider);
       if (result.success) {
-        setStatusMessage({ type: 'success', text: '连接测试成功' });
+        setStatusMessage({ type: 'success', text: t('aiProvider.testSuccess') });
       } else {
-        setStatusMessage({ type: 'error', text: result.error || '连接测试失败' });
+        setStatusMessage({ type: 'error', text: result.error || t('aiProvider.testFailed') });
       }
     } catch (error) {
-      setStatusMessage({ type: 'error', text: error instanceof Error ? error.message : '连接测试失败' });
+      setStatusMessage({ type: 'error', text: error instanceof Error ? error.message : t('aiProvider.testFailed') });
     } finally {
       setIsTestingConnection(false);
     }
@@ -170,7 +172,7 @@ export function AIProviderSettings() {
   const handleSaveProvider = async () => {
     if (!editingProvider) return;
     if (!providerForm.name.trim()) {
-      setStatusMessage({ type: 'error', text: '请填写供应商名称' });
+      setStatusMessage({ type: 'error', text: t('aiProvider.fillName') });
       return;
     }
 
@@ -193,7 +195,7 @@ export function AIProviderSettings() {
     if (!window.electronAPI) return;
     const result = await window.electronAPI.setActiveAIProvider(providerId);
     if (!result.success) {
-      setStatusMessage({ type: 'error', text: result.error || '激活供应商失败' });
+      setStatusMessage({ type: 'error', text: result.error || t('aiProvider.activateFailed') });
       return;
     }
     await loadProviders();
@@ -213,12 +215,12 @@ export function AIProviderSettings() {
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-medium text-slate-900 dark:text-white">AI 供应商</h3>
-          <p className="mt-1 text-xs text-slate-500">智能体只使用这里激活的供应商，不再在聊天窗口里配置。</p>
+          <h3 className="font-medium text-slate-900 dark:text-white">{t('aiProvider.title')}</h3>
+          <p className="mt-1 text-xs text-slate-500">{t('aiProvider.description')}</p>
         </div>
         <button onClick={handleAddProvider} className="industrial-button-primary px-3 py-1.5">
           <Plus className="h-4 w-4" />
-          添加供应商
+          {t('aiProvider.addProvider')}
         </button>
       </div>
 
@@ -226,7 +228,7 @@ export function AIProviderSettings() {
         {providers.length === 0 ? (
           <div className="industrial-card p-5 text-center">
             <KeyRound className="mx-auto mb-2 h-6 w-6 text-slate-400" />
-            <p className="text-sm text-slate-500">还没有配置 AI 供应商。</p>
+            <p className="text-sm text-slate-500">{t('aiProvider.noProviders')}</p>
           </div>
         ) : (
           providers.map((provider) => (
@@ -244,19 +246,19 @@ export function AIProviderSettings() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    {provider.model || '未指定模型'} · API Key {provider.hasApiKey ? provider.maskedApiKey || '已配置' : '未配置'}
+                    {provider.model || t('aiProvider.noModel')} · API Key {provider.hasApiKey ? provider.maskedApiKey || t('aiProvider.apiKeyConfigured') : t('aiProvider.apiKeyNotConfigured')}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {provider.id !== activeProviderId && (
-                    <button onClick={() => void handleSetActive(provider.id)} className="icon-button h-8 w-8" title="激活">
+                    <button onClick={() => void handleSetActive(provider.id)} className="icon-button h-8 w-8" title={t('aiProvider.activate')}>
                       <Power className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => void handleEditProvider(provider)} className="icon-button h-8 w-8" title="编辑">
+                  <button onClick={() => void handleEditProvider(provider)} className="icon-button h-8 w-8" title={t('common.edit')}>
                     <Pencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => setConfirmProviderId(provider.id)} className="icon-button h-8 w-8 hover:text-red-500" title="删除">
+                  <button onClick={() => setConfirmProviderId(provider.id)} className="icon-button h-8 w-8 hover:text-red-500" title={t('common.delete')}>
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
@@ -270,7 +272,7 @@ export function AIProviderSettings() {
         <div ref={formRef} className="industrial-card p-4">
           <div className="mb-4 flex items-center justify-between">
             <h4 className="text-sm font-semibold text-slate-900 dark:text-white">
-              {editingProvider.id ? '编辑供应商' : '添加供应商'}
+              {editingProvider.id ? t('common.edit') + ' ' + t('settings.tabs.providers') : t('aiProvider.addProvider')}
             </h4>
             <button onClick={resetProviderEditor} className="icon-button h-7 w-7">
               <X className="h-4 w-4" />
@@ -279,7 +281,7 @@ export function AIProviderSettings() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="industrial-field-label">名称</label>
+              <label className="industrial-field-label">{t('connection.form.name')}</label>
               <input
                 value={providerForm.name}
                 onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
@@ -288,7 +290,7 @@ export function AIProviderSettings() {
               />
             </div>
             <div>
-              <label className="industrial-field-label">类型</label>
+              <label className="industrial-field-label">Type</label>
               <select
                 value={providerForm.type}
                 onChange={(e) => setProviderForm({ ...providerForm, type: e.target.value as AIProviderType })}
@@ -305,7 +307,7 @@ export function AIProviderSettings() {
               <label className="industrial-field-label">API Key</label>
               {editingProvider.id && providerSecretState.hasApiKey && (
                 <div className="mb-2 rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-300">
-                  当前已保存密钥：{providerSecretState.isLoading ? '读取中...' : providerSecretState.maskedApiKey || '已配置'}，留空则保留。
+                  API Key: {providerSecretState.isLoading ? '...' : providerSecretState.maskedApiKey || t('aiProvider.apiKeyConfigured')}
                 </div>
               )}
               <div className="relative">
@@ -314,7 +316,7 @@ export function AIProviderSettings() {
                   value={providerForm.apiKey}
                   onChange={(e) => setProviderForm({ ...providerForm, apiKey: e.target.value })}
                   className="industrial-input w-full pr-10"
-                  placeholder={editingProvider.id && providerSecretState.hasApiKey ? '留空以保留当前 API Key' : 'sk-...'}
+                  placeholder={editingProvider.id && providerSecretState.hasApiKey ? '' : 'sk-...'}
                 />
                 <button
                   type="button"
@@ -326,7 +328,7 @@ export function AIProviderSettings() {
               </div>
             </div>
             <div>
-              <label className="industrial-field-label">API 地址</label>
+              <label className="industrial-field-label">API URL</label>
               <input
                 value={providerForm.baseUrl}
                 onChange={(e) => setProviderForm({ ...providerForm, baseUrl: e.target.value })}
@@ -335,7 +337,7 @@ export function AIProviderSettings() {
               />
             </div>
             <div>
-              <label className="industrial-field-label">模型</label>
+              <label className="industrial-field-label">Model</label>
               <input
                 value={providerForm.model}
                 onChange={(e) => setProviderForm({ ...providerForm, model: e.target.value })}
@@ -359,19 +361,19 @@ export function AIProviderSettings() {
           <div className="mt-4 flex justify-end gap-2">
             <button onClick={() => void testConnection()} disabled={isTestingConnection} className="industrial-button-secondary">
               {isTestingConnection && <Loader2 className="h-4 w-4 animate-spin" />}
-              测试连接
+              {t('aiProvider.testConnection')}
             </button>
-            <button onClick={resetProviderEditor} className="industrial-button-secondary">取消</button>
-            <button onClick={() => void handleSaveProvider()} className="industrial-button-primary">保存</button>
+            <button onClick={resetProviderEditor} className="industrial-button-secondary">{t('common.cancel')}</button>
+            <button onClick={() => void handleSaveProvider()} className="industrial-button-primary">{t('common.save')}</button>
           </div>
         </div>
       )}
 
       <ConfirmDialog
         isOpen={Boolean(confirmProviderId)}
-        title="删除供应商"
-        message="确定要删除这个 AI 供应商吗？保存的 API Key 也会一并删除。"
-        confirmText="删除"
+        title={t('common.delete')}
+        message={t('aiProvider.confirmDelete')}
+        confirmText={t('common.delete')}
         onConfirm={() => void handleDeleteProvider()}
         onCancel={() => setConfirmProviderId(null)}
       />

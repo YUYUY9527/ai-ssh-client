@@ -35,6 +35,7 @@ import { useConnectionStore } from './store/useConnectionStore';
 import { useAIStore } from './store/useAIStore';
 import { useAgentStore } from './store/useAgentStore';
 import { useTheme } from './hooks/useTheme';
+import { useI18n } from './i18n';
 import type { CommandSuggestion, SSHSessionState, SSHConnection, QuickCommand, QuickCommandGroup } from '../shared/types';
 import type { AppSettings } from '../shared/types';
 
@@ -69,17 +70,19 @@ interface DragState {
 }
 
 function LazyModalFallback() {
+  const { t } = useI18n();
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-6 py-5 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
         <Loader2 className="w-5 h-5 animate-spin" />
-        正在加载...
+        {t('common.loading')}
       </div>
     </div>
   );
 }
 
 function App() {
+  const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'security' | 'notifications' | 'agent'>('terminal');
   const lastNotificationRef = useRef<string>('');
@@ -303,7 +306,7 @@ function App() {
     }
 
     lastNotificationRef.current = notificationKey;
-    await window.electronAPI.showSystemNotification('命令执行完成', command, {
+    await window.electronAPI.showSystemNotification(t('notifications.commandCompleted'), command, {
       onlyWhenAppInBackground: true,
     });
   }, [settings?.commandNotifications]);
@@ -381,7 +384,7 @@ function App() {
     });
 
     const cleanupSshError = window.electronAPI.onSshError?.(({ connectionId, error }) => {
-      queueTerminalOutput(connectionId, `\r\n\x1b[31m错误: ${error}\x1b[0m\r\n`);
+      queueTerminalOutput(connectionId, `\r\n\x1b[31mError: ${error}\x1b[0m\r\n`);
     });
 
     const cleanupSshClose = window.electronAPI.onSshClose?.((connectionId) => {
@@ -434,10 +437,10 @@ function App() {
 
   const getConnectionStatus = () => {
     const currentTab = openTabs.find(tab => tab.id === activeTabId);
-    if (!currentTab) return { icon: <WifiOff className="w-3 h-3" />, text: '未连接', color: 'text-slate-500' };
-    if (currentTab.isConnecting) return { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: '连接中...', color: 'text-yellow-500' };
-    if (currentTab.isConnected) return { icon: <Wifi className="w-3 h-3" />, text: '已连接', color: 'text-green-500' };
-    return { icon: <WifiOff className="w-3 h-3" />, text: '已断开', color: 'text-red-500' };
+    if (!currentTab) return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.disconnected'), color: 'text-slate-500' };
+    if (currentTab.isConnecting) return { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: t('connection.status.connecting'), color: 'text-yellow-500' };
+    if (currentTab.isConnected) return { icon: <Wifi className="w-3 h-3" />, text: t('connection.status.connected'), color: 'text-green-500' };
+    return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.closed'), color: 'text-red-500' };
   };
 
   const status = getConnectionStatus();
@@ -459,7 +462,7 @@ function App() {
       const newConnection: SSHConnection = {
         ...connection,
         id: newConnectionId,
-        name: `${connection.name} (副本)`,
+        name: `${connection.name} ${t('connection.copySuffix')}`,
       };
       // 先持久化新连接
       await useConnectionStore.getState().saveConnection(newConnection);
@@ -603,7 +606,7 @@ function App() {
   // 测试连接
   const handleTestConnection = async () => {
     if (!editingConnection?.host || !editingConnection?.username) {
-      setConnectionTestResult({ success: false, message: '请填写主机和用户名' });
+      setConnectionTestResult({ success: false, message: t('connection.fillHostAndUser') });
       return;
     }
 
@@ -614,9 +617,9 @@ function App() {
       if (window.electronAPI) {
         const result = await window.electronAPI.sshTestConnection(editingConnection);
         if (result.success) {
-          setConnectionTestResult({ success: true, message: '连接成功！' });
+          setConnectionTestResult({ success: true, message: t('connection.testSuccess') });
         } else {
-          setConnectionTestResult({ success: false, message: result.error || '连接失败' });
+          setConnectionTestResult({ success: false, message: result.error || t('connection.testFailed') });
         }
       }
     } catch (error) {
@@ -738,24 +741,24 @@ function App() {
               className="toolbar-button-primary"
             >
               <Plug className="w-4 h-4" />
-              连接
+              {t('connection.connect')}
             </button>
             {/* 连接下拉菜单 */}
             {showConnectionDropdown && (
               <div className="app-popover left-0 w-80 scrollbar-modern">
                 <div className="app-popover-header">
-                  <span>选择连接</span>
+                  <span>{t('connection.selectConnection')}</span>
                   <button
                     onClick={() => { setEditingConnection({ id: '', name: '', host: '', port: 22, username: '' }); setShowConnectionDropdown(false); }}
                     className="icon-button h-7 w-7"
-                    title="新建连接"
+                    title={t('connection.newConnection')}
                   >
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
                 {connections.length === 0 ? (
                   <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
-                    暂无连接，点击 + 添加
+                    {t('connection.noConnections')}
                   </div>
                 ) : (
                   connections.map((conn) => (
@@ -779,14 +782,14 @@ function App() {
                         <button
                           onClick={(e) => { e.stopPropagation(); setEditingConnection(conn); setShowConnectionDropdown(false); }}
                           className="icon-button h-7 w-7"
-                          title="编辑"
+                          title={t('common.edit')}
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeletingConnection(conn.id); setShowConnectionDropdown(false); }}
                           className="icon-button h-7 w-7 hover:text-red-500 dark:hover:text-red-400"
-                          title="删除"
+                          title={t('common.delete')}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -802,10 +805,10 @@ function App() {
             <button
               onClick={() => setShowFileTransfer(true)}
               className="toolbar-button"
-              title="文件传输"
+              title={t('fileTransfer.transfer')}
             >
               <FolderUp className="w-4 h-4" />
-              传输
+              {t('fileTransfer.transfer')}
             </button>
           )}
 
@@ -815,10 +818,10 @@ function App() {
               <button
                 onClick={() => setShowQuickCommands(!showQuickCommands)}
                 className={`toolbar-button ${showQuickCommands ? 'toolbar-button-active' : ''}`}
-                title="快速命令"
+                title={t('quickCommands.title')}
               >
                 <Zap className="w-4 h-4" />
-                命令
+                {t('quickCommands.commands')}
                 <ChevronDownIcon className="w-3 h-3" />
               </button>
 
@@ -827,7 +830,7 @@ function App() {
                 <div className="app-popover scrollbar-modern left-0 w-80">
                   {/* 头部 */}
                   <div className="app-popover-header">
-                    <span>快速命令</span>
+                    <span>{t('quickCommands.title')}</span>
                     <div className="flex gap-1">
                       <button
                         onClick={() => {
@@ -835,7 +838,7 @@ function App() {
                           setShowQuickCommandForm(false);
                         }}
                         className="icon-button h-7 w-7"
-                        title="新建分组"
+                        title={t('quickCommands.newGroup')}
                       >
                         <FolderUp className="w-4 h-4" />
                       </button>
@@ -845,7 +848,7 @@ function App() {
                           setShowQuickGroupForm(false);
                         }}
                         className="icon-button h-7 w-7"
-                        title="新建命令"
+                        title={t('quickCommands.newCommand')}
                       >
                         <Plus className="w-4 h-4" />
                       </button>
@@ -860,7 +863,7 @@ function App() {
                           type="text"
                           value={newQuickGroup.name}
                           onChange={(e) => setNewQuickGroup({ ...newQuickGroup, name: e.target.value })}
-                          placeholder="分组名称"
+                          placeholder={t('quickCommands.groupName')}
                           className="industrial-input w-full py-1"
                         />
                         <div className="flex items-center gap-2">
@@ -875,13 +878,13 @@ function App() {
                               onClick={handleSaveQuickGroup}
                               className="industrial-button-primary flex-1 px-2 py-1 text-xs"
                             >
-                              保存
+                              {t('common.save')}
                             </button>
                             <button
                               onClick={() => setShowQuickGroupForm(false)}
                               className="industrial-button-secondary flex-1 px-2 py-1 text-xs"
                             >
-                              取消
+                              {t('common.cancel')}
                             </button>
                           </div>
                         </div>
@@ -897,21 +900,21 @@ function App() {
                           type="text"
                           value={newQuickCommand.name}
                           onChange={(e) => setNewQuickCommand({ ...newQuickCommand, name: e.target.value })}
-                          placeholder="命令名称"
+                          placeholder={t('quickCommands.commandName')}
                           className="industrial-input w-full py-1"
                         />
                         <input
                           type="text"
                           value={newQuickCommand.command}
                           onChange={(e) => setNewQuickCommand({ ...newQuickCommand, command: e.target.value })}
-                          placeholder="命令内容"
+                          placeholder={t('quickCommands.commandContent')}
                           className="industrial-input w-full py-1 font-mono"
                         />
                         <input
                           type="text"
                           value={newQuickCommand.description}
                           onChange={(e) => setNewQuickCommand({ ...newQuickCommand, description: e.target.value })}
-                          placeholder="描述（可选）"
+                          placeholder={t('quickCommands.description')}
                           className="industrial-input w-full py-1"
                         />
                         {quickCommandGroups.length > 0 && (
@@ -920,7 +923,7 @@ function App() {
                             onChange={(e) => setNewQuickCommand({ ...newQuickCommand, groupId: e.target.value })}
                             className="industrial-input w-full py-1"
                           >
-                            <option value="">无分组</option>
+                            <option value="">{t('quickCommands.noGroup')}</option>
                             {quickCommandGroups.map((group) => (
                               <option key={group.id} value={group.id}>{group.name}</option>
                             ))}
@@ -931,13 +934,13 @@ function App() {
                             onClick={handleSaveQuickCommand}
                             className="industrial-button-primary flex-1 px-2 py-1 text-xs"
                           >
-                            保存
+                            {t('common.save')}
                           </button>
                           <button
                             onClick={() => setShowQuickCommandForm(false)}
                             className="industrial-button-secondary flex-1 px-2 py-1 text-xs"
                           >
-                            取消
+                            {t('common.cancel')}
                           </button>
                         </div>
                       </div>
@@ -948,7 +951,7 @@ function App() {
                   <div className="p-2">
                     {quickCommands.length === 0 && !showQuickCommandForm && !showQuickGroupForm ? (
                       <div className="text-center text-slate-500 dark:text-slate-400 text-sm py-4">
-                        暂无快速命令，点击 + 添加
+                        {t('quickCommands.noCommands')}
                       </div>
                     ) : (
                       <>
@@ -1054,21 +1057,21 @@ function App() {
             <button
               onClick={() => changeTheme('light')}
               className={`icon-button h-7 w-7 ${theme === 'light' ? 'icon-button-active' : ''}`}
-              title="浅色主题"
+              title={t('theme.light')}
             >
               <Sun className="w-4 h-4" />
             </button>
             <button
               onClick={() => changeTheme('dark')}
               className={`icon-button h-7 w-7 ${theme === 'dark' ? 'icon-button-active' : ''}`}
-              title="深色主题"
+              title={t('theme.dark')}
             >
               <Moon className="w-4 h-4" />
             </button>
             <button
               onClick={() => changeTheme('system')}
               className={`icon-button h-7 w-7 ${theme === 'system' ? 'icon-button-active' : ''}`}
-              title="跟随系统"
+              title={t('theme.system')}
             >
               <Monitor className="w-4 h-4" />
             </button>
@@ -1079,7 +1082,7 @@ function App() {
               setShowSettings(!showSettings);
             }}
             className={`icon-button ${showSettings ? 'icon-button-active' : ''}`}
-            title="设置"
+            title={t('settings.title')}
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -1136,21 +1139,21 @@ function App() {
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
             <Copy className="w-4 h-4" />
-            复制连接
+            {t('connection.copyConnection')}
           </button>
           <button
             onClick={handleEditConnection}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
             <Edit3 className="w-4 h-4" />
-            编辑连接
+            {t('connection.editConnection')}
           </button>
           <button
             onClick={handleReconnectTab}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            重新连接
+            {t('connection.reconnect')}
           </button>
           <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
           <button
@@ -1158,21 +1161,21 @@ function App() {
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
             <X className="w-4 h-4" />
-            关闭标签页
+            {t('tab.closeTab')}
           </button>
           <button
             onClick={handleCloseOtherTabs}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
-            关闭其他标签页
+            {t('tab.closeOtherTabs')}
           </button>
           <button
             onClick={handleCloseAllTabs}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
             <MoreVertical className="w-4 h-4" />
-            关闭所有标签页
+            {t('tab.closeAllTabs')}
           </button>
         </div>
       )}
@@ -1221,7 +1224,7 @@ function App() {
               {commandStatus.status === 'pending' && <Loader2 className="w-3 h-3 animate-spin" />}
               {commandStatus.status === 'success' && <FileText className="w-3 h-3" />}
               <span className="truncate max-w-48">
-                {commandStatus.status === 'pending' ? `执行: ${commandStatus.command}` : '命令已执行'}
+                {commandStatus.status === 'pending' ? `⏳ ${commandStatus.command}` : t('notifications.commandCompleted')}
               </span>
             </div>
           )}
@@ -1257,7 +1260,7 @@ function App() {
           <div className="industrial-modal w-full max-w-md">
             <div className="industrial-modal-header">
               <h3 className="font-semibold text-slate-900 dark:text-white">
-                {editingConnection?.id ? '编辑连接' : '新建连接'}
+                {editingConnection?.id ? t('connection.editConnection') : t('connection.newConnection')}
               </h3>
               <button
                 onClick={() => setEditingConnection(null)}
@@ -1268,18 +1271,18 @@ function App() {
             </div>
             <div className="p-4 space-y-4">
               <div>
-                <label className="industrial-field-label">连接名称</label>
+                <label className="industrial-field-label">{t('connection.form.name')}</label>
                 <input
                   type="text"
                   value={editingConnection?.name || ''}
                   onChange={(e) => setEditingConnection(prev => prev ? { ...prev, name: e.target.value } : null)}
                   className="industrial-input w-full"
-                  placeholder="我的服务器"
+                  placeholder="My Server"
                 />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
-                  <label className="industrial-field-label">主机</label>
+                  <label className="industrial-field-label">{t('connection.form.host')}</label>
                   <input
                     type="text"
                     value={editingConnection?.host || ''}
@@ -1289,7 +1292,7 @@ function App() {
                   />
                 </div>
                 <div>
-                  <label className="industrial-field-label">端口</label>
+                  <label className="industrial-field-label">{t('connection.form.port')}</label>
                   <input
                     type="number"
                     value={editingConnection?.port || 22}
@@ -1300,7 +1303,7 @@ function App() {
                 </div>
               </div>
               <div>
-                <label className="industrial-field-label">用户名</label>
+                <label className="industrial-field-label">{t('connection.form.username')}</label>
                 <input
                   type="text"
                   value={editingConnection?.username || ''}
@@ -1310,7 +1313,7 @@ function App() {
                 />
               </div>
               <div>
-                <label className="industrial-field-label">密码</label>
+                <label className="industrial-field-label">{t('connection.form.password')}</label>
                 <input
                   type="password"
                   value={editingConnection?.password || ''}
@@ -1347,7 +1350,7 @@ function App() {
                   ) : (
                     <Wifi className="w-4 h-4" />
                   )}
-                  测试连接
+                  {t('connection.testConnection')}
                 </button>
 
                 {/* 取消和保存按钮 */}
@@ -1359,7 +1362,7 @@ function App() {
                     }}
                     className="industrial-button-secondary"
                   >
-                    取消
+                    {t('common.cancel')}
                   </button>
                   <button
                     onClick={async () => {
@@ -1376,7 +1379,7 @@ function App() {
                     disabled={!editingConnection?.name || !editingConnection?.host || !editingConnection?.username}
                     className="industrial-button-primary"
                   >
-                    保存
+                    {t('common.save')}
                   </button>
                 </div>
               </div>
@@ -1390,11 +1393,11 @@ function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="industrial-modal w-full max-w-sm">
             <div className="industrial-modal-header">
-              <h3 className="font-semibold text-slate-900 dark:text-white">确认删除</h3>
+              <h3 className="font-semibold text-slate-900 dark:text-white">{t('connection.confirmDeleteTitle')}</h3>
             </div>
             <div className="p-4">
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                确定要删除这个连接配置吗？此操作无法撤销。
+                {t('connection.confirmDelete')}
               </p>
             </div>
             <div className="industrial-modal-footer">
@@ -1402,13 +1405,13 @@ function App() {
                 onClick={() => setDeletingConnection(null)}
                 className="industrial-button-secondary"
               >
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleDeleteConnection}
                 className="industrial-button-danger"
               >
-                删除
+                {t('common.delete')}
               </button>
             </div>
           </div>

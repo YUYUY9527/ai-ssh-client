@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, XCircle, ShieldAlert, Save } from 'lucide-react';
+import { useI18n } from '../i18n';
 import type { CommandSuggestion } from '../../shared/types';
 
 interface CommandApprovalProps {
@@ -10,6 +11,7 @@ interface CommandApprovalProps {
 
 export function CommandApproval({ command, onApprove, onReject }: CommandApprovalProps) {
   const [rememberChoice, setRememberChoice] = useState(false);
+  const { t } = useI18n();
 
   const getRiskColor = () => {
     switch (command.riskLevel) {
@@ -60,13 +62,13 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
   const getRiskLabel = () => {
     switch (command.riskLevel) {
       case 'critical':
-        return '极度危险';
+        return t('commandApproval.riskLevels.critical');
       case 'high':
-        return '高风险';
+        return t('commandApproval.riskLevels.high');
       case 'medium':
-        return '中等风险';
+        return t('commandApproval.riskLevels.medium');
       default:
-        return '安全';
+        return t('commandApproval.riskLevels.low');
     }
   };
 
@@ -100,7 +102,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-lg text-white">命令确认</h3>
+                <h3 className="font-semibold text-lg text-white">{t('commandApproval.title')}</h3>
                 <span className={`px-2 py-0.5 rounded-sm text-xs font-medium ${colors.bg} ${colors.text}`}>
                   {getRiskLabel()}
                 </span>
@@ -113,7 +115,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-xs text-slate-500 mb-2 uppercase tracking-wider">
-              将要执行的命令
+              {t('commandApproval.commandToExecute')}
             </label>
             <div className="industrial-card p-4">
               <code className="text-sm font-mono text-green-400 break-all">
@@ -127,7 +129,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="text-red-400 font-medium text-sm">风险警告</h4>
+                  <h4 className="text-red-400 font-medium text-sm">{t('commandApproval.riskWarning')}</h4>
                   <p className="text-red-300 text-sm mt-1">{command.riskDescription}</p>
                 </div>
               </div>
@@ -153,14 +155,14 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
             <div className="flex-1">
               <span className="text-sm text-slate-300 flex items-center gap-1.5">
                 <Save className="w-3.5 h-3.5" />
-                记住本次选择
+                {t('commandApproval.rememberChoice')}
               </span>
-              <p className="text-xs text-slate-500">对此风险等级的的命令，以后直接执行</p>
+              <p className="text-xs text-slate-500">{t('commandApproval.rememberChoiceDesc')}</p>
             </div>
           </div>
 
           <div className="text-xs text-slate-500 industrial-card p-3">
-            <p>请仔细确认命令的正确性和安全性后再执行。</p>
+            <p>{t('commandApproval.confirmHint')}</p>
           </div>
         </div>
 
@@ -170,7 +172,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
             className="flex items-center gap-2 px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded-sm transition-colors text-white"
           >
             <XCircle className="w-4 h-4" />
-            取消
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleApprove}
@@ -183,7 +185,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
             }`}
           >
             <CheckCircle2 className="w-4 h-4" />
-            {command.riskLevel === 'critical' ? '我确认要执行此危险命令' : '确认执行'}
+            {command.riskLevel === 'critical' ? t('commandApproval.confirmDangerous') : t('commandApproval.confirmExecute')}
           </button>
         </div>
       </div>

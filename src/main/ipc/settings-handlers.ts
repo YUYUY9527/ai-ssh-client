@@ -123,6 +123,7 @@ function sanitizeSettings(settings: unknown): Partial<AppSettings> | undefined {
   if (!isObject(settings)) return undefined;
 
   const next: Partial<AppSettings> = {};
+  if (typeof settings.language === 'string') next.language = settings.language;
   if (settings.theme === 'dark' || settings.theme === 'light' || settings.theme === 'system') next.theme = settings.theme;
   if (typeof settings.fontSize === 'number') next.fontSize = settings.fontSize;
   if (typeof settings.fontFamily === 'string') next.fontFamily = settings.fontFamily;

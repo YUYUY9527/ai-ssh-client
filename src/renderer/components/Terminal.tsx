@@ -6,12 +6,13 @@ import '@xterm/xterm/css/xterm.css';
 import { Search, ZoomIn, ZoomOut, Copy, Clipboard, Terminal as TerminalIcon, Edit3 } from 'lucide-react';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { useTheme } from '../hooks/useTheme';
+import { t } from '../i18n';
 import type { CommandHistoryItem, QuickCommand, AppSettings } from '../../shared/types';
 
 const XTERM_SCROLLBACK_LINES = 10000;
 const MIN_TERMINAL_FONT_SIZE = 10;
 const MAX_TERMINAL_FONT_SIZE = 24;
-const DEFAULT_TERMINAL_FONT_FAMILY = 'JetBrains Mono, Source Code Pro, Consolas, monospace';
+const DEFAULT_TERMINAL_FONT_FAMILY = "Consolas, 'Courier New', monospace";
 
 function clampTerminalFontSize(value: number | undefined): number {
   if (!Number.isFinite(value)) {
@@ -1301,8 +1302,8 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     window.addEventListener('resize', handleWindowResize);
 
     term.clear();
-    term.write('\x1b[1;32m=== SSH 连接成功 ===\x1b[0m\r\n');
-    term.write('\x1b[1;33m等待服务器响应...\x1b[0m\r\n\r\n');
+    term.write(`\x1b[1;32m=== ${t('terminal.sshConnected')} ===\x1b[0m\r\n`);
+    term.write(`\x1b[1;33m${t('terminal.waitingServer')}\x1b[0m\r\n\r\n`);
     lastWrittenRef.current = '';
     currentInputRef.current = '';
     isAlternateScreenRef.current = false;
