@@ -1,6 +1,5 @@
 import { Suspense, lazy, useEffect, useState, useRef, useCallback } from 'react';
 import {
-  MessageSquare,
   Settings,
   Server,
   Plus,
@@ -31,17 +30,13 @@ import {
 } from 'lucide-react';
 import { Terminal } from './components/Terminal';
 import { AppIcon } from './components/AppIcon';
+import { AgentPet } from './components/AgentPet';
 import { useConnectionStore } from './store/useConnectionStore';
 import { useAIStore } from './store/useAIStore';
 import { useAgentStore } from './store/useAgentStore';
 import { useTheme } from './hooks/useTheme';
 import type { CommandSuggestion, SSHSessionState, SSHConnection, QuickCommand, QuickCommandGroup } from '../shared/types';
 import type { AppSettings } from '../shared/types';
-
-const ChatPanel = lazy(async () => {
-  const module = await import('./components/ChatPanel');
-  return { default: module.ChatPanel };
-});
 
 const CommandApproval = lazy(async () => {
   const module = await import('./components/CommandApproval');
@@ -73,18 +68,6 @@ interface DragState {
   dragOverTabId: string | null;
 }
 
-function LazySidebarFallback({ width }: { width: number }) {
-  return (
-    <div
-      className="bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-sm text-slate-500 dark:text-slate-400"
-      style={{ width: `${width}px` }}
-    >
-      <Loader2 className="w-5 h-5 animate-spin mb-2" />
-      正在加载面板...
-    </div>
-  );
-}
-
 function LazyModalFallback() {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -98,6 +81,7 @@ function LazyModalFallback() {
 
 function App() {
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'security' | 'notifications' | 'agent'>('terminal');
   const lastNotificationRef = useRef<string>('');
   const pendingCommandNotificationRef = useRef<{
     connectionId: string;
@@ -105,9 +89,9 @@ function App() {
     timer: ReturnType<typeof setTimeout> | null;
     startedAt: number;
   } | null>(null);
-  const [showChatPanel, setShowChatPanel] = useState(true);
-  const [chatInput, setChatInput] = useState('');
-  const [chatInputFocusToken, setChatInputFocusToken] = useState(0);
+  const [showAgentPet, setShowAgentPet] = useState(false);
+  const [agentInput, setAgentInput] = useState('');
+  const [agentInputFocusToken, setAgentInputFocusToken] = useState(0);
   const [showFileTransfer, setShowFileTransfer] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<CommandSuggestion | null>(null);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -117,12 +101,6 @@ function App() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
   
-  // 侧边栏宽度和拖动状态
-  const [chatPanelWidth, setChatPanelWidth] = useState(384); // 默认 384px (w-96)
-  const [isResizing, setIsResizing] = useState(false);
-  const minChatPanelWidth = 280;
-  const maxChatPanelWidth = 600;
-
   // 快速命令相关状态
   const [showQuickCommands, setShowQuickCommands] = useState(false);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
@@ -173,18 +151,7 @@ function App() {
   const [commandStatus, setCommandStatus] = useState<{ command: string; status: 'pending' | 'success' | 'error'; timestamp: number } | null>(null);
 
   useEffect(() => {
-    const { updateConfig } = useAgentStore.getState();
-    updateConfig({
-      enabled: settings.agentEnabled ?? true,
-      autoExecute: settings.agentAutoExecute ?? true,
-      requireApprovalForRisk: true,
-      approveHighRisk: settings.approveHighRisk ?? true,
-      approveMediumRisk: settings.approveMediumRisk ?? false,
-      maxExecutionSteps: settings.agentMaxExecutionSteps ?? 20,
-      maxContextMessages: settings.agentMaxContextMessages ?? 20,
-      maxTerminalOutputLength: settings.agentMaxTerminalOutputLength ?? 8000,
-      trimContextEnabled: settings.agentTrimContextEnabled ?? true,
-    });
+    useAgentStore.getState().syncFromSettings(settings);
   }, [settings]);
 
   const updateTabState = (connectionId: string, state: SSHSessionState) => {
@@ -316,9 +283,9 @@ function App() {
       return;
     }
 
-    setShowChatPanel(true);
-    setChatInput((prev) => prev ? `${prev}\n${cleanText}` : cleanText);
-    setChatInputFocusToken((prev) => prev + 1);
+    setShowAgentPet(true);
+    setAgentInput((prev) => prev ? `${prev}\n${cleanText}` : cleanText);
+    setAgentInputFocusToken((prev) => prev + 1);
   }, []);
 
   const handleRejectCommand = () => {
@@ -741,53 +708,6 @@ function App() {
     }
   };
 
-  // 侧边栏拖动处理
-  const startResizing = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  }, []);
-
-  // 监听鼠标移动和松开事件
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-      
-      const newWidth = window.innerWidth - e.clientX;
-      const clampedWidth = Math.min(Math.max(newWidth, minChatPanelWidth), maxChatPanelWidth);
-      setChatPanelWidth(clampedWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'ew-resize';
-      document.body.style.userSelect = 'none';
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      if (document.body.style.cursor === 'ew-resize') {
-        document.body.style.cursor = '';
-      }
-      if (document.body.style.userSelect === 'none') {
-        document.body.style.userSelect = '';
-      }
-    };
-  }, [isResizing, minChatPanelWidth, maxChatPanelWidth]);
-
-  // 当侧边栏宽度变化时，触发终端重新调整大小
-  useEffect(() => {
-    if (activeTabId) {
-      // 触发窗口 resize 事件，让终端重新计算大小
-      window.dispatchEvent(new Event('resize'));
-    }
-  }, [chatPanelWidth, activeTabId]);
-
   // 保存设置
   const handleSaveSettings = async (newSettings: AppSettings) => {
     updateSettings(newSettings);
@@ -796,18 +716,7 @@ function App() {
     }
 
     // 同步更新智能体配置
-    const { updateConfig } = useAgentStore.getState();
-    updateConfig({
-      enabled: newSettings.agentEnabled ?? true,
-      autoExecute: newSettings.agentAutoExecute ?? true,
-      requireApprovalForRisk: true,
-      approveHighRisk: newSettings.approveHighRisk ?? true,
-      approveMediumRisk: newSettings.approveMediumRisk ?? false,
-      maxExecutionSteps: newSettings.agentMaxExecutionSteps ?? 20,
-      maxContextMessages: newSettings.agentMaxContextMessages ?? 20,
-      maxTerminalOutputLength: newSettings.agentMaxTerminalOutputLength ?? 8000,
-      trimContextEnabled: newSettings.agentTrimContextEnabled ?? true,
-    });
+    useAgentStore.getState().syncFromSettings(newSettings);
   };
 
   return (
@@ -1165,14 +1074,10 @@ function App() {
             </button>
           </div>
           <button
-            onClick={() => setShowChatPanel(!showChatPanel)}
-            className={`icon-button ${showChatPanel ? 'icon-button-active' : ''}`}
-            title="AI 助手"
-          >
-            <MessageSquare className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
+            onClick={() => {
+              setSettingsInitialTab('terminal');
+              setShowSettings(!showSettings);
+            }}
             className={`icon-button ${showSettings ? 'icon-button-active' : ''}`}
             title="设置"
           >
@@ -1286,39 +1191,19 @@ function App() {
           />
         </div>
 
-        {/* Chat Panel */}
-        {showChatPanel && (
-          <>
-            {/* 拖动柄 - 改为小的可点击区域，避免覆盖滚动条 */}
-            <div
-              onMouseDown={startResizing}
-              className="ai-resizer"
-              title="拖动调整宽度"
-            >
-              {/* 拖动指示点 */}
-              <div className={`w-0.5 h-6 rounded-full transition-colors ${
-                isResizing 
-                  ? 'bg-cyan-600 dark:bg-cyan-300' 
-                  : 'bg-slate-400 dark:bg-slate-500'
-              }`} />
-            </div>
-            {/* 侧边栏内容 */}
-            <Suspense fallback={<LazySidebarFallback width={chatPanelWidth} />}>
-              <div 
-                className="ai-panel-shell"
-                style={{ width: `${chatPanelWidth}px` }}
-              >
-                <ChatPanel
-                  onCommandRequest={handleCommandRequest}
-                  input={chatInput}
-                  onInputChange={setChatInput}
-                  focusInputToken={chatInputFocusToken}
-                />
-              </div>
-            </Suspense>
-          </>
-        )}
       </div>
+
+      <AgentPet
+        input={agentInput}
+        onInputChange={setAgentInput}
+        focusInputToken={agentInputFocusToken}
+        isOpen={showAgentPet}
+        onOpenChange={setShowAgentPet}
+        onOpenSettings={() => {
+          setSettingsInitialTab('providers');
+          setShowSettings(true);
+        }}
+      />
 
       {/* Footer */}
       <footer className="app-footer">
@@ -1351,6 +1236,7 @@ function App() {
             settings={settings}
             onSave={handleSaveSettings}
             onClose={() => setShowSettings(false)}
+            initialTab={settingsInitialTab}
           />
         </Suspense>
       )}

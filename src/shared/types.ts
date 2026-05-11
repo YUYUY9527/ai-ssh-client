@@ -129,7 +129,7 @@ export interface SFTPFileInfo {
   atime: number;
 }
 
-export type AgentMode = 'assistant' | 'agent';
+export type AgentMode = 'agent';
 
 export type AgentState = 'idle' | 'thinking' | 'planning' | 'executing' | 'observing' | 'paused' | 'finished' | 'error';
 

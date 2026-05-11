@@ -22,15 +22,7 @@ export function useTheme() {
             applyTheme(loadedSettings.theme);
 
             // 同步智能体配置
-            const { updateConfig } = useAgentStore.getState();
-            updateConfig({
-              enabled: loadedSettings.agentEnabled ?? true,
-              autoExecute: loadedSettings.agentAutoExecute ?? true,
-              maxExecutionSteps: loadedSettings.agentMaxExecutionSteps ?? 20,
-              maxContextMessages: loadedSettings.agentMaxContextMessages ?? 20,
-              maxTerminalOutputLength: loadedSettings.agentMaxTerminalOutputLength ?? 8000,
-              trimContextEnabled: loadedSettings.agentTrimContextEnabled ?? true,
-            });
+            useAgentStore.getState().syncFromSettings(loadedSettings);
           }
         } catch (error) {
           console.error('Failed to load settings:', error);
@@ -85,22 +77,10 @@ export function useTheme() {
     if (window.electronAPI) {
       try {
         await window.electronAPI.saveSettings(newSettings);
-        console.log('Settings saved successfully');
       } catch (error) {
         console.error('Failed to save settings:', error);
       }
     }
-
-    // 同步智能体配置
-    const { updateConfig } = useAgentStore.getState();
-    updateConfig({
-      enabled: newSettings.agentEnabled ?? true,
-      autoExecute: newSettings.agentAutoExecute ?? true,
-      maxExecutionSteps: newSettings.agentMaxExecutionSteps ?? 20,
-      maxContextMessages: newSettings.agentMaxContextMessages ?? 20,
-      maxTerminalOutputLength: newSettings.agentMaxTerminalOutputLength ?? 8000,
-      trimContextEnabled: newSettings.agentTrimContextEnabled ?? true,
-    });
   };
 
   return { theme, changeTheme, settings, updateSettings: setSettings };

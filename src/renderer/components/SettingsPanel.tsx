@@ -1,12 +1,16 @@
-import { useState } from 'react';
-import { X, Terminal, Wifi, Shield, Bell, Bot } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, Terminal, Wifi, Shield, Bell, Bot, KeyRound } from 'lucide-react';
+import { AIProviderSettings } from './AIProviderSettings';
 import type { AppSettings } from '../../shared/types';
 
 interface SettingsPanelProps {
   settings: AppSettings;
   onSave: (settings: AppSettings) => void;
   onClose: () => void;
+  initialTab?: SettingsTab;
 }
+
+type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'security' | 'notifications' | 'agent';
 
 interface ToggleButtonProps {
   enabled: boolean;
@@ -35,13 +39,13 @@ function ToggleButton({ enabled, onChange }: ToggleButtonProps) {
   );
 }
 
-export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps) {
-  const [activeTab, setActiveTab] = useState<'terminal' | 'ssh' | 'security' | 'notifications' | 'agent'>('terminal');
+export function SettingsPanel({ settings, onSave, onClose, initialTab = 'terminal' }: SettingsPanelProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [localSettings, setLocalSettings] = useState<AppSettings>({
     ...settings,
     // 安全设置
     approveHighRisk: settings.approveHighRisk ?? true,
-    approveMediumRisk: settings.approveMediumRisk ?? false,
+    approveMediumRisk: settings.approveMediumRisk ?? true,
     rememberChoice: settings.rememberChoice ?? true,
     // 通知设置
     connectionNotifications: settings.connectionNotifications ?? true,
@@ -55,9 +59,14 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
     onClose();
   };
 
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
   const tabs = [
     { id: 'terminal', label: '终端', icon: Terminal },
     { id: 'ssh', label: 'SSH', icon: Wifi },
+    { id: 'providers', label: '供应商', icon: KeyRound },
     { id: 'agent', label: '智能体', icon: Bot },
     { id: 'security', label: '安全', icon: Shield },
     { id: 'notifications', label: '通知', icon: Bell },
@@ -446,6 +455,10 @@ export function SettingsPanel({ settings, onSave, onClose }: SettingsPanelProps)
                   </div>
                 </div>
               </div>
+            )}
+
+            {activeTab === 'providers' && (
+              <AIProviderSettings />
             )}
 
             {activeTab === 'security' && (

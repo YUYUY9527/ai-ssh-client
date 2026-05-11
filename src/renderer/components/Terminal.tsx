@@ -1434,7 +1434,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
                 timestamp: Date.now(),
                 connectionId: activeConnectionId || '',
                 connectionName: connection?.name || 'Unknown',
-                executedBy: 'terminal',
+                executedBy: 'user',
                 approved: true,
               };
               await window.electronAPI.addCommandHistory(historyItem);

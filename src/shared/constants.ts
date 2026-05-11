@@ -63,6 +63,8 @@ export const IPC_CHANNELS = {
   AGENT_PAUSE_TASK: 'agent-pause-task',
   AGENT_RESUME_TASK: 'agent-resume-task',
   AGENT_EXECUTE_COMMAND: 'agent-execute-command',
+  AGENT_EXEC_AWAIT: 'agent-exec-await',
+  AGENT_CANCEL_EXEC: 'agent-cancel-exec',
   AGENT_TERMINAL_OUTPUT: 'agent-terminal-output',
   AGENT_COMMAND_APPROVAL: 'agent-command-approval',
 } as const;

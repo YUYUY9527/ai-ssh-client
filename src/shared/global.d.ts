@@ -29,6 +29,7 @@ import type {
   ExportDataResult,
   ImportDataResult,
   AIProviderSecretStatusResult,
+  AgentExecAwaitResult,
 } from './ipc-types';
 
 declare global {
@@ -92,6 +93,12 @@ declare global {
       agentPauseTask: () => Promise<IPCResult>;
       agentResumeTask: () => Promise<IPCResult>;
       agentExecuteCommand: (connectionId: string, command: string) => Promise<IPCResult>;
+      agentExecAwait: (
+        connectionId: string,
+        command: string,
+        options?: { runId?: string; timeoutMs?: number },
+      ) => Promise<IPCResult<AgentExecAwaitResult>>;
+      agentCancelExec: (connectionId: string) => Promise<IPCResult>;
       agentCommandApproval: (approved: boolean) => Promise<IPCResult>;
       onAgentTerminalOutput: (callback: (data: { connectionId: string; data: string }) => void) => () => void;
       onAgentCommandApproval: (callback: (data: { approved: boolean; command: any }) => void) => () => void;

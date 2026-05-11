@@ -195,20 +195,284 @@
     background: color-mix(in srgb, var(--bg-primary) 96%, #000000);
   }
 
-  .ai-resizer {
-    @apply relative flex w-1 cursor-ew-resize items-center justify-center transition-colors;
-    background: color-mix(in srgb, var(--border-color) 58%, transparent);
+  .agent-pet-button {
+    @apply fixed bottom-12 right-5 z-40 flex h-16 w-16 cursor-pointer items-center justify-center rounded-sm border transition-colors;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 24%, transparent), transparent 55%),
+      var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
-  .ai-resizer:hover {
+  .agent-pet-button:hover,
+  .agent-pet-button-open {
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 34%, transparent), transparent 58%),
+      color-mix(in srgb, var(--bg-hover) 72%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 82%, var(--border-color));
+  }
+
+  .agent-pet-button-alert {
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3), 0 0 0 3px rgba(249, 115, 22, 0.22);
+  }
+
+  .agent-pet-face {
+    @apply relative h-10 w-11 rounded-sm border;
+    background: linear-gradient(180deg, #0f151b, #071014);
+    border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--border-color));
+  }
+
+  .agent-pet-face::before {
+    content: "";
+    @apply absolute -top-2 left-1/2 h-2 w-px -translate-x-1/2;
     background: var(--accent-primary);
   }
 
-  .ai-panel-shell {
-    @apply flex min-h-0 flex-col border-l;
+  .agent-pet-face::after {
+    content: "";
+    @apply absolute -top-3 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full;
+    background: var(--accent-strong);
+  }
+
+  .agent-pet-eye {
+    @apply absolute top-3 h-2 w-2 rounded-full;
+    background: #5eead4;
+    box-shadow: 0 0 10px rgba(45, 212, 191, 0.75);
+  }
+
+  .agent-pet-eye-left {
+    left: 10px;
+  }
+
+  .agent-pet-eye-right {
+    right: 10px;
+  }
+
+  .agent-pet-mouth {
+    @apply absolute bottom-2 left-1/2 h-1 w-5 -translate-x-1/2 rounded-full;
+    background: color-mix(in srgb, var(--accent-strong) 86%, #ffffff);
+  }
+
+  .agent-pet-badge {
+    @apply absolute -right-1 -top-1 h-5 w-5;
+  }
+
+  .agent-pet-orbit {
+    @apply absolute -inset-1 rounded-sm border border-teal-400/50;
+    animation: agent-pet-pulse 1.6s ease-in-out infinite;
+  }
+
+  .agent-pet-panel {
+    @apply fixed bottom-32 right-5 z-40 flex h-[min(680px,calc(100vh-9rem))] w-[min(430px,calc(100vw-2rem))] flex-col overflow-hidden rounded-sm border;
+    background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
+  }
+
+  .agent-pet-panel::after {
+    content: "";
+    @apply absolute -bottom-2 right-8 h-4 w-4 rotate-45 border-b border-r;
     background: var(--bg-secondary);
-    border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
-    box-shadow: -18px 0 48px rgba(0, 0, 0, 0.14);
+    border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
+  }
+
+  .agent-pet-panel-header {
+    @apply flex items-center justify-between gap-3 border-b px-4 py-3;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 16%, transparent), transparent 55%),
+      color-mix(in srgb, var(--bg-primary) 34%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .agent-pet-avatar-mini {
+    @apply flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-sm border;
+    background: color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 52%, var(--border-color));
+  }
+
+  .agent-pet-header-action {
+    @apply inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-sm border px-2 text-xs font-medium text-slate-600 transition-colors hover:text-slate-950 dark:text-slate-300 dark:hover:text-white;
+    background: color-mix(in srgb, var(--bg-hover) 48%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  }
+
+  .agent-pet-header-action:hover {
+    background: color-mix(in srgb, var(--bg-hover) 82%, transparent);
+    border-color: color-mix(in srgb, var(--accent-strong) 45%, var(--border-color));
+  }
+
+  .agent-pet-header-action-primary {
+    @apply text-teal-700 dark:text-teal-200;
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
+  }
+
+  .agent-pet-status-strip {
+    @apply flex items-center justify-between gap-3 border-b px-4 py-2 text-xs text-slate-500 dark:text-slate-400;
+    background: color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  }
+
+  .agent-pet-panel-body {
+    @apply min-h-0 flex-1 space-y-3 overflow-y-auto p-3;
+  }
+
+  .agent-pet-empty {
+    @apply flex items-start gap-3 rounded-sm border p-4;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 9%, transparent), transparent 46%),
+      color-mix(in srgb, var(--bg-primary) 64%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+  }
+
+  .agent-pet-approval {
+    @apply rounded-sm border p-3;
+    background: color-mix(in srgb, #431407 38%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-strong) 52%, var(--border-color));
+  }
+
+  .agent-pet-question {
+    @apply flex items-start gap-2 rounded-sm border p-3;
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+  }
+
+  .agent-pet-input {
+    @apply flex gap-2 border-t p-3;
+    background: color-mix(in srgb, var(--bg-primary) 60%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .agent-chat-thread {
+    @apply flex flex-col gap-5;
+  }
+
+  .agent-chat-turn {
+    @apply flex flex-col gap-3;
+  }
+
+  .agent-chat-message {
+    @apply flex items-start gap-2.5;
+  }
+
+  .agent-chat-message-user {
+    @apply flex-row-reverse;
+  }
+
+  .agent-chat-avatar {
+    @apply flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-sm border;
+  }
+
+  .agent-chat-avatar-user {
+    background: linear-gradient(180deg, #0f766e, #115e59);
+    border-color: color-mix(in srgb, var(--accent-primary) 70%, var(--border-color));
+    color: white;
+  }
+
+  .agent-chat-avatar-bot {
+    background: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
+    color: #5eead4;
+  }
+
+  .agent-chat-bubble {
+    @apply max-w-[84%] rounded-sm border px-3 py-2.5 text-sm;
+  }
+
+  .agent-chat-bubble-user {
+    @apply text-white;
+    background: linear-gradient(180deg, #0f766e, #115e59);
+    border-color: color-mix(in srgb, var(--accent-primary) 78%, #083f3b);
+  }
+
+  .agent-chat-bubble-bot {
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 42%),
+      color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  }
+
+  .agent-chat-status {
+    @apply inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium;
+  }
+
+  .agent-chat-status-running {
+    @apply text-teal-600 dark:text-teal-300;
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+  }
+
+  .agent-chat-status-success {
+    @apply text-green-600 dark:text-green-300;
+    background: color-mix(in srgb, #22c55e 12%, transparent);
+    border-color: color-mix(in srgb, #22c55e 42%, var(--border-color));
+  }
+
+  .agent-chat-status-error {
+    @apply text-red-600 dark:text-red-300;
+    background: color-mix(in srgb, #ef4444 12%, transparent);
+    border-color: color-mix(in srgb, #ef4444 42%, var(--border-color));
+  }
+
+  .agent-chat-status-idle {
+    @apply text-slate-500;
+    background: color-mix(in srgb, var(--bg-hover) 36%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+  }
+
+  .agent-chat-meta {
+    @apply inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400;
+  }
+
+  .agent-chat-detail-toggle {
+    @apply mt-3 inline-flex cursor-pointer items-center gap-1 rounded-sm border px-2 py-1 text-xs text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white;
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+  }
+
+  .agent-chat-detail-toggle:hover {
+    background: color-mix(in srgb, var(--bg-hover) 62%, transparent);
+  }
+
+  .agent-chat-detail {
+    @apply mt-3 space-y-3 rounded-sm border p-3;
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+  }
+
+  .agent-chat-detail-label {
+    @apply text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400;
+    letter-spacing: 0.08em;
+  }
+
+  .agent-chat-command {
+    @apply block rounded-sm border px-2 py-1.5 font-mono text-xs text-teal-700 dark:text-teal-200;
+    background: color-mix(in srgb, #020617 38%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+  }
+
+  .agent-chat-step {
+    @apply rounded-sm border px-2 py-2 text-xs leading-5 text-slate-500 dark:text-slate-400;
+    background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 52%, transparent);
+  }
+
+  .agent-chat-step p {
+    @apply mt-1 line-clamp-3 whitespace-pre-wrap;
+  }
+
+  .agent-chat-step-expanded p {
+    @apply line-clamp-none;
+  }
+
+  .agent-chat-step-detail-button {
+    @apply mt-2 inline-flex cursor-pointer items-center rounded-sm border px-2 py-1 text-[11px] font-medium text-teal-700 transition-colors hover:text-teal-900 dark:text-teal-300 dark:hover:text-teal-100;
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+  }
+
+  .agent-chat-step-detail-button:hover {
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
   }
 
   .app-footer {
@@ -635,6 +899,11 @@
 @keyframes slide-up {
   from { transform: translateY(10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes agent-pet-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.08); }
 }
 
 .animate-fade-in {

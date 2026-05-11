@@ -195,7 +195,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
     try {
       const result = await window.electronAPI.aiChat(activeProviderId, allMessages, { requestId });
-      if (!result.success || !result.data) {
+      if (!result.success) {
         set({
           isLoading: false,
           currentRequestId: null,

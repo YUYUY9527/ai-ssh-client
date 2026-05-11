@@ -6,6 +6,7 @@ import type {
   AgentExecution, 
   AgentTask, 
   AgentConfig,
+  AppSettings,
   PendingApproval
 } from '../../shared/types';
 
@@ -25,6 +26,7 @@ interface AgentStore {
   // 配置
   config: AgentConfig;
   updateConfig: (config: Partial<AgentConfig>) => void;
+  syncFromSettings: (settings: AppSettings) => void;
 
   // 等待审批的命令
   pendingApproval: PendingApproval | null;
@@ -94,14 +96,30 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     approveHighRisk: true,
     approveMediumRisk: true,
     // 上下文管理配置
-    maxContextMessages: 20,      // 默认保留 20 条消息
-    trimContextEnabled: true,    // 默认启用自动裁剪
-    maxTerminalOutputLength: 8000,  // 默认终端输出最大 8000 字符，0 表示不限制
+    maxContextMessages: 20,
+    trimContextEnabled: true,
+    maxTerminalOutputLength: 8000,
     // 任务上下文联动
-    taskContextRounds: 3,        // 默认保留最近3轮任务的上下文
+    taskContextRounds: 3,
   },
   updateConfig: (config) => set((state) => ({ 
     config: { ...state.config, ...config } 
+  })),
+
+  syncFromSettings: (settings: AppSettings) => set((state) => ({
+    config: {
+      ...state.config,
+      enabled: settings.agentEnabled ?? true,
+      autoExecute: settings.agentAutoExecute ?? true,
+      requireApprovalForRisk: true,
+      approveHighRisk: settings.approveHighRisk ?? true,
+      approveMediumRisk: settings.approveMediumRisk ?? true,
+      maxExecutionSteps: settings.agentMaxExecutionSteps ?? 20,
+      maxContextMessages: settings.agentMaxContextMessages ?? 20,
+      maxTerminalOutputLength: settings.agentMaxTerminalOutputLength ?? 8000,
+      trimContextEnabled: settings.agentTrimContextEnabled ?? true,
+      taskContextRounds: settings.agentTaskContextRounds ?? 3,
+    },
   })),
 
   // 等待审批

@@ -128,6 +128,12 @@ export interface AIProviderSecretStatusResult {
   maskedApiKey?: string;
 }
 
+export interface AgentExecAwaitResult {
+  output: string;
+  exitCode: number | null;
+  reason: 'done' | 'timeout' | 'canceled' | 'closed';
+}
+
 export interface ExportDataResult<T = any> {
   data: T;
 }

@@ -6,6 +6,7 @@ import { dialog } from 'electron';
 import { homedir } from 'os';
 import path from 'path';
 import { checkCommandGuard, logCommandExecution } from '../security';
+import { createSentinelStripper } from '../utils/sentinel-stripper';
 
 export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(IPC_CHANNELS.SSH_CONNECT, async (event, connection: SSHConnection, cols?: number, rows?: number) => {
@@ -21,15 +22,27 @@ export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
 
       const session = sshManager.getSession(sessionId);
       if (session?.shell) {
+        const stripper = createSentinelStripper();
+
         session.shell.on('data', (data: Buffer) => {
+          const clean = stripper.feed(data.toString());
+          if (!clean) return;
           mainWindow.webContents.send(IPC_CHANNELS.SSH_DATA, {
             connectionId: sessionId,
-            data: data.toString(),
+            data: clean,
             type: 'data',
           });
         });
 
         session.shell.on('close', () => {
+          const tail = stripper.flush();
+          if (tail) {
+            mainWindow.webContents.send(IPC_CHANNELS.SSH_DATA, {
+              connectionId: sessionId,
+              data: tail,
+              type: 'data',
+            });
+          }
           mainWindow.webContents.send(IPC_CHANNELS.SSH_CLOSE, sessionId);
         });
 

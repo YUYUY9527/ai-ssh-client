@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, XCircle, ShieldAlert, Save } from 'lucide-react';
-import type { CommandSuggestion } from '../shared/types';
+import type { CommandSuggestion } from '../../shared/types';
 
 interface CommandApprovalProps {
   command: CommandSuggestion;

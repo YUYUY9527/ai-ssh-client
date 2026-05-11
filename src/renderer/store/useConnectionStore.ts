@@ -26,7 +26,7 @@ interface ConnectionState {
   deleteConnection: (connectionId: string) => Promise<void>;
   connect: (connection: SSHConnection, cols?: number, rows?: number) => Promise<boolean>;
   disconnect: (connectionId: string) => Promise<void>;
-  reconnect: (connectionId: string) => Promise<void>;
+  reconnect: (connectionId: string) => Promise<boolean>;
   resize: (cols: number, rows: number) => void;
   setActiveConnection: (connectionId: string | null) => void;
 

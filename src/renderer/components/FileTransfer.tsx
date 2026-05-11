@@ -74,7 +74,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
     try {
       if (window.electronAPI) {
         const result = await window.electronAPI.listDirectory(connectionId, path);
-        if (result.success && result.data) {
+        if (result.success) {
           setFiles(result.data.files);
           setCurrentPath(path);
         } else {
@@ -517,7 +517,9 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
                         <CheckCircle className="w-4 h-4 text-green-500" />
                       )}
                       {task.status === 'error' && (
-                        <AlertCircle className="w-4 h-4 text-red-500" title={task.error} />
+                        <span title={task.error} className="inline-flex">
+                          <AlertCircle className="w-4 h-4 text-red-500" />
+                        </span>
                       )}
                     </div>
                   </div>
