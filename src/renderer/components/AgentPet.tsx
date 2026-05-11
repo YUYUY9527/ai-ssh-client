@@ -1,12 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Send, Settings, ShieldAlert, Terminal, User, X, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Send, Settings, ShieldAlert, Terminal, User, X, XCircle } from 'lucide-react';
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { AgentExecutor } from './AgentExecutor';
-import { AppIcon } from './AppIcon';
 import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
 import type { AgentTask, ThinkingStep } from '../../shared/types';
+
+/** 小机器人头像(纯 CSS 绘制,和右下角按钮同款) */
+function RobotFaceMini({ size = 'md' }: { size?: 'sm' | 'md' }) {
+  const isSm = size === 'sm';
+  return (
+    <span className={`robot-face-mini ${isSm ? 'robot-face-mini-sm' : ''}`}>
+      <span className="robot-face-mini-ear robot-face-mini-ear-left" />
+      <span className="robot-face-mini-ear robot-face-mini-ear-right" />
+      <span className="robot-face-mini-antenna" />
+      <span className="robot-face-mini-eye robot-face-mini-eye-left" />
+      <span className="robot-face-mini-eye robot-face-mini-eye-right" />
+      <span className="robot-face-mini-mouth" />
+    </span>
+  );
+}
 
 interface AgentPetProps {
   input: string;
@@ -132,7 +146,7 @@ function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent
 
       <div className="agent-chat-message">
         <div className="agent-chat-avatar agent-chat-avatar-bot">
-          <Bot className="h-4 w-4" />
+          <RobotFaceMini size="sm" />
         </div>
         <div className="agent-chat-bubble agent-chat-bubble-bot">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -200,6 +214,8 @@ function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent
 export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpenChange, onOpenSettings }: AgentPetProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
   const { providers, activeProviderId } = useAIStore();
@@ -266,6 +282,26 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     conversationTasks.length,
   ]);
 
+  // 点击面板外部自动关闭(仅在空闲且无待处理事项时)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      // 忙碌、等待审批、等待回答时不自动关闭
+      if (isBusy || pendingApproval || pendingQuestion || pendingTerminalPrompt) return;
+
+      const target = e.target as Node;
+      // 点击在面板或按钮内部,不关闭
+      if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+
+      onOpenChange(false);
+    };
+
+    // 用 mousedown 而不是 click,避免拖拽选中文本时误触发
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, isBusy, pendingApproval, pendingQuestion, pendingTerminalPrompt, onOpenChange]);
+
   const handlePanelScroll = () => {
     const body = bodyRef.current;
     if (!body) return;
@@ -330,11 +366,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
       <AgentExecutor />
 
       {isOpen && (
-        <div className="agent-pet-panel">
+        <div ref={panelRef} className="agent-pet-panel">
           <div className="agent-pet-panel-header">
             <div className="flex min-w-0 items-center gap-3">
               <div className="agent-pet-avatar-mini">
-                <AppIcon className="h-6 w-6" />
+                <RobotFaceMini />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -394,7 +430,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
           <div ref={bodyRef} onScroll={handlePanelScroll} className="agent-pet-panel-body scrollbar-modern">
             {conversationTasks.length === 0 && (
               <div className="agent-pet-empty">
-                <Bot className="h-8 w-8 text-teal-400" />
+                <RobotFaceMini />
                 <div>
                   <p className="text-sm font-medium text-slate-800 dark:text-slate-100">告诉我你想在终端里完成什么。</p>
                   <p className="mt-1 text-xs leading-5 text-slate-500">我会观察终端输出、生成命令并按风险设置请求确认。</p>
@@ -466,17 +502,28 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
       )}
 
       <button
-        className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''}`}
+        ref={buttonRef}
+        className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${agentState === 'finished' ? 'agent-pet-button-done' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''}`}
         onClick={() => onOpenChange(!isOpen)}
         title="终端智能体"
       >
         <span className="agent-pet-face">
+          <span className="agent-pet-ear agent-pet-ear-left" />
+          <span className="agent-pet-ear agent-pet-ear-right" />
           <span className="agent-pet-eye agent-pet-eye-left" />
           <span className="agent-pet-eye agent-pet-eye-right" />
           <span className="agent-pet-mouth" />
+          {isBusy && <span className="agent-pet-blush" />}
         </span>
-        {agentState === 'finished' && !isOpen && <CheckCircle2 className="agent-pet-badge text-green-300" />}
-        {isBusy && <span className="agent-pet-orbit" />}
+        {isBusy && (
+          <>
+            <span className="agent-pet-orbit" />
+            <span className="agent-pet-spark agent-pet-spark-1" />
+            <span className="agent-pet-spark agent-pet-spark-2" />
+            <span className="agent-pet-spark agent-pet-spark-3" />
+          </>
+        )}
+        {hasAlert && <span className="agent-pet-exclaim">!</span>}
       </button>
     </>
   );
