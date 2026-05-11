@@ -27,6 +27,7 @@ import {
   Zap,
   ChevronDown as ChevronDownIcon,
   Pencil,
+  Clock,
 } from 'lucide-react';
 import { Terminal } from './components/Terminal';
 import { AppIcon } from './components/AppIcon';
@@ -36,7 +37,7 @@ import { useAIStore } from './store/useAIStore';
 import { useAgentStore } from './store/useAgentStore';
 import { useTheme } from './hooks/useTheme';
 import { useI18n } from './i18n';
-import type { CommandSuggestion, SSHSessionState, SSHConnection, QuickCommand, QuickCommandGroup } from '../shared/types';
+import type { CommandSuggestion, SSHSessionState, SSHConnection, QuickCommand, QuickCommandGroup, CommandHistoryItem } from '../shared/types';
 import type { AppSettings } from '../shared/types';
 
 const CommandApproval = lazy(async () => {
@@ -115,6 +116,10 @@ function App() {
   const [showQuickCommandForm, setShowQuickCommandForm] = useState(false);
   const [showQuickGroupForm, setShowQuickGroupForm] = useState(false);
   const quickCommandsDropdownRef = useRef<HTMLDivElement>(null);
+  // 历史命令相关状态
+  const [showCommandHistory, setShowCommandHistory] = useState(false);
+  const [commandHistoryList, setCommandHistoryList] = useState<CommandHistoryItem[]>([]);
+  const commandHistoryDropdownRef = useRef<HTMLDivElement>(null);
   const pendingSshOutputRef = useRef<Map<string, string[]>>(new Map());
   const outputFlushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -596,12 +601,15 @@ function App() {
       if (quickCommandsDropdownRef.current && !quickCommandsDropdownRef.current.contains(e.target as Node)) {
         setShowQuickCommands(false);
       }
+      if (commandHistoryDropdownRef.current && !commandHistoryDropdownRef.current.contains(e.target as Node)) {
+        setShowCommandHistory(false);
+      }
     };
-    if (tabContextMenu || showConnectionDropdown || showQuickCommands) {
+    if (tabContextMenu || showConnectionDropdown || showQuickCommands || showCommandHistory) {
       document.addEventListener('click', handleClickOutside);
       return () => document.removeEventListener('click', handleClickOutside);
     }
-  }, [tabContextMenu, showConnectionDropdown, showQuickCommands]);
+  }, [tabContextMenu, showConnectionDropdown, showQuickCommands, showCommandHistory]);
 
   // 测试连接
   const handleTestConnection = async () => {
@@ -651,7 +659,33 @@ function App() {
       (window as any).writeToTerminal(command);
     }
     setShowQuickCommands(false);
+    setShowCommandHistory(false);
   }, []);
+
+  // 回到原目录并执行命令
+  const handleRerunInDir = useCallback((command: string, cwd: string) => {
+    if ((window as any).writeToTerminal) {
+      // 先 cd 到目录，再执行命令，用 && 连接确保 cd 成功才执行
+      (window as any).writeToTerminal(`cd ${cwd} && ${command}\r`);
+    }
+    setShowCommandHistory(false);
+  }, []);
+
+  // 打开历史命令面板
+  const handleToggleCommandHistory = useCallback(async () => {
+    if (showCommandHistory) {
+      setShowCommandHistory(false);
+      return;
+    }
+    // 加载历史命令
+    if (window.electronAPI) {
+      const result = await window.electronAPI.getCommandHistory();
+      if (result.success) {
+        setCommandHistoryList(Array.isArray(result.data?.history) ? result.data.history : []);
+      }
+    }
+    setShowCommandHistory(true);
+  }, [showCommandHistory]);
 
   // 保存快速命令
   const handleSaveQuickCommand = async () => {
@@ -1044,6 +1078,68 @@ function App() {
                           </div>
                         ))}
                       </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 历史命令按钮 */}
+          {activeTabId && (
+            <div className="relative" ref={commandHistoryDropdownRef}>
+              <button
+                onClick={handleToggleCommandHistory}
+                className={`toolbar-button ${showCommandHistory ? 'toolbar-button-active' : ''}`}
+                title="历史命令"
+              >
+                <Clock className="w-4 h-4" />
+              </button>
+
+              {/* 历史命令下拉菜单 */}
+              {showCommandHistory && (
+                <div className="app-popover scrollbar-modern left-0 w-96">
+                  <div className="app-popover-header">
+                    <span>历史命令</span>
+                    <span className="text-[10px] font-normal normal-case tracking-normal opacity-60">
+                      点击粘贴 · 右侧按钮回到原目录执行
+                    </span>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto p-1">
+                    {commandHistoryList.length === 0 ? (
+                      <div className="text-center text-slate-500 dark:text-slate-400 text-sm py-4">
+                        暂无历史命令
+                      </div>
+                    ) : (
+                      commandHistoryList.slice(0, 50).map((item) => (
+                        <div
+                          key={item.id}
+                          className="group flex items-center gap-1 mx-0.5 rounded-sm px-2 py-1.5 transition-colors hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
+                        >
+                          <button
+                            onClick={() => handlePasteCommand(item.command)}
+                            className="flex-1 text-left min-w-0"
+                          >
+                            <div className="font-mono text-xs text-slate-900 dark:text-white truncate">{item.command}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                              <span>
+                                {new Date(item.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {item.connectionName && <span>· {item.connectionName}</span>}
+                              {item.cwd && <span className="text-teal-600 dark:text-teal-400">· {item.cwd}</span>}
+                            </div>
+                          </button>
+                          {item.cwd && (
+                            <button
+                              onClick={() => handleRerunInDir(item.command, item.cwd!)}
+                              className="hidden group-hover:flex flex-shrink-0 items-center justify-center h-6 w-6 rounded-sm border border-transparent hover:border-[color-mix(in_srgb,var(--accent-primary)_50%,var(--border-color))] hover:bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-slate-400 hover:text-teal-500 transition-colors"
+                              title={`cd ${item.cwd} && ${item.command}`}
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ))
                     )}
                   </div>
                 </div>

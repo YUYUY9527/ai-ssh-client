@@ -818,13 +818,6 @@
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
   }
 
-  .terminal-autocomplete-panel {
-    @apply absolute bottom-6 left-1/2 z-20 min-w-[320px] max-w-[560px] -translate-x-1/2 overflow-hidden rounded-sm border;
-    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
-    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24);
-  }
-
   .terminal-frame {
     @apply h-full w-full overflow-hidden rounded-sm border;
     border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));

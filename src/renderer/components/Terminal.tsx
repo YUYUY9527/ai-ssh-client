@@ -7,7 +7,7 @@ import { Search, ZoomIn, ZoomOut, Copy, Clipboard, Terminal as TerminalIcon, Edi
 import { useConnectionStore } from '../store/useConnectionStore';
 import { useTheme } from '../hooks/useTheme';
 import { t } from '../i18n';
-import type { CommandHistoryItem, QuickCommand, AppSettings } from '../../shared/types';
+import type { CommandHistoryItem, AppSettings } from '../../shared/types';
 
 const XTERM_SCROLLBACK_LINES = 10000;
 const MIN_TERMINAL_FONT_SIZE = 10;
@@ -124,487 +124,6 @@ function ContextMenu({
   );
 }
 
-// 常用 Linux 命令
-const COMMON_COMMANDS = [
-  // 文件和目录操作
-  { command: 'ls', description: '列出目录内容' },
-  { command: 'ls -la', description: '列出详细信息' },
-  { command: 'ls -lh', description: '人类可读格式' },
-  { command: 'ls -lt', description: '按时间排序' },
-  { command: 'cd', description: '切换目录' },
-  { command: 'cd ..', description: '返回上级目录' },
-  { command: 'cd ~', description: '回到家目录' },
-  { command: 'cd -', description: '返回上次目录' },
-  { command: 'pwd', description: '显示当前目录' },
-  { command: 'mkdir', description: '创建目录' },
-  { command: 'mkdir -p', description: '递归创建目录' },
-  { command: 'rm', description: '删除文件' },
-  { command: 'rm -rf', description: '强制删除目录' },
-  { command: 'rm -i', description: '交互式删除' },
-  { command: 'cp', description: '复制文件' },
-  { command: 'cp -r', description: '递归复制目录' },
-  { command: 'cp -a', description: '保留属性复制' },
-  { command: 'mv', description: '移动/重命名' },
-  { command: 'touch', description: '创建空文件' },
-  { command: 'ln', description: '创建硬链接' },
-  { command: 'ln -s', description: '创建软链接' },
-  
-  // 查看文件内容
-  { command: 'cat', description: '查看文件内容' },
-  { command: 'cat -n', description: '显示行号' },
-  { command: 'less', description: '分页查看文件' },
-  { command: 'more', description: '分页查看文件' },
-  { command: 'head', description: '查看文件开头' },
-  { command: 'head -n 20', description: '查看前20行' },
-  { command: 'tail', description: '查看文件结尾' },
-  { command: 'tail -n 20', description: '查看后20行' },
-  { command: 'tail -f', description: '实时跟踪文件' },
-  { command: 'tail -F', description: '跟踪文件（重试）' },
-  { command: 'wc', description: '统计文件信息' },
-  { command: 'wc -l', description: '统计行数' },
-  { command: 'wc -w', description: '统计词数' },
-  
-  // 搜索和查找
-  { command: 'grep', description: '搜索文本' },
-  { command: 'grep -i', description: '忽略大小写搜索' },
-  { command: 'grep -r', description: '递归搜索目录' },
-  { command: 'grep -n', description: '显示行号' },
-  { command: 'grep -v', description: '反向匹配' },
-  { command: 'grep -A 5', description: '显示后5行' },
-  { command: 'grep -B 5', description: '显示前5行' },
-  { command: 'grep -C 5', description: '显示前后5行' },
-  { command: 'find', description: '查找文件' },
-  { command: 'find . -name', description: '按名称查找' },
-  { command: 'find . -type f', description: '查找文件' },
-  { command: 'find . -type d', description: '查找目录' },
-  { command: 'find . -mtime -7', description: '7天内修改的文件' },
-  { command: 'find . -size +100M', description: '大于100M的文件' },
-  { command: 'locate', description: '快速查找文件' },
-  { command: 'which', description: '查找命令路径' },
-  { command: 'whereis', description: '查找命令相关文件' },
-  
-  // 文件权限和属性
-  { command: 'chmod', description: '修改权限' },
-  { command: 'chmod +x', description: '添加执行权限' },
-  { command: 'chmod 755', description: '设置755权限' },
-  { command: 'chmod 644', description: '设置644权限' },
-  { command: 'chown', description: '修改所有者' },
-  { command: 'chown -R', description: '递归修改所有者' },
-  { command: 'chgrp', description: '修改组' },
-  { command: 'umask', description: '设置默认权限' },
-  { command: 'lsattr', description: '查看文件属性' },
-  { command: 'chattr', description: '修改文件属性' },
-  
-  // 压缩和解压
-  { command: 'tar', description: '压缩/解压' },
-  { command: 'tar -cvf', description: '创建tar包' },
-  { command: 'tar -xvf', description: '解压tar包' },
-  { command: 'tar -czvf', description: '创建tar.gz' },
-  { command: 'tar -xzvf', description: '解压tar.gz' },
-  { command: 'tar -cjvf', description: '创建tar.bz2' },
-  { command: 'tar -xjvf', description: '解压tar.bz2' },
-  { command: 'zip', description: '创建zip压缩' },
-  { command: 'zip -r', description: '递归压缩目录' },
-  { command: 'unzip', description: '解压zip文件' },
-  { command: 'unzip -l', description: '查看zip内容' },
-  { command: 'gzip', description: 'gzip压缩' },
-  { command: 'gunzip', description: 'gzip解压' },
-  { command: 'bzip2', description: 'bzip2压缩' },
-  { command: 'bunzip2', description: 'bzip2解压' },
-  { command: 'xz', description: 'xz压缩' },
-  { command: 'unxz', description: 'xz解压' },
-  
-  // 系统信息和监控
-  { command: 'uname', description: '系统信息' },
-  { command: 'uname -a', description: '全部系统信息' },
-  { command: 'hostname', description: '主机名' },
-  { command: 'hostname -I', description: 'IP地址' },
-  { command: 'uptime', description: '运行时间' },
-  { command: 'whoami', description: '当前用户' },
-  { command: 'id', description: '用户ID信息' },
-  { command: 'w', description: '在线用户' },
-  { command: 'who', description: '登录用户' },
-  { command: 'last', description: '最近登录' },
-  { command: 'date', description: '显示日期时间' },
-  { command: 'cal', description: '显示日历' },
-  { command: 'top', description: '查看进程' },
-  { command: 'htop', description: '交互式进程查看' },
-  { command: 'iotop', description: 'IO监控' },
-  { command: 'vmstat', description: '虚拟内存统计' },
-  { command: 'iostat', description: 'IO统计' },
-  { command: 'sar', description: '系统活动报告' },
-  { command: 'dmesg', description: '内核消息' },
-  { command: 'dmesg -T', description: '带时间的内核消息' },
-  
-  // 磁盘和内存
-  { command: 'df', description: '查看磁盘使用' },
-  { command: 'df -h', description: '人类可读格式' },
-  { command: 'df -i', description: '查看inode使用' },
-  { command: 'du', description: '查看目录大小' },
-  { command: 'du -sh', description: '汇总目录大小' },
-  { command: 'du -sh *', description: '当前目录各文件大小' },
-  { command: 'du -d 1', description: '一级目录大小' },
-  { command: 'free', description: '查看内存使用' },
-  { command: 'free -h', description: '人类可读格式' },
-  { command: 'free -m', description: 'MB单位' },
-  { command: 'swapon', description: '查看交换分区' },
-  { command: 'swapoff', description: '关闭交换分区' },
-  { command: 'mount', description: '挂载文件系统' },
-  { command: 'umount', description: '卸载文件系统' },
-  { command: 'lsblk', description: '块设备列表' },
-  { command: 'fdisk -l', description: '磁盘分区列表' },
-  { command: 'parted -l', description: '分区信息' },
-  
-  // 进程管理
-  { command: 'ps', description: '查看进程' },
-  { command: 'ps aux', description: '查看所有进程' },
-  { command: 'ps auxww', description: '完整显示' },
-  { command: 'ps -ef', description: '全格式显示' },
-  { command: 'pgrep', description: '按名称查找进程' },
-  { command: 'pkill', description: '按名称终止进程' },
-  { command: 'kill', description: '终止进程' },
-  { command: 'kill -9', description: '强制终止进程' },
-  { command: 'kill -l', description: '查看信号列表' },
-  { command: 'killall', description: '终止所有同名进程' },
-  { command: 'nohup', description: '后台运行' },
-  { command: 'bg', description: '后台执行' },
-  { command: 'fg', description: '前台执行' },
-  { command: 'jobs', description: '查看后台任务' },
-  { command: 'screen', description: '终端复用' },
-  { command: 'tmux', description: '终端复用' },
-  
-  // 网络相关
-  { command: 'ip addr', description: '查看IP地址' },
-  { command: 'ip link', description: '查看网络接口' },
-  { command: 'ip route', description: '查看路由表' },
-  { command: 'ifconfig', description: '网络接口配置' },
-  { command: 'netstat', description: '网络统计' },
-  { command: 'netstat -tlnp', description: '监听端口' },
-  { command: 'netstat -tulnp', description: '所有监听端口' },
-  { command: 'netstat -an', description: '所有连接' },
-  { command: 'ss', description: 'socket统计' },
-  { command: 'ss -tlnp', description: '监听端口' },
-  { command: 'ss -s', description: 'socket摘要' },
-  { command: 'ping', description: '测试连通性' },
-  { command: 'ping -c 4', description: 'ping 4次' },
-  { command: 'traceroute', description: '路由追踪' },
-  { command: 'mtr', description: '综合网络诊断' },
-  { command: 'nslookup', description: 'DNS查询' },
-  { command: 'dig', description: 'DNS查询' },
-  { command: 'host', description: 'DNS查询' },
-  { command: 'curl', description: 'HTTP请求' },
-  { command: 'curl -I', description: '仅显示头部' },
-  { command: 'curl -v', description: '详细输出' },
-  { command: 'curl -O', description: '下载文件' },
-  { command: 'curl -L', description: '跟随重定向' },
-  { command: 'wget', description: '下载文件' },
-  { command: 'wget -c', description: '断点续传' },
-  { command: 'wget -r', description: '递归下载' },
-  { command: 'ssh', description: 'SSH连接' },
-  { command: 'ssh -p', description: '指定端口' },
-  { command: 'ssh -i', description: '指定密钥' },
-  { command: 'scp', description: '安全复制' },
-  { command: 'scp -r', description: '递归复制' },
-  { command: 'scp -P', description: '指定端口' },
-  { command: 'rsync', description: '文件同步' },
-  { command: 'rsync -avz', description: '归档模式同步' },
-  { command: 'rsync -avz --delete', description: '同步并删除' },
-  { command: 'telnet', description: 'telnet连接' },
-  { command: 'nc', description: 'netcat工具' },
-  { command: 'tcpdump', description: '抓包工具' },
-  { command: 'iptables', description: '防火墙配置' },
-  { command: 'firewall-cmd', description: 'firewalld配置' },
-  { command: 'ufw', description: 'Ubuntu防火墙' },
-  
-  // 包管理（Debian/Ubuntu）
-  { command: 'apt update', description: '更新软件包列表' },
-  { command: 'apt upgrade', description: '升级软件包' },
-  { command: 'apt install', description: '安装软件' },
-  { command: 'apt remove', description: '删除软件' },
-  { command: 'apt purge', description: '彻底删除' },
-  { command: 'apt autoremove', description: '自动删除' },
-  { command: 'apt search', description: '搜索软件包' },
-  { command: 'apt show', description: '显示软件包信息' },
-  { command: 'apt list --installed', description: '已安装软件' },
-  { command: 'dpkg -i', description: '安装deb包' },
-  { command: 'dpkg -l', description: '列出已安装包' },
-  { command: 'dpkg -L', description: '列出包文件' },
-  
-  // 包管理（RHEL/CentOS）
-  { command: 'yum install', description: '安装软件' },
-  { command: 'yum update', description: '更新软件' },
-  { command: 'yum remove', description: '删除软件' },
-  { command: 'yum search', description: '搜索软件' },
-  { command: 'yum list installed', description: '已安装软件' },
-  { command: 'dnf install', description: '安装软件' },
-  { command: 'rpm -i', description: '安装rpm包' },
-  { command: 'rpm -qa', description: '查询已安装包' },
-  { command: 'rpm -ql', description: '列出包文件' },
-  
-  // 服务管理
-  { command: 'systemctl status', description: '服务状态' },
-  { command: 'systemctl start', description: '启动服务' },
-  { command: 'systemctl stop', description: '停止服务' },
-  { command: 'systemctl restart', description: '重启服务' },
-  { command: 'systemctl reload', description: '重新加载' },
-  { command: 'systemctl enable', description: '开机自启' },
-  { command: 'systemctl disable', description: '禁止开机自启' },
-  { command: 'systemctl is-enabled', description: '查看是否自启' },
-  { command: 'systemctl list-units', description: '列出单元' },
-  { command: 'systemctl list-unit-files', description: '列出单元文件' },
-  { command: 'systemctl daemon-reload', description: '重载配置' },
-  { command: 'service', description: '服务管理' },
-  { command: 'chkconfig', description: '服务自启管理' },
-  
-  // 日志查看
-  { command: 'journalctl', description: '系统日志' },
-  { command: 'journalctl -u', description: '查看服务日志' },
-  { command: 'journalctl -f', description: '实时跟踪' },
-  { command: 'journalctl -n 100', description: '最近100行' },
-  { command: 'journalctl --since today', description: '今天的日志' },
-  { command: 'journalctl -p err', description: '错误日志' },
-  { command: 'dmesg', description: '内核日志' },
-  { command: 'tail -f /var/log/syslog', description: '系统日志' },
-  { command: 'tail -f /var/log/messages', description: '系统消息' },
-  { command: 'tail -f /var/log/auth.log', description: '认证日志' },
-  { command: 'tail -f /var/log/secure', description: '安全日志' },
-  
-  // 用户和组管理
-  { command: 'useradd', description: '创建用户' },
-  { command: 'useradd -m', description: '创建用户并目录' },
-  { command: 'userdel', description: '删除用户' },
-  { command: 'userdel -r', description: '删除用户及目录' },
-  { command: 'usermod', description: '修改用户' },
-  { command: 'passwd', description: '修改密码' },
-  { command: 'groupadd', description: '创建组' },
-  { command: 'groupdel', description: '删除组' },
-  { command: 'groupmod', description: '修改组' },
-  { command: 'gpasswd', description: '组密码管理' },
-  { command: 'id', description: '用户信息' },
-  { command: 'groups', description: '用户组' },
-  { command: 'su', description: '切换用户' },
-  { command: 'su -', description: '完全切换' },
-  { command: 'sudo', description: '以root执行' },
-  { command: 'sudo -i', description: 'root登录' },
-  { command: 'visudo', description: '编辑sudoers' },
-  
-  // 文本编辑和处理
-  { command: 'nano', description: 'nano编辑器' },
-  { command: 'vim', description: 'Vim编辑器' },
-  { command: 'vi', description: 'Vi编辑器' },
-  { command: 'sed', description: '流编辑器' },
-  { command: 'sed -i', description: '原地编辑' },
-  { command: 'sed s/old/new/', description: '替换文本' },
-  { command: 'awk', description: '文本处理' },
-  { command: 'awk \'{print $1}\'', description: '打印第一列' },
-  { command: 'cut', description: '切割文本' },
-  { command: 'cut -d: -f1', description: '按:分割取第一列' },
-  { command: 'sort', description: '排序' },
-  { command: 'uniq', description: '去重' },
-  { command: 'wc', description: '统计' },
-  { command: 'tr', description: '字符替换' },
-  { command: 'paste', description: '合并行' },
-  { command: 'split', description: '分割文件' },
-  { command: 'join', description: '连接文件' },
-  { command: 'diff', description: '比较文件' },
-  { command: 'diff -u', description: '统一格式' },
-  { command: 'patch', description: '打补丁' },
-  { command: 'cmp', description: '比较文件' },
-  { command: 'comm', description: '比较已排序文件' },
-  
-  // 环境变量和Shell
-  { command: 'echo', description: '输出文本' },
-  { command: 'echo $PATH', description: '显示PATH' },
-  { command: 'export', description: '设置环境变量' },
-  { command: 'export VAR=value', description: '设置变量' },
-  { command: 'env', description: '显示环境变量' },
-  { command: 'set', description: '显示所有变量' },
-  { command: 'unset', description: '删除变量' },
-  { command: 'source', description: '执行脚本' },
-  { command: '.', description: '执行脚本' },
-  { command: 'alias', description: '查看别名' },
-  { command: 'alias ll="ls -la"', description: '设置别名' },
-  { command: 'unalias', description: '删除别名' },
-  { command: 'history', description: '命令历史' },
-  { command: 'history -c', description: '清空历史' },
-  { command: '!', description: '执行历史命令' },
-  { command: '!!', description: '执行上一条命令' },
-  
-  // Git相关
-  { command: 'git status', description: 'Git状态' },
-  { command: 'git add', description: 'Git添加' },
-  { command: 'git add .', description: '添加所有' },
-  { command: 'git add -u', description: '添加更新的' },
-  { command: 'git commit', description: 'Git提交' },
-  { command: 'git commit -m', description: '带消息提交' },
-  { command: 'git commit -am', description: '添加并提交' },
-  { command: 'git push', description: 'Git推送' },
-  { command: 'git push origin', description: '推送到origin' },
-  { command: 'git push -u origin', description: '推送并设置上游' },
-  { command: 'git pull', description: 'Git拉取' },
-  { command: 'git pull origin', description: '从origin拉取' },
-  { command: 'git fetch', description: '获取更新' },
-  { command: 'git clone', description: '克隆仓库' },
-  { command: 'git init', description: '初始化仓库' },
-  { command: 'git branch', description: '查看分支' },
-  { command: 'git branch -a', description: '查看所有分支' },
-  { command: 'git checkout', description: '切换分支' },
-  { command: 'git checkout -b', description: '创建并切换' },
-  { command: 'git merge', description: '合并分支' },
-  { command: 'git rebase', description: '变基' },
-  { command: 'git log', description: '查看日志' },
-  { command: 'git log --oneline', description: '简洁日志' },
-  { command: 'git log --graph', description: '图形化日志' },
-  { command: 'git diff', description: '查看差异' },
-  { command: 'git diff --staged', description: '查看暂存差异' },
-  { command: 'git reset', description: '重置' },
-  { command: 'git reset --hard', description: '硬重置' },
-  { command: 'git stash', description: '暂存修改' },
-  { command: 'git stash pop', description: '恢复暂存' },
-  { command: 'git stash list', description: '查看暂存列表' },
-  { command: 'git remote', description: '查看远程仓库' },
-  { command: 'git remote -v', description: '详细远程信息' },
-  { command: 'git tag', description: '查看标签' },
-  { command: 'git tag -a', description: '创建标签' },
-  
-  // Docker相关
-  { command: 'docker ps', description: '查看运行的容器' },
-  { command: 'docker ps -a', description: '查看所有容器' },
-  { command: 'docker images', description: '查看镜像' },
-  { command: 'docker pull', description: '拉取镜像' },
-  { command: 'docker push', description: '推送镜像' },
-  { command: 'docker build', description: '构建镜像' },
-  { command: 'docker build -t', description: '构建并标记' },
-  { command: 'docker run', description: '运行容器' },
-  { command: 'docker run -d', description: '后台运行' },
-  { command: 'docker run -it', description: '交互运行' },
-  { command: 'docker run -p', description: '端口映射' },
-  { command: 'docker run -v', description: '卷映射' },
-  { command: 'docker run --name', description: '指定名称' },
-  { command: 'docker exec', description: '执行命令' },
-  { command: 'docker exec -it', description: '交互式执行' },
-  { command: 'docker stop', description: '停止容器' },
-  { command: 'docker start', description: '启动容器' },
-  { command: 'docker restart', description: '重启容器' },
-  { command: 'docker rm', description: '删除容器' },
-  { command: 'docker rm -f', description: '强制删除' },
-  { command: 'docker rmi', description: '删除镜像' },
-  { command: 'docker logs', description: '查看日志' },
-  { command: 'docker logs -f', description: '实时日志' },
-  { command: 'docker inspect', description: '查看详情' },
-  { command: 'docker stats', description: '资源统计' },
-  { command: 'docker network', description: '网络管理' },
-  { command: 'docker network ls', description: '列出网络' },
-  { command: 'docker volume', description: '卷管理' },
-  { command: 'docker volume ls', description: '列出卷' },
-  // Docker Compose (旧格式)
-  { command: 'docker-compose', description: 'Docker Compose' },
-  { command: 'docker-compose up', description: '启动服务' },
-  { command: 'docker-compose up -d', description: '后台启动' },
-  { command: 'docker-compose up --build', description: '构建并启动' },
-  { command: 'docker-compose up -d --build', description: '构建并后台启动' },
-  { command: 'docker-compose down', description: '停止服务' },
-  { command: 'docker-compose down -v', description: '停止并删除卷' },
-  { command: 'docker-compose down --rmi all', description: '停止并删除镜像' },
-  { command: 'docker-compose ps', description: '查看状态' },
-  { command: 'docker-compose logs', description: '查看日志' },
-  { command: 'docker-compose logs -f', description: '实时日志' },
-  { command: 'docker-compose logs --tail 100', description: '最近100行日志' },
-  { command: 'docker-compose exec', description: '执行命令' },
-  { command: 'docker-compose exec -it', description: '交互式执行' },
-  { command: 'docker-compose exec bash', description: '进入bash' },
-  { command: 'docker-compose exec sh', description: '进入sh' },
-  { command: 'docker-compose start', description: '启动服务' },
-  { command: 'docker-compose stop', description: '停止服务' },
-  { command: 'docker-compose restart', description: '重启服务' },
-  { command: 'docker-compose pause', description: '暂停服务' },
-  { command: 'docker-compose unpause', description: '恢复服务' },
-  { command: 'docker-compose build', description: '构建镜像' },
-  { command: 'docker-compose build --no-cache', description: '无缓存构建' },
-  { command: 'docker-compose pull', description: '拉取镜像' },
-  { command: 'docker-compose push', description: '推送镜像' },
-  { command: 'docker-compose config', description: '验证配置' },
-  { command: 'docker-compose config -q', description: '静默验证' },
-  { command: 'docker-compose version', description: '查看版本' },
-  
-  // Docker Compose (新格式 - docker compose)
-  { command: 'docker compose', description: 'Docker Compose' },
-  { command: 'docker compose up', description: '启动服务' },
-  { command: 'docker compose up -d', description: '后台启动' },
-  { command: 'docker compose up --build', description: '构建并启动' },
-  { command: 'docker compose up -d --build', description: '构建并后台启动' },
-  { command: 'docker compose down', description: '停止服务' },
-  { command: 'docker compose down -v', description: '停止并删除卷' },
-  { command: 'docker compose down --rmi all', description: '停止并删除镜像' },
-  { command: 'docker compose ps', description: '查看状态' },
-  { command: 'docker compose logs', description: '查看日志' },
-  { command: 'docker compose logs -f', description: '实时日志' },
-  { command: 'docker compose logs --tail 100', description: '最近100行日志' },
-  { command: 'docker compose exec', description: '执行命令' },
-  { command: 'docker compose exec -it', description: '交互式执行' },
-  { command: 'docker compose exec bash', description: '进入bash' },
-  { command: 'docker compose exec sh', description: '进入sh' },
-  { command: 'docker compose start', description: '启动服务' },
-  { command: 'docker compose stop', description: '停止服务' },
-  { command: 'docker compose restart', description: '重启服务' },
-  { command: 'docker compose pause', description: '暂停服务' },
-  { command: 'docker compose unpause', description: '恢复服务' },
-  { command: 'docker compose build', description: '构建镜像' },
-  { command: 'docker compose build --no-cache', description: '无缓存构建' },
-  { command: 'docker compose pull', description: '拉取镜像' },
-  { command: 'docker compose push', description: '推送镜像' },
-  { command: 'docker compose config', description: '验证配置' },
-  { command: 'docker compose config -q', description: '静默验证' },
-  { command: 'docker compose version', description: '查看版本' },
-  
-  // Kubernetes相关
-  { command: 'kubectl get pods', description: '查看Pod' },
-  { command: 'kubectl get nodes', description: '查看节点' },
-  { command: 'kubectl get services', description: '查看服务' },
-  { command: 'kubectl get deployments', description: '查看部署' },
-  { command: 'kubectl get all', description: '查看所有资源' },
-  { command: 'kubectl describe', description: '查看详情' },
-  { command: 'kubectl logs', description: '查看日志' },
-  { command: 'kubectl logs -f', description: '实时日志' },
-  { command: 'kubectl exec', description: '执行命令' },
-  { command: 'kubectl exec -it', description: '交互式执行' },
-  { command: 'kubectl apply', description: '应用配置' },
-  { command: 'kubectl apply -f', description: '应用文件' },
-  { command: 'kubectl delete', description: '删除资源' },
-  { command: 'kubectl scale', description: '扩容缩容' },
-  { command: 'kubectl config', description: '配置管理' },
-  { command: 'kubectl config get-contexts', description: '查看上下文' },
-  { command: 'kubectl config use-context', description: '切换上下文' },
-  
-  // 其他常用命令
-  { command: 'clear', description: '清屏' },
-  { command: 'reset', description: '重置终端' },
-  { command: 'script', description: '记录会话' },
-  { command: 'scriptreplay', description: '回放会话' },
-  { command: 'time', description: '计时' },
-  { command: 'timeout', description: '超时执行' },
-  { command: 'nohup', description: '后台执行' },
-  { command: 'nohup command &', description: '后台执行并输出' },
-  { command: 'yes', description: '重复输出' },
-  { command: 'sleep', description: '延时' },
-  { command: 'wait', description: '等待进程' },
-  { command: 'exit', description: '退出' },
-  { command: 'logout', description: '登出' },
-  { command: 'reboot', description: '重启' },
-  { command: 'shutdown', description: '关机' },
-  { command: 'shutdown -h now', description: '立即关机' },
-  { command: 'shutdown -r now', description: '立即重启' },
-  { command: 'poweroff', description: '关机' },
-  { command: 'halt', description: '停机' },
-  { command: 'sync', description: '同步磁盘' },
-  { command: 'lsof', description: '打开的文件' },
-  { command: 'lsof -i', description: '网络连接' },
-  { command: 'lsof -i :80', description: '80端口连接' },
-  { command: 'fuser', description: '文件用户' },
-  { command: 'strace', description: '系统调用追踪' },
-  { command: 'ltrace', description: '库调用追踪' },
-];
-
 interface TerminalProps {
   connectionId: string | null;
   onCommandRequest?: (command: string) => void;
@@ -612,6 +131,7 @@ interface TerminalProps {
   theme?: 'dark' | 'light' | 'system';
   settings?: AppSettings;
 }
+
 
 // 终端主题配置 - 扩展多个预设
 export const TERMINAL_THEMES: Record<string, any> = {
@@ -855,23 +375,18 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
   const initTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isAlternateScreenRef = useRef(false);
+  const currentInputRef = useRef('');
+  const cwdRef = useRef('~'); // 跟踪当前工作目录
   
   // 如果没有传入 theme，则使用 useTheme hook
   const { theme: hookTheme } = useTheme();
   const theme = themeProp ?? hookTheme;
-
-  // 自动补全相关状态
-  const [showAutocomplete, setShowAutocomplete] = useState(false);
-  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<{ command: string; description: string }[]>([]);
-  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
-  const currentInputRef = useRef('');
 
   // 使用 selector 精确订阅当前连接的输出，避免其他连接更新触发重渲染
   const currentTerminalOutput = useConnectionStore(
     useCallback((state) => state.terminalOutputs[connectionId || ''] || '', [connectionId])
   );
   const [commandHistory, setCommandHistory] = useState<CommandHistoryItem[]>([]);
-  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
 
   // 直接调用 SSH resize API，不依赖 store 的 activeConnectionId
   const resizeSSH = useCallback((cols: number, rows: number) => {
@@ -884,140 +399,22 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     const isAlternateScreen = xtermRef.current?.buffer.active.type === 'alternate';
     if (isAlternateScreenRef.current !== isAlternateScreen) {
       isAlternateScreenRef.current = isAlternateScreen;
-      if (isAlternateScreen) {
-        currentInputRef.current = '';
-        setShowAutocomplete(false);
-      }
     }
     return isAlternateScreen;
   }, []);
 
-  // 加载命令历史和快速命令
+  // 加载命令历史
   useEffect(() => {
     const loadData = async () => {
       if (window.electronAPI) {
-        const [historyResult, quickResult] = await Promise.all([
-          window.electronAPI.getCommandHistory(),
-          window.electronAPI.getQuickCommands(),
-        ]);
+        const historyResult = await window.electronAPI.getCommandHistory();
         if (historyResult.success) {
           setCommandHistory(Array.isArray(historyResult.data?.history) ? historyResult.data.history : []);
-        }
-        if (quickResult.success) {
-          setQuickCommands(Array.isArray(quickResult.data?.commands) ? quickResult.data.commands : []);
         }
       }
     };
     loadData();
   }, [connectionId]);
-
-  // 获取自动补全建议
-  const getSuggestions = useCallback((query: string) => {
-    if (!query.trim()) {
-      return [];
-    }
-
-    const lowerQuery = query.toLowerCase();
-    const seen = new Set<string>();
-    const suggestions: { command: string; description: string; priority: number }[] = [];
-
-    // 1. 从历史命令匹配（最高优先级）
-    if (commandHistory) {
-      commandHistory.forEach((item, index) => {
-        const cmd = item.command.trim();
-        if (!seen.has(cmd)) {
-          const startsWith = cmd.toLowerCase().startsWith(lowerQuery);
-          const includes = cmd.toLowerCase().includes(lowerQuery);
-          
-          if (startsWith || includes) {
-            seen.add(cmd);
-            suggestions.push({
-              command: cmd,
-              description: `历史命令`,
-              priority: startsWith ? 100 - index : 50 - index, // 最近使用的历史命令优先级更高
-            });
-          }
-        }
-      });
-    }
-
-    // 2. 从快速命令匹配（高优先级）
-    if (quickCommands) {
-      quickCommands.forEach((cmd, index) => {
-        if (!seen.has(cmd.command)) {
-          const startsWithCmd = cmd.command.toLowerCase().startsWith(lowerQuery);
-          const includesName = cmd.name.toLowerCase().includes(lowerQuery);
-          
-          if (startsWithCmd || includesName) {
-            seen.add(cmd.command);
-            suggestions.push({
-              command: cmd.command,
-              description: cmd.description || '快速命令',
-              priority: startsWithCmd ? 80 : 40,
-            });
-          }
-        }
-      });
-    }
-
-    // 3. 从常用命令匹配（标准优先级）
-    COMMON_COMMANDS.forEach((cmd, index) => {
-      if (!seen.has(cmd.command)) {
-        const startsWith = cmd.command.toLowerCase().startsWith(lowerQuery);
-        const includes = cmd.command.toLowerCase().includes(lowerQuery) || 
-                        cmd.description.toLowerCase().includes(lowerQuery);
-        
-        if (startsWith || includes) {
-          seen.add(cmd.command);
-          suggestions.push({
-            command: cmd.command,
-            description: cmd.description,
-            priority: startsWith ? 60 : 20,
-          });
-        }
-      }
-    });
-
-    // 按优先级排序，然后返回前10个
-    return suggestions
-      .sort((a, b) => b.priority - a.priority)
-      .slice(0, 10)
-      .map(({ command, description }) => ({ command, description }));
-  }, [commandHistory, quickCommands]);
-
-  // 自动补全命令到输入框
-  const applyAutocomplete = useCallback((command: string) => {
-    if (!xtermRef.current) {
-      setShowAutocomplete(false);
-      return;
-    }
-
-    if (syncAlternateScreenState()) {
-      setShowAutocomplete(false);
-      return;
-    }
-
-    const term = xtermRef.current;
-    const currentInput = currentInputRef.current;
-
-    // 1. 先删除当前输入的字符（发送退格键到 SSH）
-    for (let i = 0; i < currentInput.length; i++) {
-      if (connectionId && window.electronAPI) {
-        window.electronAPI.sshExecuteSync(connectionId, '\x7f');
-      }
-    }
-
-    // 2. 发送补全命令字符到 SSH
-    if (connectionId && window.electronAPI) {
-      window.electronAPI.sshExecuteSync(connectionId, command);
-    }
-
-    // 3. 更新当前输入引用
-    currentInputRef.current = command;
-
-    // 4. 关闭补全提示
-    setShowAutocomplete(false);
-  }, [connectionId, syncAlternateScreenState]);
 
   // 终端右键菜单
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -1116,48 +513,9 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     }
   };
 
-  // 合并的全局键盘监听 - 处理自动补全、搜索、字体等
+  // 全局键盘监听 - 搜索、字体等
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isAlternateScreen = xtermRef.current?.buffer.active.type === 'alternate';
-      if (isAlternateScreen) {
-        isAlternateScreenRef.current = true;
-        if (showAutocomplete) {
-          setShowAutocomplete(false);
-        }
-        return;
-      }
-
-      // 自动补全导航
-      if (showAutocomplete) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          e.stopPropagation();
-          setAutocompleteIndex(prev => Math.min(prev + 1, autocompleteSuggestions.length - 1));
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          e.stopPropagation();
-          setAutocompleteIndex(prev => Math.max(prev - 1, 0));
-          return;
-        }
-        if (e.ctrlKey && (e.key === 'e' || e.key === 'E')) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (autocompleteSuggestions.length > 0) {
-            applyAutocomplete(autocompleteSuggestions[autocompleteIndex].command);
-          }
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          setShowAutocomplete(false);
-          return;
-        }
-      }
-
       // 搜索和字体快捷键
       if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
@@ -1178,7 +536,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [showAutocomplete, autocompleteIndex, autocompleteSuggestions, showSearch, applyAutocomplete]);
+  }, [showSearch]);
 
   // 当 settings 中的 terminalTheme 变化时同步本地状态（处理异步加载）
   useEffect(() => {
@@ -1416,15 +774,45 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
       if (syncAlternateScreenState()) {
         currentInputRef.current = '';
-        setShowAutocomplete(false);
         return;
       }
 
-      // 跟踪当前输入，仅用于显示补全
+      // 跟踪当前输入用于保存命令历史
       if (data === '\r') {
         // Enter - 保存命令到历史
         const cmd = currentInputRef.current.trim();
         if (cmd) {
+          // 更新 cwd 跟踪 (在保存之前，记录的是执行时的目录)
+          const currentCwd = cwdRef.current;
+
+          // 分析 cd 命令来更新 cwd
+          const cdMatch = cmd.match(/^cd\s+(.+)$/);
+          if (cdMatch) {
+            const target = cdMatch[1].trim().replace(/["']/g, '');
+            if (target.startsWith('/')) {
+              cwdRef.current = target;
+            } else if (target === '~' || target === '') {
+              cwdRef.current = '~';
+            } else if (target === '-') {
+              // cd - 无法跟踪，保持不变
+            } else if (target === '..') {
+              const parts = cwdRef.current.split('/').filter(Boolean);
+              parts.pop();
+              cwdRef.current = parts.length === 0 ? '/' : '/' + parts.join('/');
+            } else if (target.startsWith('~/')) {
+              cwdRef.current = target;
+            } else {
+              // 相对路径
+              if (cwdRef.current === '~') {
+                cwdRef.current = '~/' + target;
+              } else {
+                cwdRef.current = cwdRef.current.replace(/\/$/, '') + '/' + target;
+              }
+            }
+          } else if (cmd === 'cd') {
+            cwdRef.current = '~';
+          }
+
           (async () => {
             if (window.electronAPI) {
               const { connections, activeConnectionId } = useConnectionStore.getState();
@@ -1437,6 +825,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
                 connectionName: connection?.name || 'Unknown',
                 executedBy: 'user',
                 approved: true,
+                cwd: currentCwd,
               };
               await window.electronAPI.addCommandHistory(historyItem);
               // 刷新历史命令
@@ -1448,31 +837,32 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
           })();
         }
         currentInputRef.current = '';
-        setShowAutocomplete(false);
-      } else if (data === '\x7f') {
+      } else if (data === '\x7f' || data === '\b') {
         // Backspace
         currentInputRef.current = currentInputRef.current.slice(0, -1);
       } else if (data === '\x03') {
         // Ctrl+C
         currentInputRef.current = '';
-        setShowAutocomplete(false);
-      } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
-        // 普通字符输入
-        currentInputRef.current += data;
-      }
-
-      // 检查补全
-      if (currentInputRef.current.length > 0) {
-        const suggestions = getSuggestions(currentInputRef.current);
-        setAutocompleteSuggestions(suggestions);
-        if (suggestions.length > 0) {
-          setShowAutocomplete(true);
-          setAutocompleteIndex(0);
-        } else {
-          setShowAutocomplete(false);
+      } else if (data === '\x15') {
+        // Ctrl+U - 清除整行
+        currentInputRef.current = '';
+      } else if (data === '\x17') {
+        // Ctrl+W - 删除前一个单词
+        currentInputRef.current = currentInputRef.current.replace(/\S+\s*$/, '');
+      } else if (data.startsWith('\x1b')) {
+        // 转义序列 (方向键、功能键等) - 无法可靠跟踪光标移动
+        // 如果是上/下方向键(历史切换)，重置跟踪，因为内容已不可靠
+        if (data === '\x1b[A' || data === '\x1b[B') {
+          currentInputRef.current = '';
         }
-      } else {
-        setShowAutocomplete(false);
+        // 其他转义序列忽略
+      } else if (data === '\t') {
+        // Tab (SSH 服务端补全) - 无法知道补全结果，标记为不可靠
+        // 追加一个标记，在保存时会从终端输出中提取实际命令
+        currentInputRef.current = '';
+      } else if (data.charCodeAt(0) >= 32) {
+        // 可打印字符（包括粘贴的多字符文本）
+        currentInputRef.current += data;
       }
     });
 
@@ -1484,7 +874,7 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
         onDataDisposableRef.current = null;
       }
     };
-  }, [connectionId, getSuggestions]);
+  }, [connectionId]);
 
   // 直接写入 terminalOutput
   useEffect(() => {
@@ -1637,34 +1027,6 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
           <button onClick={() => { setShowSearch(false); setSearchQuery(''); }} className="icon-button h-7 w-7">
             ✕
           </button>
-        </div>
-      )}
-
-      {/* 自动补全提示 - 输入时自动展示 */}
-      {settings?.showTerminalOutputPrompt !== false && showAutocomplete && autocompleteSuggestions.length > 0 && (
-        <div className="terminal-autocomplete-panel">
-          <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_74%,var(--bg-secondary))] px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400">
-            输入时自动补全 - ↑↓ 选择 / Ctrl+E 应用 / Esc 关闭
-          </div>
-          {autocompleteSuggestions.map((suggestion, index) => (
-            <button
-              key={suggestion.command}
-              onClick={(e) => { e.stopPropagation(); applyAutocomplete(suggestion.command); }}
-              className={`w-full px-3 py-2 text-left flex items-center gap-3 transition-colors ${
-                index === autocompleteIndex
-                  ? 'bg-teal-600 text-white'
-                  : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)] text-slate-700 dark:text-slate-300'
-              }`}
-            >
-              <TerminalIcon className={`w-4 h-4 flex-shrink-0 ${
-                index === autocompleteIndex ? 'text-teal-100' : 'text-teal-600 dark:text-teal-300'
-              }`} />
-              <code className="flex-1 font-mono text-sm truncate">{suggestion.command}</code>
-              <span className={`text-xs ${
-                index === autocompleteIndex ? 'text-teal-100' : 'text-slate-400'
-              }`}>{suggestion.description}</span>
-            </button>
-          ))}
         </div>
       )}
 

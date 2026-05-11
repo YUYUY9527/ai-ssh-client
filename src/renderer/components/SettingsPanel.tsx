@@ -52,8 +52,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     // 通知设置
     connectionNotifications: settings.connectionNotifications ?? true,
     commandNotifications: settings.commandNotifications ?? false,
-    // 终端设置
-    showTerminalOutputPrompt: settings.showTerminalOutputPrompt ?? true,
   });
 
   const handleSave = () => {
@@ -157,17 +155,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </select>
                 </div>
 
-                {/* 自动补全提示窗口 */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.autocomplete')}</label>
-                    <p className="text-xs text-slate-500">{t('settings.terminal.autocompleteDesc')}</p>
-                  </div>
-                  <ToggleButton
-                    enabled={localSettings.showTerminalOutputPrompt ?? true}
-                    onChange={(value) => setLocalSettings({ ...localSettings, showTerminalOutputPrompt: value })}
-                  />
-                </div>
               </div>
             )}
 

@@ -59,6 +59,7 @@ export interface CommandHistoryItem {
   connectionName: string;
   executedBy: 'user' | 'ai';
   approved: boolean;
+  cwd?: string; // 命令执行时的工作目录
 }
 
 // 快速命令分组
