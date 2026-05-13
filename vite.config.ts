@@ -10,6 +10,15 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist/renderer',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          xterm: ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-search'],
+          vendor: ['react', 'react-dom', 'zustand'],
+          icons: ['lucide-react'],
+        }
+      }
+    }
   }
 })

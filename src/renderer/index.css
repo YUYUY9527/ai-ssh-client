@@ -549,7 +549,7 @@
   }
 
   .agent-pet-panel-body {
-    @apply min-h-0 flex-1 space-y-3 overflow-y-auto p-3;
+    @apply min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden p-3;
   }
 
   .agent-pet-empty {
@@ -612,6 +612,9 @@
 
   .agent-chat-bubble {
     @apply max-w-[84%] rounded-sm border px-3 py-2.5 text-sm;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
   }
 
   .agent-chat-bubble-user {
@@ -673,6 +676,8 @@
     @apply mt-3 space-y-3 rounded-sm border p-3;
     background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+    overflow: hidden;
+    min-width: 0;
   }
 
   .agent-chat-detail-label {
@@ -684,12 +689,20 @@
     @apply block rounded-sm border px-2 py-1.5 font-mono text-xs text-teal-700 dark:text-teal-200;
     background: color-mix(in srgb, #020617 38%, var(--bg-primary));
     border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+    word-break: break-all;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    max-height: 120px;
+    overflow-y: auto;
   }
 
   .agent-chat-step {
     @apply rounded-sm border px-2 py-2 text-xs leading-5 text-slate-500 dark:text-slate-400;
     background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 52%, transparent);
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
   }
 
   .agent-chat-step p {

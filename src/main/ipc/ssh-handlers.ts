@@ -22,7 +22,14 @@ export function setupSSHIpcHandlers(mainWindow: BrowserWindow) {
 
       const session = sshManager.getSession(sessionId);
       if (session?.shell) {
-        const stripper = createSentinelStripper();
+        const stripper = createSentinelStripper((delayedData) => {
+          // 超时 flush: hold 住的数据超时后强制输出到终端
+          mainWindow.webContents.send(IPC_CHANNELS.SSH_DATA, {
+            connectionId: sessionId,
+            data: delayedData,
+            type: 'data',
+          });
+        });
 
         session.shell.on('data', (data: Buffer) => {
           const clean = stripper.feed(data.toString());

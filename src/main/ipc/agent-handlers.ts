@@ -50,8 +50,19 @@ function makeSentinelPattern(runId: string): RegExp {
 function wrapCommandWithSentinel(command: string, runId: string): string {
   const marker = makeSentinelMarker(runId);
   const trimmed = command.replace(/[\r\n]+$/, '');
-  // 用子 shell 包裹原命令,确保 $? 拿到的是整条命令的退出码,
-  // 即使原命令包含 `;` / `&&` / `||` 也不会让 printf 拿到中间命令的退出码。
+
+  // 判断命令是否包含多行结构（heredoc、多行脚本等）
+  // 这些结构不能用 `(cmd)` 子 shell 包裹，否则 heredoc 结束标记会被破坏
+  const isMultiLine = trimmed.includes('\n');
+  const hasHeredoc = /<<[-~]?\s*['"]?\w+['"]?/.test(trimmed);
+
+  if (isMultiLine || hasHeredoc) {
+    // 多行命令：在命令后追加 sentinel，用换行分隔
+    // 使用临时变量保存退出码，避免 printf 本身的退出码覆盖
+    return `${trimmed}\n__ais_ec=$?; printf '\\n${marker}:%s\\n' "$__ais_ec"\n`;
+  }
+
+  // 单行命令：用子 shell 包裹确保 $? 准确
   return `(${trimmed}); printf '\\n${marker}:%s\\n' "$?"\n`;
 }
 
@@ -99,7 +110,12 @@ export function setupAgentIpcHandlers(mainWindow: BrowserWindow) {
     const session = sshManager.getSession(connectionId);
 
     if (session?.shell) {
-      const stripper = createSentinelStripper();
+      const stripper = createSentinelStripper((delayedData) => {
+        mainWindow.webContents.send(IPC_CHANNELS.AGENT_TERMINAL_OUTPUT, {
+          connectionId,
+          data: delayedData,
+        });
+      });
       // 创建 agent 专用监听器
       const agentHandler = (data: Buffer) => {
         const clean = stripper.feed(data.toString());

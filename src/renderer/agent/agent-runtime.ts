@@ -136,11 +136,13 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
     cleanContent = cleanContent.slice(1, -1);
   }
 
+  // 1. 直接 JSON 解析
   try {
     const parsed = JSON.parse(cleanContent);
     if (parsed?.decision) return parsed;
   } catch (e) {}
 
+  // 2. 从 markdown 代码块中提取
   const patterns = [/```(?:json)?\s*([\s\S]*?)\s*```/, /`([\s\S]*?)`/];
   for (const pattern of patterns) {
     const match = cleanContent.match(pattern);
@@ -152,17 +154,101 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
     }
   }
 
+  // 3. 提取第一个 { 到最后一个 } 之间的内容
   const firstBrace = cleanContent.indexOf('{');
   const lastBrace = cleanContent.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
+    const jsonCandidate = cleanContent.slice(firstBrace, lastBrace + 1);
     try {
-      const parsed = JSON.parse(cleanContent.slice(firstBrace, lastBrace + 1));
+      const parsed = JSON.parse(jsonCandidate);
       if (parsed?.decision) return parsed;
     } catch (e) {}
+
+    // 4. 尝试修复常见的 JSON 格式问题
+    const fixed = fixMalformedJson(jsonCandidate);
+    if (fixed) {
+      try {
+        const parsed = JSON.parse(fixed);
+        if (parsed?.decision) return parsed;
+      } catch (e) {}
+    }
+  }
+
+  // 5. 尝试从纯文本中推断意图（最后的兜底）
+  return inferResponseFromText(cleanContent);
+};
+
+/**
+ * 修复常见的 JSON 格式问题
+ */
+function fixMalformedJson(json: string): string | null {
+  let fixed = json;
+
+  // 移除尾部逗号 (如 `"key": "value",}`)
+  fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+
+  // 修复未转义的换行符在字符串值中
+  fixed = fixed.replace(/"([^"]*?)(?<!\\)\n([^"]*?)"/g, (_, before, after) => {
+    return `"${before}\\n${after}"`;
+  });
+
+  // 修复单引号 → 双引号 (仅在 key 位置)
+  fixed = fixed.replace(/'/g, '"');
+
+  // 如果修复后和原始一样，返回 null 避免重复尝试
+  if (fixed === json) return null;
+  return fixed;
+}
+
+/**
+ * 从纯文本中推断 AI 的意图（兜底策略）
+ * 当 AI 没有返回有效 JSON 时，尝试从文本中提取有用信息
+ */
+function inferResponseFromText(text: string): AgentResponse | null {
+  // 如果文本看起来像截断的 JSON，不要推断 — 返回 null 让上层处理
+  if (text.includes('"thought"') || text.includes('"decision"') || text.includes('"reasoning"')) {
+    return null;
+  }
+
+  const lower = text.toLowerCase();
+
+  // 检测是否包含命令执行意图
+  const cmdPatterns = [
+    /(?:执行|运行|使用)(?:命令)?[：:]\s*[`"]?([^`"\n]+)[`"]?/,
+    /(?:command|execute|run)[：:]\s*[`"]?([^`"\n]+)[`"]?/i,
+    /^[`]([^`\n]+)[`]\s*$/m,
+  ];
+  for (const pattern of cmdPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return {
+        thought: { reasoning: text.slice(0, 200), observation: '' },
+        decision: 'execute',
+        command: match[1].trim(),
+      };
+    }
+  }
+
+  // 检测是否是完成意图 — 要求更明确的表述
+  if (/^(?:任务完成|已完成|done|completed|finished)[。.!]?\s*$/im.test(text)) {
+    return {
+      thought: { reasoning: text.slice(0, 200), observation: '' },
+      decision: 'finish',
+      finishReason: text.slice(0, 100),
+    };
+  }
+
+  // 检测是否是提问意图
+  if (/(?:请问|请确认|需要.*确认|你想|是否)[^。]*[?？]\s*$/m.test(text)) {
+    return {
+      thought: { reasoning: '需要用户确认', observation: '' },
+      decision: 'ask',
+      question: text.slice(0, 300),
+    };
   }
 
   return null;
-};
+}
 
 const detectTerminalBlocking = (output: string): { isBlocking: boolean; prompt: string } => {
   const normalizedOutput = normalizeTerminalText(output);
@@ -348,6 +434,7 @@ export class AgentRuntime {
   private stepCount = 0;
   private stepIdCounter = 0;
   private lastCommandOutput = '';
+  private lastParseRetried = false;
   private agentMessages: Message[] = [];
   private commandExecutionHistory = new Map<string, number>();
 
@@ -505,7 +592,7 @@ export class AgentRuntime {
     if (!task) return;
     const capturedVersion = this.taskVersion;
 
-    if (this.stepCount >= (this.snapshot.config.maxExecutionSteps || 10)) {
+    if (this.stepCount >= (this.snapshot.config.maxExecutionSteps || 20)) {
       this.finishTask(false, t('agent.finishReasons.maxSteps'));
       return;
     }
@@ -540,10 +627,28 @@ export class AgentRuntime {
     if (!this.isCurrent(capturedVersion)) return;
 
     if (!aiResponse) {
+      // 解析失败时重试一次（AI 可能返回了截断的 JSON）
+      if (!this.lastParseRetried) {
+        this.lastParseRetried = true;
+        this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: 'AI 响应格式异常，正在重试...' });
+        if (!this.isCurrent(capturedVersion)) return;
+        // 给 agentMessages 追加一条提示，让 AI 修正格式
+        this.agentMessages.push({
+          id: Date.now().toString(),
+          role: 'user',
+          content: '你的上一次回复格式不正确，无法解析。请严格按照纯 JSON 格式回复：{"thought":{"reasoning":"...","observation":"..."},"decision":"execute|finish|ask","command":"..."}',
+          timestamp: Date.now(),
+        });
+        this.status = 'idle';
+        this.scheduleProcess();
+        return;
+      }
+      this.lastParseRetried = false;
       this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: t('agent.thinking.cannotParse') });
       this.finishTask(false, t('agent.finishReasons.aiInvalid'));
       return;
     }
+    this.lastParseRetried = false;
 
     this.actions.updateThinkingStep(thinkStepId, {
       status: 'completed',
@@ -733,12 +838,12 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
 
     let userMessageContent = `用户任务:${userInput}`;
     if (executedCommands.length > 0) {
-      userMessageContent += `\n\n⚠️ **已执行的命令(不要重复)**:\n${executedCommands.map((cmd, i) => `${i + 1}. \`${cmd}\``).join('\n')}`;
+      userMessageContent += `\n\n已执行(${executedCommands.length}/${this.snapshot.config.maxExecutionSteps || 20}步):${executedCommands.map(cmd => `\n- ${cmd}`).join('')}`;
     }
     if (lastOutput) {
       const maxLength = config.maxTerminalOutputLength ?? 8000;
       const extractedOutput = maxLength === 0 ? lastOutput : extractKeyOutput(lastOutput, maxLength);
-      userMessageContent += `\n\n**最新命令的终端输出**:\n\`\`\`\n${extractedOutput}\n\`\`\``;
+      userMessageContent += `\n\n终端输出:\n\`\`\`\n${extractedOutput}\n\`\`\``;
     }
 
     messages.push({

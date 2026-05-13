@@ -24,20 +24,18 @@ import {
   ChevronRight,
   CheckCircle2,
   AlertCircle,
-  Zap,
-  ChevronDown as ChevronDownIcon,
-  Pencil,
-  Clock,
 } from 'lucide-react';
 import { Terminal } from './components/Terminal';
 import { AppIcon } from './components/AppIcon';
 import { AgentPet } from './components/AgentPet';
+import { CommandHistoryPanel } from './components/CommandHistoryPanel';
+import { QuickCommandsPanel } from './components/QuickCommandsPanel';
 import { useConnectionStore } from './store/useConnectionStore';
 import { useAIStore } from './store/useAIStore';
 import { useAgentStore } from './store/useAgentStore';
 import { useTheme } from './hooks/useTheme';
 import { useI18n } from './i18n';
-import type { CommandSuggestion, SSHSessionState, SSHConnection, QuickCommand, QuickCommandGroup, CommandHistoryItem } from '../shared/types';
+import type { CommandSuggestion, SSHSessionState, SSHConnection } from '../shared/types';
 import type { AppSettings } from '../shared/types';
 
 const CommandApproval = lazy(async () => {
@@ -105,21 +103,6 @@ function App() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
   
-  // 快速命令相关状态
-  const [showQuickCommands, setShowQuickCommands] = useState(false);
-  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
-  const [quickCommandGroups, setQuickCommandGroups] = useState<QuickCommandGroup[]>([]);
-  const [editingQuickCommand, setEditingQuickCommand] = useState<QuickCommand | null>(null);
-  const [editingQuickGroup, setEditingQuickGroup] = useState<QuickCommandGroup | null>(null);
-  const [newQuickCommand, setNewQuickCommand] = useState({ name: '', command: '', description: '', groupId: '' });
-  const [newQuickGroup, setNewQuickGroup] = useState({ name: '', color: '#3B82F6' });
-  const [showQuickCommandForm, setShowQuickCommandForm] = useState(false);
-  const [showQuickGroupForm, setShowQuickGroupForm] = useState(false);
-  const quickCommandsDropdownRef = useRef<HTMLDivElement>(null);
-  // 历史命令相关状态
-  const [showCommandHistory, setShowCommandHistory] = useState(false);
-  const [commandHistoryList, setCommandHistoryList] = useState<CommandHistoryItem[]>([]);
-  const commandHistoryDropdownRef = useRef<HTMLDivElement>(null);
   const pendingSshOutputRef = useRef<Map<string, string[]>>(new Map());
   const outputFlushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -375,7 +358,6 @@ function App() {
 
     loadConnections();
     loadProviders();
-    loadQuickCommands();
 
     const cleanupSshData = window.electronAPI.onSshData(({ connectionId, data, type, state }) => {
       if (type === 'state' && state) {
@@ -598,18 +580,12 @@ function App() {
       if (connectionDropdownRef.current && !connectionDropdownRef.current.contains(e.target as Node)) {
         setShowConnectionDropdown(false);
       }
-      if (quickCommandsDropdownRef.current && !quickCommandsDropdownRef.current.contains(e.target as Node)) {
-        setShowQuickCommands(false);
-      }
-      if (commandHistoryDropdownRef.current && !commandHistoryDropdownRef.current.contains(e.target as Node)) {
-        setShowCommandHistory(false);
-      }
     };
-    if (tabContextMenu || showConnectionDropdown || showQuickCommands || showCommandHistory) {
+    if (tabContextMenu || showConnectionDropdown) {
       document.addEventListener('click', handleClickOutside);
       return () => document.removeEventListener('click', handleClickOutside);
     }
-  }, [tabContextMenu, showConnectionDropdown, showQuickCommands, showCommandHistory]);
+  }, [tabContextMenu, showConnectionDropdown]);
 
   // 测试连接
   const handleTestConnection = async () => {
@@ -637,113 +613,12 @@ function App() {
     }
   };
 
-  // 加载快速命令和分组
-  const loadQuickCommands = async () => {
-    if (window.electronAPI) {
-      const [commandsResult, groupsResult] = await Promise.all([
-        window.electronAPI.getQuickCommands(),
-        window.electronAPI.getQuickCommandGroups(),
-      ]);
-      if (commandsResult.success) {
-        setQuickCommands(Array.isArray(commandsResult.data?.commands) ? commandsResult.data.commands : []);
-      }
-      if (groupsResult.success) {
-        setQuickCommandGroups(Array.isArray(groupsResult.data?.groups) ? groupsResult.data.groups : []);
-      }
-    }
-  };
-
   // 粘贴命令到终端
   const handlePasteCommand = useCallback((command: string) => {
     if ((window as any).writeToTerminal) {
       (window as any).writeToTerminal(command);
     }
-    setShowQuickCommands(false);
-    setShowCommandHistory(false);
   }, []);
-
-  // 回到原目录并执行命令
-  const handleRerunInDir = useCallback((command: string, cwd: string) => {
-    if ((window as any).writeToTerminal) {
-      // 先 cd 到目录，再执行命令，用 && 连接确保 cd 成功才执行
-      (window as any).writeToTerminal(`cd ${cwd} && ${command}\r`);
-    }
-    setShowCommandHistory(false);
-  }, []);
-
-  // 打开历史命令面板
-  const handleToggleCommandHistory = useCallback(async () => {
-    if (showCommandHistory) {
-      setShowCommandHistory(false);
-      return;
-    }
-    // 加载历史命令
-    if (window.electronAPI) {
-      const result = await window.electronAPI.getCommandHistory();
-      if (result.success) {
-        setCommandHistoryList(Array.isArray(result.data?.history) ? result.data.history : []);
-      }
-    }
-    setShowCommandHistory(true);
-  }, [showCommandHistory]);
-
-  // 保存快速命令
-  const handleSaveQuickCommand = async () => {
-    if (!newQuickCommand.name || !newQuickCommand.command) return;
-
-    const command: QuickCommand = {
-      id: editingQuickCommand?.id || Date.now().toString(),
-      name: newQuickCommand.name,
-      command: newQuickCommand.command,
-      description: newQuickCommand.description,
-      groupId: newQuickCommand.groupId || undefined,
-    };
-
-    if (window.electronAPI) {
-      await window.electronAPI.saveQuickCommand(command);
-      await loadQuickCommands();
-    }
-
-    setNewQuickCommand({ name: '', command: '', description: '', groupId: '' });
-    setEditingQuickCommand(null);
-    setShowQuickCommandForm(false);
-  };
-
-  // 删除快速命令
-  const handleDeleteQuickCommand = async (commandId: string) => {
-    if (window.electronAPI) {
-      await window.electronAPI.deleteQuickCommand(commandId);
-      await loadQuickCommands();
-    }
-  };
-
-  // 保存分组
-  const handleSaveQuickGroup = async () => {
-    if (!newQuickGroup.name) return;
-
-    const group: QuickCommandGroup = {
-      id: editingQuickGroup?.id || Date.now().toString(),
-      name: newQuickGroup.name,
-      color: newQuickGroup.color,
-    };
-
-    if (window.electronAPI) {
-      await window.electronAPI.saveQuickCommandGroup(group);
-      await loadQuickCommands();
-    }
-
-    setNewQuickGroup({ name: '', color: '#3B82F6' });
-    setEditingQuickGroup(null);
-    setShowQuickGroupForm(false);
-  };
-
-  // 删除分组
-  const handleDeleteQuickGroup = async (groupId: string) => {
-    if (window.electronAPI) {
-      await window.electronAPI.deleteQuickCommandGroup(groupId);
-      await loadQuickCommands();
-    }
-  };
 
   // 保存设置
   const handleSaveSettings = async (newSettings: AppSettings) => {
@@ -847,304 +722,15 @@ function App() {
           )}
 
           {/* 快速命令按钮 */}
+
+          {/* 快速命令 */}
           {activeTabId && (
-            <div className="relative" ref={quickCommandsDropdownRef}>
-              <button
-                onClick={() => setShowQuickCommands(!showQuickCommands)}
-                className={`toolbar-button ${showQuickCommands ? 'toolbar-button-active' : ''}`}
-                title={t('quickCommands.title')}
-              >
-                <Zap className="w-4 h-4" />
-                {t('quickCommands.commands')}
-                <ChevronDownIcon className="w-3 h-3" />
-              </button>
-
-              {/* 快速命令下拉菜单 */}
-              {showQuickCommands && (
-                <div className="app-popover scrollbar-modern left-0 w-80">
-                  {/* 头部 */}
-                  <div className="app-popover-header">
-                    <span>{t('quickCommands.title')}</span>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => {
-                          setShowQuickGroupForm(true);
-                          setShowQuickCommandForm(false);
-                        }}
-                        className="icon-button h-7 w-7"
-                        title={t('quickCommands.newGroup')}
-                      >
-                        <FolderUp className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowQuickCommandForm(true);
-                          setShowQuickGroupForm(false);
-                        }}
-                        className="icon-button h-7 w-7"
-                        title={t('quickCommands.newCommand')}
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 新建分组表单 */}
-                  {showQuickGroupForm && (
-                    <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] p-3">
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={newQuickGroup.name}
-                          onChange={(e) => setNewQuickGroup({ ...newQuickGroup, name: e.target.value })}
-                          placeholder={t('quickCommands.groupName')}
-                          className="industrial-input w-full py-1"
-                        />
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={newQuickGroup.color}
-                            onChange={(e) => setNewQuickGroup({ ...newQuickGroup, color: e.target.value })}
-                            className="h-8 w-8 cursor-pointer rounded-sm border border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-transparent p-0.5"
-                          />
-                          <div className="flex-1 flex gap-1">
-                            <button
-                              onClick={handleSaveQuickGroup}
-                              className="industrial-button-primary flex-1 px-2 py-1 text-xs"
-                            >
-                              {t('common.save')}
-                            </button>
-                            <button
-                              onClick={() => setShowQuickGroupForm(false)}
-                              className="industrial-button-secondary flex-1 px-2 py-1 text-xs"
-                            >
-                              {t('common.cancel')}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 新建命令表单 */}
-                  {showQuickCommandForm && (
-                    <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] p-3">
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={newQuickCommand.name}
-                          onChange={(e) => setNewQuickCommand({ ...newQuickCommand, name: e.target.value })}
-                          placeholder={t('quickCommands.commandName')}
-                          className="industrial-input w-full py-1"
-                        />
-                        <input
-                          type="text"
-                          value={newQuickCommand.command}
-                          onChange={(e) => setNewQuickCommand({ ...newQuickCommand, command: e.target.value })}
-                          placeholder={t('quickCommands.commandContent')}
-                          className="industrial-input w-full py-1 font-mono"
-                        />
-                        <input
-                          type="text"
-                          value={newQuickCommand.description}
-                          onChange={(e) => setNewQuickCommand({ ...newQuickCommand, description: e.target.value })}
-                          placeholder={t('quickCommands.description')}
-                          className="industrial-input w-full py-1"
-                        />
-                        {quickCommandGroups.length > 0 && (
-                          <select
-                            value={newQuickCommand.groupId}
-                            onChange={(e) => setNewQuickCommand({ ...newQuickCommand, groupId: e.target.value })}
-                            className="industrial-input w-full py-1"
-                          >
-                            <option value="">{t('quickCommands.noGroup')}</option>
-                            {quickCommandGroups.map((group) => (
-                              <option key={group.id} value={group.id}>{group.name}</option>
-                            ))}
-                          </select>
-                        )}
-                        <div className="flex gap-1">
-                          <button
-                            onClick={handleSaveQuickCommand}
-                            className="industrial-button-primary flex-1 px-2 py-1 text-xs"
-                          >
-                            {t('common.save')}
-                          </button>
-                          <button
-                            onClick={() => setShowQuickCommandForm(false)}
-                            className="industrial-button-secondary flex-1 px-2 py-1 text-xs"
-                          >
-                            {t('common.cancel')}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 命令列表 */}
-                  <div className="p-2">
-                    {quickCommands.length === 0 && !showQuickCommandForm && !showQuickGroupForm ? (
-                      <div className="text-center text-slate-500 dark:text-slate-400 text-sm py-4">
-                        {t('quickCommands.noCommands')}
-                      </div>
-                    ) : (
-                      <>
-                        {/* 按分组显示 */}
-                        {quickCommandGroups.map((group) => {
-                          const groupCommands = quickCommands.filter(c => c.groupId === group.id);
-                          if (groupCommands.length === 0) return null;
-
-                          return (
-                            <div key={group.id} className="mb-3">
-                              <div className="mb-1 flex items-center justify-between border-b border-[color-mix(in_srgb,var(--border-color)_56%,transparent)] px-2 py-1">
-                                <div className="flex items-center gap-2">
-                                  <div className="h-3 w-3 rounded-sm border border-white/20" style={{ backgroundColor: group.color }} />
-                                  <span className="text-xs font-semibold uppercase text-slate-700 dark:text-slate-300">{group.name}</span>
-                                </div>
-                                <button
-                                  onClick={() => handleDeleteQuickGroup(group.id)}
-                                  className="icon-button h-6 w-6 hover:text-red-500"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                              {groupCommands.map((cmd) => (
-                                <div
-                                  key={cmd.id}
-                                  className="group mx-1 flex items-center rounded-sm border border-transparent px-2 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--border-color)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
-                                >
-                                  <button
-                                    onClick={() => handlePasteCommand(cmd.command)}
-                                    className="flex-1 text-left"
-                                  >
-                                    <div className="text-sm text-slate-900 dark:text-white font-medium">{cmd.name}</div>
-                                    <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{cmd.command}</div>
-                                  </button>
-                                  <div className="hidden group-hover:flex items-center gap-1">
-                                    <button
-                                      onClick={() => {
-                                        setEditingQuickCommand(cmd);
-                                        setNewQuickCommand({ name: cmd.name, command: cmd.command, description: cmd.description || '', groupId: cmd.groupId || '' });
-                                        setShowQuickCommandForm(true);
-                                      }}
-                                      className="icon-button h-6 w-6"
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteQuickCommand(cmd.id)}
-                                      className="icon-button h-6 w-6 hover:text-red-500"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-
-                        {/* 无分组的命令 */}
-                        {quickCommands.filter(c => !c.groupId).map((cmd) => (
-                          <div
-                            key={cmd.id}
-                            className="group mx-1 flex items-center rounded-sm border border-transparent px-2 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--border-color)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
-                          >
-                            <button
-                              onClick={() => handlePasteCommand(cmd.command)}
-                              className="flex-1 text-left"
-                            >
-                              <div className="text-sm text-slate-900 dark:text-white font-medium">{cmd.name}</div>
-                              <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{cmd.command}</div>
-                            </button>
-                            <div className="hidden group-hover:flex items-center gap-1">
-                              <button
-                                onClick={() => {
-                                  setEditingQuickCommand(cmd);
-                                  setNewQuickCommand({ name: cmd.name, command: cmd.command, description: cmd.description || '', groupId: cmd.groupId || '' });
-                                  setShowQuickCommandForm(true);
-                                }}
-                                className="icon-button h-6 w-6"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteQuickCommand(cmd.id)}
-                                className="icon-button h-6 w-6 hover:text-red-500"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <QuickCommandsPanel onPasteCommand={handlePasteCommand} />
           )}
 
           {/* 历史命令按钮 */}
           {activeTabId && (
-            <div className="relative" ref={commandHistoryDropdownRef}>
-              <button
-                onClick={handleToggleCommandHistory}
-                className={`toolbar-button ${showCommandHistory ? 'toolbar-button-active' : ''}`}
-                title="历史命令"
-              >
-                <Clock className="w-4 h-4" />
-              </button>
-
-              {/* 历史命令下拉菜单 */}
-              {showCommandHistory && (
-                <div className="app-popover scrollbar-modern left-0 w-96">
-                  <div className="app-popover-header">
-                    <span>历史命令</span>
-                    <span className="text-[10px] font-normal normal-case tracking-normal opacity-60">
-                      点击粘贴 · 右侧按钮回到原目录执行
-                    </span>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto p-1">
-                    {commandHistoryList.length === 0 ? (
-                      <div className="text-center text-slate-500 dark:text-slate-400 text-sm py-4">
-                        暂无历史命令
-                      </div>
-                    ) : (
-                      commandHistoryList.slice(0, 50).map((item) => (
-                        <div
-                          key={item.id}
-                          className="group flex items-center gap-1 mx-0.5 rounded-sm px-2 py-1.5 transition-colors hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
-                        >
-                          <button
-                            onClick={() => handlePasteCommand(item.command)}
-                            className="flex-1 text-left min-w-0"
-                          >
-                            <div className="font-mono text-xs text-slate-900 dark:text-white truncate">{item.command}</div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
-                              <span>
-                                {new Date(item.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                              {item.connectionName && <span>· {item.connectionName}</span>}
-                              {item.cwd && <span className="text-teal-600 dark:text-teal-400">· {item.cwd}</span>}
-                            </div>
-                          </button>
-                          {item.cwd && (
-                            <button
-                              onClick={() => handleRerunInDir(item.command, item.cwd!)}
-                              className="hidden group-hover:flex flex-shrink-0 items-center justify-center h-6 w-6 rounded-sm border border-transparent hover:border-[color-mix(in_srgb,var(--accent-primary)_50%,var(--border-color))] hover:bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-slate-400 hover:text-teal-500 transition-colors"
-                              title={`cd ${item.cwd} && ${item.command}`}
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <CommandHistoryPanel onPasteCommand={handlePasteCommand} />
           )}
         </div>
         <div className="flex items-center gap-2">
