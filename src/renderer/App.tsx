@@ -204,8 +204,8 @@ function App() {
     setOpenTabs(prev => [...prev, newTab]);
     setActiveTabId(connectionId);
 
-    // 执行连接并检查返回值
-    const success = await connect(fullConnection, 128, 32);
+    // 执行连接并检查返回值（初始 PTY 尺寸会被 Terminal 组件的 fit() 立即覆盖）
+    const success = await connect(fullConnection, 200, 50);
 
     // 根据连接结果更新标签页状态
     setOpenTabs(prev => prev.map(tab =>

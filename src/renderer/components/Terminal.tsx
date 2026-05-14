@@ -591,17 +591,12 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       theme: TERMINAL_THEMES[terminalTheme],
       fontFamily: getTerminalFontFamily(settings?.fontFamily),
       fontSize: fontSize,
-      lineHeight: 1.4,
+      lineHeight: 1.2,
       cursorBlink: true,
       allowTransparency: true,
-      // 确保光标可见
       cursorStyle: 'block',
-      // 滚动条配置
-      overviewRulerWidth: 12,
+      scrollback: XTERM_SCROLLBACK_LINES,
     });
-
-    // 确保 xterm 不会在本地处理某些转义序列
-    term.options.scrollback = XTERM_SCROLLBACK_LINES;
 
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
@@ -622,26 +617,31 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       return true; // 其他按键正常处理
     });
 
-    // 初始化终端尺寸（等待容器完全渲染）
-    initTimeoutRef.current = setTimeout(() => {
-      requestAnimationFrame(() => {
-        if (fitAddonRef.current && xtermRef.current) {
-          fitAddonRef.current.fit();
-          const { cols, rows } = xtermRef.current;
-          resizeSSH(cols, rows);
-          xtermRef.current.refresh(0, xtermRef.current.rows - 1);
-        }
-      });
+    // 初始化终端尺寸 - 确保容器有实际尺寸后再 fit 并通知 SSH
+    let initialFitDone = false;
+    const doInitialFit = () => {
+      if (initialFitDone) return;
+      if (!fitAddonRef.current || !xtermRef.current || !terminalRef.current) return;
 
-      // 再次延迟 fit 一次，确保 xterm 内部状态正确
-      fitTimeoutRef.current = setTimeout(() => {
-        if (fitAddonRef.current && xtermRef.current) {
-          fitAddonRef.current.fit();
-          const { cols, rows } = xtermRef.current;
-          resizeSSH(cols, rows);
-        }
-      }, 200);
-    }, 100);
+      // 确保容器有实际尺寸
+      const rect = terminalRef.current.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) return;
+
+      initialFitDone = true;
+      fitAddonRef.current.fit();
+      const { cols, rows } = xtermRef.current;
+      if (cols > 0 && rows > 0) {
+        resizeSSH(cols, rows);
+      }
+    };
+
+    // 多次尝试 fit，确保布局稳定后获得正确尺寸
+    // 第一次：立即尝试（容器可能已经有尺寸）
+    requestAnimationFrame(doInitialFit);
+    // 第二次：50ms 后（等待 flex 布局计算完成）
+    initTimeoutRef.current = setTimeout(doInitialFit, 50);
+    // 第三次：200ms 后（兜底，确保一定能 fit）
+    fitTimeoutRef.current = setTimeout(doInitialFit, 200);
 
     // 窗口 resize 时处理
     const handleWindowResize = () => {
@@ -666,7 +666,12 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     });
 
     // 设置 ResizeObserver 监听容器尺寸变化 - 添加防抖避免频繁触发
+    // 跳过初始触发（由 doInitialFit 处理）
+    let resizeObserverReady = false;
+    setTimeout(() => { resizeObserverReady = true; }, 500);
+
     resizeObserverRef.current = new ResizeObserver(() => {
+      if (!resizeObserverReady) return;
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
