@@ -362,7 +362,6 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
-  const lastWrittenRef = useRef<string>('');
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -377,15 +376,12 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
   const isAlternateScreenRef = useRef(false);
   const currentInputRef = useRef('');
   const cwdRef = useRef('~'); // 跟踪当前工作目录
+  const sshDataCleanupRef = useRef<(() => void) | null>(null);
   
   // 如果没有传入 theme，则使用 useTheme hook
   const { theme: hookTheme } = useTheme();
   const theme = themeProp ?? hookTheme;
 
-  // 使用 selector 精确订阅当前连接的输出，避免其他连接更新触发重渲染
-  const currentTerminalOutput = useConnectionStore(
-    useCallback((state) => state.terminalOutputs[connectionId || ''] || '', [connectionId])
-  );
   const [commandHistory, setCommandHistory] = useState<CommandHistoryItem[]>([]);
 
   // 直接调用 SSH resize API，不依赖 store 的 activeConnectionId
@@ -662,7 +658,6 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     term.clear();
     term.write(`\x1b[1;32m=== ${t('terminal.sshConnected')} ===\x1b[0m\r\n`);
     term.write(`\x1b[1;33m${t('terminal.waitingServer')}\x1b[0m\r\n\r\n`);
-    lastWrittenRef.current = '';
     currentInputRef.current = '';
     isAlternateScreenRef.current = false;
 
@@ -876,25 +871,24 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     };
   }, [connectionId]);
 
-  // 直接写入 terminalOutput
+  // 直接监听 SSH 数据并写入 xterm（绕过 store，避免 string diff 导致的渲染问题）
   useEffect(() => {
-    if (!xtermRef.current || !connectionId) return;
+    if (!connectionId || !window.electronAPI) return;
 
-    const term = xtermRef.current;
-    const currentOutput = currentTerminalOutput;
-
-    if (currentOutput.length > lastWrittenRef.current.length) {
-      // 正常情况：有新数据
-      const newData = currentOutput.slice(lastWrittenRef.current.length);
-      if (newData) {
-        term.write(newData);
-        lastWrittenRef.current = currentOutput;
+    const cleanup = window.electronAPI.onSshData(({ connectionId: dataConnId, data, type }) => {
+      if (dataConnId !== connectionId || type !== 'data' || !data) return;
+      if (xtermRef.current) {
+        xtermRef.current.write(data);
       }
-    } else if (currentOutput.length < lastWrittenRef.current.length) {
-      // 输出被截断了（达到大小限制），重置引用避免索引错乱
-      lastWrittenRef.current = currentOutput;
-    }
-  }, [currentTerminalOutput, connectionId]);
+    });
+
+    sshDataCleanupRef.current = cleanup;
+
+    return () => {
+      cleanup();
+      sshDataCleanupRef.current = null;
+    };
+  }, [connectionId]);
 
   // 监听主题变化并更新终端
   useEffect(() => {
