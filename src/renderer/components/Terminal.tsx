@@ -666,24 +666,23 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     });
 
     // 设置 ResizeObserver 监听容器尺寸变化 - 添加防抖避免频繁触发
-    // 跳过初始触发（由 doInitialFit 处理）
-    let resizeObserverReady = false;
-    setTimeout(() => { resizeObserverReady = true; }, 500);
-
+    // 跳过初始化阶段的触发（由 doInitialFit 处理），之后正常响应（包括 tab 切换时的显示/隐藏）
     resizeObserverRef.current = new ResizeObserver(() => {
-      if (!resizeObserverReady) return;
+      if (!initialFitDone) return; // 初始 fit 还没完成，跳过
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
       resizeTimeoutRef.current = setTimeout(() => {
-        if (fitAddonRef.current && xtermRef.current) {
+        if (fitAddonRef.current && xtermRef.current && terminalRef.current) {
+          const rect = terminalRef.current.getBoundingClientRect();
+          if (rect.width < 10 || rect.height < 10) return; // 容器不可见时跳过
           fitAddonRef.current.fit();
           const { cols, rows } = xtermRef.current;
           if (cols > 0 && rows > 0) {
             resizeSSH(cols, rows);
           }
         }
-      }, 100);
+      }, 50);
     });
     
     if (terminalRef.current) {

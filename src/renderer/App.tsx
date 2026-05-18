@@ -438,28 +438,30 @@ function App() {
     setTabContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id, tabName: tab.name });
   };
 
-  // 复制连接
+  // 复制连接（临时会话，不保存到连接列表）
   const handleCopyConnection = async () => {
     if (!tabContextMenu) return;
     const { tabId } = tabContextMenu;
-    const connections = useConnectionStore.getState().connections;
-    const connection = connections.find(c => c.id === tabId);
-    if (connection) {
-      const newConnectionId = `${connection.id}-copy-${Date.now()}`;
+    const conns = useConnectionStore.getState().connections;
+    const connection = conns.find(c => c.id === tabId);
+    if (connection && window.electronAPI) {
+      const newConnectionId = `${connection.id}-session-${Date.now()}`;
       const newConnection: SSHConnection = {
         ...connection,
         id: newConnectionId,
         name: `${connection.name} ${t('connection.copySuffix')}`,
       };
-      // 先持久化新连接
-      await useConnectionStore.getState().saveConnection(newConnection);
-      // 重新加载连接列表
-      await loadConnections();
-      // 然后打开新连接
+      // 不保存到连接列表，直接建立 SSH 连接
       const newTab = { id: newConnectionId, name: newConnection.name, isConnected: false, isConnecting: true };
       setOpenTabs(prev => [...prev, newTab]);
       setActiveTabId(newConnectionId);
-      connect(newConnection);
+
+      const result = await window.electronAPI.sshConnect(newConnection, 200, 50);
+      setOpenTabs(prev => prev.map(tab =>
+        tab.id === newConnectionId
+          ? { ...tab, isConnecting: false, isConnected: result.success }
+          : tab
+      ));
     }
     setTabContextMenu(null);
   };
@@ -864,16 +866,32 @@ function App() {
 
       {/* Main Content */}
       <div className="app-main">
-        {/* Terminal Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <Terminal
-            key={activeTabId ?? 'no-connection'}
-            connectionId={activeTabId}
-            onCommandRequest={handleCommandRequest}
-            onPasteToAI={handlePasteToAI}
-            theme={theme}
-            settings={settings}
-          />
+        {/* Terminal Area - 保持所有连接的终端实例存活，切换时只隐藏/显示 */}
+        <div className="flex-1 flex flex-col min-w-0 relative">
+          {openTabs.map(tab => (
+            <div
+              key={tab.id}
+              className="absolute inset-0 flex flex-col"
+              style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
+            >
+              <Terminal
+                connectionId={tab.isConnected ? tab.id : null}
+                onCommandRequest={handleCommandRequest}
+                onPasteToAI={handlePasteToAI}
+                theme={theme}
+                settings={settings}
+              />
+            </div>
+          ))}
+          {openTabs.length === 0 && (
+            <Terminal
+              connectionId={null}
+              onCommandRequest={handleCommandRequest}
+              onPasteToAI={handlePasteToAI}
+              theme={theme}
+              settings={settings}
+            />
+          )}
         </div>
 
       </div>
