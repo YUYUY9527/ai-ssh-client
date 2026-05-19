@@ -196,13 +196,15 @@
   }
 
   .agent-pet-button {
-    @apply fixed bottom-12 right-5 z-40 flex h-16 w-16 cursor-pointer items-center justify-center rounded-sm border transition-colors;
+    @apply fixed z-40 flex h-16 w-16 cursor-pointer items-center justify-center rounded-sm border transition-colors;
     background:
       linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 24%, transparent), transparent 55%),
       var(--bg-secondary);
     border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     animation: agent-pet-float 3.6s ease-in-out infinite, agent-pet-idle-tilt 8s ease-in-out infinite;
+    touch-action: none;
+    user-select: none;
   }
 
   .agent-pet-button:hover,
@@ -221,6 +223,13 @@
 
   .agent-pet-button-busy {
     animation: agent-pet-float 2s ease-in-out infinite;
+  }
+
+  .agent-pet-button-dragging,
+  .agent-pet-button-dragging:hover {
+    cursor: grabbing;
+    animation: none;
+    transform: scale(1.03);
   }
 
   .agent-pet-button-busy .agent-pet-eye {
@@ -404,7 +413,7 @@
   }
 
   .agent-pet-panel {
-    @apply fixed bottom-32 right-5 z-40 flex h-[min(680px,calc(100vh-9rem))] w-[min(430px,calc(100vw-2rem))] flex-col overflow-hidden rounded-sm border;
+    @apply fixed z-40 flex h-[min(680px,calc(100vh-9rem))] w-[min(430px,calc(100vw-2rem))] flex-col overflow-hidden rounded-sm border;
     background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
     box-shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
@@ -412,7 +421,10 @@
 
   .agent-pet-panel::after {
     content: "";
-    @apply absolute -bottom-2 right-8 h-4 w-4 rotate-45 border-b border-r;
+    @apply absolute h-4 w-4 rotate-45 border-b border-r;
+    bottom: var(--agent-pet-arrow-bottom, -0.5rem);
+    left: var(--agent-pet-arrow-left, auto);
+    top: var(--agent-pet-arrow-top, auto);
     background: var(--bg-secondary);
     border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
   }

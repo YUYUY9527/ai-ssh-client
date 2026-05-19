@@ -18,6 +18,9 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 
+const DEFAULT_REMOTE_PATH = '/home';
+const connectionLastRemotePaths = new Map<string, string>();
+
 interface FileItem {
   name: string;
   path: string;
@@ -43,7 +46,10 @@ interface FileTransferProps {
 
 export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
   const { t } = useI18n();
-  const [currentPath, setCurrentPath] = useState('/home');
+  const [currentPath, setCurrentPath] = useState(
+    () => connectionLastRemotePaths.get(connectionId) || DEFAULT_REMOTE_PATH
+  );
+  const [pathInput, setPathInput] = useState(currentPath);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +85,8 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
         if (result.success) {
           setFiles(result.data.files);
           setCurrentPath(path);
+          setPathInput(path);
+          connectionLastRemotePaths.set(connectionId, path);
         } else {
           setError(result.error || t('fileTransfer.loadFailed'));
         }
@@ -91,8 +99,9 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
   };
 
   useEffect(() => {
-    loadDirectory(currentPath);
-  }, [connectionId, currentPath]);
+    const rememberedPath = connectionLastRemotePaths.get(connectionId) || DEFAULT_REMOTE_PATH;
+    loadDirectory(rememberedPath);
+  }, [connectionId]);
 
   // 获取文件图标
   const getFileIcon = (file: FileItem) => {
@@ -162,7 +171,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
   // 导航到家目录
   const goHome = () => {
-    navigateTo('/home');
+    navigateTo(DEFAULT_REMOTE_PATH);
   };
 
   // 下载文件
@@ -359,11 +368,11 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
           {/* 路径输入框 */}
           <input
             type="text"
-            value={currentPath}
-            onChange={(e) => setCurrentPath(e.target.value)}
+            value={pathInput}
+            onChange={(e) => setPathInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                loadDirectory(currentPath);
+                loadDirectory(pathInput);
               }
             }}
             className="industrial-input flex-1 py-1"

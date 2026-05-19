@@ -32,6 +32,98 @@ interface AgentPetProps {
   onOpenSettings: () => void;
 }
 
+interface PetPosition {
+  x: number;
+  y: number;
+}
+
+interface PetDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  hasLongPressed: boolean;
+}
+
+const PET_BUTTON_SIZE = 64;
+const PET_DEFAULT_RIGHT = 20;
+const PET_DEFAULT_BOTTOM = 48;
+const PET_EDGE_PADDING = 12;
+const PET_LONG_PRESS_MS = 360;
+const PET_MOVE_CANCEL_THRESHOLD = 8;
+const PET_PANEL_GAP = 16;
+const PET_PANEL_EDGE_PADDING = 16;
+const PET_PANEL_MAX_WIDTH = 430;
+const PET_PANEL_MAX_HEIGHT = 680;
+const PET_PANEL_VERTICAL_RESERVE = 144;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function getDefaultPetPosition(): PetPosition {
+  if (typeof window === 'undefined') {
+    return { x: 0, y: 0 };
+  }
+
+  return {
+    x: window.innerWidth - PET_DEFAULT_RIGHT - PET_BUTTON_SIZE,
+    y: window.innerHeight - PET_DEFAULT_BOTTOM - PET_BUTTON_SIZE,
+  };
+}
+
+function clampPetPosition(position: PetPosition): PetPosition {
+  if (typeof window === 'undefined') {
+    return position;
+  }
+
+  return {
+    x: clamp(position.x, PET_EDGE_PADDING, window.innerWidth - PET_BUTTON_SIZE - PET_EDGE_PADDING),
+    y: clamp(position.y, PET_EDGE_PADDING, window.innerHeight - PET_BUTTON_SIZE - PET_EDGE_PADDING),
+  };
+}
+
+function getPetPanelStyle(position: PetPosition): React.CSSProperties {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  const panelWidth = Math.min(PET_PANEL_MAX_WIDTH, window.innerWidth - PET_PANEL_EDGE_PADDING * 2);
+  const panelHeight = Math.min(
+    PET_PANEL_MAX_HEIGHT,
+    window.innerHeight - PET_PANEL_VERTICAL_RESERVE,
+  );
+  const preferredLeft = position.x + PET_BUTTON_SIZE - panelWidth;
+  const left = clamp(
+    preferredLeft,
+    PET_PANEL_EDGE_PADDING,
+    window.innerWidth - panelWidth - PET_PANEL_EDGE_PADDING,
+  );
+  const topWhenAbove = position.y - panelHeight - PET_PANEL_GAP;
+  const shouldPlaceAbove = topWhenAbove >= PET_PANEL_EDGE_PADDING;
+  const top = shouldPlaceAbove
+    ? topWhenAbove
+    : clamp(
+      position.y + PET_BUTTON_SIZE + PET_PANEL_GAP,
+      PET_PANEL_EDGE_PADDING,
+      window.innerHeight - panelHeight - PET_PANEL_EDGE_PADDING,
+    );
+  const arrowLeft = clamp(
+    position.x + PET_BUTTON_SIZE / 2 - left - 8,
+    18,
+    panelWidth - 34,
+  );
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    '--agent-pet-arrow-left': `${arrowLeft}px`,
+    '--agent-pet-arrow-top': shouldPlaceAbove ? 'auto' : '-0.5rem',
+    '--agent-pet-arrow-bottom': shouldPlaceAbove ? '-0.5rem' : 'auto',
+  } as React.CSSProperties;
+}
+
 function getCommandDescription(command: string): string | null {
   const parts = command.trim().split(/\s+/);
   const baseCmd = parts[0];
@@ -219,6 +311,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const bodyRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const dragStateRef = useRef<PetDragState | null>(null);
+  const dragLongPressTimerRef = useRef<number | null>(null);
+  const suppressNextToggleRef = useRef(false);
+  const [position, setPosition] = useState<PetPosition>(() => getDefaultPetPosition());
+  const [isDraggingPet, setIsDraggingPet] = useState(false);
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
   const { providers, activeProviderId } = useAIStore();
@@ -253,6 +350,15 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const currentTaskActivity = currentTask?.thinkingSteps
     .map((step) => `${step.id}:${step.status}:${step.content.length}`)
     .join('|') || '';
+
+  useEffect(() => {
+    const updatePosition = () => {
+      setPosition((current) => clampPetPosition(current));
+    };
+
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, []);
 
   useEffect(() => {
     if (focusInputToken > 0) {
@@ -365,12 +471,92 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     }
   };
 
+  const clearDragTimer = () => {
+    if (dragLongPressTimerRef.current === null) return;
+    window.clearTimeout(dragLongPressTimerRef.current);
+    dragLongPressTimerRef.current = null;
+  };
+
+  const handlePetPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+
+    const dragState: PetDragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: position.x,
+      originY: position.y,
+      hasLongPressed: false,
+    };
+
+    dragStateRef.current = dragState;
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    clearDragTimer();
+    dragLongPressTimerRef.current = window.setTimeout(() => {
+      if (dragStateRef.current !== dragState) return;
+      dragState.hasLongPressed = true;
+      suppressNextToggleRef.current = true;
+      setIsDraggingPet(true);
+    }, PET_LONG_PRESS_MS);
+  };
+
+  const handlePetPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+    const distance = Math.hypot(deltaX, deltaY);
+
+    if (!dragState.hasLongPressed) {
+      if (distance > PET_MOVE_CANCEL_THRESHOLD) {
+        clearDragTimer();
+      }
+      return;
+    }
+
+    event.preventDefault();
+    setPosition(clampPetPosition({
+      x: dragState.originX + deltaX,
+      y: dragState.originY + deltaY,
+    }));
+  };
+
+  const handlePetPointerEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const dragState = dragStateRef.current;
+    clearDragTimer();
+
+    if (dragState?.pointerId === event.pointerId) {
+      if (dragState.hasLongPressed) {
+        suppressNextToggleRef.current = true;
+      }
+      dragStateRef.current = null;
+      setIsDraggingPet(false);
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handlePetClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (suppressNextToggleRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressNextToggleRef.current = false;
+      return;
+    }
+
+    onOpenChange(!isOpen);
+  };
+
   return (
     <>
       <AgentExecutor />
 
       {isOpen && (
-        <div ref={panelRef} className="agent-pet-panel">
+        <div ref={panelRef} className="agent-pet-panel" style={getPetPanelStyle(position)}>
           <div className="agent-pet-panel-header">
             <div className="flex min-w-0 items-center gap-3">
               <div className="agent-pet-avatar-mini">
@@ -507,8 +693,13 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
       <button
         ref={buttonRef}
-        className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${agentState === 'finished' ? 'agent-pet-button-done' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''}`}
-        onClick={() => onOpenChange(!isOpen)}
+        className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${agentState === 'finished' ? 'agent-pet-button-done' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''} ${isDraggingPet ? 'agent-pet-button-dragging' : ''}`}
+        style={{ left: `${position.x}px`, top: `${position.y}px` }}
+        onPointerDown={handlePetPointerDown}
+        onPointerMove={handlePetPointerMove}
+        onPointerUp={handlePetPointerEnd}
+        onPointerCancel={handlePetPointerEnd}
+        onClick={handlePetClick}
         title={t('agent.title')}
       >
         <span className="agent-pet-face">
