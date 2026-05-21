@@ -17,6 +17,7 @@ release/
 .idea/
 *.swp
 *.swo
+*.rtk
 
 # OS
 .DS_Store

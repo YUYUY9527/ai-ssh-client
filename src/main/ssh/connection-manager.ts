@@ -1,11 +1,12 @@
-import { Client, ClientChannel } from 'ssh2';
+import { Client, ClientChannel, type SFTPWrapper } from 'ssh2';
 import type { SSHConnection, SSHSessionState, SFTPFileInfo } from '../../shared/types';
 import { getSettings } from '../storage/settings-storage';
 
 interface SSHSession {
   client: Client;
   shell?: ClientChannel;
-  sftp?: any;  // SFTP 实例
+  sftp?: SFTPWrapper;
+  sftpPromise?: Promise<SFTPWrapper>;
   connection: SSHConnection;
   reconnectAttempts: number;
   reconnectTimer?: NodeJS.Timeout;
@@ -185,6 +186,10 @@ export class SSHConnectionManager {
         session.shell.removeAllListeners();
         session.shell.end();
       }
+      if (session.sftp) {
+        session.sftp.removeAllListeners();
+        session.sftp.end();
+      }
       session.client.end();
       this.sessions.delete(sessionId);
     }
@@ -237,7 +242,7 @@ export class SSHConnectionManager {
   }
 
   // 获取 SFTP 实例
-  async getSFTP(sessionId: string): Promise<any> {
+  async getSFTP(sessionId: string): Promise<SFTPWrapper> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error('Session not found');
@@ -247,16 +252,30 @@ export class SSHConnectionManager {
       return session.sftp;
     }
 
-    return new Promise((resolve, reject) => {
-      session.client.sftp((err: Error | undefined, sftp: any) => {
+    if (session.sftpPromise) {
+      return session.sftpPromise;
+    }
+
+    session.sftpPromise = new Promise((resolve, reject) => {
+      session.client.sftp((err: Error | undefined, sftp: SFTPWrapper) => {
         if (err) {
+          session.sftpPromise = undefined;
           reject(err);
           return;
         }
+
         session.sftp = sftp;
+        session.sftpPromise = undefined;
+        sftp.once('close', () => {
+          if (session.sftp === sftp) {
+            session.sftp = undefined;
+          }
+        });
         resolve(sftp);
       });
     });
+
+    return session.sftpPromise;
   }
 
   // 列出目录
@@ -296,7 +315,7 @@ export class SSHConnectionManager {
   async downloadFile(sessionId: string, remotePath: string, localPath: string): Promise<void> {
     const sftp = await this.getSFTP(sessionId);
     return new Promise((resolve, reject) => {
-      sftp.fastGet(remotePath, localPath, {}, (err: Error | undefined) => {
+      sftp.fastGet(remotePath, localPath, {}, (err: Error | null | undefined) => {
         if (err) {
           reject(err);
           return;
@@ -328,7 +347,7 @@ export class SSHConnectionManager {
             onProgress(Math.round((transferred / total) * 100));
           }
         },
-      }, (err: Error | undefined) => {
+      }, (err: Error | null | undefined) => {
         clearTimeout(timeout);
         if (err) {
           reject(err);
