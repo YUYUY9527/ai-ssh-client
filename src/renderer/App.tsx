@@ -124,7 +124,6 @@ function App() {
   const {
     connections,
     loadConnections,
-    addTerminalOutput,
     activeConnectionId,
     executeCommand,
     sessionStates,
@@ -327,10 +326,9 @@ function App() {
       }
 
       const chunk = chunks.join('');
-      addTerminalOutput(connectionId, chunk);
       scheduleCommandNotification(connectionId, chunk);
     }
-  }, [addTerminalOutput, scheduleCommandNotification]);
+  }, [scheduleCommandNotification]);
 
   const queueTerminalOutput = useCallback((connectionId: string, data: string) => {
     if (!data) {
@@ -358,6 +356,10 @@ function App() {
 
     loadConnections();
     loadProviders();
+    void window.electronAPI.getAgentTaskHistory?.().then((result) => {
+      if (!result?.success) return;
+      useAgentStore.getState().setTaskHistory(result.data.tasks);
+    });
 
     const cleanupSshData = window.electronAPI.onSshData(({ connectionId, data, type, state }) => {
       if (type === 'state' && state) {

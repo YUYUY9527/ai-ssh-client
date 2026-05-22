@@ -1,12 +1,11 @@
 import type { CommandSuggestion } from '../../shared/types';
 import {
-  analyzeCommandRisk as analyzeMainCommandRisk,
-  getRiskDescription,
-  requiresApproval as requiresMainApproval,
-  type RiskLevel,
-} from '../../main/security/command-policy';
+  DANGEROUS_COMMANDS,
+  HIGH_RISK_COMMANDS,
+  MEDIUM_RISK_COMMANDS,
+} from '../../shared/constants';
 
-export type { RiskLevel };
+export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
 export interface RiskAnalysis {
   command: string;
@@ -34,15 +33,40 @@ const RISK_DESCRIPTIONS: Record<RiskLevel, { description: string; riskDescriptio
   },
 };
 
+const RISK_PATTERNS: Array<{ riskLevel: RiskLevel; patterns: string[] }> = [
+  { riskLevel: 'critical', patterns: DANGEROUS_COMMANDS },
+  { riskLevel: 'high', patterns: HIGH_RISK_COMMANDS },
+  { riskLevel: 'medium', patterns: MEDIUM_RISK_COMMANDS },
+];
+
+function normalizeCommand(command: string): string {
+  return command.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function analyzePattern(command: string): { riskLevel: RiskLevel; matchedPattern?: string } {
+  const normalizedCommand = normalizeCommand(command);
+
+  for (const { riskLevel, patterns } of RISK_PATTERNS) {
+    const matchedPattern = patterns.find((pattern) => (
+      normalizedCommand.includes(normalizeCommand(pattern))
+    ));
+    if (matchedPattern) {
+      return { riskLevel, matchedPattern };
+    }
+  }
+
+  return { riskLevel: 'low' };
+}
+
 export function analyzeCommandRisk(command: string): RiskAnalysis {
   const trimmedCmd = command.trim();
-  const { riskLevel, matchedPattern } = analyzeMainCommandRisk(trimmedCmd);
+  const { riskLevel, matchedPattern } = analyzePattern(trimmedCmd);
 
   return {
     command: trimmedCmd,
     riskLevel,
     isDangerous: riskLevel !== 'low',
-    description: RISK_DESCRIPTIONS[riskLevel].description || getRiskDescription(riskLevel),
+    description: RISK_DESCRIPTIONS[riskLevel].description,
     riskDescription: RISK_DESCRIPTIONS[riskLevel].riskDescription,
     matchedPattern,
   };
@@ -64,7 +88,7 @@ export function analyzeCommandsRisk(commands: string[]): RiskAnalysis[] {
 }
 
 export function requiresApproval(command: string, threshold: RiskLevel = 'medium'): boolean {
-  return requiresMainApproval(command, threshold);
+  return getRiskWeight(analyzeCommandRisk(command).riskLevel) >= getRiskWeight(threshold);
 }
 
 export function getRiskWeight(level: RiskLevel): number {

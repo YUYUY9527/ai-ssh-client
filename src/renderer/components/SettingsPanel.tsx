@@ -242,22 +242,11 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     <div className="industrial-setting-row">
                       <div>
                         <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.enableAgent')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.agent.autoExecuteDesc')}</p>
+                        <p className="text-xs text-slate-500">{t('settings.agent.enableAgentDesc')}</p>
                       </div>
                       <ToggleButton
                         enabled={localSettings.agentEnabled ?? true}
                         onChange={(value) => setLocalSettings({ ...localSettings, agentEnabled: value })}
-                      />
-                    </div>
-
-                    <div className="industrial-setting-row">
-                      <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.autoExecute')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.agent.autoExecuteDesc')}</p>
-                      </div>
-                      <ToggleButton
-                        enabled={localSettings.agentAutoExecute ?? true}
-                        onChange={(value) => setLocalSettings({ ...localSettings, agentAutoExecute: value })}
                       />
                     </div>
 
@@ -274,7 +263,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           }}
                           className="industrial-button-secondary h-8 w-8 px-0 py-0"
                         >
-                          −
+                          -
                         </button>
                         <input
                           type="number"
@@ -305,149 +294,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </div>
                 </div>
 
-                {/* 上下文管理 */}
-                <div>
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.agent.contextManagement')}</h4>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.maxContextMessages')}</label>
-                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.maxContextMessagesDesc')}</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            const current = localSettings.agentMaxContextMessages ?? 20;
-                            if (current > 5) {
-                              setLocalSettings({ ...localSettings, agentMaxContextMessages: current - 1 });
-                            }
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          −
-                        </button>
-                        <input
-                          type="number"
-                          value={localSettings.agentMaxContextMessages ?? 20}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value);
-                            if (!isNaN(value) && value >= 5) {
-                              setLocalSettings({ ...localSettings, agentMaxContextMessages: value });
-                            }
-                          }}
-                          min={5}
-                          max={100}
-                          className="industrial-input w-20 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <button
-                          onClick={() => {
-                            const current = localSettings.agentMaxContextMessages ?? 20;
-                            if (current < 100) {
-                              setLocalSettings({ ...localSettings, agentMaxContextMessages: current + 1 });
-                            }
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.maxTerminalOutput')}</label>
-                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.maxTerminalOutputDesc')}</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            const current = localSettings.agentMaxTerminalOutputLength ?? 8000;
-                            const newValue = current === 0 ? 0 : Math.max(0, current - 1000);
-                            setLocalSettings({ ...localSettings, agentMaxTerminalOutputLength: newValue });
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          −
-                        </button>
-                        <input
-                          type="number"
-                          value={localSettings.agentMaxTerminalOutputLength ?? 8000}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value);
-                            // 允许设置为 0 或任何有效正数
-                            if (!isNaN(value) && value >= 0) {
-                              setLocalSettings({ ...localSettings, agentMaxTerminalOutputLength: value });
-                            }
-                          }}
-                          min={0}
-                          max={50000}
-                          step={1000}
-                          className="industrial-input w-24 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <button
-                          onClick={() => {
-                            const current = localSettings.agentMaxTerminalOutputLength ?? 8000;
-                            const newValue = Math.min(50000, current + 1000);
-                            setLocalSettings({ ...localSettings, agentMaxTerminalOutputLength: newValue });
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="industrial-setting-row">
-                      <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.autoTrimContext')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.agent.autoTrimContextDesc')}</p>
-                      </div>
-                      <ToggleButton
-                        enabled={localSettings.agentTrimContextEnabled ?? true}
-                        onChange={(value) => setLocalSettings({ ...localSettings, agentTrimContextEnabled: value })}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.taskContextRounds')}</label>
-                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.taskContextRoundsDesc')}</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            const current = localSettings.agentTaskContextRounds ?? 3;
-                            if (current > 0) {
-                              setLocalSettings({ ...localSettings, agentTaskContextRounds: current - 1 });
-                            }
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          −
-                        </button>
-                        <input
-                          type="number"
-                          value={localSettings.agentTaskContextRounds ?? 3}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value);
-                            if (!isNaN(value) && value >= 0) {
-                              setLocalSettings({ ...localSettings, agentTaskContextRounds: value });
-                            }
-                          }}
-                          min={0}
-                          max={10}
-                          className="industrial-input w-20 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <button
-                          onClick={() => {
-                            const current = localSettings.agentTaskContextRounds ?? 3;
-                            if (current < 10) {
-                              setLocalSettings({ ...localSettings, agentTaskContextRounds: current + 1 });
-                            }
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 

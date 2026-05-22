@@ -58,22 +58,43 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
-  // 监听上传进度
+  // 监听传输进度
   useEffect(() => {
-    if (!window.electronAPI?.onSftpUploadProgress) return;
+    const cleanups: Array<() => void> = [];
 
-    const cleanup = window.electronAPI.onSftpUploadProgress((data) => {
-      setTransferTasks(prev =>
-        prev.map(t =>
-          t.name === data.filename && t.type === 'upload' && t.status === 'transferring'
-            ? { ...t, progress: data.progress }
-            : t
-        )
-      );
-    });
+    if (window.electronAPI?.onSftpUploadProgress) {
+      cleanups.push(window.electronAPI.onSftpUploadProgress((data) => {
+        updateTransferProgress(data.taskId, data.filename, 'upload', data.progress);
+      }));
+    }
 
-    return cleanup;
+    if (window.electronAPI?.onSftpDownloadProgress) {
+      cleanups.push(window.electronAPI.onSftpDownloadProgress((data) => {
+        updateTransferProgress(data.taskId, data.filename, 'download', data.progress);
+      }));
+    }
+
+    return () => {
+      cleanups.forEach(cleanup => cleanup());
+    };
   }, []);
+
+  const updateTransferProgress = (
+    taskId: string | undefined,
+    filename: string,
+    type: 'upload' | 'download',
+    progress: number,
+  ) => {
+    setTransferTasks(prev =>
+      prev.map(task => {
+        const isSameTask = taskId ? task.id === taskId : task.name === filename;
+        if (isSameTask && task.type === type && task.status === 'transferring') {
+          return { ...task, progress };
+        }
+        return task;
+      })
+    );
+  };
 
   // 加载目录文件
   const loadDirectory = async (path: string) => {
@@ -192,15 +213,17 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
       );
 
       if (window.electronAPI) {
-        const result = await window.electronAPI.downloadFile(connectionId, file.path);
+        const result = await window.electronAPI.downloadFile(connectionId, file.path, task.id);
         if (result.success) {
           setTransferTasks(prev =>
             prev.map(t => (t.id === task.id ? { ...t, status: 'completed', progress: 100 } : t))
           );
-        } else {
+        } else if (result.error !== 'Cancelled') {
           setTransferTasks(prev =>
             prev.map(t => (t.id === task.id ? { ...t, status: 'error', error: result.error } : t))
           );
+        } else {
+          setTransferTasks(prev => prev.filter(t => t.id !== task.id));
         }
       }
     } catch (err) {
@@ -247,7 +270,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
       );
 
       if (window.electronAPI) {
-        const result = await window.electronAPI.uploadFile(connectionId, selectedPath, currentPath);
+        const result = await window.electronAPI.uploadFile(connectionId, selectedPath, currentPath, task.id);
         if (result.success) {
           setTransferTasks(prev =>
             prev.map(t => (t.id === task.id ? { ...t, status: 'completed', progress: 100 } : t))

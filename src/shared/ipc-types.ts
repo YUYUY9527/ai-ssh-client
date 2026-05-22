@@ -104,14 +104,14 @@ export interface PrivateKeyFileResult {
   content: string;
 }
 
-export interface ImportIssue {
+export interface importIssue {
   scope: 'root' | 'connection' | 'provider' | 'settings' | 'command-history' | 'quick-command' | 'quick-command-group';
   index?: number;
   id?: string;
   reason: string;
 }
 
-export interface ImportDataResult {
+export interface importDataResult {
   imported: {
     connections: number;
     aiProviders: number;
@@ -119,7 +119,7 @@ export interface ImportDataResult {
     quickCommands: number;
     quickCommandGroups: number;
   };
-  skipped: ImportIssue[];
+  skipped: importIssue[];
 }
 
 export interface AIProviderSecretStatusResult {
@@ -132,6 +132,10 @@ export interface AgentExecAwaitResult {
   output: string;
   exitCode: number | null;
   reason: 'done' | 'timeout' | 'canceled' | 'closed';
+}
+
+export interface AgentTaskHistoryResult<T = any> {
+  tasks: T[];
 }
 
 export interface ExportDataResult<T = any> {

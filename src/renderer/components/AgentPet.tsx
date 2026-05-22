@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Send, Settings, ShieldAlert, Terminal, User, X, XCircle } from 'lucide-react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Send, Settings, ShieldAlert, Terminal, Trash2, User, X, XCircle } from 'lucide-react';
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useConnectionStore } from '../store/useConnectionStore';
-import { AgentExecutor } from './AgentExecutor';
 import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
 import { useI18n, t } from '../i18n';
 import type { AgentTask, ThinkingStep } from '../../shared/types';
+
+const AgentExecutor = lazy(async () => {
+  const module = await import('./AgentExecutor');
+  return { default: module.AgentExecutor };
+});
 
 /** 小机器人头像(纯 CSS 绘制,和右下角按钮同款) */
 function RobotFaceMini({ size = 'md' }: { size?: 'sm' | 'md' }) {
@@ -44,6 +48,14 @@ interface PetDragState {
   originX: number;
   originY: number;
   hasLongPressed: boolean;
+}
+
+interface AgentConversationSummary {
+  id: string;
+  title: string;
+  taskCount: number;
+  updatedAt: number;
+  latestTask: AgentTask;
 }
 
 const PET_BUTTON_SIZE = 64;
@@ -170,6 +182,52 @@ function getTaskSummary(task: AgentTask): string {
   return task.state === 'finished' ? t('agent.conversation.taskCompleted') : t('agent.conversation.analyzing');
 }
 
+function getTaskConversationId(task: AgentTask): string {
+  return task.conversationId || task.id;
+}
+
+function sortTasksAscending(tasks: AgentTask[]): AgentTask[] {
+  return [...tasks].sort((left, right) => left.startTime - right.startTime);
+}
+
+function getConversationSummaries(tasks: AgentTask[]): AgentConversationSummary[] {
+  const conversationMap = new Map<string, AgentTask[]>();
+
+  for (const task of tasks) {
+    const conversationId = getTaskConversationId(task);
+    const conversationTasks = conversationMap.get(conversationId) || [];
+    conversationTasks.push(task);
+    conversationMap.set(conversationId, conversationTasks);
+  }
+
+  return Array.from(conversationMap.entries())
+    .map(([id, conversationTasks]) => {
+      const sortedTasks = sortTasksAscending(conversationTasks);
+      const latestTask = sortedTasks[sortedTasks.length - 1];
+      return {
+        id,
+        title: sortedTasks[0]?.userInput || t('agent.conversation.untitled'),
+        taskCount: sortedTasks.length,
+        updatedAt: latestTask?.endTime || latestTask?.startTime || 0,
+        latestTask,
+      };
+    })
+    .filter((conversation): conversation is AgentConversationSummary => Boolean(conversation.latestTask))
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function isStaleThinkingPlaceholder(step: ThinkingStep, steps: ThinkingStep[]): boolean {
+  if (step.type === 'execution' || step.status !== 'in_progress') return false;
+  if (step.content !== t('agent.thinking.analyzing')) return false;
+
+  return steps.some((nextStep) => (
+    nextStep.id !== step.id
+    && nextStep.timestamp >= step.timestamp
+    && nextStep.type === step.type
+    && nextStep.status !== 'in_progress'
+  ));
+}
+
 function AgentThinkingStep({ step }: { step: ThinkingStep }) {
   const [showFull, setShowFull] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -214,13 +272,37 @@ function AgentThinkingStep({ step }: { step: ThinkingStep }) {
   );
 }
 
-function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent: boolean }) {
+function AgentExecutionStep({ step }: { step: ThinkingStep }) {
+  const { t } = useI18n();
+
+  return (
+    <div className="agent-chat-step agent-chat-step-execution">
+      <span className="font-medium text-slate-600 dark:text-slate-300">
+        {step.title || t('agent.conversation.executeCommand')}
+      </span>
+      <code className="agent-chat-command">
+        {getStepCommand(step)}
+      </code>
+    </div>
+  );
+}
+
+function AgentTaskConversation({
+  task,
+  isCurrent,
+  onRetry,
+}: {
+  task: AgentTask;
+  isCurrent: boolean;
+  onRetry?: (task: AgentTask) => void;
+}) {
   const [expanded, setExpanded] = useState(isCurrent && task.state !== 'finished');
   const { t } = useI18n();
   const status = getTaskStatus(task);
-  const commandSteps = task.thinkingSteps.filter((step) => step.type === 'execution');
-  const observationSteps = task.thinkingSteps.filter((step) => step.type === 'observation');
-  const detailSteps = task.thinkingSteps.filter((step) => step.type !== 'execution');
+  const visibleSteps = task.thinkingSteps.filter((step) => (
+    !isStaleThinkingPlaceholder(step, task.thinkingSteps)
+  ));
+  const commandSteps = visibleSteps.filter((step) => step.type === 'execution');
   const isTaskRunning = task.state !== 'finished' && task.state !== 'error';
 
   useEffect(() => {
@@ -267,41 +349,107 @@ function AgentTaskConversation({ task, isCurrent }: { task: AgentTask; isCurrent
             {getTaskSummary(task)}
           </p>
 
-          {(commandSteps.length > 0 || detailSteps.length > 0 || observationSteps.length > 0) && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="agent-chat-detail-toggle"
-            >
-              {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              {expanded ? t('agent.conversation.collapseProcess') : t('agent.conversation.expandProcess')}
-            </button>
+          {(visibleSteps.length > 0 || onRetry) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {visibleSteps.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(!expanded)}
+                  className="agent-chat-detail-toggle"
+                >
+                  {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  {expanded ? t('agent.conversation.collapseProcess') : t('agent.conversation.expandProcess')}
+                </button>
+              )}
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={() => onRetry(task)}
+                  className="agent-chat-detail-toggle"
+                  title={t('agent.actions.retry')}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  {t('agent.actions.retry')}
+                </button>
+              )}
+            </div>
           )}
 
           {expanded && (
             <div className="agent-chat-detail">
-              {commandSteps.length > 0 && (
-                <div className="space-y-2">
-                  <div className="agent-chat-detail-label">{t('agent.conversation.executedCommands')}</div>
-                  {commandSteps.map((step) => (
-                    <code key={step.id} className="agent-chat-command">
-                      {getStepCommand(step)}
-                    </code>
-                  ))}
-                </div>
-              )}
-
-              {detailSteps.length > 0 && (
-                <div className="space-y-2">
-                  <div className="agent-chat-detail-label">{t('agent.conversation.thinkingAndObserving')}</div>
-                  {detailSteps.map((step) => (
-                    <AgentThinkingStep key={step.id} step={step} />
-                  ))}
-                </div>
-              )}
+              {visibleSteps.map((step) => (
+                step.type === 'execution'
+                  ? <AgentExecutionStep key={step.id} step={step} />
+                  : <AgentThinkingStep key={step.id} step={step} />
+              ))}
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AgentHistoryList({
+  conversations,
+  activeConversationId,
+  onSelect,
+  onDelete,
+}: {
+  conversations: AgentConversationSummary[];
+  activeConversationId: string;
+  onSelect: (conversationId: string) => void;
+  onDelete: (conversationId: string) => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <div className="agent-history-list">
+      {conversations.map((conversation) => {
+        const status = getTaskStatus(conversation.latestTask);
+        return (
+          <div
+            key={conversation.id}
+            className={`agent-history-item ${conversation.id === activeConversationId ? 'agent-history-item-active' : ''}`}
+          >
+            <button
+              type="button"
+              onClick={() => onSelect(conversation.id)}
+              className="min-w-0 flex-1 text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`agent-chat-status agent-chat-status-${status.tone}`}>
+                  {status.label}
+                </span>
+                <span className="agent-chat-meta">
+                  <Clock className="h-3 w-3" />
+                  {formatDuration(conversation.latestTask)}
+                </span>
+                <span className="agent-chat-meta">
+                  {t('agent.conversation.rounds', { count: conversation.taskCount })}
+                </span>
+              </div>
+              <p className="mt-2 truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                {conversation.title}
+              </p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                {getTaskSummary(conversation.latestTask)}
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete(conversation.id);
+              }}
+              className="agent-chat-delete-button"
+              title={t('agent.actions.deleteHistory')}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -316,6 +464,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const suppressNextToggleRef = useRef(false);
   const [position, setPosition] = useState<PetPosition>(() => getDefaultPetPosition());
   const [isDraggingPet, setIsDraggingPet] = useState(false);
+  const [isHistoryVisible, setIsHistoryVisible] = useState(false);
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
   const { providers, activeProviderId } = useAIStore();
@@ -331,7 +480,10 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     config,
     startTask,
     reset,
-    clearTaskHistory,
+    activeConversationId,
+    startNewConversation,
+    selectConversation,
+    removeTaskFromHistory,
     pauseTask,
     resumeTask,
     cancelTask,
@@ -342,14 +494,93 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const activeProvider = providers.find((provider) => provider.id === activeProviderId);
   const activeConnection = useConnectionStore((state) => state.connections.find((connection) => connection.id === activeConnectionId));
   const isBusy = agentState === 'thinking' || agentState === 'planning' || agentState === 'executing' || agentState === 'observing';
+  const shouldRunAgentExecutor = Boolean(currentTask && currentTask.state !== 'finished' && currentTask.state !== 'error');
   const hasAlert = Boolean(pendingApproval || pendingQuestion || pendingTerminalPrompt || localError);
-  const conversationTasks = [
-    ...taskHistory.filter((task) => task.id !== currentTask?.id).slice(0, 12).reverse(),
-    ...(currentTask ? [currentTask] : []),
+  const conversationSummaries = getConversationSummaries(taskHistory);
+  const activeHistoryTasks = taskHistory.filter((task) => (
+    getTaskConversationId(task) === activeConversationId
+    && task.id !== currentTask?.id
+  ));
+  const activeConversationTasks = [
+    ...sortTasksAscending(activeHistoryTasks),
+    ...(currentTask && getTaskConversationId(currentTask) === activeConversationId ? [currentTask] : []),
   ];
   const currentTaskActivity = currentTask?.thinkingSteps
     .map((step) => `${step.id}:${step.status}:${step.content.length}`)
     .join('|') || '';
+
+  const handlePauseTask = () => {
+    void window.electronAPI?.agentPauseTask?.();
+    pauseTask();
+  };
+
+  const handleResumeTask = () => {
+    void window.electronAPI?.agentResumeTask?.();
+    resumeTask();
+  };
+
+  const handleApproval = (result: 'approved' | 'rejected') => {
+    setApprovalResult(result);
+  };
+
+  const handleToggleHistory = () => {
+    setIsHistoryVisible((visible) => !visible);
+    shouldAutoScrollRef.current = false;
+  };
+
+  const handleSelectConversation = (conversationId: string) => {
+    if (isBusy) {
+      setLocalError(t('agent.errors.taskRunning'));
+      return;
+    }
+
+    selectConversation(conversationId);
+    setIsHistoryVisible(false);
+    setLocalError(null);
+    shouldAutoScrollRef.current = true;
+  };
+
+  const handleDeleteHistoryConversation = async (conversationId: string) => {
+    if (isBusy && conversationId === activeConversationId) {
+      setLocalError(t('agent.errors.taskRunning'));
+      return;
+    }
+
+    const tasksToDelete = taskHistory.filter((task) => getTaskConversationId(task) === conversationId);
+    for (const task of tasksToDelete) {
+      const result = await window.electronAPI?.deleteAgentTaskHistory?.(task.id);
+      if (result && !result.success) {
+        setLocalError(result.error);
+        return;
+      }
+      removeTaskFromHistory(task.id);
+    }
+
+    if (conversationId === activeConversationId) {
+      startNewConversation();
+    }
+
+    setLocalError(null);
+  };
+
+  const handleRetryTask = (task: AgentTask) => {
+    if (isBusy || pendingApproval || pendingQuestion || pendingTerminalPrompt) {
+      setLocalError(t('agent.errors.taskRunning'));
+      return;
+    }
+
+    if (!activeConnectionId) {
+      setLocalError(t('agent.errors.noConnection'));
+      return;
+    }
+
+    setIsHistoryVisible(false);
+    setLocalError(null);
+    onInputChange('');
+    shouldAutoScrollRef.current = true;
+    reset();
+    setTimeout(() => startTask(task.userInput), 0);
+  };
 
   useEffect(() => {
     const updatePosition = () => {
@@ -389,7 +620,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     pendingApproval,
     pendingQuestion,
     pendingTerminalPrompt,
-    conversationTasks.length,
+    activeConversationTasks.length,
   ]);
 
   // 点击面板外部自动关闭(仅在空闲且无待处理事项时)
@@ -439,6 +670,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     }
 
     setLocalError(null);
+    setIsHistoryVisible(false);
     onInputChange('');
     shouldAutoScrollRef.current = true;
 
@@ -456,9 +688,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     setLocalError(t('agent.errors.taskRunning'));
   };
 
-  const handleClear = () => {
-    reset();
-    clearTaskHistory();
+  const handleNewConversation = () => {
+    if (isBusy || pendingApproval || pendingQuestion || pendingTerminalPrompt) return;
+
+    startNewConversation();
+    setIsHistoryVisible(false);
     onInputChange('');
     setLocalError(null);
     shouldAutoScrollRef.current = true;
@@ -553,7 +787,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
   return (
     <>
-      <AgentExecutor />
+      {shouldRunAgentExecutor && (
+        <Suspense fallback={null}>
+          <AgentExecutor />
+        </Suspense>
+      )}
 
       {isOpen && (
         <div ref={panelRef} className="agent-pet-panel" style={getPetPanelStyle(position)}>
@@ -575,7 +813,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
             <div className="flex items-center gap-1">
               {(agentState === 'thinking' || agentState === 'planning' || agentState === 'executing' || agentState === 'observing') && (
                 <>
-                  <button onClick={pauseTask} className="agent-pet-header-action" title={t('agent.actions.pause')}>
+                  <button onClick={handlePauseTask} className="agent-pet-header-action" title={t('agent.actions.pause')}>
                     <Pause className="h-3.5 w-3.5" />
                     <span>{t('agent.actions.pause')}</span>
                   </button>
@@ -587,7 +825,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               )}
               {agentState === 'paused' && (
                 <>
-                  <button onClick={resumeTask} className="agent-pet-header-action agent-pet-header-action-primary" title={t('agent.actions.resume')}>
+                  <button onClick={handleResumeTask} className="agent-pet-header-action agent-pet-header-action-primary" title={t('agent.actions.resume')}>
                     <Play className="h-3.5 w-3.5" />
                     <span>{t('agent.actions.resume')}</span>
                   </button>
@@ -611,14 +849,35 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               <PlugZap className="h-3.5 w-3.5 text-teal-500" />
               {activeProvider ? activeProvider.name : t('aiProvider.noProviders')}
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Terminal className="h-3.5 w-3.5 text-orange-500" />
-              {agentState === 'idle' ? t('agent.status.idle') : agentState === 'finished' ? t('agent.status.finished') : agentState === 'error' ? t('agent.status.error') : t('agent.status.running')}
-            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleHistory}
+                disabled={conversationSummaries.length === 0}
+                className={`agent-pet-header-action ${isHistoryVisible ? 'agent-pet-header-action-primary' : ''}`}
+                title={isHistoryVisible ? t('agent.actions.hideHistory') : t('agent.actions.viewHistory')}
+              >
+                <History className="h-3.5 w-3.5" />
+                <span>{conversationSummaries.length}</span>
+              </button>
+              <span className="inline-flex items-center gap-1.5">
+                <Terminal className="h-3.5 w-3.5 text-orange-500" />
+                {agentState === 'idle' ? t('agent.status.idle') : agentState === 'finished' ? t('agent.status.finished') : agentState === 'error' ? t('agent.status.error') : t('agent.status.running')}
+              </span>
+            </div>
           </div>
 
           <div ref={bodyRef} onScroll={handlePanelScroll} className="agent-pet-panel-body scrollbar-modern">
-            {conversationTasks.length === 0 && (
+            {isHistoryVisible && conversationSummaries.length > 0 && (
+              <AgentHistoryList
+                conversations={conversationSummaries}
+                activeConversationId={activeConversationId}
+                onSelect={handleSelectConversation}
+                onDelete={handleDeleteHistoryConversation}
+              />
+            )}
+
+            {!isHistoryVisible && activeConversationTasks.length === 0 && (
               <div className="agent-pet-empty">
                 <RobotFaceMini />
                 <div>
@@ -628,10 +887,15 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               </div>
             )}
 
-            {conversationTasks.length > 0 && (
+            {!isHistoryVisible && activeConversationTasks.length > 0 && (
               <div className="agent-chat-thread">
-                {conversationTasks.map((task) => (
-                  <AgentTaskConversation key={task.id} task={task} isCurrent={task.id === currentTask?.id} />
+                {activeConversationTasks.map((task) => (
+                  <AgentTaskConversation
+                    key={task.id}
+                    task={task}
+                    isCurrent={task.id === currentTask?.id}
+                    onRetry={handleRetryTask}
+                  />
                 ))}
               </div>
             )}
@@ -649,8 +913,8 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                   <p className="mt-2 text-xs leading-5 text-slate-400">{getCommandDescription(pendingApproval.command)}</p>
                 )}
                 <div className="mt-3 flex gap-2">
-                  <button onClick={() => setApprovalResult('rejected')} className="industrial-button-secondary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.reject')}</button>
-                  <button onClick={() => setApprovalResult('approved')} className="industrial-button-primary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.approve')}</button>
+                  <button onClick={() => handleApproval('rejected')} className="industrial-button-secondary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.reject')}</button>
+                  <button onClick={() => handleApproval('approved')} className="industrial-button-primary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.approve')}</button>
                 </div>
               </div>
             )}
@@ -683,8 +947,13 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               <button onClick={handleSend} disabled={!input.trim() || (isBusy && !pendingQuestion) || Boolean(pendingApproval)} className="industrial-button-primary h-9 w-10 px-0 py-0" title={t('agent.actions.send')}>
                 {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
-              <button onClick={handleClear} className="industrial-button-secondary h-9 w-10 px-0 py-0" title={t('common.reset')}>
-                <RotateCcw className="h-4 w-4" />
+              <button
+                onClick={handleNewConversation}
+                disabled={isBusy || Boolean(pendingApproval || pendingQuestion || pendingTerminalPrompt)}
+                className="industrial-button-secondary h-9 w-10 px-0 py-0"
+                title={t('agent.actions.newConversation')}
+              >
+                <MessageCircle className="h-4 w-4" />
               </button>
             </div>
           </div>

@@ -1,74 +1,3 @@
-// IPC 通道常量
-export const IPC_CHANNELS = {
-  // SSH
-  SSH_CONNECT: 'ssh-connect',
-  SSH_DISCONNECT: 'ssh-disconnect',
-  SSH_EXECUTE: 'ssh-execute',
-  SSH_EXECUTE_SYNC: 'ssh-execute-sync',
-  SSH_DATA: 'ssh-data',
-  SSH_ERROR: 'ssh-error',
-  SSH_CLOSE: 'ssh-close',
-  SSH_GET_SESSIONS: 'ssh-get-sessions',
-  SSH_RECONNECT: 'ssh-reconnect',
-  SSH_TEST_CONNECTION: 'ssh-test-connection',
-  SSH_RESIZE: 'ssh-resize',
-
-  // AI
-  AI_CHAT: 'ai-chat',
-  AI_CANCEL_CHAT: 'ai-cancel-chat',
-  AI_GET_PROVIDERS: 'ai-get-providers',
-  AI_SAVE_PROVIDER: 'ai-save-provider',
-  AI_DELETE_PROVIDER: 'ai-delete-provider',
-  AI_TEST_PROVIDER: 'ai-test-provider',
-  AI_SET_ACTIVE_PROVIDER: 'ai-set-active-provider',
-  AI_GET_PROVIDER_SECRET_STATUS: 'ai-get-provider-secret-status',
-
-  // 连接管理
-  GET_CONNECTIONS: 'get-connections',
-  SAVE_CONNECTION: 'save-connection',
-  DELETE_CONNECTION: 'delete-connection',
-
-  // 命令历史
-  GET_COMMAND_HISTORY: 'get-command-history',
-  ADD_COMMAND_HISTORY: 'add-command-history',
-  CLEAR_COMMAND_HISTORY: 'clear-command-history',
-
-  // 快速命令
-  GET_QUICK_COMMANDS: 'get-quick-commands',
-  SAVE_QUICK_COMMAND: 'save-quick-command',
-  DELETE_QUICK_COMMAND: 'delete-quick-command',
-
-  // 快速命令分组
-  GET_QUICK_COMMAND_GROUPS: 'get-quick-command-groups',
-  SAVE_QUICK_COMMAND_GROUP: 'save-quick-command-group',
-  DELETE_QUICK_COMMAND_GROUP: 'delete-quick-command-group',
-
-  // 设置
-  GET_SETTINGS: 'get-settings',
-  SAVE_SETTINGS: 'save-settings',
-  SHOW_SYSTEM_NOTIFICATION: 'show-system-notification',
-
-  // 文件选择
-  SELECT_FILE: 'select-file',
-  READ_PRIVATE_KEY_FILE: 'read-private-key-file',
-
-  // SFTP 文件传输
-  SFTP_LIST_DIRECTORY: 'sftp-list-directory',
-  SFTP_DOWNLOAD_FILE: 'sftp-download-file',
-  SFTP_UPLOAD_FILE: 'sftp-upload-file',
-
-  // 智能体模式
-  AGENT_START_TASK: 'agent-start-task',
-  AGENT_STOP_TASK: 'agent-stop-task',
-  AGENT_PAUSE_TASK: 'agent-pause-task',
-  AGENT_RESUME_TASK: 'agent-resume-task',
-  AGENT_EXECUTE_COMMAND: 'agent-execute-command',
-  AGENT_EXEC_AWAIT: 'agent-exec-await',
-  AGENT_CANCEL_EXEC: 'agent-cancel-exec',
-  AGENT_TERMINAL_OUTPUT: 'agent-terminal-output',
-  AGENT_COMMAND_APPROVAL: 'agent-command-approval',
-} as const;
-
 // ===== 智能体提示词模板 =====
 export const AGENT_SYSTEM_PROMPT = `你是一个专业的 Linux 系统管理员智能体，通过执行 Shell 命令完成用户任务。
 
@@ -194,7 +123,6 @@ export const DEFAULT_SETTINGS = {
   maxReconnectAttempts: 5,
   showTerminalOutputPrompt: true,
   terminalTheme: 'dark',  // 默认终端主题
-  agentTaskContextRounds: 3,  // 默认保留3轮任务上下文
 };
 
 // SSH 默认端口

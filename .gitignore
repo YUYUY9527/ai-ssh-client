@@ -26,6 +26,12 @@ Thumbs.db
 # Electron
 out/
 
+# Rust / Tauri
+/target/
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/.tauri/
+
 # Logs
 *.log
 npm-debug.log*
@@ -50,6 +56,15 @@ pnpm-debug.log*
 
 # Local development diagnostics
 dev-*.log
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
 
 # Packaging artifacts
 *.exe

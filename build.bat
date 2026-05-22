@@ -1,63 +1,78 @@
 @echo off
+setlocal
 chcp 65001 >nul
+
 echo ========================================
-echo   AI SSH Client - 应用构建器
+echo   AI SSH Client - Build
 echo ========================================
 echo.
 
 cd /d "%~dp0"
+set "NSIS_DIR=src-tauri\target\release\bundle\nsis"
+set "SETUP_NAME=AI SSH Client Setup 1.0.0.exe"
+set "SETUP_PATH=%NSIS_DIR%\%SETUP_NAME%"
 
-echo [1/3] 检查依赖...
+echo [1/3] Checking dependencies...
 if not exist "node_modules" (
-    echo 依赖未安装，正在运行 npm install...
+    echo node_modules not found. Running npm install...
     call npm install
     if errorlevel 1 (
         echo.
-        echo ❌ 依赖安装失败！
+        echo npm install failed.
         pause
         exit /b 1
     )
 )
 
 echo.
-echo 请选择构建类型：
-echo   [1] 快速打包（不生成安装包）
-echo   [2] 完整构建（NSIS 安装包 + 便携版）
-echo   [3] 仅便携版
-echo   [4] 仅安装包
+echo Select build type:
+echo   [1] Build Windows installer (NSIS)
+echo   [2] Build executable only (no installer)
+echo   [3] Build frontend assets only
 echo.
-set /p choice="请输入选项 (1-4): "
+set "choice=%~1"
+if not defined choice set /p "choice=Enter option 1-3: "
+if defined choice echo Selected option: %choice%
 
 echo.
 if "%choice%"=="1" (
-    echo [2/3] 开始快速打包...
-    call npm run pack
+    echo [2/3] Building Windows installer...
+    call npm run tauri -- build --bundles nsis
 ) else if "%choice%"=="2" (
-    echo [2/3] 开始完整构建...
-    call npm run dist:win
+    echo [2/3] Building executable...
+    call npm run tauri -- build --no-bundle
 ) else if "%choice%"=="3" (
-    echo [2/3] 开始构建便携版...
-    call npm run dist:portable
-) else if "%choice%"=="4" (
-    echo [2/3] 开始构建安装包...
-    call npm run dist:win
+    echo [2/3] Building frontend assets...
+    call npm run build:renderer
 ) else (
-    echo ❌ 无效选项！
+    echo Invalid option.
     pause
     exit /b 1
 )
 
 if errorlevel 1 (
     echo.
-    echo ❌ 构建失败！
+    echo Build failed.
+    echo If installer build failed but exe was generated, check NSIS/WiX availability or network access.
+    echo Exe path: src-tauri\target\release\ai-ssh-client.exe
     pause
     exit /b 1
 )
 
 echo.
-echo [3/3] 构建完成！
+echo [3/3] Build completed.
 echo.
-echo ✅ 输出目录: release\
-echo.
-explorer release
+if "%choice%"=="1" (
+    for %%F in ("%NSIS_DIR%\*.exe") do (
+        if /I not "%%~nxF"=="%SETUP_NAME%" copy /Y "%%~fF" "%SETUP_PATH%" >nul
+    )
+    echo Installer output: %SETUP_PATH%
+    explorer src-tauri\target\release\bundle\nsis
+) else if "%choice%"=="2" (
+    echo Exe output: src-tauri\target\release
+    explorer src-tauri\target\release
+) else (
+    echo Frontend output: dist\renderer
+    explorer dist\renderer
+)
 pause

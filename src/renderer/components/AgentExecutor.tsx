@@ -14,6 +14,7 @@ export function AgentExecutor() {
     approvalResult,
     pendingQuestion,
     pendingInput,
+    setAgentState,
     addThinkingStep,
     updateThinkingStep,
     completeTask,
@@ -24,13 +25,15 @@ export function AgentExecutor() {
     setPendingTerminalPrompt,
     trimAgentContext,
     taskHistory,
+    activeConversationId,
   } = useAgentStore();
 
   const { providers, activeProviderId } = useAIStore();
-  const { activeConnectionId, executeCommand } = useConnectionStore();
+  const { activeConnectionId } = useConnectionStore();
   const runtimeRef = useRef<AgentRuntime | null>(null);
 
   const actions = useMemo(() => ({
+    setAgentState,
     addThinkingStep,
     updateThinkingStep,
     completeTask,
@@ -41,6 +44,7 @@ export function AgentExecutor() {
     setPendingTerminalPrompt,
     trimAgentContext,
   }), [
+    setAgentState,
     addThinkingStep,
     updateThinkingStep,
     completeTask,
@@ -65,10 +69,8 @@ export function AgentExecutor() {
       return window.electronAPI.aiChat(providerId, messages, options);
     },
     cancelAIChat: (requestId: string) => window.electronAPI?.cancelAIChat(requestId),
-    executeCommand,
     agentStartTask: window.electronAPI?.agentStartTask,
     agentStopTask: window.electronAPI?.agentStopTask,
-    agentExecuteCommand: window.electronAPI?.agentExecuteCommand,
     agentExecAwait: window.electronAPI?.agentExecAwait,
     agentCancelExec: window.electronAPI?.agentCancelExec,
     onAgentTerminalOutput: window.electronAPI?.onAgentTerminalOutput,
@@ -86,7 +88,7 @@ export function AgentExecutor() {
         onlyWhenAppInBackground: true,
       });
     },
-  }), [executeCommand]);
+  }), []);
 
   const snapshot: AgentRuntimeSnapshot = {
     currentTask,
@@ -97,6 +99,7 @@ export function AgentExecutor() {
     pendingQuestion,
     pendingInput,
     taskHistory,
+    activeConversationId,
     activeProviderId,
     activeConnectionId,
     providers,
@@ -124,6 +127,7 @@ export function AgentExecutor() {
     pendingQuestion,
     pendingInput,
     taskHistory,
+    activeConversationId,
     activeProviderId,
     activeConnectionId,
     providers,

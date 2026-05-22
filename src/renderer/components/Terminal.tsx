@@ -9,7 +9,7 @@ import { useTheme } from '../hooks/useTheme';
 import { t } from '../i18n';
 import type { CommandHistoryItem, AppSettings } from '../../shared/types';
 
-const XTERM_SCROLLBACK_LINES = 10000;
+const XTERM_SCROLLBACK_LINES = 3000;
 const MIN_TERMINAL_FONT_SIZE = 10;
 const MAX_TERMINAL_FONT_SIZE = 24;
 const DEFAULT_TERMINAL_FONT_FAMILY = "Consolas, 'Courier New', monospace";

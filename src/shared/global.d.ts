@@ -8,6 +8,7 @@ import type {
   QuickCommand,
   QuickCommandGroup,
   AppSettings,
+  AgentTask,
   SSHSessionState,
 } from './types';
 import type {
@@ -30,6 +31,7 @@ import type {
   ImportDataResult,
   AIProviderSecretStatusResult,
   AgentExecAwaitResult,
+  AgentTaskHistoryResult,
 } from './ipc-types';
 
 declare global {
@@ -84,24 +86,26 @@ declare global {
       readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;
 
       listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult<any>>>;
-      downloadFile: (connectionId: string, remotePath: string) => Promise<IPCResult<FileDownloadResult>>;
-      uploadFile: (connectionId: string, localPath: string, remoteDir: string) => Promise<IPCResult<FileUploadResult>>;
-      onSftpUploadProgress: (callback: (data: { connectionId: string; filename: string; progress: number }) => void) => () => void;
+      downloadFile: (connectionId: string, remotePath: string, taskId?: string) => Promise<IPCResult<FileDownloadResult>>;
+      uploadFile: (connectionId: string, localPath: string, remoteDir: string, taskId?: string) => Promise<IPCResult<FileUploadResult>>;
+      onSftpUploadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => () => void;
+      onSftpDownloadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => () => void;
 
       agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
       agentStopTask: (connectionId: string) => Promise<IPCResult>;
       agentPauseTask: () => Promise<IPCResult>;
       agentResumeTask: () => Promise<IPCResult>;
-      agentExecuteCommand: (connectionId: string, command: string) => Promise<IPCResult>;
       agentExecAwait: (
         connectionId: string,
         command: string,
         options?: { runId?: string; timeoutMs?: number },
       ) => Promise<IPCResult<AgentExecAwaitResult>>;
       agentCancelExec: (connectionId: string) => Promise<IPCResult>;
-      agentCommandApproval: (approved: boolean) => Promise<IPCResult>;
+      getAgentTaskHistory: () => Promise<IPCResult<AgentTaskHistoryResult<AgentTask>>>;
+      saveAgentTaskHistory: (task: AgentTask) => Promise<IPCResult>;
+      clearAgentTaskHistory: () => Promise<IPCResult>;
+      deleteAgentTaskHistory: (taskId: string) => Promise<IPCResult>;
       onAgentTerminalOutput: (callback: (data: { connectionId: string; data: string }) => void) => () => void;
-      onAgentCommandApproval: (callback: (data: { approved: boolean; command: any }) => void) => () => void;
 
       onSystemResume: (callback: (data: { timestamp: number }) => void) => () => void;
     };

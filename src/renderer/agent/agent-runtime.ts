@@ -1,6 +1,10 @@
 import { AGENT_SYSTEM_PROMPT } from '../../shared/constants';
 import { t } from '../i18n';
 import type {
+  AgentGraphAction,
+  AgentRoundGraphResult,
+} from './langgraph-agent-flow';
+import type {
   AgentConfig,
   AgentResponse,
   AgentState,
@@ -25,12 +29,14 @@ export interface AgentRuntimeSnapshot {
   pendingQuestion: string | null;
   pendingInput: string | null;
   taskHistory: AgentTask[];
+  activeConversationId: string;
   activeProviderId: string | null;
   activeConnectionId: string | null;
   providers: Array<{ id: string }>;
 }
 
 export interface AgentRuntimeActions {
+  setAgentState: (state: AgentState) => void;
   addThinkingStep: (step: ThinkingStep) => void;
   updateThinkingStep: (stepId: string, updates: Partial<ThinkingStep>) => void;
   completeTask: (success: boolean, error?: string, finishReason?: string) => void;
@@ -50,10 +56,8 @@ export interface AgentRuntimeServices {
     options?: { requestId?: string },
   ) => Promise<IPCResult<AIChatResult>>;
   cancelAIChat?: (requestId: string) => Promise<IPCResult> | void;
-  executeCommand: (command: string) => Promise<IPCResult | undefined>;
   agentStartTask?: (taskId: string, connectionId: string) => Promise<IPCResult>;
   agentStopTask?: (connectionId: string) => Promise<IPCResult>;
-  agentExecuteCommand?: (connectionId: string, command: string) => Promise<IPCResult>;
   agentExecAwait?: (
     connectionId: string,
     command: string,
@@ -76,15 +80,22 @@ type RuntimeStatus =
   | 'completed'
   | 'failed';
 
+type RuntimeRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+type AgentRoundExecutionHooks = {
+  beforeExecute: (action: Extract<AgentGraphAction, { type: 'execute' }>) => void;
+  execute: (command: string) => Promise<string>;
+  summarizeOutput: (command: string, output: string) => string;
+  buildNextDecisionContext: (command: string, output: string) => string;
+};
+
 // ==========================================================================
 // Tunables
 // ==========================================================================
 
 const DUPLICATE_COMMAND_COOLDOWN_MS = 8000;
 const MAX_LOCAL_AGENT_OUTPUT_SIZE = 256 * 1024;
-const UNBLOCK_POLL_MAX_ITERATIONS = 120;
 const UNBLOCK_POLL_INTERVAL_MS = 500;
-const COMMAND_POLL_INTERVAL_MS = 200;
 
 // ==========================================================================
 // Pure helpers
@@ -129,7 +140,9 @@ const normalizeTerminalText = (text: string): string => stripAnsi(text)
   .replace(/[ \t]+\n/g, '\n');
 
 export const parseAgentResponse = (content: string): AgentResponse | null => {
-  let cleanContent = content.trim();
+  let cleanContent = content
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .trim();
 
   if ((cleanContent.startsWith('"') && cleanContent.endsWith('"')) ||
       (cleanContent.startsWith("'") && cleanContent.endsWith("'"))) {
@@ -139,7 +152,11 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
   // 1. 直接 JSON 解析
   try {
     const parsed = JSON.parse(cleanContent);
-    if (parsed?.decision) return parsed;
+    if (typeof parsed === 'string') {
+      return parseAgentResponse(parsed);
+    }
+    const response = normalizeAgentResponse(parsed);
+    if (response) return response;
   } catch (e) {}
 
   // 2. 从 markdown 代码块中提取
@@ -149,7 +166,8 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
     if (match?.[1]) {
       try {
         const parsed = JSON.parse(match[1].trim());
-        if (parsed?.decision) return parsed;
+        const response = normalizeAgentResponse(parsed);
+        if (response) return response;
       } catch (e) {}
     }
   }
@@ -161,7 +179,8 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
     const jsonCandidate = cleanContent.slice(firstBrace, lastBrace + 1);
     try {
       const parsed = JSON.parse(jsonCandidate);
-      if (parsed?.decision) return parsed;
+      const response = normalizeAgentResponse(parsed);
+      if (response) return response;
     } catch (e) {}
 
     // 4. 尝试修复常见的 JSON 格式问题
@@ -169,7 +188,8 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
     if (fixed) {
       try {
         const parsed = JSON.parse(fixed);
-        if (parsed?.decision) return parsed;
+        const response = normalizeAgentResponse(parsed);
+        if (response) return response;
       } catch (e) {}
     }
   }
@@ -177,6 +197,37 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
   // 5. 尝试从纯文本中推断意图（最后的兜底）
   return inferResponseFromText(cleanContent);
 };
+
+function normalizeAgentResponse(value: unknown): AgentResponse | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const parsed = value as Partial<AgentResponse> & {
+    thought?: AgentResponse['thought'] | string;
+    reasoning?: string;
+    observation?: string;
+  };
+  if (!parsed.decision || !['execute', 'finish', 'ask'].includes(parsed.decision)) {
+    return null;
+  }
+
+  const fallbackReason = parsed.finishReason
+    || parsed.question
+    || parsed.command
+    || parsed.reasoning
+    || '';
+  const thought = typeof parsed.thought === 'string'
+    ? { reasoning: parsed.thought, observation: parsed.observation || '' }
+    : {
+      reasoning: parsed.thought?.reasoning || fallbackReason,
+      observation: parsed.thought?.observation || parsed.observation || '',
+    };
+
+  return {
+    ...parsed,
+    thought,
+    decision: parsed.decision,
+  };
+}
 
 /**
  * 修复常见的 JSON 格式问题
@@ -205,6 +256,21 @@ function fixMalformedJson(json: string): string | null {
  * 当 AI 没有返回有效 JSON 时，尝试从文本中提取有用信息
  */
 function inferResponseFromText(text: string): AgentResponse | null {
+  const directCommandPatterns = [
+    /(?:执行|运行|使用|先执行|需要执行)(?:命令)?[：:]\s*[`"]?([^`"\n]+)[`"]?/,
+    /(?:command|execute|run)[：:]\s*[`"]?([^`"\n]+)[`"]?/i,
+  ];
+  for (const pattern of directCommandPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return {
+        thought: { reasoning: text.slice(0, 200), observation: '' },
+        decision: 'execute',
+        command: match[1].trim(),
+      };
+    }
+  }
+
   // 如果文本看起来像截断的 JSON，不要推断 — 返回 null 让上层处理
   if (text.includes('"thought"') || text.includes('"decision"') || text.includes('"reasoning"')) {
     return null;
@@ -235,6 +301,28 @@ function inferResponseFromText(text: string): AgentResponse | null {
       thought: { reasoning: text.slice(0, 200), observation: '' },
       decision: 'finish',
       finishReason: text.slice(0, 100),
+    };
+  }
+
+  const looksLikeConclusion = /(当前|系统|cpu|内存|负载|load average|memory|usage|状态|结果)[\s\S]{0,120}(正常|较低|良好|健康|无异常|没有异常|未发现异常|完成|达成)/i
+    .test(text);
+  if (looksLikeConclusion || /(no further action|nothing else is needed|looks normal)/i.test(text)) {
+    return {
+      thought: { reasoning: text.slice(0, 300), observation: text.slice(0, 300) },
+      decision: 'finish',
+      finishReason: text.slice(0, 300),
+    };
+  }
+
+  const looksLikeCollectedResult = (
+    /(?:已|已经|成功)?(?:查看|看到|获取|获得|采集|检查|确认|分析)(?:到|了)?/i.test(text)
+    && /(cpu|利用率|负载|load average|内存|memory|mem|swap|tasks|进程|状态)/i.test(text)
+  );
+  if (looksLikeCollectedResult || /(i have|i've|successfully).*(checked|collected|found|observed)/i.test(text)) {
+    return {
+      thought: { reasoning: text.slice(0, 300), observation: text.slice(0, 300) },
+      decision: 'finish',
+      finishReason: text.slice(0, 300),
     };
   }
 
@@ -300,19 +388,21 @@ const detectTerminalBlocking = (output: string): { isBlocking: boolean; prompt: 
 };
 
 const hasShellPrompt = (output: string): boolean => {
-  const tail = normalizeTerminalText(output).split('\n').slice(-5).join('\n');
+  const normalizedTail = normalizeTerminalText(output).slice(-4096);
+  const tail = normalizedTail.split('\n').slice(-8).join('\n').trimEnd();
   const promptPatterns = [
     /\]\s*#\s*$/m,
     /\]\s*\$\s*$/m,
-    /^.*>\s*$/m,
-    /^.*#\s*$/m,
-    /^.*\$\s*$/m,
     /\w+@[\w.-]+:\S+#\s*$/m,
     /\w+@[\w.-]+:\S+\$\s*$/m,
     /\[[^\]]+@[^\]]+\][#$]\s*$/m,
+    /\[[^\]\n]{1,120}@[^\]\n]{1,120}\][#$]/m,
+    /\[[^\]\n]{1,120}@[^\]\n]{1,120}\s+[^\]\n]{0,120}\][#$]/m,
+    /(?:^|\n)[^\n]{0,80}[#$]\s*$/m,
   ];
 
-  return promptPatterns.some((pattern) => pattern.test(tail));
+  return promptPatterns.some((pattern) => pattern.test(tail))
+    || promptPatterns.some((pattern) => pattern.test(normalizedTail.trimEnd()));
 };
 
 const isLikelyLongRunningCommand = (command: string): boolean => {
@@ -442,6 +532,7 @@ export class AgentRuntime {
   private currentAiRequestId: string | null = null;
   private currentCancelToken: CancelToken | null = null;
   private processScheduled = false;
+  private isProcessingStep = false;
 
   // Edge-detection memory for store-driven events
   private seenApprovalResult: 'approved' | 'rejected' | null = null;
@@ -535,19 +626,27 @@ export class AgentRuntime {
   private scheduleProcess() {
     if (this.processScheduled) return;
     this.processScheduled = true;
-    queueMicrotask(() => {
+    window.setTimeout(() => {
       this.processScheduled = false;
       void this.process();
-    });
+    }, 0);
   }
 
   private async process() {
+    if (this.isProcessingStep) {
+      return;
+    }
     if (this.status !== 'idle') return;
     const task = this.snapshot.currentTask;
     if (!task || this.initializedTaskId !== task.id) return;
     if (this.snapshot.agentState !== 'thinking') return;
 
-    await this.runStep();
+    this.isProcessingStep = true;
+    try {
+      await this.runStepGraph();
+    } finally {
+      this.isProcessingStep = false;
+    }
   }
 
   // --------------------------------------------------------------------
@@ -587,7 +686,7 @@ export class AgentRuntime {
   // Thinking loop
   // --------------------------------------------------------------------
 
-  private async runStep() {
+  private async runStepGraph() {
     const task = this.snapshot.currentTask;
     if (!task) return;
     const capturedVersion = this.taskVersion;
@@ -598,27 +697,43 @@ export class AgentRuntime {
     }
 
     this.status = 'thinking';
+    this.actions.setAgentState('thinking');
     this.stepCount += 1;
     const thinkStepId = this.generateStepId();
     this.actions.addThinkingStep({
       id: thinkStepId,
       type: 'understanding',
-      title: this.stepCount === 1 ? t('agent.thinking.process') : t('agent.thinking.stepAnalysis', { step: this.stepCount }),
+      title: t('agent.thinking.stepAnalysis', { step: this.stepCount }),
       content: t('agent.thinking.analyzing'),
       timestamp: Date.now(),
       status: 'in_progress',
     });
 
-    let aiResponse: AgentResponse | null;
+    let execStepId: string | null = null;
+    let graphResult: AgentRoundGraphResult;
     try {
-      aiResponse = await this.callAgentAI(task.userInput, this.lastCommandOutput, capturedVersion);
+      const executionHooks = this.createRoundExecutionHooks({
+        capturedVersion,
+        thinkStepId,
+        setExecStepId: (stepId) => {
+          execStepId = stepId;
+        },
+      });
+      graphResult = await this.callAgentRound(
+        task.userInput,
+        this.lastCommandOutput,
+        capturedVersion,
+        executionHooks,
+      );
     } catch (error) {
       if (error instanceof AbortedByRuntimeError) {
-        // 由 pause / cancel 终止,走对应路径,这里不做收尾
         return;
       }
-      const msg = error instanceof Error ? error.message : t('aiErrors.defaultError');
-      this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: t('agent.thinking.aiRequestFailed', { error: msg }) });
+      const message = error instanceof Error ? error.message : t('aiErrors.defaultError');
+      this.actions.updateThinkingStep(thinkStepId, {
+        status: 'failed',
+        content: t('agent.thinking.aiRequestFailed', { error: message }),
+      });
       if (!this.isCurrent(capturedVersion)) return;
       this.finishTask(false, t('agent.finishReasons.aiFailed'));
       return;
@@ -626,13 +741,13 @@ export class AgentRuntime {
 
     if (!this.isCurrent(capturedVersion)) return;
 
-    if (!aiResponse) {
-      // 解析失败时重试一次（AI 可能返回了截断的 JSON）
+    if (graphResult.nextAction.type === 'retryParse') {
       if (!this.lastParseRetried) {
         this.lastParseRetried = true;
-        this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: 'AI 响应格式异常，正在重试...' });
-        if (!this.isCurrent(capturedVersion)) return;
-        // 给 agentMessages 追加一条提示，让 AI 修正格式
+        this.actions.updateThinkingStep(thinkStepId, {
+          status: 'in_progress',
+          content: t('agent.thinking.analyzing'),
+        });
         this.agentMessages.push({
           id: Date.now().toString(),
           role: 'user',
@@ -640,62 +755,109 @@ export class AgentRuntime {
           timestamp: Date.now(),
         });
         this.status = 'idle';
+        this.actions.setAgentState('thinking');
         this.scheduleProcess();
         return;
       }
+
       this.lastParseRetried = false;
-      this.actions.updateThinkingStep(thinkStepId, { status: 'failed', content: t('agent.thinking.cannotParse') });
+      this.actions.updateThinkingStep(thinkStepId, {
+        status: 'failed',
+        content: t('agent.thinking.cannotParse'),
+      });
       this.finishTask(false, t('agent.finishReasons.aiInvalid'));
       return;
     }
-    this.lastParseRetried = false;
 
+    if (graphResult.nextAction.type === 'fail') {
+      this.lastParseRetried = false;
+      this.actions.updateThinkingStep(thinkStepId, {
+        status: graphResult.response ? 'completed' : 'failed',
+        content: graphResult.response?.thought.reasoning || graphResult.nextAction.reason,
+      });
+      this.finishTask(false, graphResult.nextAction.reason);
+      return;
+    }
+
+    this.lastParseRetried = false;
     this.actions.updateThinkingStep(thinkStepId, {
       status: 'completed',
-      content: aiResponse.thought.reasoning,
+      content: graphResult.response?.thought.reasoning || '',
     });
 
-    if (aiResponse.decision === 'finish') {
-      this.finishTask(true, aiResponse.finishReason || t('agent.notifications.completed'));
+    if (graphResult.execution) {
+      if (graphResult.execution.error) {
+        if (!this.isCurrent(capturedVersion)) return;
+        const message = graphResult.execution.error;
+        if (execStepId) {
+          this.actions.updateThinkingStep(execStepId, {
+            status: 'failed',
+            content: message,
+          });
+        }
+        this.finishTask(false, message);
+        return;
+      }
+
+      this.lastCommandOutput = graphResult.execution.nextDecisionContext
+        || graphResult.execution.output;
+      if (execStepId) {
+        this.actions.updateThinkingStep(execStepId, {
+          status: 'completed',
+          content: graphResult.execution.observation
+            || `${graphResult.execution.command}\n\n${extractKeyOutput(graphResult.execution.output, 1500)}`,
+        });
+      }
+      this.status = 'idle';
+      this.actions.setAgentState('thinking');
+      this.scheduleProcess();
       return;
     }
 
-    if (aiResponse.decision === 'ask') {
+    await this.applyGraphAction(graphResult, capturedVersion);
+  }
+
+  private async applyGraphAction(
+    graphResult: AgentRoundGraphResult,
+    capturedVersion: number,
+  ) {
+    const { nextAction } = graphResult;
+
+    if (nextAction.type === 'finish') {
+      this.finishTask(true, nextAction.reason);
+      return;
+    }
+
+    if (nextAction.type === 'ask') {
       this.status = 'awaitingQuestion';
-      this.actions.setPendingQuestion(aiResponse.question || t('agent.thinking.analyzing'));
+      this.actions.setAgentState('observing');
+      this.actions.setPendingQuestion(nextAction.question);
       return;
     }
 
-    const command = aiResponse.command?.trim();
-    if (!command) {
-      this.finishTask(false, t('agent.finishReasons.noCommand'));
-      return;
-    }
-
-    if (this.shouldBlockRepeatedCommand(command)) {
-      this.finishTask(false, t('agent.finishReasons.duplicateCommand', { command }));
-      return;
-    }
-
-    const risk = this.services.analyzeCommand(command);
-    const { config } = this.snapshot;
-    const needsApproval = risk.riskLevel === 'critical'
-      || (risk.riskLevel === 'high' && config.approveHighRisk !== false)
-      || (risk.riskLevel === 'medium' && config.approveMediumRisk !== false);
-
-    if (needsApproval) {
+    if (nextAction.type === 'approval') {
       this.status = 'awaitingApproval';
-      this.actions.setPendingApproval({ command, riskLevel: risk.riskLevel });
+      this.actions.setAgentState('observing');
+      this.actions.setPendingApproval({
+        command: nextAction.command,
+        riskLevel: nextAction.riskLevel,
+      });
       return;
     }
 
-    await this.runCommand(command, capturedVersion);
+    if (nextAction.type === 'execute') {
+      await this.runCommand(nextAction.command, capturedVersion);
+      return;
+    }
+
+    this.finishTask(false, t('agent.finishReasons.aiInvalid'));
   }
 
   private async runCommand(command: string, capturedVersion: number) {
     if (!this.isCurrent(capturedVersion)) return;
 
     this.status = 'executing';
+    this.actions.setAgentState('executing');
     const execStepId = this.generateStepId();
     this.actions.addThinkingStep({
       id: execStepId,
@@ -709,8 +871,27 @@ export class AgentRuntime {
     this.markCommandExecuted(command);
 
     let output = '';
+    let observation = '';
     try {
-      output = await this.executeCommandAndWait(command, execStepId, capturedVersion);
+      const { runAgentExecutionGraph } = await import('./langgraph-agent-flow');
+      const result = await runAgentExecutionGraph({
+        command,
+        execute: (graphCommand) => this.executeCommandAndWait(
+          graphCommand,
+          execStepId,
+          capturedVersion,
+        ),
+        summarizeOutput: (graphOutput) => `${command}\n\n${extractKeyOutput(graphOutput, 1500)}`,
+        buildNextDecisionContext: (graphCommand, graphOutput) => (
+          `命令:${graphCommand}\n\n输出:\n${extractKeyOutput(graphOutput, 8000)}`
+        ),
+      });
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      output = result.output;
+      observation = result.observation;
+      this.lastCommandOutput = result.nextDecisionContext || result.output;
     } catch (error) {
       if (error instanceof AbortedByRuntimeError) {
         return;
@@ -724,10 +905,13 @@ export class AgentRuntime {
 
     if (!this.isCurrent(capturedVersion)) return;
 
-    const content = `${command}\n\n${extractKeyOutput(output, 1500)}`;
-    this.actions.updateThinkingStep(execStepId, { status: 'completed', content });
+    this.actions.updateThinkingStep(execStepId, {
+      status: 'completed',
+      content: observation || `${command}\n\n${extractKeyOutput(output, 1500)}`,
+    });
 
     this.status = 'idle';
+    this.actions.setAgentState('thinking');
     this.scheduleProcess();
   }
 
@@ -745,6 +929,11 @@ export class AgentRuntime {
     this.actions.setPendingApproval(null);
     this.actions.setApprovalResult(null);
     this.seenApprovalResult = null;
+    this.snapshot = {
+      ...this.snapshot,
+      pendingApproval: null,
+      approvalResult: null,
+    };
 
     if (result === 'rejected') {
       this.finishTask(false, t('agent.finishReasons.userRejected'));
@@ -764,22 +953,31 @@ export class AgentRuntime {
       timestamp: Date.now(),
     });
 
+    this.actions.setAgentState('thinking');
     this.actions.setPendingInput('');
     this.actions.setPendingQuestion(null);
     this.seenPendingInput = null;
 
     this.status = 'idle';
+    this.snapshot = {
+      ...this.snapshot,
+      agentState: 'thinking',
+      pendingInput: '',
+      pendingQuestion: null,
+    };
     this.scheduleProcess();
   }
 
   private applyPause() {
     this.abortActiveWork('paused');
     this.status = 'paused';
+    this.actions.setAgentState('paused');
   }
 
   private applyResume() {
     if (this.status !== 'paused') return;
     this.status = 'idle';
+    this.actions.setAgentState('thinking');
     this.scheduleProcess();
   }
 
@@ -787,15 +985,73 @@ export class AgentRuntime {
   // AI call
   // --------------------------------------------------------------------
 
+  private createRoundExecutionHooks(input: {
+    capturedVersion: number;
+    thinkStepId: string;
+    setExecStepId: (stepId: string) => void;
+  }): AgentRoundExecutionHooks {
+    let activeExecStepId = '';
+
+    return {
+      beforeExecute: (action) => {
+        if (!this.isCurrent(input.capturedVersion)) {
+          throw new AbortedByRuntimeError('task version changed');
+        }
+
+        this.status = 'executing';
+        this.actions.setAgentState('executing');
+        this.actions.updateThinkingStep(input.thinkStepId, {
+          status: 'completed',
+          content: action.response.thought.reasoning || '',
+        });
+        const execStepId = this.generateStepId();
+        activeExecStepId = execStepId;
+        input.setExecStepId(execStepId);
+        this.actions.addThinkingStep({
+          id: execStepId,
+          type: 'execution',
+          title: `执行命令:${action.command}`,
+          content: action.command,
+          timestamp: Date.now(),
+          status: 'in_progress',
+        });
+        this.markCommandExecuted(action.command);
+      },
+      execute: (command) => this.executeCommandAndWait(
+        command,
+        activeExecStepId,
+        input.capturedVersion,
+      ),
+      summarizeOutput: (command, output) => `${command}\n\n${extractKeyOutput(output, 1500)}`,
+      buildNextDecisionContext: (command, output) => (
+        `命令:${command}\n\n输出:\n${extractKeyOutput(output, 8000)}`
+      ),
+    };
+  }
+
+  private async callAgentRound(
+    userInput: string,
+    lastOutput: string,
+    capturedVersion: number,
+    executionHooks: AgentRoundExecutionHooks,
+  ): Promise<AgentRoundGraphResult> {
+    return this.callAgentAI(userInput, lastOutput, capturedVersion, executionHooks);
+  }
+
   private async callAgentAI(
     userInput: string,
     lastOutput: string,
     capturedVersion: number,
-  ): Promise<AgentResponse | null> {
-    const { activeProviderId, providers, config, taskHistory } = this.snapshot;
-    if (!activeProviderId) return null;
+    executionHooks: AgentRoundExecutionHooks,
+  ): Promise<AgentRoundGraphResult> {
+    const { activeProviderId, providers, config, taskHistory, activeConversationId } = this.snapshot;
+    if (!activeProviderId) {
+      throw new Error('AI provider not found');
+    }
     const provider = providers.find((p) => p.id === activeProviderId);
-    if (!provider) return null;
+    if (!provider) {
+      throw new Error('AI provider not found');
+    }
 
     const executedCommands: string[] = [];
     for (const msg of this.agentMessages) {
@@ -812,10 +1068,13 @@ export class AgentRuntime {
       ...this.agentMessages,
     ];
 
-    const taskContextRounds = config.taskContextRounds ?? 3;
+    const taskContextRounds = 3;
     if (taskContextRounds > 0 && taskHistory.length > 0) {
       const recentTasks = taskHistory
-        .filter((t) => t.state === 'finished' || t.state === 'error')
+        .filter((t) => (
+          (t.state === 'finished' || t.state === 'error')
+          && (t.conversationId || t.id) === activeConversationId
+        ))
         .slice(0, taskContextRounds);
 
       if (recentTasks.length > 0) {
@@ -841,10 +1100,10 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
       userMessageContent += `\n\n已执行(${executedCommands.length}/${this.snapshot.config.maxExecutionSteps || 20}步):${executedCommands.map(cmd => `\n- ${cmd}`).join('')}`;
     }
     if (lastOutput) {
-      const maxLength = config.maxTerminalOutputLength ?? 8000;
-      const extractedOutput = maxLength === 0 ? lastOutput : extractKeyOutput(lastOutput, maxLength);
-      userMessageContent += `\n\n终端输出:\n\`\`\`\n${extractedOutput}\n\`\`\``;
+      const extractedOutput = extractKeyOutput(lastOutput, 8000);
+      userMessageContent += `\n\n上一次命令输出:\n\`\`\`\n${extractedOutput}\n\`\`\``;
     }
+    userMessageContent += '\n\n请基于当前任务和命令输出决定下一步。只能回复纯 JSON：如果任务已完成，返回 {"thought":{"reasoning":"...","observation":"..."},"decision":"finish","finishReason":"..."}；如果还需执行命令，返回 decision=execute 和 command；如果需要用户确认，返回 decision=ask 和 question。';
 
     messages.push({
       id: Date.now().toString(),
@@ -857,28 +1116,48 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
     this.currentAiRequestId = requestId;
 
     try {
-      const result = await this.services.aiChat(activeProviderId, messages, { requestId });
+      const graphInput = {
+        providerId: activeProviderId,
+        messages,
+        requestId,
+        parseRetryAvailable: !this.lastParseRetried,
+        aiChat: this.services.aiChat,
+        parseResponse: parseAgentResponse,
+        analyzeCommand: this.services.analyzeCommand,
+        shouldBlockRepeatedCommand: (command: string) => this.shouldBlockRepeatedCommand(command),
+        needsApproval: (riskLevel: RuntimeRiskLevel) => {
+          const { config } = this.snapshot;
+          return riskLevel === 'critical'
+            || (riskLevel === 'high' && config.approveHighRisk !== false)
+            || (riskLevel === 'medium' && config.approveMediumRisk !== false);
+        },
+        fallbackText: {
+          parseRetry: 'AI 响应格式异常，正在重试...',
+          cannotParse: t('agent.thinking.cannotParse'),
+          invalidResponse: t('agent.finishReasons.aiInvalid'),
+          completed: t('agent.notifications.completed'),
+          analyzing: t('agent.thinking.analyzing'),
+          noCommand: t('agent.finishReasons.noCommand'),
+          duplicateCommand: (command: string) => t('agent.finishReasons.duplicateCommand', { command }),
+        },
+      };
+      const { runAgentRoundGraph } = await import('./langgraph-agent-flow');
+      const result = await runAgentRoundGraph({
+        ...graphInput,
+        ...executionHooks,
+      });
       if (!this.isCurrent(capturedVersion)) {
         throw new AbortedByRuntimeError('task version changed');
       }
-      if (!result.success || !result.data) {
-        return null;
-      }
-      const parsed = parseAgentResponse(result.data.content);
-      if (!parsed) return null;
 
-      this.agentMessages.push(
-        { id: (Date.now() - 1).toString(), role: 'user', content: userMessageContent, timestamp: Date.now() - 1 },
-        { id: Date.now().toString(), role: 'assistant', content: result.data.content, timestamp: Date.now() },
-      );
-
-      const maxMessages = config.maxContextMessages || 20;
-      if (this.agentMessages.length > maxMessages * 1.5) {
-        this.agentMessages = this.agentMessages.slice(-(maxMessages * 2));
-        this.actions.trimAgentContext();
+      if (result.rawContent) {
+        this.agentMessages.push(
+          { id: (Date.now() - 1).toString(), role: 'user', content: userMessageContent, timestamp: Date.now() - 1 },
+          { id: Date.now().toString(), role: 'assistant', content: result.rawContent, timestamp: Date.now() },
+        );
       }
 
-      return parsed;
+      return result;
     } finally {
       if (this.currentAiRequestId === requestId) {
         this.currentAiRequestId = null;
@@ -903,13 +1182,11 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
       throw new Error('Agent task connection not found');
     }
 
-    // 优先走 sentinel 可靠路径
-    if (this.services.agentExecAwait) {
-      return await this.runWithSentinel(command, execStepId, capturedVersion, targetConnectionId);
+    if (!this.services.agentExecAwait) {
+      throw new Error('Agent sentinel execution is unavailable');
     }
 
-    // 回退到启发式路径（旧版行为，兼容没有 agentExecAwait 的场景）
-    return await this.runWithHeuristics(command, execStepId, capturedVersion, targetConnectionId);
+    return await this.runWithSentinel(command, execStepId, capturedVersion, targetConnectionId);
   }
 
   private async runWithSentinel(
@@ -920,7 +1197,7 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
   ): Promise<string> {
     const isLongRunningCommand = isLikelyLongRunningCommand(command);
     const mustWaitForPrompt = shouldWaitForShellPrompt(command);
-    const execTimeoutMs = mustWaitForPrompt ? 900_000 : (isLongRunningCommand ? 300_000 : 120_000);
+    const execTimeoutMs = mustWaitForPrompt ? 900_000 : (isLongRunningCommand ? 300_000 : 45_000);
     const runId = `v${capturedVersion}-s${this.stepIdCounter}-${Date.now().toString(36)}`;
 
     let awaitPromise: Promise<IPCResult<AgentExecAwaitResult>>;
@@ -939,7 +1216,10 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
       // 并行跑一个 blocking watcher,只负责弹 UI 提示
       void this.monitorBlockingWhileExecuting(execStepId, capturedVersion, monitorToken);
 
-      const result = await awaitPromise;
+      const result = await Promise.race([
+        awaitPromise,
+        this.waitForPromptFallback(command, capturedVersion, connectionId, monitorToken),
+      ]);
       if (!this.isCurrent(capturedVersion)) {
         throw new AbortedByRuntimeError('task version changed');
       }
@@ -972,86 +1252,53 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
     }
   }
 
-  private async runWithHeuristics(
+  private async waitForPromptFallback(
     command: string,
-    execStepId: string,
     capturedVersion: number,
-    targetConnectionId: string,
-  ): Promise<string> {
-    if (this.services.agentExecuteCommand) {
-      await this.services.agentExecuteCommand(targetConnectionId, command);
-    } else {
-      await this.services.executeCommand(command);
-    }
-    if (!this.isCurrent(capturedVersion)) {
-      throw new AbortedByRuntimeError('task version changed');
-    }
+    connectionId: string,
+    token: CancelToken,
+  ): Promise<IPCResult<AgentExecAwaitResult>> {
+    let lastOutput = '';
+    let stableSince = 0;
+    const startedAt = Date.now();
 
-    const commandSentTime = Date.now();
-    const isLongRunningCommand = isLikelyLongRunningCommand(command);
-    const mustWaitForPrompt = shouldWaitForShellPrompt(command);
-    const minWaitMs = isLongRunningCommand ? 10000 : 3000;
-    const maxWaitMs = mustWaitForPrompt ? 900000 : (isLongRunningCommand ? 300000 : 20000);
-    const noGrowthTimeoutMs = isLongRunningCommand ? 15000 : 2000;
-
-    await this.pollUntil((token) => {
-      let lastCheckLength = 0;
-      let lastGrowTime = Date.now();
-
-      return new Promise<void>((resolve, reject) => {
-        const tick = () => {
-          if (token.cancelled) {
-            reject(new AbortedByRuntimeError(token.reason || 'aborted'));
-            return;
-          }
-          const currentOutput = this.terminalOutput;
-          const blocking = detectTerminalBlocking(currentOutput);
-          if (blocking.isBlocking) {
-            resolve();
-            return;
-          }
-
-          const hasSeenPrompt = currentOutput.length > 0 && hasShellPrompt(currentOutput);
-          if (currentOutput.length > lastCheckLength) {
-            lastGrowTime = Date.now();
-            lastCheckLength = currentOutput.length;
-          }
-
-          const elapsed = Date.now() - commandSentTime;
-          const timeSinceLastGrowth = Date.now() - lastGrowTime;
-          const hasEnoughOutput = currentOutput.length > 100;
-
-          const canStopByPrompt = hasSeenPrompt && elapsed > minWaitMs && timeSinceLastGrowth > 1000;
-          const canStopByNoGrowth = !mustWaitForPrompt && !isLongRunningCommand
-            && timeSinceLastGrowth > noGrowthTimeoutMs
-            && elapsed > minWaitMs
-            && hasEnoughOutput;
-          const canStopByTimeout = elapsed > maxWaitMs;
-
-          if (canStopByPrompt || canStopByNoGrowth || canStopByTimeout) {
-            resolve();
-            return;
-          }
-
-          const timer = setTimeout(tick, COMMAND_POLL_INTERVAL_MS);
-          token.onCancel.push(() => clearTimeout(timer));
-        };
-        const timer = setTimeout(tick, COMMAND_POLL_INTERVAL_MS);
-        token.onCancel.push(() => clearTimeout(timer));
+    while (!token.cancelled && this.isCurrent(capturedVersion)) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 500);
+        token.onCancel.push(() => {
+          clearTimeout(timer);
+          resolve();
+        });
       });
-    });
-    if (!this.isCurrent(capturedVersion)) {
-      throw new AbortedByRuntimeError('task version changed');
+
+      const output = this.terminalOutput;
+      if (!output || Date.now() - startedAt < 1500) {
+        continue;
+      }
+
+      if (output !== lastOutput) {
+        lastOutput = output;
+        stableSince = Date.now();
+        continue;
+      }
+
+      const hasStableOutput = stableSince > 0 && Date.now() - stableSince >= 1200;
+      if (!hasStableOutput || !hasShellPrompt(output)) {
+        continue;
+      }
+
+      try { void this.services.agentCancelExec?.(connectionId); } catch { /* ignore */ }
+      return {
+        success: true,
+        data: {
+          output,
+          exitCode: null,
+          reason: 'done',
+        },
+      };
     }
 
-    this.lastCommandOutput = this.terminalOutput;
-
-    const blocking = detectTerminalBlocking(this.lastCommandOutput);
-    if (blocking.isBlocking) {
-      await this.waitForUnblock(execStepId, blocking.prompt, capturedVersion);
-    }
-
-    return this.lastCommandOutput;
+    throw new AbortedByRuntimeError(token.reason || 'aborted');
   }
 
   /**
@@ -1130,70 +1377,6 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
     if (this.currentCancelToken === token) {
       this.currentCancelToken = null;
     }
-  }
-
-  private async waitForUnblock(execStepId: string, prompt: string, capturedVersion: number): Promise<void> {
-    this.status = 'waitingForUnblock';
-    this.actions.setPendingTerminalPrompt(prompt);
-    const blockStepId = this.generateStepId();
-    this.actions.addThinkingStep({
-      id: blockStepId,
-      type: 'observation',
-      title: t('agent.thinking.terminalWaiting'),
-      content: t('agent.thinking.terminalWaitingContent', { prompt }),
-      timestamp: Date.now(),
-      status: 'in_progress',
-    });
-
-    try {
-      await this.pollUntil((token) => {
-        return new Promise<void>((resolve, reject) => {
-          let pollCount = 0;
-          const tick = () => {
-            if (token.cancelled) {
-              reject(new AbortedByRuntimeError(token.reason || 'aborted'));
-              return;
-            }
-            const currentOutput = this.terminalOutput;
-            const stillBlocking = detectTerminalBlocking(currentOutput);
-            if (!stillBlocking.isBlocking || currentOutput.length > this.lastCommandOutput.length + 5) {
-              this.lastCommandOutput = currentOutput;
-              resolve();
-              return;
-            }
-            pollCount += 1;
-            if (pollCount >= UNBLOCK_POLL_MAX_ITERATIONS) {
-              resolve();
-              return;
-            }
-            const timer = setTimeout(tick, UNBLOCK_POLL_INTERVAL_MS);
-            token.onCancel.push(() => clearTimeout(timer));
-          };
-          const timer = setTimeout(tick, UNBLOCK_POLL_INTERVAL_MS);
-          token.onCancel.push(() => clearTimeout(timer));
-        });
-      });
-    } finally {
-      this.actions.setPendingTerminalPrompt(null);
-      if (this.isCurrent(capturedVersion)) {
-        this.actions.updateThinkingStep(blockStepId, { status: 'completed' });
-        this.status = 'executing';
-      }
-    }
-  }
-
-  /**
-   * 将一段以 `CancelToken` 为入参的 promise 产生器,绑定到本 runtime 的 `currentCancelToken` 上。
-   * pause / cancel / dispose / new task 都会 trigger 这个 token 的 cancel,让等待立即退出。
-   */
-  private pollUntil<T>(producer: (token: CancelToken) => Promise<T>): Promise<T> {
-    const token = createCancelToken();
-    this.currentCancelToken = token;
-    return producer(token).finally(() => {
-      if (this.currentCancelToken === token) {
-        this.currentCancelToken = null;
-      }
-    });
   }
 
   // --------------------------------------------------------------------

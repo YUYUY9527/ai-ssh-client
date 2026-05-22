@@ -548,6 +548,12 @@
     border-color: color-mix(in srgb, var(--accent-strong) 45%, var(--border-color));
   }
 
+  .agent-pet-header-action:disabled {
+    @apply cursor-not-allowed opacity-50;
+    background: color-mix(in srgb, var(--bg-hover) 28%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 55%, transparent);
+  }
+
   .agent-pet-header-action-primary {
     @apply text-teal-700 dark:text-teal-200;
     background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
@@ -592,6 +598,26 @@
 
   .agent-chat-thread {
     @apply flex flex-col gap-5;
+  }
+
+  .agent-history-list {
+    @apply flex flex-col gap-2;
+  }
+
+  .agent-history-item {
+    @apply flex items-start gap-2 rounded-sm border p-3 transition-colors;
+    background: color-mix(in srgb, var(--bg-secondary) 62%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  }
+
+  .agent-history-item:hover {
+    background: color-mix(in srgb, var(--bg-hover) 58%, transparent);
+    border-color: color-mix(in srgb, var(--accent-strong) 35%, var(--border-color));
+  }
+
+  .agent-history-item-active {
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-color));
   }
 
   .agent-chat-turn {
@@ -684,6 +710,10 @@
     background: color-mix(in srgb, var(--bg-hover) 62%, transparent);
   }
 
+  .agent-chat-delete-button {
+    @apply ml-auto inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-sm text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-300;
+  }
+
   .agent-chat-detail {
     @apply mt-3 space-y-3 rounded-sm border p-3;
     background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
@@ -706,6 +736,10 @@
     white-space: pre-wrap;
     max-height: 120px;
     overflow-y: auto;
+  }
+
+  .agent-chat-step-execution .agent-chat-command {
+    @apply mt-1.5;
   }
 
   .agent-chat-step {

@@ -111,12 +111,7 @@ export interface AppSettings {
   showTerminalOutputPrompt?: boolean;
   terminalTheme?: string;
   agentEnabled?: boolean;
-  agentAutoExecute?: boolean;
   agentMaxExecutionSteps?: number;
-  agentMaxContextMessages?: number;
-  agentMaxTerminalOutputLength?: number;
-  agentTrimContextEnabled?: boolean;
-  agentTaskContextRounds?: number;
 }
 
 // SFTP 文件信息
@@ -157,6 +152,7 @@ export interface AgentExecution {
 
 export interface AgentTask {
   id: string;
+  conversationId?: string;
   userInput: string;
   state: AgentState;
   thinkingSteps: ThinkingStep[];
@@ -169,15 +165,10 @@ export interface AgentTask {
 
 export interface AgentConfig {
   enabled: boolean;
-  autoExecute: boolean;
   maxExecutionSteps: number;
   requireApprovalForRisk: boolean;
   approveHighRisk: boolean;
   approveMediumRisk: boolean;
-  maxContextMessages: number;
-  trimContextEnabled: boolean;
-  maxTerminalOutputLength: number;
-  taskContextRounds: number;
 }
 
 export interface PendingApproval {
