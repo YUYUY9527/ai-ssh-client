@@ -27,6 +27,147 @@ function getTerminalFontFamily(value: string | undefined): string {
   return normalized || DEFAULT_TERMINAL_FONT_FAMILY;
 }
 
+function tailText(input: string, maxChars: number): string {
+  if (input.length <= maxChars) {
+    return input;
+  }
+  return input.slice(-maxChars);
+}
+
+function stripTerminalControlSequences(input: string): string {
+  let output = '';
+
+  for (let index = 0; index < input.length; index += 1) {
+    const ch = input[index];
+    if (ch === '\u001b') {
+      const next = input[index + 1];
+      if (next === ']') {
+        index += 2;
+        let previousEscape = false;
+        for (; index < input.length; index += 1) {
+          const oscChar = input[index];
+          if (oscChar === '\u0007' || (previousEscape && oscChar === '\\')) {
+            break;
+          }
+          previousEscape = oscChar === '\u001b';
+        }
+      } else if (next === '[') {
+        index += 2;
+        for (; index < input.length; index += 1) {
+          const csiChar = input[index];
+          if (csiChar >= '@' && csiChar <= '~') {
+            break;
+          }
+        }
+      } else if (next) {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (ch === '\0') {
+      continue;
+    }
+
+    if (ch < ' ' && ch !== '\r' && ch !== '\n' && ch !== '\t') {
+      continue;
+    }
+
+    output += ch;
+  }
+
+  return output;
+}
+
+function parsePromptCwd(line: string): string | null {
+  const trimmed = line.trim();
+  const lastChar = trimmed[trimmed.length - 1];
+  if (!trimmed || (lastChar !== '$' && lastChar !== '#')) {
+    return null;
+  }
+
+  const bracketMatch = trimmed.match(/\[([^\]]+)\]\s*[#$]$/);
+  if (bracketMatch) {
+    const candidate = bracketMatch[1].trim().split(/\s+/).pop();
+    if (candidate && (candidate.startsWith('~') || candidate.startsWith('/'))) {
+      return candidate;
+    }
+  }
+
+  const colonMatch = trimmed.match(/:([~/][^\s#$]*)\s*[#$]$/);
+  if (colonMatch) {
+    return colonMatch[1];
+  }
+
+  const trailingMatch = trimmed.match(/(?:^|\s)([~/][^\s#$]*)\s*[#$]$/);
+  if (trailingMatch) {
+    return trailingMatch[1];
+  }
+
+  return null;
+}
+
+function extractCwdFromTerminalOutput(output: string): string | null {
+  const normalized = stripTerminalControlSequences(tailText(output, 4096)).replace(/\r/g, '\n');
+  const lines = normalized
+    .split('\n')
+    .map(line => line.trimEnd())
+    .filter(line => line.trim().length > 0)
+    .slice(-8)
+    .reverse();
+
+  for (const line of lines) {
+    const cwd = parsePromptCwd(line);
+    if (cwd) {
+      return cwd;
+    }
+  }
+
+  return parsePromptCwd(normalized.trim());
+}
+
+function parsePromptCommand(line: string): string | null {
+  const trimmed = line.trimEnd();
+  if (!trimmed) {
+    return null;
+  }
+
+  const bracketMatch = trimmed.match(/^\[[^\]]+\][#$]\s+(.+)$/);
+  if (bracketMatch) {
+    return bracketMatch[1].trim();
+  }
+
+  const colonMatch = trimmed.match(/^[^\s@]+@[^\s:]+:[^\s]+[#$]\s+(.+)$/);
+  if (colonMatch) {
+    return colonMatch[1].trim();
+  }
+
+  const shMatch = trimmed.match(/^(?:ba)?sh-[^\s]+[#$]\s+(.+)$/);
+  if (shMatch) {
+    return shMatch[1].trim();
+  }
+
+  return null;
+}
+
+function extractCommandFromTerminalOutput(output: string): string | null {
+  const normalized = stripTerminalControlSequences(tailText(output, 4096)).replace(/\r/g, '\n');
+  const lines = normalized
+    .split('\n')
+    .map(line => line.trimEnd())
+    .filter(line => line.trim().length > 0)
+    .slice(-8)
+    .reverse();
+
+  for (const line of lines) {
+    const command = parsePromptCommand(line);
+    if (command) {
+      return command;
+    }
+  }
+
+  return null;
+}
 // 右键菜单组件
 function ContextMenu({
   x,
@@ -374,8 +515,10 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
   const initTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isAlternateScreenRef = useRef(false);
+  const inputTrackingReliableRef = useRef(true);
   const currentInputRef = useRef('');
   const cwdRef = useRef('~'); // 跟踪当前工作目录
+  const outputTailRef = useRef('');
   const sshDataCleanupRef = useRef<(() => void) | null>(null);
   
   // 如果没有传入 theme，则使用 useTheme hook
@@ -658,7 +801,10 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     term.clear();
     term.write(`\x1b[1;32m=== ${t('terminal.sshConnected')} ===\x1b[0m\r\n`);
     term.write(`\x1b[1;33m${t('terminal.waitingServer')}\x1b[0m\r\n\r\n`);
+    inputTrackingReliableRef.current = true;
     currentInputRef.current = '';
+    cwdRef.current = '~';
+    outputTailRef.current = '';
     isAlternateScreenRef.current = false;
 
     const writeParsedDisposable = term.onWriteParsed(() => {
@@ -715,14 +861,54 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
   // 将命令写入终端（用于从 AI 复制命令到终端输入）
   useEffect(() => {
-    (window as any).writeToTerminal = (cmd: string) => {
+    const handler = (cmd: string) => {
       if (xtermRef.current) {
-        // 使用 paste 将文本插入终端，这会触发 onData 并发送到 SSH
         xtermRef.current.paste(cmd);
       }
     };
+
+    const claimWriteTarget = () => {
+      if (!terminalRef.current || terminalRef.current.offsetParent === null) {
+        return;
+      }
+      (window as any).writeToTerminal = handler;
+    };
+
+    claimWriteTarget();
+
+    const observedTargets = [
+      terminalRef.current,
+      terminalRef.current?.parentElement,
+      terminalRef.current?.parentElement?.parentElement,
+      terminalRef.current?.parentElement?.parentElement?.parentElement,
+    ].filter(Boolean) as HTMLElement[];
+
+    const observer = new MutationObserver(() => {
+      window.requestAnimationFrame(claimWriteTarget);
+    });
+
+    observedTargets.forEach((target) => {
+      observer.observe(target, { attributes: true, attributeFilter: ['style', 'class'] });
+    });
+
+    const handleFocus = () => {
+      claimWriteTarget();
+    };
+
+    terminalRef.current?.addEventListener('pointerenter', handleFocus);
+    terminalRef.current?.addEventListener('focusin', handleFocus);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
     return () => {
-      delete (window as any).writeToTerminal;
+      observer.disconnect();
+      terminalRef.current?.removeEventListener('pointerenter', handleFocus);
+      terminalRef.current?.removeEventListener('focusin', handleFocus);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      if ((window as any).writeToTerminal === handler) {
+        delete (window as any).writeToTerminal;
+      }
     };
   }, []);
 
@@ -779,7 +965,9 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
       // 跟踪当前输入用于保存命令历史
       if (data === '\r') {
         // Enter - 保存命令到历史
-        const cmd = currentInputRef.current.trim();
+        const cmd = inputTrackingReliableRef.current
+          ? currentInputRef.current.trim()
+          : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
         if (cmd) {
           // 更新 cwd 跟踪 (在保存之前，记录的是执行时的目录)
           const currentCwd = cwdRef.current;
@@ -814,19 +1002,20 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
           (async () => {
             if (window.electronAPI) {
-              const { connections, activeConnectionId } = useConnectionStore.getState();
-              const connection = connections.find(c => c.id === activeConnectionId);
+              const { connections } = useConnectionStore.getState();
+              const connection = connections.find(c => c.id === connectionId);
               const historyItem: CommandHistoryItem = {
                 id: Date.now().toString(),
                 command: cmd,
                 timestamp: Date.now(),
-                connectionId: activeConnectionId || '',
+                connectionId: connectionId || '',
                 connectionName: connection?.name || 'Unknown',
                 executedBy: 'user',
                 approved: true,
                 cwd: currentCwd,
               };
               await window.electronAPI.addCommandHistory(historyItem);
+              window.dispatchEvent(new CustomEvent('command-history-updated'));
               // 刷新历史命令
               const historyResult = await window.electronAPI.getCommandHistory();
               if (historyResult.success) {
@@ -835,12 +1024,14 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
             }
           })();
         }
+        inputTrackingReliableRef.current = true;
         currentInputRef.current = '';
       } else if (data === '\x7f' || data === '\b') {
         // Backspace
         currentInputRef.current = currentInputRef.current.slice(0, -1);
       } else if (data === '\x03') {
         // Ctrl+C
+        inputTrackingReliableRef.current = true;
         currentInputRef.current = '';
       } else if (data === '\x15') {
         // Ctrl+U - 清除整行
@@ -852,15 +1043,20 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
         // 转义序列 (方向键、功能键等) - 无法可靠跟踪光标移动
         // 如果是上/下方向键(历史切换)，重置跟踪，因为内容已不可靠
         if (data === '\x1b[A' || data === '\x1b[B') {
+          inputTrackingReliableRef.current = false;
           currentInputRef.current = '';
         }
         // 其他转义序列忽略
       } else if (data === '\t') {
         // Tab (SSH 服务端补全) - 无法知道补全结果，标记为不可靠
         // 追加一个标记，在保存时会从终端输出中提取实际命令
+        inputTrackingReliableRef.current = false;
         currentInputRef.current = '';
       } else if (data.charCodeAt(0) >= 32) {
         // 可打印字符（包括粘贴的多字符文本）
+        if (!currentInputRef.current) {
+          inputTrackingReliableRef.current = true;
+        }
         currentInputRef.current += data;
       }
     });
@@ -881,6 +1077,11 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
 
     const cleanup = window.electronAPI.onSshData(({ connectionId: dataConnId, data, type }) => {
       if (dataConnId !== connectionId || type !== 'data' || !data) return;
+      outputTailRef.current = tailText(`${outputTailRef.current}${data}`, 4096);
+      const detectedCwd = extractCwdFromTerminalOutput(outputTailRef.current);
+      if (detectedCwd) {
+        cwdRef.current = detectedCwd;
+      }
       if (xtermRef.current) {
         xtermRef.current.write(data);
       }

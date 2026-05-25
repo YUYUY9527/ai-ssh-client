@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Clock, RefreshCw, Search } from 'lucide-react';
 import type { CommandHistoryItem } from '../../shared/types';
 
@@ -6,11 +6,114 @@ interface CommandHistoryPanelProps {
   onPasteCommand: (command: string) => void;
 }
 
+type HistoryItemWithEffectiveCwd = CommandHistoryItem & {
+  effectiveCwd: string;
+};
+
+function normalizeTrackedPath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed || trimmed === '~') {
+    return '~';
+  }
+
+  const isHomePath = trimmed.startsWith('~/');
+  const isAbsolutePath = trimmed.startsWith('/');
+  if (!isHomePath && !isAbsolutePath) {
+    return trimmed;
+  }
+
+  const prefix = isHomePath ? '~' : '/';
+  const rawSegments = (isHomePath ? trimmed.slice(2) : trimmed.slice(1)).split('/');
+  const segments: string[] = [];
+
+  rawSegments.forEach((segment) => {
+    if (!segment || segment === '.') {
+      return;
+    }
+    if (segment === '..') {
+      segments.pop();
+      return;
+    }
+    segments.push(segment);
+  });
+
+  if (prefix === '~') {
+    return segments.length > 0 ? `~/${segments.join('/')}` : '~';
+  }
+
+  return segments.length > 0 ? `/${segments.join('/')}` : '/';
+}
+
+function resolveTrackedCwd(currentCwd: string, target: string): string | null {
+  const sanitized = target.trim().replace(/^(["'])(.*)\1$/, '$2');
+  if (!sanitized || sanitized === '~') {
+    return '~';
+  }
+  if (sanitized === '-') {
+    return null;
+  }
+  if (sanitized.startsWith('/')) {
+    return normalizeTrackedPath(sanitized);
+  }
+  if (sanitized.startsWith('~/')) {
+    return normalizeTrackedPath(sanitized);
+  }
+
+  const base = normalizeTrackedPath(currentCwd || '~');
+  if (base === '~') {
+    return normalizeTrackedPath(`~/${sanitized}`);
+  }
+  return normalizeTrackedPath(`${base.replace(/\/$/, '')}/${sanitized}`);
+}
+
+function nextTrackedCwd(currentCwd: string, command: string): string | null {
+  const match = command.trim().match(/^cd(?:\s+(.+))?$/);
+  if (!match) {
+    return null;
+  }
+
+  return resolveTrackedCwd(currentCwd, match[1] ?? '~');
+}
+
+function deriveEffectiveCwds(historyList: CommandHistoryItem[]): HistoryItemWithEffectiveCwd[] {
+  const cwdByConnection = new Map<string, string>();
+  const chronological = [...historyList].reverse();
+
+  const derived = chronological.map((item) => {
+    const connectionKey = item.connectionId || item.connectionName || item.id;
+    const knownCwd = cwdByConnection.get(connectionKey);
+    const storedCwd = item.cwd?.trim();
+    const effectiveCwd = (!storedCwd || storedCwd === '~') && knownCwd
+      ? knownCwd
+      : (storedCwd || knownCwd || '~');
+
+    const nextCwd = nextTrackedCwd(effectiveCwd, item.command);
+    if (nextCwd) {
+      cwdByConnection.set(connectionKey, nextCwd);
+    }
+
+    return {
+      ...item,
+      effectiveCwd,
+    };
+  });
+
+  return derived.reverse();
+}
+
 export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps) {
   const [show, setShow] = useState(false);
   const [historyList, setHistoryList] = useState<CommandHistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const loadHistory = useCallback(async () => {
+    if (!window.electronAPI) return;
+    const result = await window.electronAPI.getCommandHistory();
+    if (result.success) {
+      setHistoryList(Array.isArray(result.data?.history) ? result.data.history : []);
+    }
+  }, []);
 
   // 点击外部关闭
   useEffect(() => {
@@ -29,15 +132,21 @@ export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps
       setShow(false);
       return;
     }
-    if (window.electronAPI) {
-      const result = await window.electronAPI.getCommandHistory();
-      if (result.success) {
-        setHistoryList(Array.isArray(result.data?.history) ? result.data.history : []);
-      }
-    }
+    await loadHistory();
     setSearchQuery('');
     setShow(true);
-  }, [show]);
+  }, [loadHistory, show]);
+
+  useEffect(() => {
+    if (!show) return;
+
+    const handleHistoryUpdated = () => {
+      void loadHistory();
+    };
+
+    window.addEventListener('command-history-updated', handleHistoryUpdated);
+    return () => window.removeEventListener('command-history-updated', handleHistoryUpdated);
+  }, [loadHistory, show]);
 
   const handlePaste = useCallback((command: string) => {
     onPasteCommand(command);
@@ -51,12 +160,14 @@ export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps
     setShow(false);
   }, []);
 
+  const historyWithEffectiveCwd = useMemo(() => deriveEffectiveCwds(historyList), [historyList]);
+
   // 过滤列表
   const filtered = searchQuery
-    ? historyList.filter(item =>
+    ? historyWithEffectiveCwd.filter(item =>
         item.command.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : historyList;
+    : historyWithEffectiveCwd;
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -113,14 +224,14 @@ export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps
                         {new Date(item.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </span>
                       {item.connectionName && <span>· {item.connectionName}</span>}
-                      {item.cwd && <span className="text-teal-600 dark:text-teal-400">· {item.cwd}</span>}
+                      {item.effectiveCwd && <span className="text-teal-600 dark:text-teal-400">· {item.effectiveCwd}</span>}
                     </div>
                   </button>
-                  {item.cwd && (
+                  {item.effectiveCwd && (
                     <button
-                      onClick={() => handleRerunInDir(item.command, item.cwd!)}
+                      onClick={() => handleRerunInDir(item.command, item.effectiveCwd)}
                       className="hidden group-hover:flex flex-shrink-0 items-center justify-center h-6 w-6 rounded-sm border border-transparent hover:border-[color-mix(in_srgb,var(--accent-primary)_50%,var(--border-color))] hover:bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-slate-400 hover:text-teal-500 transition-colors"
-                      title={`cd ${item.cwd} && ${item.command}`}
+                      title={`cd ${item.effectiveCwd} && ${item.command}`}
                     >
                       <RefreshCw className="w-3 h-3" />
                     </button>
