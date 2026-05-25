@@ -3,7 +3,6 @@ import { AgentRuntime, type AgentRuntimeSnapshot } from '../agent/agent-runtime'
 import { useAgentStore } from '../store/useAgentStore';
 import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
-import { t } from '../i18n';
 
 export function AgentExecutor() {
   const {
@@ -74,20 +73,7 @@ export function AgentExecutor() {
     agentExecAwait: window.electronAPI?.agentExecAwait,
     agentCancelExec: window.electronAPI?.agentCancelExec,
     onAgentTerminalOutput: window.electronAPI?.onAgentTerminalOutput,
-    notifyTaskCompletion: async (success: boolean, reason: string) => {
-      if (!window.electronAPI) return;
-
-      const settingsResult = await window.electronAPI.getSettings();
-      if (!settingsResult.success || !settingsResult.data.settings.commandNotifications) {
-        return;
-      }
-
-      const title = success ? t('agent.notifications.taskCompleted') : t('agent.notifications.taskFailed');
-      const body = reason.trim() || (success ? t('agent.notifications.completed') : t('agent.notifications.failed'));
-      await window.electronAPI.showSystemNotification(title, body, {
-        onlyWhenAppInBackground: true,
-      });
-    },
+    notifyTaskCompletion: async () => {},
   }), []);
 
   const snapshot: AgentRuntimeSnapshot = {

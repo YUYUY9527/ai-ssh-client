@@ -86,7 +86,11 @@ const zhCN = {
     emptyDir: '空目录',
     dragHint: '拖拽文件到此处将自动弹出选择对话框',
     dropHint: '释放后将弹出文件选择对话框',
+    upload: '上传',
+    download: '下载',
     transferTasks: '传输任务',
+    transferCompleted: '{type}完成',
+    transferFailed: '{type}失败',
     itemCount: '{count} 个项目',
     loadFailed: '加载目录失败',
     fileTypes: {
@@ -126,7 +130,6 @@ const zhCN = {
       providers: '供应商',
       agent: '智能体',
       security: '安全',
-      notifications: '通知',
       language: '语言',
     },
     terminal: {
@@ -165,13 +168,6 @@ const zhCN = {
       rememberChoice: '记住本次选择',
       rememberChoiceDesc: '审批后记住本次会话的选择',
     },
-    notifications: {
-      title: '通知设置',
-      connectionNotifications: '连接状态通知',
-      connectionNotificationsDesc: '连接断开或重连时显示通知',
-      commandNotifications: '命令执行完成通知',
-      commandNotificationsDesc: 'AI 执行的命令完成时显示系统通知',
-    },
     language: {
       title: '语言设置',
       selectLanguage: '界面语言',
@@ -182,6 +178,9 @@ const zhCN = {
     light: '浅色主题',
     dark: '深色主题',
     system: '跟随系统',
+  },
+  commandStatus: {
+    completed: '命令执行完成',
   },
   aiProvider: {
     title: 'AI 供应商',

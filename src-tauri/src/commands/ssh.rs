@@ -5,7 +5,11 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::models::ipc::{empty_success, error, success, IpcResult};
+use crate::models::settings::AppSettings;
 use crate::models::ssh::{SshConnectResult, SshConnection};
+use crate::services::ssh_service::{
+    emit_sftp_transfer_complete, SftpTransferCompleteEvent, SftpTransferType,
+};
 use crate::AppState;
 
 /// Starts an SSH session.
@@ -16,12 +20,14 @@ pub fn ssh_connect(
     connection: SshConnection,
     cols: Option<u32>,
     rows: Option<u32>,
+    settings: Option<AppSettings>,
 ) -> IpcResult<SshConnectResult> {
     match state.ssh.connect(
         app_handle,
         connection,
         cols.unwrap_or(80),
         rows.unwrap_or(24),
+        settings,
     ) {
         Ok(session_id) => success(SshConnectResult { session_id }),
         Err(err) => error(err.to_string()),
@@ -61,12 +67,6 @@ pub fn ssh_execute_sync(
         Ok(()) => empty_success(),
         Err(err) => error(err.to_string()),
     }
-}
-
-/// Reconnects an SSH session.
-#[tauri::command]
-pub fn ssh_reconnect() -> IpcResult<()> {
-    error("Rust SSH transport migration is not complete yet")
 }
 
 /// Gets SSH session states.
@@ -164,23 +164,43 @@ pub async fn sftp_download_file(
         .map_err(|err| err.to_string())?
         .to_string_lossy()
         .to_string();
+    let task_id = task_id.unwrap_or_default();
+    let service = state.ssh.clone();
+    let background_app_handle = app_handle.clone();
+    let background_connection = connection.clone();
+    let background_remote_path = remote_path.clone();
+    let background_local_path = local_path_string.clone();
+    let background_task_id = task_id.clone();
+    let background_filename = filename.to_string();
 
-    Ok(
-        match state
-            .ssh
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = service
             .download_file(
-                app_handle,
-                connection,
-                remote_path,
-                local_path_string.clone(),
-                task_id.unwrap_or_default(),
+                background_app_handle.clone(),
+                background_connection.clone(),
+                background_remote_path.clone(),
+                background_local_path.clone(),
+                background_task_id.clone(),
             )
             .await
         {
-            Ok(()) => success(json!({ "localPath": local_path_string })),
-            Err(err) => error(err.to_string()),
-        },
-    )
+            emit_sftp_transfer_complete(
+                &background_app_handle,
+                SftpTransferCompleteEvent {
+                    connection_id: background_connection.id,
+                    task_id: background_task_id,
+                    filename: background_filename,
+                    transfer_type: SftpTransferType::Download,
+                    success: false,
+                    error: Some(err.to_string()),
+                    local_path: Some(background_local_path),
+                    remote_path: Some(background_remote_path),
+                },
+            );
+        }
+    });
+
+    Ok(success(json!({ "localPath": local_path_string })))
 }
 
 /// Uploads a local file through SFTP.
@@ -224,20 +244,41 @@ pub async fn sftp_upload_file(
         format!("{}/{}", remote_dir.trim_end_matches('/'), filename)
     };
 
-    Ok(
-        match state
-            .ssh
+    let task_id = task_id.unwrap_or_default();
+    let service = state.ssh.clone();
+    let background_app_handle = app_handle.clone();
+    let background_connection = connection.clone();
+    let background_local_path = local_path.clone();
+    let background_remote_path = remote_path.clone();
+    let background_task_id = task_id.clone();
+    let background_filename = filename.to_string();
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = service
             .upload_file(
-                app_handle,
-                connection,
-                local_path,
-                remote_path.clone(),
-                task_id.unwrap_or_default(),
+                background_app_handle.clone(),
+                background_connection.clone(),
+                background_local_path.clone(),
+                background_remote_path.clone(),
+                background_task_id.clone(),
             )
             .await
         {
-            Ok(()) => success(json!({ "remotePath": remote_path })),
-            Err(err) => error(err.to_string()),
-        },
-    )
+            emit_sftp_transfer_complete(
+                &background_app_handle,
+                SftpTransferCompleteEvent {
+                    connection_id: background_connection.id,
+                    task_id: background_task_id,
+                    filename: background_filename,
+                    transfer_type: SftpTransferType::Upload,
+                    success: false,
+                    error: Some(err.to_string()),
+                    local_path: Some(background_local_path),
+                    remote_path: Some(background_remote_path),
+                },
+            );
+        }
+    });
+
+    Ok(success(json!({ "remotePath": remote_path })))
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SSHConnection, SSHSessionState, CommandHistoryItem } from '../../shared/types';
+import type { AppSettings, SSHConnection } from '../../shared/types';
 import type { IPCResult } from '../../shared/ipc-types';
 
 // 单个连接的终端输出最大保留字节数（约 100KB）。
@@ -24,7 +24,7 @@ interface ConnectionState {
   loadConnections: () => Promise<void>;
   saveConnection: (connection: SSHConnection) => Promise<void>;
   deleteConnection: (connectionId: string) => Promise<void>;
-  connect: (connection: SSHConnection, cols?: number, rows?: number) => Promise<boolean>;
+  connect: (connection: SSHConnection, cols?: number, rows?: number, settings?: AppSettings) => Promise<boolean>;
   disconnect: (connectionId: string) => Promise<void>;
   reconnect: (connectionId: string) => Promise<boolean>;
   resize: (cols: number, rows: number) => void;
@@ -75,7 +75,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
   },
 
-  connect: async (connection: SSHConnection, cols?: number, rows?: number) => {
+  connect: async (connection: SSHConnection, cols?: number, rows?: number, settings?: AppSettings) => {
     if (!window.electronAPI) return false;
 
     // 初始化会话状态
@@ -90,10 +90,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       },
     }));
 
-    const result = await window.electronAPI.sshConnect(connection, cols, rows);
+    const result = await window.electronAPI.sshConnect(connection, cols, rows, settings);
     if (result.success) {
       set((state) => ({
         activeConnectionId: connection.id,
+        reconnectingId: null,
         sessionStates: {
           ...state.sessionStates,
           [connection.id]: {
@@ -150,8 +151,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     if (!connection) return false;
 
     set({ reconnectingId: connectionId });
-    const result = await window.electronAPI.sshReconnect(connectionId);
-    if (!result.success) {
+    const result = await get().connect(connection);
+    if (!result) {
       set({ reconnectingId: null });
       return false;
     }

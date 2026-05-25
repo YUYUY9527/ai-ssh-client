@@ -19,10 +19,6 @@ pub struct AppSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remember_choice: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub connection_notifications: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command_notifications: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub show_terminal_output_prompt: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_theme: Option<String>,
@@ -46,8 +42,6 @@ impl Default for AppSettings {
             approve_high_risk: None,
             approve_medium_risk: None,
             remember_choice: None,
-            connection_notifications: None,
-            command_notifications: None,
             show_terminal_output_prompt: Some(true),
             terminal_theme: Some("dark".to_string()),
             agent_enabled: None,

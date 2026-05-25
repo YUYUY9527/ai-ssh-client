@@ -32,22 +32,18 @@ import type {
   QuickCommandGroupsResult,
   QuickCommandsResult,
   SettingsResult,
+  SftpTransferCompleteEvent,
   SSessionsResult,
   SSHConnectResult,
 } from '../../shared/ipc-types';
 
-interface SystemNotificationOptions {
-  onlyWhenAppInBackground?: boolean;
-}
-
 type ListenerCleanup = () => void;
 
 type ElectronApiLike = {
-  sshConnect: (connection: SSHConnection, cols?: number, rows?: number) => Promise<IPCResult<SSHConnectResult>>;
+  sshConnect: (connection: SSHConnection, cols?: number, rows?: number, settings?: AppSettings) => Promise<IPCResult<SSHConnectResult>>;
   sshDisconnect: (connectionId: string) => Promise<IPCResult>;
   sshExecute: (connectionId: string, command: string) => Promise<IPCResult>;
   sshExecuteSync: (connectionId: string, command: string) => void;
-  sshReconnect: (connectionId: string) => Promise<IPCResult>;
   sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
   sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
   sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
@@ -67,7 +63,6 @@ type ElectronApiLike = {
   deleteConnection: (connectionId: string) => Promise<IPCResult>;
   getSettings: () => Promise<IPCResult<SettingsResult<AppSettings>>>;
   saveSettings: (settings: AppSettings) => Promise<IPCResult>;
-  showSystemNotification: (title: string, body?: string, options?: SystemNotificationOptions) => Promise<IPCResult>;
   getCommandHistory: () => Promise<IPCResult<CommandHistoryResult<CommandHistoryItem>>>;
   addCommandHistory: (item: CommandHistoryItem) => Promise<IPCResult>;
   clearCommandHistory: () => Promise<IPCResult>;
@@ -86,6 +81,7 @@ type ElectronApiLike = {
   uploadFile: (connectionId: string, localPath: string, remoteDir: string, taskId?: string) => Promise<IPCResult<FileUploadResult>>;
   onSftpUploadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => ListenerCleanup;
   onSftpDownloadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => ListenerCleanup;
+  onSftpTransferComplete: (callback: (data: SftpTransferCompleteEvent) => void) => ListenerCleanup;
   agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
   agentStopTask: (connectionId: string) => Promise<IPCResult>;
   agentPauseTask: () => Promise<IPCResult>;
@@ -139,13 +135,12 @@ async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): 
 }
 
 const nativeApi: ElectronApiLike = {
-  sshConnect: (connection, cols, rows) => tauriInvoke<SSHConnectResult>('ssh_connect', { connection, cols, rows }),
+  sshConnect: (connection, cols, rows, settings) => tauriInvoke<SSHConnectResult>('ssh_connect', { connection, cols, rows, settings }),
   sshDisconnect: (connectionId) => tauriInvoke<void>('ssh_disconnect', { connectionId }),
   sshExecute: (connectionId, command) => tauriInvoke<void>('ssh_execute', { connectionId, command }),
   sshExecuteSync: (connectionId, command) => {
     void tauriInvoke<void>('ssh_execute_sync', { connectionId, command });
   },
-  sshReconnect: (connectionId) => tauriInvoke<void>('ssh_reconnect', { connectionId }),
   sshGetSessions: () => tauriInvoke<SSessionsResult>('ssh_get_sessions'),
   sshResize: (connectionId, cols, rows) => tauriInvoke<void>('ssh_resize', { connectionId, cols, rows }),
   sshTestConnection: (connection) => tauriInvoke<void>('ssh_test_connection', { connection }),
@@ -165,7 +160,6 @@ const nativeApi: ElectronApiLike = {
   deleteConnection: (connectionId) => tauriInvoke<void>('delete_connection', { connectionId }),
   getSettings: () => tauriInvoke<SettingsResult<AppSettings>>('get_settings'),
   saveSettings: (settings) => tauriInvoke<void>('save_settings', { settings }),
-  showSystemNotification: (title, body, options) => tauriInvoke<void>('show_system_notification', { title, body, ...options }),
   getCommandHistory: () => tauriInvoke<CommandHistoryResult<CommandHistoryItem>>('get_command_history'),
   addCommandHistory: (item) => tauriInvoke<void>('add_command_history', { item }),
   clearCommandHistory: () => tauriInvoke<void>('clear_command_history'),
@@ -184,6 +178,7 @@ const nativeApi: ElectronApiLike = {
   uploadFile: (connectionId, localPath, remoteDir, taskId) => tauriInvoke<FileUploadResult>('sftp_upload_file', { connectionId, localPath, remoteDir, taskId }),
   onSftpUploadProgress: (callback) => createTauriListener('sftp-upload-progress', callback),
   onSftpDownloadProgress: (callback) => createTauriListener('sftp-download-progress', callback),
+  onSftpTransferComplete: (callback) => createTauriListener('sftp-transfer-complete', callback),
   agentStartTask: (taskId, connectionId) => tauriInvoke<void>('agent_start_task', { taskId, connectionId }),
   agentStopTask: (connectionId) => tauriInvoke<void>('agent_stop_task', { connectionId }),
   agentPauseTask: () => tauriInvoke<void>('agent_pause_task'),

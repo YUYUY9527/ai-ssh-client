@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { useSftpTransferStore, type SftpTransferTask } from '../store/useSftpTransferStore';
 
 const DEFAULT_REMOTE_PATH = '/home';
 const connectionLastRemotePaths = new Map<string, string>();
@@ -28,15 +29,6 @@ interface FileItem {
   size: number;
   mtime: number;
   fileType: string;
-}
-
-interface TransferTask {
-  id: string;
-  name: string;
-  type: 'upload' | 'download';
-  progress: number;
-  status: 'pending' | 'transferring' | 'completed' | 'error';
-  error?: string;
 }
 
 interface FileTransferProps {
@@ -54,47 +46,16 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  const [transferTasks, setTransferTasks] = useState<TransferTask[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const refreshedUploadTasksRef = useRef<Set<string>>(new Set());
+  const transferTasks = useSftpTransferStore((state) => state.tasks);
+  const addTransferTask = useSftpTransferStore((state) => state.addTask);
+  const markTransferTaskTransferring = useSftpTransferStore((state) => state.markTransferring);
+  const completeTransferTask = useSftpTransferStore((state) => state.completeTask);
+  const removeTransferTask = useSftpTransferStore((state) => state.removeTask);
 
-  // 监听传输进度
-  useEffect(() => {
-    const cleanups: Array<() => void> = [];
-
-    if (window.electronAPI?.onSftpUploadProgress) {
-      cleanups.push(window.electronAPI.onSftpUploadProgress((data) => {
-        updateTransferProgress(data.taskId, data.filename, 'upload', data.progress);
-      }));
-    }
-
-    if (window.electronAPI?.onSftpDownloadProgress) {
-      cleanups.push(window.electronAPI.onSftpDownloadProgress((data) => {
-        updateTransferProgress(data.taskId, data.filename, 'download', data.progress);
-      }));
-    }
-
-    return () => {
-      cleanups.forEach(cleanup => cleanup());
-    };
-  }, []);
-
-  const updateTransferProgress = (
-    taskId: string | undefined,
-    filename: string,
-    type: 'upload' | 'download',
-    progress: number,
-  ) => {
-    setTransferTasks(prev =>
-      prev.map(task => {
-        const isSameTask = taskId ? task.id === taskId : task.name === filename;
-        if (isSameTask && task.type === type && task.status === 'transferring') {
-          return { ...task, progress };
-        }
-        return task;
-      })
-    );
-  };
+  const visibleTransferTasks = transferTasks.filter((task) => task.connectionId === connectionId);
 
   // 加载目录文件
   const loadDirectory = async (path: string) => {
@@ -123,6 +84,21 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
     const rememberedPath = connectionLastRemotePaths.get(connectionId) || DEFAULT_REMOTE_PATH;
     loadDirectory(rememberedPath);
   }, [connectionId]);
+
+  useEffect(() => {
+    const completedUpload = visibleTransferTasks.find((task) => (
+      task.type === 'upload' &&
+      task.status === 'completed' &&
+      !refreshedUploadTasksRef.current.has(task.id)
+    ));
+
+    if (!completedUpload) {
+      return;
+    }
+
+    refreshedUploadTasksRef.current.add(completedUpload.id);
+    loadDirectory(currentPath);
+  }, [visibleTransferTasks, currentPath]);
 
   // 获取文件图标
   const getFileIcon = (file: FileItem) => {
@@ -197,39 +173,49 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
   // 下载文件
   const handleDownload = async (file: FileItem) => {
-    const task: TransferTask = {
+    const task: SftpTransferTask = {
       id: Date.now().toString(),
+      connectionId,
       name: file.name,
       type: 'download',
       progress: 0,
       status: 'pending',
     };
 
-    setTransferTasks(prev => [...prev, task]);
+    addTransferTask(task);
 
     try {
-      setTransferTasks(prev =>
-        prev.map(t => (t.id === task.id ? { ...t, status: 'transferring' } : t))
-      );
+      markTransferTaskTransferring(task.id);
 
       if (window.electronAPI) {
         const result = await window.electronAPI.downloadFile(connectionId, file.path, task.id);
         if (result.success) {
-          setTransferTasks(prev =>
-            prev.map(t => (t.id === task.id ? { ...t, status: 'completed', progress: 100 } : t))
-          );
-        } else if (result.error !== 'Cancelled') {
-          setTransferTasks(prev =>
-            prev.map(t => (t.id === task.id ? { ...t, status: 'error', error: result.error } : t))
-          );
-        } else {
-          setTransferTasks(prev => prev.filter(t => t.id !== task.id));
+          return;
         }
+
+        if (result.error !== 'Cancelled') {
+          completeTransferTask({
+            connectionId,
+            taskId: task.id,
+            filename: file.name,
+            transferType: 'download',
+            success: false,
+            error: result.error,
+          });
+          return;
+        }
+
+        removeTransferTask(task.id);
       }
     } catch (err) {
-      setTransferTasks(prev =>
-        prev.map(t => (t.id === task.id ? { ...t, status: 'error', error: (err as Error).message } : t))
-      );
+      completeTransferTask({
+        connectionId,
+        taskId: task.id,
+        filename: file.name,
+        transferType: 'download',
+        success: false,
+        error: (err as Error).message,
+      });
     }
   };
 
@@ -254,38 +240,49 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
     }
 
     const filename = selectedPath.split(/[/\\]/).pop() || 'unknown';
-    const task: TransferTask = {
+    const task: SftpTransferTask = {
       id: Date.now().toString(),
+      connectionId,
       name: filename,
       type: 'upload',
       progress: 0,
       status: 'pending',
     };
 
-    setTransferTasks(prev => [...prev, task]);
+    addTransferTask(task);
 
     try {
-      setTransferTasks(prev =>
-        prev.map(t => (t.id === task.id ? { ...t, status: 'transferring' } : t))
-      );
+      markTransferTaskTransferring(task.id);
 
       if (window.electronAPI) {
         const result = await window.electronAPI.uploadFile(connectionId, selectedPath, currentPath, task.id);
         if (result.success) {
-          setTransferTasks(prev =>
-            prev.map(t => (t.id === task.id ? { ...t, status: 'completed', progress: 100 } : t))
-          );
-          loadDirectory(currentPath);
-        } else if (result.error !== 'Cancelled') {
-          setTransferTasks(prev =>
-            prev.map(t => (t.id === task.id ? { ...t, status: 'error', error: result.error } : t))
-          );
+          return;
         }
+
+        if (result.error !== 'Cancelled') {
+          completeTransferTask({
+            connectionId,
+            taskId: task.id,
+            filename,
+            transferType: 'upload',
+            success: false,
+            error: result.error,
+          });
+          return;
+        }
+
+        removeTransferTask(task.id);
       }
     } catch (err) {
-      setTransferTasks(prev =>
-        prev.map(t => (t.id === task.id ? { ...t, status: 'error', error: (err as Error).message } : t))
-      );
+      completeTransferTask({
+        connectionId,
+        taskId: task.id,
+        filename,
+        transferType: 'upload',
+        success: false,
+        error: (err as Error).message,
+      });
     }
   };
 
@@ -323,7 +320,6 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
       // 在 contextIsolation 模式下，无法直接获取拖拽文件的路径
       // 所以弹出文件选择对话框，让用户选择要上传的文件
-      console.log('File drag detected, opening file picker');
       await handleUpload();
     };
 
@@ -342,7 +338,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
   // 删除传输记录
   const removeTask = (taskId: string) => {
-    setTransferTasks(prev => prev.filter(t => t.id !== taskId));
+    removeTransferTask(taskId);
   };
 
   // 路径导航面包屑
@@ -512,13 +508,13 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
           </div>
 
           {/* Transfer Tasks Sidebar */}
-          {transferTasks.length > 0 && (
+          {visibleTransferTasks.length > 0 && (
             <div className="file-transfer-scroll w-64 border-l border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] overflow-y-auto bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
               <div className="p-3 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]">
                 <h3 className="text-sm font-medium text-slate-900 dark:text-white">{t('fileTransfer.transferTasks')}</h3>
               </div>
               <div className="p-2 space-y-2">
-                {transferTasks.map(task => (
+                {visibleTransferTasks.map(task => (
                   <div key={task.id} className="industrial-card p-2">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5 min-w-0">

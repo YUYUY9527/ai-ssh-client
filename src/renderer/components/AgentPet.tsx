@@ -69,6 +69,7 @@ const PET_PANEL_EDGE_PADDING = 16;
 const PET_PANEL_MAX_WIDTH = 430;
 const PET_PANEL_MAX_HEIGHT = 680;
 const PET_PANEL_VERTICAL_RESERVE = 144;
+const COMPLETION_BURST_MS = 1900;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -461,10 +462,15 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dragStateRef = useRef<PetDragState | null>(null);
   const dragLongPressTimerRef = useRef<number | null>(null);
+  const completionBurstTimerRef = useRef<number | null>(null);
+  const openScrollTimerRef = useRef<number | null>(null);
+  const previousAgentStateRef = useRef<string | null>(null);
   const suppressNextToggleRef = useRef(false);
   const [position, setPosition] = useState<PetPosition>(() => getDefaultPetPosition());
   const [isDraggingPet, setIsDraggingPet] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(false);
+  const [isCompletionBurstVisible, setIsCompletionBurstVisible] = useState(false);
+  const [isCompletionViewed, setIsCompletionViewed] = useState(false);
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
   const { providers, activeProviderId } = useAIStore();
@@ -508,6 +514,8 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const currentTaskActivity = currentTask?.thinkingSteps
     .map((step) => `${step.id}:${step.status}:${step.content.length}`)
     .join('|') || '';
+  const shouldShowCompletionCue = agentState === 'finished' && !isCompletionViewed;
+  const shouldShowCompletionEffects = shouldShowCompletionCue || isCompletionBurstVisible;
 
   const handlePauseTask = () => {
     void window.electronAPI?.agentPauseTask?.();
@@ -521,6 +529,38 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
   const handleApproval = (result: 'approved' | 'rejected') => {
     setApprovalResult(result);
+  };
+
+  const markCompletionViewed = () => {
+    if (completionBurstTimerRef.current !== null) {
+      window.clearTimeout(completionBurstTimerRef.current);
+      completionBurstTimerRef.current = null;
+    }
+    setIsCompletionBurstVisible(false);
+    setIsCompletionViewed(true);
+  };
+
+  const scrollConversationToBottom = () => {
+    const body = bodyRef.current;
+    if (!body) return;
+    body.scrollTop = body.scrollHeight;
+  };
+
+  const scheduleScrollConversationToBottom = () => {
+    if (openScrollTimerRef.current !== null) {
+      window.clearTimeout(openScrollTimerRef.current);
+      openScrollTimerRef.current = null;
+    }
+
+    requestAnimationFrame(() => {
+      scrollConversationToBottom();
+      requestAnimationFrame(scrollConversationToBottom);
+    });
+
+    openScrollTimerRef.current = window.setTimeout(() => {
+      scrollConversationToBottom();
+      openScrollTimerRef.current = null;
+    }, 80);
   };
 
   const handleToggleHistory = () => {
@@ -600,17 +640,61 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
   useEffect(() => {
     if (isOpen) {
-      requestAnimationFrame(() => inputRef.current?.focus());
+      shouldAutoScrollRef.current = true;
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        scrollConversationToBottom();
+      });
+      scheduleScrollConversationToBottom();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    const previousAgentState = previousAgentStateRef.current;
+    const hasFinishedTask = agentState === 'finished' && previousAgentState !== 'finished';
+
+    if (completionBurstTimerRef.current !== null && agentState !== 'finished') {
+      window.clearTimeout(completionBurstTimerRef.current);
+      completionBurstTimerRef.current = null;
+      setIsCompletionBurstVisible(false);
+      setIsCompletionViewed(false);
+    }
+
+    if (hasFinishedTask && previousAgentState !== null) {
+      setIsCompletionViewed(false);
+      setIsCompletionBurstVisible(true);
+      if (completionBurstTimerRef.current !== null) {
+        window.clearTimeout(completionBurstTimerRef.current);
+      }
+      completionBurstTimerRef.current = window.setTimeout(() => {
+        setIsCompletionBurstVisible(false);
+        completionBurstTimerRef.current = null;
+      }, COMPLETION_BURST_MS);
+    }
+
+    previousAgentStateRef.current = agentState;
+  }, [agentState]);
+
+  useEffect(() => {
+    if (isOpen && agentState === 'finished' && !isCompletionBurstVisible && !isCompletionViewed) {
+      markCompletionViewed();
+    }
+  }, [agentState, isCompletionBurstVisible, isCompletionViewed, isOpen]);
+
+  useEffect(() => () => {
+    if (completionBurstTimerRef.current !== null) {
+      window.clearTimeout(completionBurstTimerRef.current);
+    }
+    if (openScrollTimerRef.current !== null) {
+      window.clearTimeout(openScrollTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isOpen || !isBusy || !shouldAutoScrollRef.current) return;
 
     requestAnimationFrame(() => {
-      const body = bodyRef.current;
-      if (!body) return;
-      body.scrollTop = body.scrollHeight;
+      scrollConversationToBottom();
     });
   }, [
     isOpen,
@@ -782,7 +866,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
       return;
     }
 
-    onOpenChange(!isOpen);
+    const nextOpen = !isOpen;
+    if (nextOpen && agentState === 'finished') {
+      markCompletionViewed();
+    }
+    onOpenChange(nextOpen);
   };
 
   return (
@@ -962,7 +1050,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
       <button
         ref={buttonRef}
-        className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${agentState === 'finished' ? 'agent-pet-button-done' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''} ${isDraggingPet ? 'agent-pet-button-dragging' : ''}`}
+        className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${shouldShowCompletionCue ? 'agent-pet-button-done' : ''} ${isCompletionBurstVisible && !isCompletionViewed ? 'agent-pet-button-complete-burst' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''} ${isDraggingPet ? 'agent-pet-button-dragging' : ''}`}
         style={{ left: `${position.x}px`, top: `${position.y}px` }}
         onPointerDown={handlePetPointerDown}
         onPointerMove={handlePetPointerMove}
@@ -985,6 +1073,15 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
             <span className="agent-pet-spark agent-pet-spark-1" />
             <span className="agent-pet-spark agent-pet-spark-2" />
             <span className="agent-pet-spark agent-pet-spark-3" />
+          </>
+        )}
+        {shouldShowCompletionEffects && (
+          <>
+            <span className="agent-pet-done-ring" />
+            <span className="agent-pet-done-spark agent-pet-done-spark-1" />
+            <span className="agent-pet-done-spark agent-pet-done-spark-2" />
+            <span className="agent-pet-done-spark agent-pet-done-spark-3" />
+            <span className="agent-pet-done-spark agent-pet-done-spark-4" />
           </>
         )}
         {hasAlert && <span className="agent-pet-exclaim">!</span>}

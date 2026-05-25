@@ -94,6 +94,17 @@ export interface FileUploadResult {
   remotePath: string;
 }
 
+export interface SftpTransferCompleteEvent {
+  connectionId: string;
+  taskId?: string;
+  filename: string;
+  transferType: 'upload' | 'download';
+  success: boolean;
+  error?: string;
+  localPath?: string;
+  remotePath?: string;
+}
+
 export interface FileSelectResult {
   canceled: boolean;
   filePath: string;

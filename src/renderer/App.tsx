@@ -33,6 +33,7 @@ import { QuickCommandsPanel } from './components/QuickCommandsPanel';
 import { useConnectionStore } from './store/useConnectionStore';
 import { useAIStore } from './store/useAIStore';
 import { useAgentStore } from './store/useAgentStore';
+import { useSftpTransferStore } from './store/useSftpTransferStore';
 import { useTheme } from './hooks/useTheme';
 import { useI18n } from './i18n';
 import type { CommandSuggestion, SSHSessionState, SSHConnection } from '../shared/types';
@@ -68,6 +69,13 @@ interface DragState {
   dragOverTabId: string | null;
 }
 
+interface AppToast {
+  id: string;
+  title: string;
+  body: string;
+  type: 'success' | 'error';
+}
+
 function LazyModalFallback() {
   const { t } = useI18n();
   return (
@@ -83,14 +91,7 @@ function LazyModalFallback() {
 function App() {
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'security' | 'notifications' | 'agent'>('terminal');
-  const lastNotificationRef = useRef<string>('');
-  const pendingCommandNotificationRef = useRef<{
-    connectionId: string;
-    command: string;
-    timer: ReturnType<typeof setTimeout> | null;
-    startedAt: number;
-  } | null>(null);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'security' | 'agent'>('terminal');
   const [showAgentPet, setShowAgentPet] = useState(false);
   const [agentInput, setAgentInput] = useState('');
   const [agentInputFocusToken, setAgentInputFocusToken] = useState(0);
@@ -102,11 +103,16 @@ function App() {
   const [deletingConnection, setDeletingConnection] = useState<string | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [toasts, setToasts] = useState<AppToast[]>([]);
   
   const pendingSshOutputRef = useRef<Map<string, string[]>>(new Map());
   const outputFlushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commandStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const reconnectTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const reconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  const intentionalDisconnectsRef = useRef<Set<string>>(new Set());
 
   // Tab右键菜单
   const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tabId: string; tabName: string } | null>(null);
@@ -133,6 +139,8 @@ function App() {
     deleteConnection,
   } = useConnectionStore();
   const { loadProviders, analyzeCommand } = useAIStore();
+  const updateSftpProgress = useSftpTransferStore((state) => state.updateProgress);
+  const completeSftpTransfer = useSftpTransferStore((state) => state.completeTask);
 
   // 打开的标签页
   const [openTabs, setOpenTabs] = useState<Tab[]>([]);
@@ -160,6 +168,48 @@ function App() {
     ));
   };
 
+  const scheduleReconnect = useCallback((connectionId: string) => {
+    if (!settings.autoReconnect || reconnectTimersRef.current.has(connectionId)) {
+      return;
+    }
+
+    const reconnectAttempts = reconnectAttemptsRef.current.get(connectionId) ?? 0;
+    const maxReconnectAttempts = settings.maxReconnectAttempts || 0;
+    if (maxReconnectAttempts > 0 && reconnectAttempts >= maxReconnectAttempts) {
+      return;
+    }
+
+    const nextReconnectAttempts = reconnectAttempts + 1;
+    reconnectAttemptsRef.current.set(connectionId, nextReconnectAttempts);
+    useConnectionStore.getState().updateSessionState(connectionId, {
+      reconnectAttempts: nextReconnectAttempts,
+    });
+    setOpenTabs(prev => prev.map(tab =>
+      tab.id === connectionId ? { ...tab, isConnecting: true, isConnected: false } : tab
+    ));
+
+    const timer = setTimeout(async () => {
+      reconnectTimersRef.current.delete(connectionId);
+      const connection = useConnectionStore.getState().connections.find(item => item.id === connectionId);
+      const success = connection
+        ? await useConnectionStore.getState().connect(connection, undefined, undefined, settings)
+        : false;
+      if (success) {
+        reconnectAttemptsRef.current.delete(connectionId);
+        return;
+      }
+
+      if (!success) {
+        setOpenTabs(prev => prev.map(tab =>
+          tab.id === connectionId ? { ...tab, isConnecting: false, isConnected: false } : tab
+        ));
+        scheduleReconnect(connectionId);
+      }
+    }, 1500);
+
+    reconnectTimersRef.current.set(connectionId, timer);
+  }, [settings.autoReconnect, settings.maxReconnectAttempts]);
+
   const handleTabClick = (tabId: string) => {
     setActiveTabId(tabId);
     useConnectionStore.getState().setActiveConnection(tabId);
@@ -168,6 +218,8 @@ function App() {
   const handleCloseTab = async (e: React.MouseEvent, tabId: string) => {
     e.stopPropagation();
     const { disconnect } = useConnectionStore.getState();
+    intentionalDisconnectsRef.current.add(tabId);
+    reconnectAttemptsRef.current.delete(tabId);
     await disconnect(tabId);
     setOpenTabs(prev => prev.filter(tab => tab.id !== tabId));
     if (activeTabId === tabId) {
@@ -204,7 +256,10 @@ function App() {
     setActiveTabId(connectionId);
 
     // 执行连接并检查返回值（初始 PTY 尺寸会被 Terminal 组件的 fit() 立即覆盖）
-    const success = await connect(fullConnection, 200, 50);
+    const success = await connect(fullConnection, 200, 50, settings);
+    if (success) {
+      reconnectAttemptsRef.current.delete(connectionId);
+    }
 
     // 根据连接结果更新标签页状态
     setOpenTabs(prev => prev.map(tab =>
@@ -219,8 +274,11 @@ function App() {
       tab.id === tabId ? { ...tab, isConnecting: true } : tab
     ));
     const result = await reconnect(tabId);
-    // reconnect store 会更新 sessionStates，UI 状态通过 onSshData 事件更新
-    // 如果重连失败，reconnectingId 会被清空
+    if (!result) {
+      setOpenTabs(prev => prev.map(tab =>
+        tab.id === tabId ? { ...tab, isConnecting: false, isConnected: false } : tab
+      ));
+    }
   };
 
   const handleCommandRequest = (command: string) => {
@@ -246,19 +304,6 @@ function App() {
         return;
       }
 
-      if (pendingCommandNotificationRef.current?.timer) {
-        clearTimeout(pendingCommandNotificationRef.current.timer);
-      }
-
-      if (connectionId) {
-        pendingCommandNotificationRef.current = {
-          connectionId,
-          command,
-          timer: null,
-          startedAt: Date.now(),
-        };
-      }
-
       setCommandStatus(prev => prev?.command === command ? { ...prev, status: 'success' } : prev);
       if (commandStatusTimeoutRef.current) {
         clearTimeout(commandStatusTimeoutRef.current);
@@ -282,37 +327,21 @@ function App() {
     setPendingCommand(null);
   };
 
-  const showCommandNotification = useCallback(async (command: string) => {
-    if (!settings?.commandNotifications || !window.electronAPI) {
-      return;
+  const dismissToast = useCallback((toastId: string) => {
+    const timer = toastTimersRef.current.get(toastId);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimersRef.current.delete(toastId);
     }
+    setToasts(prev => prev.filter(toast => toast.id !== toastId));
+  }, []);
 
-    const notificationKey = `${command}-${Date.now()}`;
-    if (lastNotificationRef.current === notificationKey) {
-      return;
-    }
-
-    lastNotificationRef.current = notificationKey;
-    await window.electronAPI.showSystemNotification(t('notifications.commandCompleted'), command, {
-      onlyWhenAppInBackground: true,
-    });
-  }, [settings?.commandNotifications]);
-
-  const scheduleCommandNotification = useCallback((connectionId: string, data: string) => {
-    const pending = pendingCommandNotificationRef.current;
-    if (!pending || pending.connectionId !== connectionId || !data.trim()) {
-      return;
-    }
-
-    if (pending.timer) {
-      clearTimeout(pending.timer);
-    }
-
-    pending.timer = setTimeout(() => {
-      void showCommandNotification(pending.command);
-      pendingCommandNotificationRef.current = null;
-    }, 1200);
-  }, [showCommandNotification]);
+  const showToast = useCallback((toast: Omit<AppToast, 'id'>) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setToasts(prev => [...prev.slice(-2), { ...toast, id }]);
+    const timer = setTimeout(() => dismissToast(id), 5000);
+    toastTimersRef.current.set(id, timer);
+  }, [dismissToast]);
 
   const flushPendingSshOutput = useCallback(() => {
     outputFlushHandleRef.current = null;
@@ -326,9 +355,9 @@ function App() {
       }
 
       const chunk = chunks.join('');
-      scheduleCommandNotification(connectionId, chunk);
+      useConnectionStore.getState().addTerminalOutput(connectionId, chunk);
     }
-  }, [scheduleCommandNotification]);
+  }, []);
 
   const queueTerminalOutput = useCallback((connectionId: string, data: string) => {
     if (!data) {
@@ -378,6 +407,37 @@ function App() {
 
     const cleanupSshClose = window.electronAPI.onSshClose?.((connectionId) => {
       handleConnectionClose(connectionId);
+      if (intentionalDisconnectsRef.current.delete(connectionId)) {
+        return;
+      }
+      scheduleReconnect(connectionId);
+    });
+
+    const cleanupSftpUploadProgress = window.electronAPI.onSftpUploadProgress?.((data) => {
+      updateSftpProgress('upload', data);
+    });
+
+    const cleanupSftpDownloadProgress = window.electronAPI.onSftpDownloadProgress?.((data) => {
+      updateSftpProgress('download', data);
+    });
+
+    const cleanupSftpTransferComplete = window.electronAPI.onSftpTransferComplete?.((data) => {
+      completeSftpTransfer(data);
+
+      const transferLabel = data.transferType === 'upload'
+        ? t('fileTransfer.upload')
+        : t('fileTransfer.download');
+      const title = data.success
+        ? t('fileTransfer.transferCompleted', { type: transferLabel })
+        : t('fileTransfer.transferFailed', { type: transferLabel });
+      const body = data.success ? data.filename : `${data.filename}: ${data.error || t('common.error')}`;
+
+      showToast({
+        title,
+        body,
+        type: data.success ? 'success' : 'error',
+      });
+
     });
 
     const cleanupSystemResume = (window.electronAPI as any).onSystemResume?.(() => {
@@ -400,10 +460,6 @@ function App() {
     });
 
     return () => {
-      if (pendingCommandNotificationRef.current?.timer) {
-        clearTimeout(pendingCommandNotificationRef.current.timer);
-      }
-      pendingCommandNotificationRef.current = null;
       if (outputFlushHandleRef.current != null) {
         clearTimeout(outputFlushHandleRef.current);
         outputFlushHandleRef.current = null;
@@ -416,13 +472,34 @@ function App() {
         clearTimeout(commandStatusTimeoutRef.current);
         commandStatusTimeoutRef.current = null;
       }
+      for (const timer of toastTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      toastTimersRef.current.clear();
+      for (const timer of reconnectTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      reconnectTimersRef.current.clear();
+      reconnectAttemptsRef.current.clear();
       flushPendingSshOutput();
       cleanupSshData();
       cleanupSshError?.();
       cleanupSshClose?.();
+      cleanupSftpUploadProgress?.();
+      cleanupSftpDownloadProgress?.();
+      cleanupSftpTransferComplete?.();
       cleanupSystemResume?.();
     };
-  }, [flushPendingSshOutput, loadConnections, loadProviders, queueTerminalOutput]);
+  }, [
+    completeSftpTransfer,
+    flushPendingSshOutput,
+    loadConnections,
+    loadProviders,
+    queueTerminalOutput,
+    scheduleReconnect,
+    showToast,
+    updateSftpProgress,
+  ]);
 
   const getConnectionStatus = () => {
     const currentTab = openTabs.find(tab => tab.id === activeTabId);
@@ -458,7 +535,7 @@ function App() {
       setOpenTabs(prev => [...prev, newTab]);
       setActiveTabId(newConnectionId);
 
-      const result = await window.electronAPI.sshConnect(newConnection, 200, 50);
+      const result = await window.electronAPI.sshConnect(newConnection, 200, 50, settings);
       setOpenTabs(prev => prev.map(tab =>
         tab.id === newConnectionId
           ? { ...tab, isConnecting: false, isConnected: result.success }
@@ -490,6 +567,10 @@ function App() {
     if (!tabContextMenu) return;
     const { tabId } = tabContextMenu;
     const tabsToClose = openTabs.filter(tab => tab.id !== tabId);
+    tabsToClose.forEach(tab => {
+      intentionalDisconnectsRef.current.add(tab.id);
+      reconnectAttemptsRef.current.delete(tab.id);
+    });
     // 等待所有断开连接完成
     await Promise.all(tabsToClose.map(tab => disconnect(tab.id)));
     setOpenTabs([openTabs.find(tab => tab.id === tabId)!]);
@@ -500,6 +581,10 @@ function App() {
 
   // 关闭所有标签页
   const handleCloseAllTabs = async () => {
+    openTabs.forEach(tab => {
+      intentionalDisconnectsRef.current.add(tab.id);
+      reconnectAttemptsRef.current.delete(tab.id);
+    });
     // 等待所有断开连接完成
     await Promise.all(openTabs.map(tab => disconnect(tab.id)));
     setOpenTabs([]);
@@ -526,6 +611,8 @@ function App() {
     // 如果该连接有打开的标签页，也关闭它
     const existingTab = openTabs.find(tab => tab.id === deletingConnection);
     if (existingTab) {
+      intentionalDisconnectsRef.current.add(deletingConnection);
+      reconnectAttemptsRef.current.delete(deletingConnection);
       await disconnect(deletingConnection);
       setOpenTabs(prev => prev.filter(tab => tab.id !== deletingConnection));
     }
@@ -910,6 +997,42 @@ function App() {
         }}
       />
 
+      {toasts.length > 0 && (
+        <div className="fixed right-4 top-16 z-[70] w-[min(22rem,calc(100vw-2rem))] space-y-2">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`industrial-card border px-3 py-2 shadow-lg ${
+                toast.type === 'success'
+                  ? 'border-green-500/30 bg-green-50 text-green-800 dark:bg-green-950/70 dark:text-green-200'
+                  : 'border-red-500/30 bg-red-50 text-red-800 dark:bg-red-950/70 dark:text-red-200'
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                {toast.type === 'success' ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{toast.title}</div>
+                  <div className="mt-0.5 truncate text-xs opacity-80" title={toast.body}>
+                    {toast.body}
+                  </div>
+                </div>
+                <button
+                  onClick={() => dismissToast(toast.id)}
+                  className="rounded-sm p-0.5 opacity-70 transition-opacity hover:opacity-100"
+                  title={t('common.close')}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Footer */}
       <footer className="app-footer">
         <div className="flex items-center gap-3">
@@ -926,7 +1049,7 @@ function App() {
               {commandStatus.status === 'pending' && <Loader2 className="w-3 h-3 animate-spin" />}
               {commandStatus.status === 'success' && <FileText className="w-3 h-3" />}
               <span className="truncate max-w-48">
-                {commandStatus.status === 'pending' ? `⏳ ${commandStatus.command}` : t('notifications.commandCompleted')}
+                {commandStatus.status === 'pending' ? `⏳ ${commandStatus.command}` : t('commandStatus.completed')}
               </span>
             </div>
           )}

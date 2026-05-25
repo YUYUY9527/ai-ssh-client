@@ -32,16 +32,16 @@ import type {
   AIProviderSecretStatusResult,
   AgentExecAwaitResult,
   AgentTaskHistoryResult,
+  SftpTransferCompleteEvent,
 } from './ipc-types';
 
 declare global {
   interface Window {
     electronAPI: {
-      sshConnect: (connection: SSHConnection, cols?: number, rows?: number) => Promise<IPCResult<SSHConnectResult>>;
+      sshConnect: (connection: SSHConnection, cols?: number, rows?: number, settings?: AppSettings) => Promise<IPCResult<SSHConnectResult>>;
       sshDisconnect: (connectionId: string) => Promise<IPCResult>;
       sshExecute: (connectionId: string, command: string) => Promise<IPCResult>;
       sshExecuteSync: (connectionId: string, command: string) => void;
-      sshReconnect: (connectionId: string) => Promise<IPCResult>;
       sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
       sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
       sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
@@ -65,7 +65,6 @@ declare global {
 
       getSettings: () => Promise<IPCResult<SettingsResult<AppSettings>>>;
       saveSettings: (settings: AppSettings) => Promise<IPCResult>;
-      showSystemNotification: (title: string, body?: string, options?: { onlyWhenAppInBackground?: boolean }) => Promise<IPCResult>;
 
       getCommandHistory: () => Promise<IPCResult<CommandHistoryResult<CommandHistoryItem>>>;
       addCommandHistory: (item: CommandHistoryItem) => Promise<IPCResult>;
@@ -90,6 +89,7 @@ declare global {
       uploadFile: (connectionId: string, localPath: string, remoteDir: string, taskId?: string) => Promise<IPCResult<FileUploadResult>>;
       onSftpUploadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => () => void;
       onSftpDownloadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => () => void;
+      onSftpTransferComplete: (callback: (data: SftpTransferCompleteEvent) => void) => () => void;
 
       agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
       agentStopTask: (connectionId: string) => Promise<IPCResult>;

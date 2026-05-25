@@ -2,18 +2,21 @@ use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use russh::client::{self, AuthResult, Handle};
 use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect, Pty};
-use russh_sftp::client::SftpSession;
+use russh_sftp::client::{Config as SftpConfig, SftpSession};
 use russh_sftp::protocol::OpenFlags;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
-use crate::error::{app_error, AppResult};
+use crate::error::{app_error, AppError, AppResult};
+use crate::models::settings::AppSettings;
 use crate::models::ssh::{SftpFileInfo, SshConnection, SshEvent, SshSessionState};
 
 enum SshControl {
@@ -22,10 +25,34 @@ enum SshControl {
     Shutdown,
 }
 
+const SFTP_REQUEST_TIMEOUT_SECS: u64 = 120;
+
 struct SshSession {
     state: SshSessionState,
     control: mpsc::UnboundedSender<SshControl>,
     output_subscribers: Vec<mpsc::UnboundedSender<String>>,
+}
+
+/// Direction for an SFTP background transfer.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SftpTransferType {
+    Upload,
+    Download,
+}
+
+/// Completion payload emitted after an SFTP transfer finishes.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpTransferCompleteEvent {
+    pub connection_id: String,
+    pub task_id: String,
+    pub filename: String,
+    pub transfer_type: SftpTransferType,
+    pub success: bool,
+    pub error: Option<String>,
+    pub local_path: Option<String>,
+    pub remote_path: Option<String>,
 }
 
 #[derive(Clone)]
@@ -43,6 +70,7 @@ impl client::Handler for SshHandler {
 }
 
 /// SSH session registry and transport.
+#[derive(Clone)]
 pub struct SshService {
     sessions: Arc<Mutex<HashMap<String, SshSession>>>,
 }
@@ -62,6 +90,7 @@ impl SshService {
         connection: SshConnection,
         cols: u32,
         rows: u32,
+        settings: Option<AppSettings>,
     ) -> AppResult<String> {
         let session_id = connection.id.clone();
         let (control_tx, control_rx) = mpsc::unbounded_channel::<SshControl>();
@@ -87,6 +116,7 @@ impl SshService {
             connection,
             cols,
             rows,
+            settings,
             control_rx,
         ));
 
@@ -177,7 +207,7 @@ impl SshService {
     /// Tests an SSH connection by authenticating and disconnecting.
     pub fn test_connection(&self, connection: SshConnection) -> AppResult<()> {
         tauri::async_runtime::block_on(async {
-            let session = connect_authenticated_session(&connection).await?;
+            let session = connect_authenticated_session(&connection, None).await?;
             session
                 .disconnect(Disconnect::ByApplication, "", "en")
                 .await?;
@@ -244,7 +274,7 @@ impl SshService {
         let (sftp, session) = open_sftp_session(&connection).await?;
         let mut remote_file = sftp.open(remote_path.as_str()).await?;
         let total = remote_file.metadata().await?.len();
-        let mut local_file = tokio::fs::File::create(local_path).await?;
+        let mut local_file = tokio::fs::File::create(&local_path).await?;
         let filename = Path::new(&remote_path)
             .file_name()
             .and_then(|value| value.to_str())
@@ -277,6 +307,19 @@ impl SshService {
         let _ = session
             .disconnect(Disconnect::ByApplication, "", "en")
             .await;
+        emit_sftp_transfer_complete(
+            &app_handle,
+            SftpTransferCompleteEvent {
+                connection_id: connection.id,
+                task_id,
+                filename,
+                transfer_type: SftpTransferType::Download,
+                success: true,
+                error: None,
+                local_path: Some(local_path),
+                remote_path: Some(remote_path),
+            },
+        );
         Ok(())
     }
 
@@ -296,7 +339,7 @@ impl SshService {
             .unwrap_or("upload")
             .to_string();
         let total = tokio::fs::metadata(&local_path).await?.len();
-        let mut local_file = tokio::fs::File::open(local_path).await?;
+        let mut local_file = tokio::fs::File::open(&local_path).await?;
         let mut remote_file = sftp
             .open_with_flags(
                 remote_path.as_str(),
@@ -326,11 +369,28 @@ impl SshService {
             );
         }
 
-        remote_file.flush().await?;
-        remote_file.shutdown().await?;
+        if let Err(err) = remote_file.flush().await {
+            ensure_uploaded_after_close_error(&sftp, &remote_path, total, err).await?;
+        }
+        if let Err(err) = remote_file.shutdown().await {
+            ensure_uploaded_after_close_error(&sftp, &remote_path, total, err).await?;
+        }
         let _ = session
             .disconnect(Disconnect::ByApplication, "", "en")
             .await;
+        emit_sftp_transfer_complete(
+            &app_handle,
+            SftpTransferCompleteEvent {
+                connection_id: connection.id,
+                task_id,
+                filename,
+                transfer_type: SftpTransferType::Upload,
+                success: true,
+                error: None,
+                local_path: Some(local_path),
+                remote_path: Some(remote_path),
+            },
+        );
         Ok(())
     }
 
@@ -379,9 +439,10 @@ async fn start_shell_task(
     connection: SshConnection,
     cols: u32,
     rows: u32,
+    settings: Option<AppSettings>,
     mut control_rx: mpsc::UnboundedReceiver<SshControl>,
 ) -> AppResult<()> {
-    let session = connect_authenticated_session(&connection).await?;
+    let session = connect_authenticated_session(&connection, settings.as_ref()).await?;
     let mut channel = session.channel_open_session().await?;
     channel
         .request_pty(
@@ -477,14 +538,22 @@ async fn start_shell_task(
 
 async fn connect_authenticated_session(
     connection: &SshConnection,
+    settings: Option<&AppSettings>,
 ) -> AppResult<Handle<SshHandler>> {
     let addrs = (connection.host.as_str(), connection.port)
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| app_error("无法解析 SSH 地址"))?;
 
-    let mut session =
-        client::connect(Arc::new(client::Config::default()), addrs, SshHandler).await?;
+    let mut config = client::Config::default();
+    if let Some(settings) = settings {
+        if settings.keepalive_interval > 0 {
+            config.keepalive_interval = Some(Duration::from_secs(settings.keepalive_interval));
+            config.keepalive_max = settings.keepalive_count_max as usize;
+        }
+    }
+
+    let mut session = client::connect(Arc::new(config), addrs, SshHandler).await?;
 
     if let Some(password) = connection
         .password
@@ -527,11 +596,31 @@ async fn connect_authenticated_session(
 async fn open_sftp_session(
     connection: &SshConnection,
 ) -> AppResult<(SftpSession, Handle<SshHandler>)> {
-    let session = connect_authenticated_session(connection).await?;
+    let session = connect_authenticated_session(connection, None).await?;
     let channel = session.channel_open_session().await?;
     channel.request_subsystem(true, "sftp").await?;
-    let sftp = SftpSession::new(channel.into_stream()).await?;
+    let mut config = SftpConfig::default();
+    config.request_timeout_secs = SFTP_REQUEST_TIMEOUT_SECS;
+    let sftp = SftpSession::new_with_config(channel.into_stream(), config).await?;
     Ok((sftp, session))
+}
+
+async fn ensure_uploaded_after_close_error(
+    sftp: &SftpSession,
+    remote_path: &str,
+    expected_size: u64,
+    error: std::io::Error,
+) -> AppResult<()> {
+    if !error.to_string().eq_ignore_ascii_case("timeout") {
+        return Err(error.into());
+    }
+
+    let metadata = sftp.metadata(remote_path).await?;
+    if metadata.len() == expected_size {
+        return Ok(());
+    }
+
+    Err(AppError::Io(error))
 }
 
 fn ensure_auth_success(auth: AuthResult) -> AppResult<()> {
@@ -611,4 +700,12 @@ fn emit_ssh_error(app_handle: &AppHandle, connection_id: &str, error: &str) {
         "error": error,
     });
     let _ = app_handle.emit("ssh-error", payload);
+}
+
+/// Emits a terminal SFTP transfer event for foreground and background UI listeners.
+pub fn emit_sftp_transfer_complete(
+    app_handle: &AppHandle,
+    event: SftpTransferCompleteEvent,
+) {
+    let _ = app_handle.emit("sftp-transfer-complete", event);
 }

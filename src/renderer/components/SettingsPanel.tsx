@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Terminal, Wifi, Shield, Bell, Bot, KeyRound, Globe } from 'lucide-react';
+import { X, Terminal, Wifi, Shield, Bot, KeyRound, Globe } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
 import { useI18n, useI18nStore, localeNames } from '../i18n';
 import type { Locale } from '../i18n';
@@ -12,7 +12,7 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
-type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'security' | 'notifications' | 'agent' | 'language';
+type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'security' | 'agent' | 'language';
 
 interface ToggleButtonProps {
   enabled: boolean;
@@ -49,9 +49,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     approveHighRisk: settings.approveHighRisk ?? true,
     approveMediumRisk: settings.approveMediumRisk ?? true,
     rememberChoice: settings.rememberChoice ?? true,
-    // 通知设置
-    connectionNotifications: settings.connectionNotifications ?? true,
-    commandNotifications: settings.commandNotifications ?? false,
   });
 
   const handleSave = () => {
@@ -71,7 +68,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     { id: 'providers', label: t('settings.tabs.providers'), icon: KeyRound },
     { id: 'agent', label: t('settings.tabs.agent'), icon: Bot },
     { id: 'security', label: t('settings.tabs.security'), icon: Shield },
-    { id: 'notifications', label: t('settings.tabs.notifications'), icon: Bell },
     { id: 'language', label: t('settings.tabs.language'), icon: Globe },
   ] as const;
 
@@ -348,36 +344,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                         onChange={(value) => setLocalSettings({ ...localSettings, rememberChoice: value })}
                       />
                     </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'notifications' && (
-              <div className="space-y-6">
-                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.notifications.title')}</h3>
-
-                <div className="space-y-4">
-                  <div className="industrial-setting-row">
-                    <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.notifications.connectionNotifications')}</label>
-                      <p className="text-xs text-slate-500">{t('settings.notifications.connectionNotificationsDesc')}</p>
-                    </div>
-                    <ToggleButton
-                      enabled={localSettings.connectionNotifications ?? true}
-                      onChange={(value) => setLocalSettings({ ...localSettings, connectionNotifications: value })}
-                    />
-                  </div>
-
-                  <div className="industrial-setting-row">
-                    <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.notifications.commandNotifications')}</label>
-                      <p className="text-xs text-slate-500">{t('settings.notifications.commandNotificationsDesc')}</p>
-                    </div>
-                    <ToggleButton
-                      enabled={localSettings.commandNotifications ?? false}
-                      onChange={(value) => setLocalSettings({ ...localSettings, commandNotifications: value })}
-                    />
                   </div>
                 </div>
               </div>

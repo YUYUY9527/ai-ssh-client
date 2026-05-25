@@ -92,7 +92,11 @@ const enUS: DeepStringify<typeof zhCN> = {
     emptyDir: 'Empty directory',
     dragHint: 'Drag files here to upload',
     dropHint: 'Release to open file picker',
+    upload: 'Upload',
+    download: 'Download',
     transferTasks: 'Transfer Tasks',
+    transferCompleted: '{type} completed',
+    transferFailed: '{type} failed',
     itemCount: '{count} items',
     loadFailed: 'Failed to load directory',
     fileTypes: {
@@ -132,7 +136,6 @@ const enUS: DeepStringify<typeof zhCN> = {
       providers: 'Providers',
       agent: 'Agent',
       security: 'Security',
-      notifications: 'Notifications',
       language: 'Language',
     },
     terminal: {
@@ -171,13 +174,6 @@ const enUS: DeepStringify<typeof zhCN> = {
       rememberChoice: 'Remember Choice',
       rememberChoiceDesc: 'Remember approval choice for this session',
     },
-    notifications: {
-      title: 'Notification Settings',
-      connectionNotifications: 'Connection Notifications',
-      connectionNotificationsDesc: 'Show notification when connection is lost or reconnected',
-      commandNotifications: 'Command Completion Notifications',
-      commandNotificationsDesc: 'Show system notification when AI command completes',
-    },
     language: {
       title: 'Language Settings',
       selectLanguage: 'Interface Language',
@@ -188,6 +184,9 @@ const enUS: DeepStringify<typeof zhCN> = {
     light: 'Light Theme',
     dark: 'Dark Theme',
     system: 'Follow System',
+  },
+  commandStatus: {
+    completed: 'Command completed',
   },
   aiProvider: {
     title: 'AI Providers',

@@ -106,8 +106,6 @@ export interface AppSettings {
   approveHighRisk?: boolean;
   approveMediumRisk?: boolean;
   rememberChoice?: boolean;
-  connectionNotifications?: boolean;
-  commandNotifications?: boolean;
   showTerminalOutputPrompt?: boolean;
   terminalTheme?: string;
   agentEnabled?: boolean;

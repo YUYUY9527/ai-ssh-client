@@ -23,12 +23,6 @@ pub fn save_settings(state: State<'_, AppState>, settings: AppSettings) -> IpcRe
     }
 }
 
-/// Shows a system notification. Native notification support is wired later.
-#[tauri::command]
-pub fn show_system_notification() -> IpcResult<()> {
-    empty_success()
-}
-
 /// Gets command history.
 #[tauri::command]
 pub fn get_command_history(state: State<'_, AppState>) -> IpcResult<serde_json::Value> {
