@@ -566,13 +566,20 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     setContextMenu(null);
   };
 
-  const handleCopy = () => {
-    if (xtermRef.current) {
-      const selection = xtermRef.current.getSelection();
-      if (selection) {
-        navigator.clipboard.writeText(selection);
-      }
+  const copyTerminalSelectionToClipboard = useCallback((): boolean => {
+    const selection = xtermRef.current?.getSelection();
+    if (!selection) {
+      return false;
     }
+
+    navigator.clipboard.writeText(selection).catch((error) => {
+      console.error('Failed to copy terminal selection:', error);
+    });
+    return true;
+  }, []);
+
+  const handleCopy = () => {
+    copyTerminalSelectionToClipboard();
     closeContextMenu();
   };
 
@@ -752,9 +759,41 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
 
+    const handleTerminalPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text/plain');
+      if (!text) {
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      term.paste(text);
+    };
+
+    terminalRef.current.addEventListener('paste', handleTerminalPaste, true);
+
     // 拦截 xterm 内部对 Ctrl+F 的处理，交还给我们的全局快捷键
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'f') {
+      const key = e.key.toLowerCase();
+
+      if (e.ctrlKey && key === 'c' && e.type === 'keydown') {
+        return !copyTerminalSelectionToClipboard();
+      }
+
+      if (e.ctrlKey && key === 'v' && e.type === 'keydown') {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard.readText().then((text) => {
+          if (text) {
+            term.paste(text);
+          }
+        }).catch((error) => {
+          console.error('Failed to paste clipboard text:', error);
+        });
+        return false;
+      }
+
+      if (e.ctrlKey && key === 'f') {
         return false; // 阻止 xterm 处理，事件冒泡到 window
       }
       return true; // 其他按键正常处理
@@ -853,11 +892,12 @@ export function Terminal({ connectionId, onCommandRequest, onPasteToAI, theme: t
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
       }
+      terminalRef.current?.removeEventListener('paste', handleTerminalPaste, true);
       writeParsedDisposable.dispose();
       term.dispose();
       xtermRef.current = null;
     };
-  }, [connectionId, resizeSSH, syncAlternateScreenState]);
+  }, [connectionId, copyTerminalSelectionToClipboard, resizeSSH, syncAlternateScreenState]);
 
   // 将命令写入终端（用于从 AI 复制命令到终端输入）
   useEffect(() => {
