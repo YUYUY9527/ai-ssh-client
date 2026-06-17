@@ -50,6 +50,11 @@ interface PetDragState {
   hasLongPressed: boolean;
 }
 
+interface ViewportSize {
+  width: number;
+  height: number;
+}
+
 interface AgentConversationSummary {
   id: string;
   title: string;
@@ -86,6 +91,17 @@ function getDefaultPetPosition(): PetPosition {
   };
 }
 
+function getViewportSize(): ViewportSize {
+  if (typeof window === 'undefined') {
+    return { width: 0, height: 0 };
+  }
+
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+}
+
 function clampPetPosition(position: PetPosition): PetPosition {
   if (typeof window === 'undefined') {
     return position;
@@ -95,6 +111,30 @@ function clampPetPosition(position: PetPosition): PetPosition {
     x: clamp(position.x, PET_EDGE_PADDING, window.innerWidth - PET_BUTTON_SIZE - PET_EDGE_PADDING),
     y: clamp(position.y, PET_EDGE_PADDING, window.innerHeight - PET_BUTTON_SIZE - PET_EDGE_PADDING),
   };
+}
+
+function repositionPetForViewportChange(
+  position: PetPosition,
+  previousViewport: ViewportSize,
+  nextViewport: ViewportSize,
+): PetPosition {
+  if (previousViewport.width <= 0 || previousViewport.height <= 0) {
+    return clampPetPosition(position);
+  }
+
+  const distanceToLeft = position.x;
+  const distanceToRight = previousViewport.width - position.x - PET_BUTTON_SIZE;
+  const distanceToTop = position.y;
+  const distanceToBottom = previousViewport.height - position.y - PET_BUTTON_SIZE;
+
+  return clampPetPosition({
+    x: distanceToRight < distanceToLeft
+      ? nextViewport.width - distanceToRight - PET_BUTTON_SIZE
+      : position.x,
+    y: distanceToBottom < distanceToTop
+      ? nextViewport.height - distanceToBottom - PET_BUTTON_SIZE
+      : position.y,
+  });
 }
 
 function getPetPanelStyle(position: PetPosition): React.CSSProperties {
@@ -466,6 +506,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const openScrollTimerRef = useRef<number | null>(null);
   const previousAgentStateRef = useRef<string | null>(null);
   const suppressNextToggleRef = useRef(false);
+  const viewportSizeRef = useRef<ViewportSize>(getViewportSize());
   const [position, setPosition] = useState<PetPosition>(() => getDefaultPetPosition());
   const [isDraggingPet, setIsDraggingPet] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(false);
@@ -624,7 +665,14 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
   useEffect(() => {
     const updatePosition = () => {
-      setPosition((current) => clampPetPosition(current));
+      const nextViewport = getViewportSize();
+      const previousViewport = viewportSizeRef.current;
+      viewportSizeRef.current = nextViewport;
+      setPosition((current) => repositionPetForViewportChange(
+        current,
+        previousViewport,
+        nextViewport,
+      ));
     };
 
     window.addEventListener('resize', updatePosition);

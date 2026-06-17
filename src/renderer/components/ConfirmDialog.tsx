@@ -47,7 +47,7 @@ export function ConfirmDialog({
       />
 
       {/* 对话框 */}
-      <div className="relative bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6 animate-in fade-in zoom-in-95 duration-200">
+      <div className="industrial-modal relative max-w-md w-full mx-4 p-6 animate-in fade-in zoom-in-95 duration-200">
         {/* 标题 */}
         <div className="flex items-center gap-3 mb-4">
           {type === 'warning' ? (
@@ -69,18 +69,14 @@ export function ConfirmDialog({
         <div className="flex justify-end gap-3">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300
-                     bg-slate-100 dark:bg-slate-700 rounded-md
-                     hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+            className="industrial-button-secondary"
           >
             {resolvedCancelText}
           </button>
           <button
             ref={confirmButtonRef}
             onClick={onConfirm}
-            className="px-4 py-2 text-sm font-medium text-white
-                     bg-blue-600 rounded-md
-                     hover:bg-blue-500 transition-colors"
+            className="industrial-button-primary"
           >
             {resolvedConfirmText}
           </button>

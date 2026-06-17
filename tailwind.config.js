@@ -52,7 +52,7 @@ module.exports = {
         },
       },
       fontFamily: {
-        sans: ['IBM Plex Sans', 'Aptos', 'Segoe UI', 'sans-serif'],
+        sans: ['Geist', 'IBM Plex Sans', 'Aptos', 'Segoe UI', 'sans-serif'],
         mono: ['JetBrains Mono', 'Source Code Pro', 'Consolas', 'monospace'],
       },
     },

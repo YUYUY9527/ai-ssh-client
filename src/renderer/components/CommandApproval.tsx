@@ -97,13 +97,13 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
       <div className={`industrial-modal border-2 ${colors.border} w-full max-w-lg`}>
         <div className={`p-6 border-b border-slate-700 ${colors.bg}`}>
           <div className="flex items-start gap-4">
-            <div className={`${colors.iconBg} p-3 rounded-sm`}>
+            <div className={`${colors.iconBg} p-3 rounded-md`}>
               {getRiskIcon()}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-lg text-white">{t('commandApproval.title')}</h3>
-                <span className={`px-2 py-0.5 rounded-sm text-xs font-medium ${colors.bg} ${colors.text}`}>
+                <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
                   {getRiskLabel()}
                 </span>
               </div>
@@ -125,7 +125,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
           </div>
 
           {command.riskDescription && (
-            <div className="bg-red-500/10 border border-red-500/50 rounded-sm p-4">
+            <div className="rounded-md border border-red-500/50 bg-red-500/10 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
@@ -140,10 +140,10 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
           <div className="flex items-center gap-2 p-3 industrial-card">
             <button
               onClick={() => setRememberChoice(!rememberChoice)}
-              className={`w-5 h-5 rounded-sm border-2 flex items-center justify-center transition-colors ${
+              className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
                 rememberChoice
-                  ? 'bg-blue-500 border-blue-500'
-                  : 'border-slate-500 hover:border-slate-400'
+                  ? 'bg-teal-500 border-teal-500'
+                  : 'border-slate-500 hover:border-teal-400'
               }`}
             >
               {rememberChoice && (
@@ -166,22 +166,22 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
           </div>
         </div>
 
-        <div className="p-4 border-t border-slate-700 flex justify-end gap-3">
+        <div className="industrial-modal-footer">
           <button
             onClick={handleReject}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded-sm transition-colors text-white"
+            className="industrial-button-secondary"
           >
             <XCircle className="w-4 h-4" />
             {t('common.cancel')}
           </button>
           <button
             onClick={handleApprove}
-            className={`flex items-center gap-2 px-4 py-2 text-sm rounded-sm transition-colors ${
+            className={`${
               command.riskLevel === 'critical'
-                ? 'bg-red-600 hover:bg-red-500'
+                ? 'industrial-button-danger'
                 : command.isDangerous
-                ? 'bg-orange-600 hover:bg-orange-500'
-                : 'bg-green-600 hover:bg-green-500'
+                ? 'industrial-button-danger border-orange-600 bg-orange-600 hover:bg-orange-500'
+                : 'industrial-button-primary'
             }`}
           >
             <CheckCircle2 className="w-4 h-4" />

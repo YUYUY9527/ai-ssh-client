@@ -80,7 +80,7 @@ function LazyModalFallback() {
   const { t } = useI18n();
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-6 py-5 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+      <div className="industrial-modal px-6 py-5 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
         <Loader2 className="w-5 h-5 animate-spin" />
         {t('common.loading')}
       </div>
@@ -722,6 +722,20 @@ function App() {
     useAgentStore.getState().syncFromSettings(newSettings);
   };
 
+  const handleCreateConnection = () => {
+    setEditingConnection({ id: '', name: '', host: '', port: 22, username: '' });
+    setShowConnectionDropdown(false);
+  };
+
+  const handleOpenAgentPanel = () => {
+    setShowAgentPet(true);
+  };
+
+  const handleOpenProviderSettings = () => {
+    setSettingsInitialTab('providers');
+    setShowSettings(true);
+  };
+
   return (
     <div className="app-shell">
       {/* Header */}
@@ -749,7 +763,7 @@ function App() {
                 <div className="app-popover-header">
                   <span>{t('connection.selectConnection')}</span>
                   <button
-                    onClick={() => { setEditingConnection({ id: '', name: '', host: '', port: 22, username: '' }); setShowConnectionDropdown(false); }}
+                    onClick={handleCreateConnection}
                     className="icon-button h-7 w-7"
                     title={t('connection.newConnection')}
                   >
@@ -904,26 +918,26 @@ function App() {
       {tabContextMenu && (
         <div
           ref={tabContextMenuRef}
-          className="fixed z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 min-w-[160px]"
+          className="app-popover fixed top-auto mt-0 py-1 min-w-[160px]"
           style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
         >
           <button
             onClick={handleCopyConnection}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <Copy className="w-4 h-4" />
             {t('connection.copyConnection')}
           </button>
           <button
             onClick={handleEditConnection}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <Edit3 className="w-4 h-4" />
             {t('connection.editConnection')}
           </button>
           <button
             onClick={handleReconnectTab}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <RefreshCw className="w-4 h-4" />
             {t('connection.reconnect')}
@@ -931,21 +945,21 @@ function App() {
           <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
           <button
             onClick={handleCloseCurrentTab}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <X className="w-4 h-4" />
             {t('tab.closeTab')}
           </button>
           <button
             onClick={handleCloseOtherTabs}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <ChevronRight className="w-4 h-4" />
             {t('tab.closeOtherTabs')}
           </button>
           <button
             onClick={handleCloseAllTabs}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
           >
             <MoreVertical className="w-4 h-4" />
             {t('tab.closeAllTabs')}
