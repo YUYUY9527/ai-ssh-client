@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, Messa
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useConnectionStore } from '../store/useConnectionStore';
+import { useSessionStore } from '../session/useSessionStore';
 import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
 import { useI18n, t } from '../i18n';
 import type { AgentTask, ThinkingStep } from '../../shared/types';
@@ -515,7 +516,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
   const { providers, activeProviderId } = useAIStore();
-  const { activeConnectionId } = useConnectionStore();
+  const activeConnectionId = useSessionStore((state) => state.activeSessionId);
   const { t } = useI18n();
   const {
     currentTask,

@@ -13,14 +13,15 @@ import {
   RefreshCw,
   Loader2,
   AlertCircle,
-  CheckCircle,
-  Trash2,
+  ListChecks,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useSftpTransferStore, type SftpTransferTask } from '../store/useSftpTransferStore';
+import { TransferTaskList } from '../transfer/TransferTaskList';
 
 const DEFAULT_REMOTE_PATH = '/home';
 const connectionLastRemotePaths = new Map<string, string>();
+type SftpView = 'files' | 'tasks';
 
 interface FileItem {
   name: string;
@@ -33,7 +34,7 @@ interface FileItem {
 
 interface FileTransferProps {
   connectionId: string;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
@@ -47,6 +48,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [activeView, setActiveView] = useState<SftpView>('files');
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const refreshedUploadTasksRef = useRef<Set<string>>(new Set());
   const transferTasks = useSftpTransferStore((state) => state.tasks);
@@ -56,6 +58,7 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
   const removeTransferTask = useSftpTransferStore((state) => state.removeTask);
 
   const visibleTransferTasks = transferTasks.filter((task) => task.connectionId === connectionId);
+  const hasTransferTasks = visibleTransferTasks.length > 0;
 
   // 加载目录文件
   const loadDirectory = async (path: string) => {
@@ -343,60 +346,97 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
 
   // 路径导航面包屑
   const pathParts = currentPath.split('/').filter(Boolean);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="industrial-modal w-full max-w-4xl max-h-[80vh] flex flex-col">
+  const content = (
+    <div className="flex h-full min-h-0 flex-col bg-[color-mix(in_srgb,var(--bg-primary)_76%,var(--bg-secondary))]">
         {/* Header */}
         <div className="industrial-modal-header">
           <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             <Folder className="w-5 h-5 text-teal-500" />
             {t('fileTransfer.title')}
           </h2>
-          <button
-            onClick={onClose}
-            className="icon-button"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="icon-button"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Toolbar */}
         <div className="p-3 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] flex items-center gap-2 bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))]">
-          <button
-            onClick={goHome}
-            className="icon-button"
-            title={t('fileTransfer.homeDir')}
-          >
-            <Home className="w-4 h-4" />
-          </button>
-          <button
-            onClick={goUp}
-            className="icon-button"
-            title={t('fileTransfer.parentDir')}
-          >
-            <ChevronRight className="w-4 h-4 rotate-180" />
-          </button>
-          <button
-            onClick={() => loadDirectory(currentPath)}
-            className="icon-button"
-            title={t('common.refresh')}
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          {/* 路径输入框 */}
-          <input
-            type="text"
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                loadDirectory(pathInput);
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={() => setActiveView('files')}
+              className={
+                activeView === 'files'
+                  ? 'industrial-button-primary px-3 py-1.5'
+                  : 'industrial-button-secondary px-3 py-1.5'
               }
-            }}
-            className="industrial-input flex-1 py-1"
-            placeholder={t('fileTransfer.pathPlaceholder')}
-          />
+              title={t('fileTransfer.files')}
+            >
+              <Folder className="w-4 h-4" />
+              {t('fileTransfer.files')}
+            </button>
+            <button
+              onClick={() => setActiveView('tasks')}
+              className={
+                activeView === 'tasks'
+                  ? 'industrial-button-primary px-3 py-1.5'
+                  : 'industrial-button-secondary px-3 py-1.5'
+              }
+              title={t('fileTransfer.transferTasks')}
+            >
+              <ListChecks className="w-4 h-4" />
+              {t('fileTransfer.transferTasks')}
+              {hasTransferTasks && (
+                <span className="ml-1 rounded-sm bg-white/20 px-1.5 text-[11px] tabular-nums">
+                  {visibleTransferTasks.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {activeView === 'files' && (
+            <>
+              <button
+                onClick={goHome}
+                className="icon-button"
+                title={t('fileTransfer.homeDir')}
+              >
+                <Home className="w-4 h-4" />
+              </button>
+              <button
+                onClick={goUp}
+                className="icon-button"
+                title={t('fileTransfer.parentDir')}
+              >
+                <ChevronRight className="w-4 h-4 rotate-180" />
+              </button>
+              <button
+                onClick={() => loadDirectory(currentPath)}
+                className="icon-button"
+                title={t('common.refresh')}
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+              {/* 路径输入框 */}
+              <input
+                type="text"
+                value={pathInput}
+                onChange={(e) => setPathInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    loadDirectory(pathInput);
+                  }
+                }}
+                className="industrial-input min-w-0 flex-1 py-1"
+                placeholder={t('fileTransfer.pathPlaceholder')}
+              />
+            </>
+          )}
+
           <div className="flex-1" />
           <button
             onClick={() => handleUpload()}
@@ -408,163 +448,131 @@ export function FileTransfer({ connectionId, onClose }: FileTransferProps) {
         </div>
 
         {/* Path Breadcrumb */}
-        <div className="px-3 py-2 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_66%,var(--bg-secondary))] flex items-center gap-1 text-sm overflow-x-auto">
-          <button
-            onClick={() => navigateTo('/')}
-            className="text-slate-500 hover:text-teal-500 whitespace-nowrap"
-          >
-            /
-          </button>
-          {pathParts.map((part, index) => (
-            <span key={index} className="flex items-center">
-              <ChevronRight className="w-3 h-3 text-slate-400 mx-0.5" />
-              <button
-                onClick={() => navigateTo('/' + pathParts.slice(0, index + 1).join('/'))}
-                className="text-slate-500 hover:text-teal-500 whitespace-nowrap"
-              >
-                {part}
-              </button>
-            </span>
-          ))}
-        </div>
+        {activeView === 'files' && (
+          <div className="px-3 py-2 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_66%,var(--bg-secondary))] flex items-center gap-1 text-sm overflow-x-auto">
+            <button
+              onClick={() => navigateTo('/')}
+              className="text-slate-500 hover:text-teal-500 whitespace-nowrap"
+            >
+              /
+            </button>
+            {pathParts.map((part, index) => (
+              <span key={index} className="flex items-center">
+                <ChevronRight className="w-3 h-3 text-slate-400 mx-0.5" />
+                <button
+                  onClick={() => navigateTo('/' + pathParts.slice(0, index + 1).join('/'))}
+                  className="text-slate-500 hover:text-teal-500 whitespace-nowrap"
+                >
+                  {part}
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden flex">
-          {/* File List */}
-          <div
-            ref={dropZoneRef}
-            className={`file-transfer-scroll relative flex-1 overflow-y-auto p-2 ${isDragOver ? 'bg-teal-50 dark:bg-teal-900/20 ring-2 ring-teal-500 ring-inset' : ''}`}
-          >
-            {loading ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
-              </div>
-            ) : error ? (
-              <div className="flex items-center justify-center h-full text-red-500">
-                <AlertCircle className="w-5 h-5 mr-2" />
-                {error}
-              </div>
-            ) : files.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                <Folder className="w-12 h-12 mb-2 opacity-50" />
-                <p className="text-sm">{t('fileTransfer.emptyDir')}</p>
-                <p className="text-xs mt-1">{t('fileTransfer.dragHint')}</p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {/* Header */}
-                <div className="industrial-table-head grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3">
-                  <div>{t('fileTransfer.tableHeaders.name')}</div>
-                  <div>{t('fileTransfer.tableHeaders.type')}</div>
-                  <div className="text-right">{t('fileTransfer.tableHeaders.size')}</div>
-                  <div className="text-right">{t('fileTransfer.tableHeaders.modified')}</div>
-                  <div />
+        <div className="flex-1 overflow-hidden">
+          {activeView === 'tasks' ? (
+            <TransferTaskList
+              tasks={visibleTransferTasks}
+              onRemoveTask={removeTask}
+              translate={t}
+            />
+          ) : (
+            <div
+              ref={dropZoneRef}
+              className={`file-transfer-scroll relative h-full overflow-y-auto p-2 ${isDragOver ? 'bg-teal-50 dark:bg-teal-900/20 ring-2 ring-teal-500 ring-inset' : ''}`}
+            >
+              {loading ? (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
                 </div>
-                {files.map((file, index) => (
-                  <div
-                    key={index}
-                    onClick={() => file.isDirectory ? navigateTo(file.path) : setSelectedFile(file)}
-                    onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
-                    className="grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 px-3 py-2 hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)] rounded-sm cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {getFileIcon(file)}
-                      <span className="truncate text-sm text-slate-900 dark:text-white">{file.name}</span>
-                    </div>
-                    <div className="flex items-center min-w-0 text-sm text-slate-500 dark:text-slate-400">
-                      {getFileType(file)}
-                    </div>
-                    <div className="text-right text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
-                      {file.isDirectory ? '-' : formatSize(file.size)}
-                    </div>
-                    <div className="text-right text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
-                      {formatTime(file.mtime)}
-                    </div>
-                    <div className="flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                      {!file.isDirectory && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDownload(file);
-                          }}
-                          className="icon-button h-7 w-7 text-teal-500"
-                          title={t('common.download')}
-                        >
-                          <Download className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
+              ) : error ? (
+                <div className="flex items-center justify-center h-full text-red-500">
+                  <AlertCircle className="w-5 h-5 mr-2" />
+                  {error}
+                </div>
+              ) : files.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                  <Folder className="w-12 h-12 mb-2 opacity-50" />
+                  <p className="text-sm">{t('fileTransfer.emptyDir')}</p>
+                  <p className="text-xs mt-1">{t('fileTransfer.dragHint')}</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {/* Header */}
+                  <div className="industrial-table-head grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3">
+                    <div>{t('fileTransfer.tableHeaders.name')}</div>
+                    <div>{t('fileTransfer.tableHeaders.type')}</div>
+                    <div className="text-right">{t('fileTransfer.tableHeaders.size')}</div>
+                    <div className="text-right">{t('fileTransfer.tableHeaders.modified')}</div>
+                    <div />
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Drag overlay */}
-            {isDragOver && (
-              <div className="absolute inset-0 flex items-center justify-center bg-teal-500/20 border-2 border-dashed border-teal-500 rounded-sm pointer-events-none">
-                <div className="text-teal-500 font-medium">{t('fileTransfer.dropHint')}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Transfer Tasks Sidebar */}
-          {visibleTransferTasks.length > 0 && (
-            <div className="file-transfer-scroll w-64 border-l border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] overflow-y-auto bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
-              <div className="p-3 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]">
-                <h3 className="text-sm font-medium text-slate-900 dark:text-white">{t('fileTransfer.transferTasks')}</h3>
-              </div>
-              <div className="p-2 space-y-2">
-                {visibleTransferTasks.map(task => (
-                  <div key={task.id} className="industrial-card p-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {task.type === 'upload' ? (
-                          <Upload className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
-                        ) : (
-                          <Download className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                        )}
-                        <span className="text-xs text-slate-700 dark:text-slate-300 truncate">
-                          {task.name}
+                  {files.map((file, index) => (
+                    <div
+                      key={index}
+                      onClick={() => file.isDirectory ? navigateTo(file.path) : setSelectedFile(file)}
+                      onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
+                      className="grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 px-3 py-2 hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)] rounded-sm cursor-pointer transition-colors group"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {getFileIcon(file)}
+                        <span
+                          className="truncate text-sm text-slate-900 dark:text-white"
+                          title={file.name}
+                        >
+                          {file.name}
                         </span>
                       </div>
-                      <button
-                        onClick={() => removeTask(task.id)}
-                        className="icon-button h-6 w-6"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                      <div className="flex items-center min-w-0 text-sm text-slate-500 dark:text-slate-400">
+                        {getFileType(file)}
+                      </div>
+                      <div className="text-right text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
+                        {file.isDirectory ? '-' : formatSize(file.size)}
+                      </div>
+                      <div className="text-right text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
+                        {formatTime(file.mtime)}
+                      </div>
+                      <div className="flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        {!file.isDirectory && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownload(file);
+                            }}
+                            className="icon-button h-7 w-7 text-teal-500"
+                            title={t('common.download')}
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {task.status === 'transferring' && (
-                        <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-sm overflow-hidden">
-                          <div
-                            className="h-full bg-teal-500 rounded-sm transition-all"
-                            style={{ width: `${task.progress}%` }}
-                          />
-                        </div>
-                      )}
-                      {task.status === 'completed' && (
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                      )}
-                      {task.status === 'error' && (
-                        <span title={task.error} className="inline-flex">
-                          <AlertCircle className="w-4 h-4 text-red-500" />
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Drag overlay */}
+              {isDragOver && (
+                <div className="absolute inset-0 flex items-center justify-center bg-teal-500/20 border-2 border-dashed border-teal-500 rounded-sm pointer-events-none">
+                  <div className="text-teal-500 font-medium">{t('fileTransfer.dropHint')}</div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="p-3 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between bg-[color-mix(in_srgb,var(--bg-primary)_56%,var(--bg-secondary))]">
-          <span>{t('fileTransfer.itemCount', { count: files.length })}</span>
+          {activeView === 'tasks' ? (
+            <span>{t('fileTransfer.taskCount', { count: visibleTransferTasks.length })}</span>
+          ) : (
+            <span>{t('fileTransfer.itemCount', { count: files.length })}</span>
+          )}
           <span>SFTP</span>
         </div>
       </div>
-    </div>
   );
+
+  return content;
 }

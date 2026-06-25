@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { AgentRuntime, type AgentRuntimeSnapshot } from '../agent/agent-runtime';
 import { useAgentStore } from '../store/useAgentStore';
 import { useAIStore } from '../store/useAIStore';
-import { useConnectionStore } from '../store/useConnectionStore';
+import { useSessionStore } from '../session/useSessionStore';
 
 export function AgentExecutor() {
   const {
@@ -28,7 +28,7 @@ export function AgentExecutor() {
   } = useAgentStore();
 
   const { providers, activeProviderId } = useAIStore();
-  const { activeConnectionId } = useConnectionStore();
+  const activeConnectionId = useSessionStore((state) => state.activeSessionId);
   const runtimeRef = useRef<AgentRuntime | null>(null);
 
   const actions = useMemo(() => ({

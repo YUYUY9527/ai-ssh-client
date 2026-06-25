@@ -10,6 +10,14 @@ export interface SSHConnection {
   passphrase?: string;
 }
 
+export interface HostTrustRecord {
+  host: string;
+  port: number;
+  algorithm: string;
+  fingerprint: string;
+  trustedAt: number;
+}
+
 export type AIProviderType = 'openai' | 'openai-compatible' | 'anthropic' | 'gemini' | 'ollama';
 
 // AI 供应商配置
@@ -57,9 +65,53 @@ export interface CommandHistoryItem {
   timestamp: number;
   connectionId: string;
   connectionName: string;
+  host?: string;
+  username?: string;
   executedBy: 'user' | 'ai';
   approved: boolean;
   cwd?: string; // 命令执行时的工作目录
+}
+
+export type SessionStatus =
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'closed'
+  | 'error';
+
+export interface Session {
+  id: string;
+  connectionId: string;
+  title: string;
+  state: SessionStatus;
+  isPinned?: boolean;
+  scrollbackKey?: string;
+  reconnectAttempts: number;
+  lastActiveAt: number;
+  lastError?: string;
+  cwd?: string;
+  restoredFromScrollback?: boolean;
+}
+
+export interface SessionScrollbackSnapshot {
+  sessionId: string;
+  connectionId: string;
+  updatedAt: number;
+  cwd?: string;
+  content: string;
+  title?: string;
+}
+
+export interface SessionPersistenceSettings {
+  maxPersistedSessions: number;
+  maxScrollbackBytesPerSession: number;
+}
+
+export interface CommandHistoryIndex {
+  host: string;
+  username: string;
+  cwd: string;
+  commands: CommandHistoryItem[];
 }
 
 // 快速命令分组
@@ -110,6 +162,8 @@ export interface AppSettings {
   terminalTheme?: string;
   agentEnabled?: boolean;
   agentMaxExecutionSteps?: number;
+  maxPersistedSessions?: number;
+  maxScrollbackBytesPerSession?: number;
 }
 
 // SFTP 文件信息

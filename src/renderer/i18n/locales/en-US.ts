@@ -85,6 +85,7 @@ const enUS: DeepStringify<typeof zhCN> = {
   },
   fileTransfer: {
     title: 'File Transfer - SFTP',
+    files: 'Files',
     transfer: 'Transfer',
     homeDir: 'Home',
     parentDir: 'Parent',
@@ -95,9 +96,11 @@ const enUS: DeepStringify<typeof zhCN> = {
     upload: 'Upload',
     download: 'Download',
     transferTasks: 'Transfer Tasks',
+    noTransferTasks: 'No transfer tasks',
     transferCompleted: '{type} completed',
     transferFailed: '{type} failed',
     itemCount: '{count} items',
+    taskCount: '{count} tasks',
     loadFailed: 'Failed to load directory',
     fileTypes: {
       directory: 'Directory',

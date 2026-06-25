@@ -6,7 +6,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::models::ipc::{empty_success, error, success, IpcResult};
 use crate::models::settings::AppSettings;
-use crate::models::ssh::{SshConnectResult, SshConnection};
+use crate::models::ssh::{HostTrustRecord, SshConnectResult, SshConnection};
 use crate::services::ssh_service::{
     emit_sftp_transfer_complete, SftpTransferCompleteEvent, SftpTransferType,
 };
@@ -99,6 +99,21 @@ pub fn ssh_resize(
         Ok(()) => empty_success(),
         Err(err) => error(err.to_string()),
     }
+}
+
+/// Reserved host trust lookup for future SSH fingerprint verification flows.
+#[tauri::command]
+pub fn ssh_get_host_trust_record(
+    _state: State<'_, AppState>,
+    host: String,
+    port: u16,
+) -> IpcResult<serde_json::Value> {
+    let record: Option<HostTrustRecord> = None;
+    success(json!({
+        "host": host,
+        "port": port,
+        "record": record,
+    }))
 }
 
 /// Lists a remote directory through SFTP.

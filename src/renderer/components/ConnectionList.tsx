@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Server, MonitorPlay, Square, Search, Copy, RefreshCw, Globe, Key, X } from 'lucide-react';
 import { useConnectionStore } from '../store/useConnectionStore';
+import { useSessionStore } from '../session/useSessionStore';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { SSHConnection } from '../../shared/types';
 
@@ -11,7 +12,8 @@ interface ConnectionListProps {
 }
 
 export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectionTriggered }: ConnectionListProps) {
-  const { connections, activeConnectionId, connect, disconnect, loadConnections, saveConnection, deleteConnection } = useConnectionStore();
+  const { connections, connect, disconnect, loadConnections, saveConnection, deleteConnection } = useConnectionStore();
+  const activeConnectionId = useSessionStore((state) => state.activeSessionId);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SSHConnection | null>(null);
   const [searchTerm, setSearchTerm] = useState('');

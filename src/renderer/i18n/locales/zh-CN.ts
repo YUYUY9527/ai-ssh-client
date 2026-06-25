@@ -79,6 +79,7 @@ const zhCN = {
   },
   fileTransfer: {
     title: '文件传输 - SFTP',
+    files: '文件',
     transfer: '传输',
     homeDir: '家目录',
     parentDir: '上级目录',
@@ -89,9 +90,11 @@ const zhCN = {
     upload: '上传',
     download: '下载',
     transferTasks: '传输任务',
+    noTransferTasks: '暂无传输任务',
     transferCompleted: '{type}完成',
     transferFailed: '{type}失败',
     itemCount: '{count} 个项目',
+    taskCount: '{count} 个任务',
     loadFailed: '加载目录失败',
     fileTypes: {
       directory: '目录',

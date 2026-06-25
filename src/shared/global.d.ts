@@ -10,6 +10,7 @@ import type {
   AppSettings,
   AgentTask,
   SSHSessionState,
+  HostTrustRecord,
 } from './types';
 import type {
   IPCResult,
@@ -45,6 +46,7 @@ declare global {
       sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
       sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
       sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
+      sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
 
       onSshData: (callback: (data: { connectionId: string; data: string; type?: string; state?: SSHSessionState }) => void) => () => void;
       onSshError: (callback: (data: { connectionId: string; error: string }) => void) => () => void;

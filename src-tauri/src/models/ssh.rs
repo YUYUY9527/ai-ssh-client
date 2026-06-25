@@ -17,6 +17,17 @@ pub struct SshConnection {
     pub passphrase: Option<String>,
 }
 
+/// Reserved trust model for future host fingerprint verification flows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostTrustRecord {
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub trusted_at: u64,
+}
+
 /// Serializable SSH state used by terminal listeners.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

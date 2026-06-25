@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Clock, RefreshCw, Search } from 'lucide-react';
 import type { CommandHistoryItem } from '../../shared/types';
+import { buildCommandHistoryIndex } from '../history/command-history-index';
+import { useCommandHistoryStore } from '../history/useCommandHistoryStore';
 
 interface CommandHistoryPanelProps {
   onPasteCommand: (command: string) => void;
@@ -103,17 +105,10 @@ function deriveEffectiveCwds(historyList: CommandHistoryItem[]): HistoryItemWith
 
 export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps) {
   const [show, setShow] = useState(false);
-  const [historyList, setHistoryList] = useState<CommandHistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const loadHistory = useCallback(async () => {
-    if (!window.electronAPI) return;
-    const result = await window.electronAPI.getCommandHistory();
-    if (result.success) {
-      setHistoryList(Array.isArray(result.data?.history) ? result.data.history : []);
-    }
-  }, []);
+  const historyList = useCommandHistoryStore((state) => state.items);
+  const loadHistory = useCommandHistoryStore((state) => state.loadHistory);
 
   // 点击外部关闭
   useEffect(() => {
@@ -161,13 +156,21 @@ export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps
   }, []);
 
   const historyWithEffectiveCwd = useMemo(() => deriveEffectiveCwds(historyList), [historyList]);
+  const groupedHistory = useMemo(
+    () => buildCommandHistoryIndex(historyWithEffectiveCwd),
+    [historyWithEffectiveCwd],
+  );
 
-  // 过滤列表
-  const filtered = searchQuery
-    ? historyWithEffectiveCwd.filter(item =>
-        item.command.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : historyWithEffectiveCwd;
+  const filteredGroups = searchQuery
+    ? groupedHistory
+        .map((group) => ({
+          ...group,
+          commands: group.commands.filter((item) => (
+            item.command.toLowerCase().includes(searchQuery.toLowerCase())
+          )),
+        }))
+        .filter((group) => group.commands.length > 0)
+    : groupedHistory;
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -184,7 +187,7 @@ export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps
           <div className="app-popover-header">
             <span>历史命令</span>
             <span className="text-[10px] font-normal normal-case tracking-normal opacity-60">
-              点击粘贴 · 右侧按钮回到原目录执行
+              host → username → cwd
             </span>
           </div>
 
@@ -204,38 +207,51 @@ export function CommandHistoryPanel({ onPasteCommand }: CommandHistoryPanelProps
           </div>
 
           <div className="max-h-80 overflow-y-auto p-1">
-            {filtered.length === 0 ? (
+            {filteredGroups.length === 0 ? (
               <div className="text-center text-slate-500 dark:text-slate-400 text-sm py-4">
                 {searchQuery ? '无匹配结果' : '暂无历史命令'}
               </div>
             ) : (
-              filtered.slice(0, 50).map((item) => (
-                <div
-                  key={item.id}
-                  className="group flex items-center gap-1 mx-0.5 rounded-sm px-2 py-1.5 transition-colors hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
-                >
-                  <button
-                    onClick={() => handlePaste(item.command)}
-                    className="flex-1 text-left min-w-0"
-                  >
-                    <div className="font-mono text-xs text-slate-900 dark:text-white truncate">{item.command}</div>
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
-                      <span>
-                        {new Date(item.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      {item.connectionName && <span>· {item.connectionName}</span>}
-                      {item.effectiveCwd && <span className="text-teal-600 dark:text-teal-400">· {item.effectiveCwd}</span>}
+              filteredGroups.slice(0, 24).map((group) => (
+                <div key={`${group.host}-${group.username}-${group.cwd}`} className="mb-2">
+                  <div className="mx-1 mb-1 rounded-sm border border-[color-mix(in_srgb,var(--border-color)_56%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] px-2 py-1">
+                    <div className="text-[10px] uppercase text-slate-500 dark:text-slate-400">
+                      {group.host}
                     </div>
-                  </button>
-                  {item.effectiveCwd && (
-                    <button
-                      onClick={() => handleRerunInDir(item.command, item.effectiveCwd)}
-                      className="hidden group-hover:flex flex-shrink-0 items-center justify-center h-6 w-6 rounded-sm border border-transparent hover:border-[color-mix(in_srgb,var(--accent-primary)_50%,var(--border-color))] hover:bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-slate-400 hover:text-teal-500 transition-colors"
-                      title={`cd ${item.effectiveCwd} && ${item.command}`}
+                    <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-200">
+                      <span>{group.username}</span>
+                      <span className="text-slate-400">/</span>
+                      <span className="font-mono text-teal-600 dark:text-teal-400">{group.cwd}</span>
+                    </div>
+                  </div>
+                  {group.commands.slice(0, 8).map((item) => (
+                    <div
+                      key={item.id}
+                      className="group flex items-center gap-1 mx-0.5 rounded-sm px-2 py-1.5 transition-colors hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"
                     >
-                      <RefreshCw className="w-3 h-3" />
-                    </button>
-                  )}
+                      <button
+                        onClick={() => handlePaste(item.command)}
+                        className="flex-1 text-left min-w-0"
+                      >
+                        <div className="font-mono text-xs text-slate-900 dark:text-white truncate">{item.command}</div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                          <span>
+                            {new Date(item.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {item.connectionName && <span>· {item.connectionName}</span>}
+                        </div>
+                      </button>
+                      {item.effectiveCwd && (
+                        <button
+                          onClick={() => handleRerunInDir(item.command, item.effectiveCwd)}
+                          className="hidden group-hover:flex flex-shrink-0 items-center justify-center h-6 w-6 rounded-sm border border-transparent hover:border-[color-mix(in_srgb,var(--accent-primary)_50%,var(--border-color))] hover:bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-slate-400 hover:text-teal-500 transition-colors"
+                          title={`cd ${item.effectiveCwd} && ${item.command}`}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ))
             )}

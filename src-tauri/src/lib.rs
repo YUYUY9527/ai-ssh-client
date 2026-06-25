@@ -46,6 +46,7 @@ pub fn run() {
             ssh::ssh_get_sessions,
             ssh::ssh_test_connection,
             ssh::ssh_resize,
+            ssh::ssh_get_host_trust_record,
             ssh::sftp_list_directory,
             ssh::sftp_download_file,
             ssh::sftp_upload_file,

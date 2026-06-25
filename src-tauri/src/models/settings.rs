@@ -26,6 +26,10 @@ pub struct AppSettings {
     pub agent_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_max_execution_steps: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_persisted_sessions: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_scrollback_bytes_per_session: Option<u32>,
 }
 
 impl Default for AppSettings {
@@ -46,6 +50,8 @@ impl Default for AppSettings {
             terminal_theme: Some("dark".to_string()),
             agent_enabled: None,
             agent_max_execution_steps: None,
+            max_persisted_sessions: Some(8),
+            max_scrollback_bytes_per_session: Some(150 * 1024),
         }
     }
 }
@@ -59,6 +65,10 @@ pub struct CommandHistoryItem {
     pub timestamp: u64,
     pub connection_id: String,
     pub connection_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
     pub executed_by: String,
     pub approved: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

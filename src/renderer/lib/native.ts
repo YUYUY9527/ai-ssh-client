@@ -12,6 +12,7 @@ import type {
   SSHSessionState,
   Message,
   AgentTask,
+  HostTrustRecord,
 } from '../../shared/types';
 import type {
   AIChatResult,
@@ -37,7 +38,7 @@ import type {
   SSHConnectResult,
 } from '../../shared/ipc-types';
 
-type ListenerCleanup = () => void;
+export type ListenerCleanup = () => void;
 
 type ElectronApiLike = {
   sshConnect: (connection: SSHConnection, cols?: number, rows?: number, settings?: AppSettings) => Promise<IPCResult<SSHConnectResult>>;
@@ -47,6 +48,7 @@ type ElectronApiLike = {
   sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
   sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
   sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
+  sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
   onSshData: (callback: (data: { connectionId: string; data: string; type?: string; state?: SSHSessionState }) => void) => ListenerCleanup;
   onSshError: (callback: (data: { connectionId: string; error: string }) => void) => ListenerCleanup;
   onSshClose: (callback: (connectionId: string) => void) => ListenerCleanup;
@@ -125,7 +127,10 @@ function createTauriListener<T>(eventName: string, handler: MessageHandler<T>): 
   };
 }
 
-async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<IPCResult<T>> {
+export async function tauriInvoke<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<IPCResult<T>> {
   try {
     const result = await invoke<IPCResult<T>>(command, args);
     return result;
@@ -144,6 +149,7 @@ const nativeApi: ElectronApiLike = {
   sshGetSessions: () => tauriInvoke<SSessionsResult>('ssh_get_sessions'),
   sshResize: (connectionId, cols, rows) => tauriInvoke<void>('ssh_resize', { connectionId, cols, rows }),
   sshTestConnection: (connection) => tauriInvoke<void>('ssh_test_connection', { connection }),
+  sshGetHostTrustRecord: (host, port) => tauriInvoke<{ record: HostTrustRecord | null }>('ssh_get_host_trust_record', { host, port }),
   onSshData: (callback) => createTauriListener('ssh-data', callback),
   onSshError: (callback) => createTauriListener('ssh-error', callback),
   onSshClose: (callback) => createTauriListener('ssh-close', callback),

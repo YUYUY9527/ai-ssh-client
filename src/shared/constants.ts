@@ -122,7 +122,9 @@ export const DEFAULT_SETTINGS = {
   autoReconnect: true,
   maxReconnectAttempts: 5,
   showTerminalOutputPrompt: true,
-  terminalTheme: 'dark',  // 默认终端主题
+  terminalTheme: 'dark',
+  maxPersistedSessions: 8,
+  maxScrollbackBytesPerSession: 150 * 1024,
 };
 
 // SSH 默认端口
