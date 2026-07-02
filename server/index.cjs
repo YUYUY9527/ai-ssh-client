@@ -34,6 +34,8 @@ const defaultSettings = {
 
 const sessions = new Map();
 const sockets = new Set();
+const activeAiRequests = new Map();
+const activeAgentExecs = new Map();
 
 function success(data) {
   return data === undefined ? { success: true } : { success: true, data };
@@ -110,6 +112,190 @@ function normalizeImportData(input) {
     quickCommandGroups: asArray(data.quickCommandGroups || data.quick_command_groups),
     aiProviders: asArray(data.aiProviders || data.ai_providers),
   };
+}
+
+function maskSecret(secret) {
+  if (!secret) {
+    return undefined;
+  }
+  if (secret.length <= 8) {
+    return '*'.repeat(secret.length);
+  }
+
+  return `${secret.slice(0, 4)}***${secret.slice(-4)}`;
+}
+
+function providerToSummary(provider) {
+  const apiKey = provider.apiKey || '';
+
+  return {
+    ...provider,
+    apiKey: undefined,
+    hasApiKey: apiKey.trim().length > 0,
+    maskedApiKey: apiKey.trim() ? maskSecret(apiKey.trim()) : undefined,
+  };
+}
+
+function getProvider(providerId) {
+  return readStore().aiProviders.find((provider) => (
+    provider.id === providerId && provider.isActive
+  ));
+}
+
+function defaultBaseUrl(provider) {
+  const baseUrl = provider.baseUrl?.trim();
+  if (baseUrl) {
+    return baseUrl.replace(/\/+$/, '');
+  }
+
+  switch (provider.type) {
+    case 'ollama':
+      return 'http://host.docker.internal:11434/v1';
+    case 'gemini':
+      return 'https://generativelanguage.googleapis.com/v1beta/openai';
+    case 'anthropic':
+      return 'https://api.anthropic.com/v1';
+    case 'openai':
+    case 'openai-compatible':
+    default:
+      return 'https://api.openai.com/v1';
+  }
+}
+
+function defaultModel(provider) {
+  if (provider.model?.trim()) {
+    return provider.model.trim();
+  }
+
+  switch (provider.type) {
+    case 'ollama':
+      return 'llama3.1';
+    case 'gemini':
+      return 'gemini-2.0-flash';
+    case 'anthropic':
+      return 'claude-3-5-sonnet-latest';
+    case 'openai':
+    case 'openai-compatible':
+    default:
+      return 'gpt-4o-mini';
+  }
+}
+
+async function chatWithProvider(provider, messages, requestId) {
+  if (!provider) {
+    throw new Error('Provider not found or not active');
+  }
+
+  const apiKey = provider.apiKey?.trim() || '';
+  if (provider.type !== 'ollama' && !apiKey) {
+    throw new Error('缺少 API Key');
+  }
+
+  const controller = new AbortController();
+  const effectiveRequestId = requestId || `${provider.id}-${Date.now()}`;
+  activeAiRequests.set(effectiveRequestId, controller);
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(`${defaultBaseUrl(provider)}/chat/completions`, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: defaultModel(provider),
+        temperature: 0.7,
+        messages: messages.map((message) => ({
+          role: ['system', 'assistant', 'user'].includes(message.role) ? message.role : 'user',
+          content: message.content,
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`AI service error ${response.status}: ${body.slice(0, 500)}`);
+    }
+
+    const data = await response.json();
+    const choice = data.choices?.[0];
+    if (!choice?.message) {
+      throw new Error('AI 响应格式无效');
+    }
+
+    return {
+      content: choice.message.content || '',
+      model: data.model || defaultModel(provider),
+      finishReason: choice.finish_reason,
+      requestId: effectiveRequestId,
+      usage: data.usage
+        ? {
+            promptTokens: data.usage.prompt_tokens,
+            completionTokens: data.usage.completion_tokens,
+            totalTokens: data.usage.total_tokens,
+          }
+        : undefined,
+    };
+  } finally {
+    activeAiRequests.delete(effectiveRequestId);
+  }
+}
+
+function runSshCommand(connectionId, command, options = {}) {
+  const session = getSession(connectionId);
+  const runId = options.runId || `${connectionId}-${Date.now()}`;
+  const timeoutMs = Number(options.timeoutMs || 45000);
+
+  return new Promise((resolve) => {
+    let output = '';
+    let settled = false;
+    let timeout = null;
+
+    const finish = (reason, exitCode = null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      activeAgentExecs.delete(connectionId);
+      resolve(success({ output, exitCode, reason }));
+    };
+
+    session.client.exec(command, (error, stream) => {
+      if (error) {
+        resolve(failure(error));
+        return;
+      }
+
+      activeAgentExecs.set(connectionId, () => {
+        stream.close();
+        finish('canceled');
+      });
+
+      timeout = setTimeout(() => {
+        stream.close();
+        finish('timeout');
+      }, timeoutMs);
+
+      stream
+        .on('data', (data) => {
+          const text = data.toString('utf8');
+          output += text;
+          broadcast('agent-terminal-output', { connectionId, data: text, runId });
+        })
+        .on('close', (code) => finish('done', typeof code === 'number' ? code : null))
+        .stderr.on('data', (data) => {
+          const text = data.toString('utf8');
+          output += text;
+          broadcast('agent-terminal-output', { connectionId, data: text, runId });
+        });
+    });
+  });
 }
 
 function broadcast(type, payload) {
@@ -556,20 +742,109 @@ app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) =>
   return success({ remotePath });
 }));
 
-app.get('/api/ai/providers', route(() => success({ providers: readStore().aiProviders })));
+app.get('/api/ai/providers', route(() => success({
+  providers: readStore().aiProviders.map(providerToSummary),
+})));
 app.post('/api/ai/providers', route((request) => {
   updateStore((store) => {
     const next = request.body.provider;
+    const existing = store.aiProviders.find((item) => item.id === next.id);
+    const saved = {
+      ...existing,
+      ...next,
+      apiKey: next.apiKey || existing?.apiKey,
+    };
     store.aiProviders = [
-      ...store.aiProviders.map((item) => ({ ...item, isActive: false })).filter((item) => item.id !== next.id),
-      next,
+      ...store.aiProviders
+        .map((item) => (saved.isActive ? { ...item, isActive: false } : item))
+        .filter((item) => item.id !== saved.id),
+      saved,
     ];
+  });
+  return success();
+}));
+app.post('/api/ai/providers/:id/active', route((request) => {
+  updateStore((store) => {
+    store.aiProviders = store.aiProviders.map((provider) => ({
+      ...provider,
+      isActive: provider.id === request.params.id,
+    }));
   });
   return success();
 }));
 app.delete('/api/ai/providers/:id', route((request) => {
   updateStore((store) => {
     store.aiProviders = store.aiProviders.filter((item) => item.id !== request.params.id);
+  });
+  return success();
+}));
+app.get('/api/ai/providers/:id/secret-status', route((request) => {
+  const provider = readStore().aiProviders.find((item) => item.id === request.params.id);
+  const apiKey = provider?.apiKey?.trim() || '';
+
+  return success({
+    providerId: request.params.id,
+    hasApiKey: apiKey.length > 0,
+    maskedApiKey: maskSecret(apiKey),
+  });
+}));
+app.post('/api/ai/chat', route(async (request) => {
+  const { providerId, messages, options } = request.body;
+  const provider = getProvider(providerId);
+
+  return success(await chatWithProvider(provider, messages || [], options?.requestId));
+}));
+app.post('/api/ai/test', route(async (request) => {
+  const provider = request.body.provider;
+  return success(await chatWithProvider(
+    provider,
+    [{
+      role: 'user',
+      content: '你好，请回复“连接成功”',
+    }],
+    `test-${Date.now()}`,
+  ));
+}));
+app.post('/api/ai/cancel/:id', route((request) => {
+  activeAiRequests.get(request.params.id)?.abort();
+  activeAiRequests.delete(request.params.id);
+  return success();
+}));
+
+app.post('/api/agent/:id/start', route(() => success()));
+app.post('/api/agent/:id/stop', route((request) => {
+  activeAgentExecs.get(request.params.id)?.();
+  activeAgentExecs.delete(request.params.id);
+  return success();
+}));
+app.post('/api/agent/:id/exec-await', route((request) => (
+  runSshCommand(request.params.id, request.body.command || '', request.body.options)
+)));
+app.post('/api/agent/:id/cancel-exec', route((request) => {
+  activeAgentExecs.get(request.params.id)?.();
+  activeAgentExecs.delete(request.params.id);
+  return success();
+}));
+app.get('/api/agent/tasks', route(() => success({ tasks: readStore().agentTasks })));
+app.post('/api/agent/tasks', route((request) => {
+  updateStore((store) => {
+    const task = request.body.task;
+    store.agentTasks = [
+      task,
+      ...store.agentTasks.filter((item) => item.id !== task.id),
+    ].slice(0, 50);
+  });
+  return success();
+}));
+app.delete('/api/agent/tasks', route(() => {
+  updateStore((store) => {
+    store.agentTasks = [];
+  });
+  return success();
+}));
+app.delete('/api/agent/tasks/:id', route((request) => {
+  updateStore((store) => {
+    store.agentTasks = store.agentTasks.filter((item) => item.id !== request.params.id);
   });
   return success();
 }));

@@ -191,25 +191,33 @@ const webApi: Window['electronAPI'] = {
   onSshError: (callback) => on('ssh-error', callback),
   onSshClose: (callback) => on('ssh-close', callback),
 
-  aiChat: () => Promise.resolve(makeError<AIChatResult>('AI chat is only available in the desktop app')),
-  cancelAIChat: () => Promise.resolve({ success: true }),
+  aiChat: (providerId, messages, options) => request<AIChatResult>('/api/ai/chat', {
+    method: 'POST',
+    body: JSON.stringify({ providerId, messages, options }),
+  }),
+  cancelAIChat: (requestId) => request<void>(`/api/ai/cancel/${requestId}`, {
+    method: 'POST',
+    body: '{}',
+  }),
   getAIProviders: () => request<AIProvidersResult<AIProviderSummary>>('/api/ai/providers'),
   saveAIProvider: (provider: AIProviderConfig) => request<void>('/api/ai/providers', {
     method: 'POST',
     body: JSON.stringify({ provider }),
   }),
-  setActiveAIProvider: (providerId) => request<void>('/api/ai/providers', {
+  setActiveAIProvider: (providerId) => request<void>(`/api/ai/providers/${providerId}/active`, {
     method: 'POST',
-    body: JSON.stringify({ provider: { id: providerId, isActive: true } }),
+    body: '{}',
   }),
   deleteAIProvider: (providerId) => request<void>(`/api/ai/providers/${providerId}`, {
     method: 'DELETE',
   }),
-  testAIProvider: () => Promise.resolve(makeError<AIChatResult>('AI provider testing is only available in the desktop app')),
-  getAIProviderSecretStatus: (providerId) => Promise.resolve({
-    success: true,
-    data: { providerId, hasApiKey: false } satisfies AIProviderSecretStatusResult,
+  testAIProvider: (provider) => request<AIChatResult>('/api/ai/test', {
+    method: 'POST',
+    body: JSON.stringify({ provider }),
   }),
+  getAIProviderSecretStatus: (providerId) => request<AIProviderSecretStatusResult>(
+    `/api/ai/providers/${providerId}/secret-status`,
+  ),
 
   getConnections: () => request<ConnectionsResult<SSHConnection>>('/api/connections'),
   saveConnection: (connection) => request<void>('/api/connections', {
@@ -318,19 +326,38 @@ const webApi: Window['electronAPI'] = {
   onSftpDownloadProgress: (callback) => on('sftp-download-progress', callback),
   onSftpTransferComplete: (callback) => on('sftp-transfer-complete', callback),
 
-  agentStartTask: () => Promise.resolve(makeError('Agent mode is only available in the desktop app')),
-  agentStopTask: () => Promise.resolve({ success: true }),
+  agentStartTask: (_taskId, connectionId) => request<void>(`/api/agent/${connectionId}/start`, {
+    method: 'POST',
+    body: '{}',
+  }),
+  agentStopTask: (connectionId) => request<void>(`/api/agent/${connectionId}/stop`, {
+    method: 'POST',
+    body: '{}',
+  }),
   agentPauseTask: () => Promise.resolve({ success: true }),
   agentResumeTask: () => Promise.resolve({ success: true }),
-  agentExecAwait: () => Promise.resolve(makeError<AgentExecAwaitResult>('Agent mode is only available in the desktop app')),
-  agentCancelExec: () => Promise.resolve({ success: true }),
-  getAgentTaskHistory: () => Promise.resolve({
-    success: true,
-    data: { tasks: [] as AgentTask[] } satisfies AgentTaskHistoryResult<AgentTask>,
+  agentExecAwait: (connectionId, command, options) => request<AgentExecAwaitResult>(
+    `/api/agent/${connectionId}/exec-await`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ command, options }),
+    },
+  ),
+  agentCancelExec: (connectionId) => request<void>(`/api/agent/${connectionId}/cancel-exec`, {
+    method: 'POST',
+    body: '{}',
   }),
-  saveAgentTaskHistory: () => Promise.resolve({ success: true }),
-  clearAgentTaskHistory: () => Promise.resolve({ success: true }),
-  deleteAgentTaskHistory: () => Promise.resolve({ success: true }),
+  getAgentTaskHistory: () => request<AgentTaskHistoryResult<AgentTask>>('/api/agent/tasks'),
+  saveAgentTaskHistory: (task) => request<void>('/api/agent/tasks', {
+    method: 'POST',
+    body: JSON.stringify({ task }),
+  }),
+  clearAgentTaskHistory: () => request<void>('/api/agent/tasks', {
+    method: 'DELETE',
+  }),
+  deleteAgentTaskHistory: (taskId) => request<void>(`/api/agent/tasks/${taskId}`, {
+    method: 'DELETE',
+  }),
   onAgentTerminalOutput: (callback) => on('agent-terminal-output', callback),
 
   onSystemResume: (callback) => on('system-resume', callback),
