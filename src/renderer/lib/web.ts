@@ -251,14 +251,14 @@ const webApi: Window['electronAPI'] = {
     method: 'DELETE',
   }),
 
-  exportAllData: async () => ({
-    success: true,
-    data: { data: {} } satisfies ExportDataResult<any>,
-  }),
-  importData: async () => ({
-    success: true,
-    data: { imported: {}, skipped: [] } satisfies ImportDataResult,
-  }),
+  exportAllData: () => request<ExportDataResult<any>>('/api/export'),
+  importData: (data, options) => request<ImportDataResult>(
+    `/api/import?merge=${options?.merge === false ? 'false' : 'true'}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+  ),
 
   selectFile: (options) => chooseFile(options),
   readPrivateKeyFile: (filePath) => readSelectedFile(filePath),

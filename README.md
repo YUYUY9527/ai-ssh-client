@@ -128,6 +128,40 @@ Do not expose this service to an untrusted network. The web gateway can open SSH
 connections using the credentials saved in the app. AI assistant and agent mode
 remain desktop-only in the web deployment.
 
+### Import Saved Connections
+
+The Docker web deployment can import JSON:
+
+```powershell
+Invoke-RestMethod `
+  -Uri http://localhost:5080/api/import `
+  -Method Post `
+  -ContentType application/json `
+  -InFile .\connections.json
+```
+
+Minimum JSON shape:
+
+```json
+{
+  "connections": [
+    {
+      "id": "server-1",
+      "name": "server-1",
+      "host": "192.168.1.10",
+      "port": 22,
+      "username": "root",
+      "password": "your-password"
+    }
+  ]
+}
+```
+
+For the current Tauri desktop app, connection metadata is stored in
+`%LOCALAPPDATA%\ai-ssh-client\store.json`, but passwords, private keys, and
+passphrases live in Windows Credential Manager and are not in that file. Import
+the metadata, then edit the connection in the web page to fill the secret again.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

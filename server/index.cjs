@@ -80,6 +80,38 @@ function updateStore(update) {
   return store;
 }
 
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeConnections(input) {
+  return asArray(input).map((connection) => ({
+    id: String(connection.id || Date.now()),
+    name: String(connection.name || connection.host || 'SSH Connection'),
+    host: String(connection.host || ''),
+    port: Number(connection.port || 22),
+    username: String(connection.username || ''),
+    password: connection.password || undefined,
+    privateKey: connection.privateKey || connection.private_key || undefined,
+    passphrase: connection.passphrase || undefined,
+  })).filter((connection) => connection.host && connection.username);
+}
+
+function normalizeImportData(input) {
+  const data = input?.data || input || {};
+
+  return {
+    connections: normalizeConnections(
+      data.connections || data.sshConnections || data.ssh_connections,
+    ),
+    settings: data.settings,
+    commandHistory: asArray(data.commandHistory || data.command_history),
+    quickCommands: asArray(data.quickCommands || data.quick_commands),
+    quickCommandGroups: asArray(data.quickCommandGroups || data.quick_command_groups),
+    aiProviders: asArray(data.aiProviders || data.ai_providers),
+  };
+}
+
 function broadcast(type, payload) {
   const data = JSON.stringify({ type, payload });
   sockets.forEach((socket) => {
@@ -249,6 +281,89 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', (_request, response) => response.json(success({ ok: true })));
+
+app.get('/api/export', route(() => {
+  const store = readStore();
+
+  return success({
+    data: {
+      version: 'web-gateway-1',
+      connections: store.connections,
+      aiProviders: store.aiProviders,
+      settings: store.settings,
+      commandHistory: store.commandHistory,
+      quickCommands: store.quickCommands,
+      quickCommandGroups: store.quickCommandGroups,
+    },
+  });
+}));
+
+app.post('/api/import', route((request) => {
+  const imported = normalizeImportData(request.body);
+  const merge = request.query.merge !== 'false';
+
+  updateStore((store) => {
+    store.connections = merge
+      ? [
+          ...store.connections.filter((item) => (
+            !imported.connections.some((next) => next.id === item.id)
+          )),
+          ...imported.connections,
+        ]
+      : imported.connections;
+
+    if (imported.settings && Object.keys(imported.settings).length > 0) {
+      store.settings = { ...defaultSettings, ...store.settings, ...imported.settings };
+    }
+
+    if (imported.commandHistory.length > 0) {
+      store.commandHistory = merge
+        ? [...imported.commandHistory, ...store.commandHistory].slice(0, 500)
+        : imported.commandHistory.slice(0, 500);
+    }
+    if (imported.quickCommands.length > 0) {
+      store.quickCommands = merge
+        ? [
+            ...store.quickCommands.filter((item) => (
+              !imported.quickCommands.some((next) => next.id === item.id)
+            )),
+            ...imported.quickCommands,
+          ]
+        : imported.quickCommands;
+    }
+    if (imported.quickCommandGroups.length > 0) {
+      store.quickCommandGroups = merge
+        ? [
+            ...store.quickCommandGroups.filter((item) => (
+              !imported.quickCommandGroups.some((next) => next.id === item.id)
+            )),
+            ...imported.quickCommandGroups,
+          ]
+        : imported.quickCommandGroups;
+    }
+    if (imported.aiProviders.length > 0) {
+      store.aiProviders = merge
+        ? [
+            ...store.aiProviders.filter((item) => (
+              !imported.aiProviders.some((next) => next.id === item.id)
+            )),
+            ...imported.aiProviders,
+          ]
+        : imported.aiProviders;
+    }
+  });
+
+  return success({
+    imported: {
+      connections: imported.connections.length,
+      aiProviders: imported.aiProviders.length,
+      settings: imported.settings ? 1 : 0,
+      quickCommands: imported.quickCommands.length,
+      quickCommandGroups: imported.quickCommandGroups.length,
+    },
+    skipped: [],
+  });
+}));
 
 app.get('/api/connections', route(() => success({ connections: readStore().connections })));
 app.post('/api/connections', route((request) => {
