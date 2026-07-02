@@ -64,9 +64,9 @@ Run the web app with Docker Compose:
 docker compose up -d --build
 ```
 
-Then open <http://localhost:5060>. Set `AI_SSH_CLIENT_WEB_PORT` to use another
+Then open <http://localhost:5080>. Set `AI_SSH_CLIENT_WEB_PORT` to use another
 host port. From another device on the same LAN, open
-`http://<laptop-ip>:5060`.
+`http://<laptop-ip>:5080`.
 
 Package a Windows build:
 

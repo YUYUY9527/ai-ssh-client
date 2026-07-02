@@ -64,9 +64,9 @@ npm run build
 docker compose up -d --build
 ```
 
-然后访问 <http://localhost:5060>。如需修改宿主机端口，可设置
+然后访问 <http://localhost:5080>。如需修改宿主机端口，可设置
 `AI_SSH_CLIENT_WEB_PORT`。局域网内其他设备访问
-`http://<笔记本IP>:5060`。
+`http://<笔记本IP>:5080`。
 
 构建 Windows 安装包：
 

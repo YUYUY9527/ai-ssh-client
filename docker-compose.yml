@@ -2,7 +2,7 @@ services:
   ai-ssh-client-web:
     build: .
     ports:
-      - "${AI_SSH_CLIENT_WEB_PORT:-5060}:5060"
+      - "${AI_SSH_CLIENT_WEB_PORT:-5080}:5080"
     volumes:
       - ai-ssh-client-data:/data
     restart: unless-stopped

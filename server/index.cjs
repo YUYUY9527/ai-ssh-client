@@ -8,7 +8,7 @@ const multer = require('multer');
 const { Client } = require('ssh2');
 const { WebSocketServer } = require('ws');
 
-const PORT = Number(process.env.WEB_PORT || 5060);
+const PORT = Number(process.env.WEB_PORT || 5080);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'config.json');
 const STATIC_DIR = path.join(__dirname, '..', 'dist', 'renderer');
