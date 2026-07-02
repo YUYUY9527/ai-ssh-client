@@ -12,7 +12,20 @@ use crate::services::ssh_service::{
 };
 use crate::AppState;
 
-/// Starts an SSH session.
+/// 启动 SSH 会话
+///
+/// 建立到远程服务器的 SSH 连接，并打开一个交互式终端
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄
+/// * `state` - 应用状态
+/// * `connection` - SSH 连接配置
+/// * `cols` - 终端列数（可选，默认 80）
+/// * `rows` - 终端行数（可选，默认 24）
+/// * `settings` - 应用设置（可选）
+///
+/// # 返回
+/// 返回包含会话 ID 的连接结果
 #[tauri::command]
 pub fn ssh_connect(
     app_handle: AppHandle,
@@ -34,7 +47,11 @@ pub fn ssh_connect(
     }
 }
 
-/// Disconnects an SSH session.
+/// 断开 SSH 会话
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `connection_id` - SSH 连接 ID
 #[tauri::command]
 pub fn ssh_disconnect(state: State<'_, AppState>, connection_id: String) -> IpcResult<()> {
     match state.ssh.disconnect(&connection_id) {
@@ -43,7 +60,14 @@ pub fn ssh_disconnect(state: State<'_, AppState>, connection_id: String) -> IpcR
     }
 }
 
-/// Sends terminal input to an SSH session.
+/// 向 SSH 会话发送终端输入
+///
+/// 将用户输入的命令或文本发送到远程终端
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `connection_id` - SSH 连接 ID
+/// * `command` - 要执行的命令或输入的文本
 #[tauri::command]
 pub fn ssh_execute(
     state: State<'_, AppState>,
@@ -78,7 +102,13 @@ pub fn ssh_get_sessions(state: State<'_, AppState>) -> IpcResult<serde_json::Val
     }
 }
 
-/// Tests an SSH connection.
+/// 测试 SSH 连接
+///
+/// 尝试连接到远程服务器以验证连接配置是否正确
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `connection` - SSH 连接配置
 #[tauri::command]
 pub fn ssh_test_connection(state: State<'_, AppState>, connection: SshConnection) -> IpcResult<()> {
     match state.ssh.test_connection(connection) {
@@ -87,7 +117,15 @@ pub fn ssh_test_connection(state: State<'_, AppState>, connection: SshConnection
     }
 }
 
-/// Resizes a remote terminal.
+/// 调整远程终端大小
+///
+/// 当前端终端窗口大小变化时，同步调整远程终端的尺寸
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `connection_id` - SSH 连接 ID
+/// * `cols` - 新的列数
+/// * `rows` - 新的行数
 #[tauri::command]
 pub fn ssh_resize(
     state: State<'_, AppState>,
@@ -116,7 +154,15 @@ pub fn ssh_get_host_trust_record(
     }))
 }
 
-/// Lists a remote directory through SFTP.
+/// 通过 SFTP 列出远程目录内容
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `connection_id` - SSH 连接 ID
+/// * `remote_path` - 远程目录路径
+///
+/// # 返回
+/// 返回目录中的文件和子目录列表
 #[tauri::command]
 pub async fn sftp_list_directory(
     state: State<'_, AppState>,
@@ -148,7 +194,19 @@ pub async fn sftp_list_directory(
     )
 }
 
-/// Downloads a remote file through SFTP.
+/// 通过 SFTP 下载远程文件
+///
+/// 弹出文件保存对话框，然后在后台下载文件，并发送进度更新
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄
+/// * `state` - 应用状态
+/// * `connection_id` - SSH 连接 ID
+/// * `remote_path` - 远程文件路径
+/// * `task_id` - 可选的任务 ID（用于跟踪下载进度）
+///
+/// # 返回
+/// 返回本地保存路径
 #[tauri::command]
 pub async fn sftp_download_file(
     app_handle: AppHandle,
@@ -218,7 +276,21 @@ pub async fn sftp_download_file(
     Ok(success(json!({ "localPath": local_path_string })))
 }
 
-/// Uploads a local file through SFTP.
+/// 通过 SFTP 上传本地文件
+///
+/// 如果未提供本地路径，会弹出文件选择对话框
+/// 然后在后台上传文件，并发送进度更新
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄
+/// * `state` - 应用状态
+/// * `connection_id` - SSH 连接 ID
+/// * `local_path` - 本地文件路径（如果为空则弹出选择对话框）
+/// * `remote_dir` - 远程目标目录
+/// * `task_id` - 可选的任务 ID（用于跟踪上传进度）
+///
+/// # 返回
+/// 返回远程文件路径
 #[tauri::command]
 pub async fn sftp_upload_file(
     app_handle: AppHandle,

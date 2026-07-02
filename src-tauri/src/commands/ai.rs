@@ -12,7 +12,16 @@ pub struct AiChatOptions {
     request_id: Option<String>,
 }
 
-/// Sends a chat request to the selected AI provider.
+/// 向选定的 AI 提供商发送聊天请求
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `provider_id` - AI 提供商 ID
+/// * `messages` - 消息历史列表
+/// * `options` - 可选参数（包含请求 ID）
+///
+/// # 返回
+/// 返回 AI 的响应内容
 #[tauri::command]
 pub async fn ai_chat(
     state: State<'_, AppState>,
@@ -33,7 +42,11 @@ pub async fn ai_chat(
     )
 }
 
-/// Cancels an active AI request.
+/// 取消正在进行的 AI 请求
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `request_id` - 请求 ID
 #[tauri::command]
 pub fn ai_cancel_chat(state: State<'_, AppState>, request_id: String) -> IpcResult<()> {
     match state.ai.cancel_chat(&request_id) {
@@ -42,7 +55,13 @@ pub fn ai_cancel_chat(state: State<'_, AppState>, request_id: String) -> IpcResu
     }
 }
 
-/// Gets AI providers.
+/// 获取所有 AI 提供商配置
+///
+/// # 参数
+/// * `state` - 应用状态
+///
+/// # 返回
+/// 返回 AI 提供商列表（不包含 API 密钥）
 #[tauri::command]
 pub fn ai_get_providers(state: State<'_, AppState>) -> IpcResult<serde_json::Value> {
     match state.ai.get_providers(&state.storage) {
@@ -51,7 +70,11 @@ pub fn ai_get_providers(state: State<'_, AppState>) -> IpcResult<serde_json::Val
     }
 }
 
-/// Saves an AI provider.
+/// 保存 AI 提供商配置
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `provider` - AI 提供商配置
 #[tauri::command]
 pub fn ai_save_provider(state: State<'_, AppState>, provider: AiProviderConfig) -> IpcResult<()> {
     match state.ai.save_provider(&state.storage, provider) {
@@ -78,7 +101,16 @@ pub fn ai_set_active_provider(state: State<'_, AppState>, provider_id: String) -
     }
 }
 
-/// Tests an AI provider.
+/// 测试 AI 提供商连接
+///
+/// 发送一个测试消息来验证 AI 提供商的配置是否正确
+///
+/// # 参数
+/// * `state` - 应用状态
+/// * `config` - AI 提供商配置
+///
+/// # 返回
+/// 返回测试响应结果
 #[tauri::command]
 pub async fn ai_test_provider(
     state: State<'_, AppState>,
