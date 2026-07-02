@@ -58,6 +58,16 @@ Build the app:
 npm run build
 ```
 
+Run the web app with Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+Then open <http://localhost:5060>. Set `AI_SSH_CLIENT_WEB_PORT` to use another
+host port. From another device on the same LAN, open
+`http://<laptop-ip>:5060`.
+
 Package a Windows build:
 
 ```bash
@@ -106,6 +116,17 @@ ai-ssh-client/
 | `npm run preview` | Preview the renderer bundle. |
 | `npm run dist` | Build distributable packages. |
 | `npm run dist:win` | Build Windows distributables. |
+
+## Docker Compose
+
+The Compose deployment runs a Node web gateway and serves the React renderer in
+the same container. Browser clients connect to the gateway, and the gateway
+opens SSH/SFTP connections from the laptop running Docker. Connection data is
+stored in the `ai-ssh-client-data` Docker volume.
+
+Do not expose this service to an untrusted network. The web gateway can open SSH
+connections using the credentials saved in the app. AI assistant and agent mode
+remain desktop-only in the web deployment.
 
 ## Keyboard Shortcuts
 

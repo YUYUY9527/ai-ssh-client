@@ -9,6 +9,7 @@
     "build": "tauri build",
     "build:renderer": "vite build",
     "build:tauri": "tauri build",
+    "web": "node server/index.cjs",
     "tauri": "tauri",
     "preview": "vite preview",
     "dist": "tauri build",
@@ -22,8 +23,12 @@
     "@xterm/addon-search": "^0.15.0",
     "@xterm/xterm": "^5.5.0",
     "clsx": "^2.1.1",
+    "express": "^5.2.1",
     "lucide-react": "^0.563.0",
+    "multer": "^2.2.0",
+    "ssh2": "^1.17.0",
     "tailwind-merge": "^2.5.5",
+    "ws": "^8.21.0",
     "zustand": "^4.5.2"
   },
   "devDependencies": {

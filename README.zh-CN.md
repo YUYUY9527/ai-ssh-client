@@ -58,6 +58,16 @@ npm run dev
 npm run build
 ```
 
+使用 Docker Compose 运行 Web 版：
+
+```bash
+docker compose up -d --build
+```
+
+然后访问 <http://localhost:5060>。如需修改宿主机端口，可设置
+`AI_SSH_CLIENT_WEB_PORT`。局域网内其他设备访问
+`http://<笔记本IP>:5060`。
+
 构建 Windows 安装包：
 
 ```bash
@@ -108,6 +118,15 @@ ai-ssh-client/
 | `npm run preview` | 预览渲染进程构建结果。 |
 | `npm run dist` | 构建发布产物。 |
 | `npm run dist:win` | 构建 Windows 发布产物。 |
+
+## Docker Compose
+
+Compose 部署会在同一个容器中运行 Node Web 网关并提供 React 页面。
+浏览器连接这个网关，由运行 Docker 的笔记本发起 SSH/SFTP 连接。连接数据
+保存在 `ai-ssh-client-data` Docker volume 中。
+
+不要将该服务暴露到不可信网络。Web 网关可以使用应用中保存的凭据发起 SSH
+连接。AI 助手和智能体模式在 Web 部署中仍仅桌面端可用。
 
 ## 快捷键
 
