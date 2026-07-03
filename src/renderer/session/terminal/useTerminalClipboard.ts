@@ -53,6 +53,10 @@ function readClipboardText(): Promise<string> {
   return navigator.clipboard.readText();
 }
 
+function promptPasteText(): string {
+  return window.prompt('浏览器限制了网页读取剪贴板，请在这里按 Ctrl+V 后回车。') || '';
+}
+
 /** Handles terminal context-menu clipboard actions. */
 export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: TerminalClipboardOptions) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -88,15 +92,20 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
   }, [closeContextMenu, copyTerminalSelectionToClipboard]);
 
   const handlePaste = useCallback(() => {
-    if (xtermRef.current) {
-      readClipboardText().then((text) => {
-        inputTerminalText(connectionId, xtermRef.current, text);
-      }).catch((error) => {
-        xtermRef.current?.focus();
-        console.error('Failed to read clipboard:', error);
-      });
+    if (!xtermRef.current) {
+      closeContextMenu();
+      return;
     }
-    closeContextMenu();
+
+    readClipboardText().then((text) => {
+      inputTerminalText(connectionId, xtermRef.current, text);
+      closeContextMenu();
+    }).catch((error) => {
+      console.error('Failed to read clipboard:', error);
+      inputTerminalText(connectionId, xtermRef.current, promptPasteText());
+      xtermRef.current?.focus();
+      closeContextMenu();
+    });
   }, [closeContextMenu, connectionId, xtermRef]);
 
   const handlePasteToInput = useCallback(() => {
@@ -118,8 +127,9 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
       }
       closeContextMenu();
     }).catch((error) => {
-      xtermRef.current?.focus();
       console.error('Failed to read clipboard:', error);
+      inputTerminalText(connectionId, xtermRef.current, promptPasteText());
+      xtermRef.current?.focus();
       closeContextMenu();
     });
   }, [closeContextMenu, pasteToInput, xtermRef]);

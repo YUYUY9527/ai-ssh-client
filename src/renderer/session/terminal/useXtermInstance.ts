@@ -262,6 +262,11 @@ export function useXtermInstance({
 
   useEffect(() => {
     const handler = (command: string) => {
+      if (connectionId && window.electronAPI) {
+        window.electronAPI.sshExecuteSync(connectionId, command);
+        return;
+      }
+
       xtermRef.current?.input(command);
     };
 
@@ -308,7 +313,7 @@ export function useXtermInstance({
         delete (window as any).writeToTerminal;
       }
     };
-  }, [terminalRef, xtermRef]);
+  }, [connectionId, terminalRef, xtermRef]);
 
   useEffect(() => {
     if (xtermRef.current) {

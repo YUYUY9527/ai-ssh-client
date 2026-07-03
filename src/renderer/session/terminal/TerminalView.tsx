@@ -122,7 +122,12 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
   const handleContextMenu = (e: React.MouseEvent) => {
     if (!connectionId) return;
     e.preventDefault();
+    xtermRef.current?.focus();
     setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleTerminalPointerDown = () => {
+    xtermRef.current?.focus();
   };
 
   // 当 settings 中的 terminalTheme 变化时同步本地状态（处理异步加载）
@@ -266,6 +271,7 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
         <div
           ref={terminalRef}
           className="terminal-frame"
+          onMouseDown={handleTerminalPointerDown}
           style={{
             cursor: 'text'
           }}
