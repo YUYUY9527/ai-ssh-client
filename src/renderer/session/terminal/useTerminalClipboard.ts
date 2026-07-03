@@ -12,7 +12,7 @@ function prepareTerminalPaste(text: string): string {
 }
 
 function inputTerminalText(connectionId: string | null, term: XTerm | null, text: string): void {
-  if (!term || !text) {
+  if (!text) {
     return;
   }
 
@@ -22,7 +22,7 @@ function inputTerminalText(connectionId: string | null, term: XTerm | null, text
     return;
   }
 
-  term.input(terminalText);
+  term?.input(terminalText);
 }
 
 function copyText(text: string): void {
@@ -76,10 +76,6 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
   }, [xtermRef]);
 
   const pasteToInput = useCallback((text: string) => {
-    if (!xtermRef.current) {
-      return;
-    }
-
     const cleanText = text.replace(/[\r\n]+$/, '');
     if (cleanText) {
       inputTerminalText(connectionId, xtermRef.current, cleanText);
@@ -92,7 +88,7 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
   }, [closeContextMenu, copyTerminalSelectionToClipboard]);
 
   const handlePaste = useCallback(() => {
-    if (!xtermRef.current) {
+    if (!connectionId && !xtermRef.current) {
       closeContextMenu();
       return;
     }
@@ -109,12 +105,12 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
   }, [closeContextMenu, connectionId, xtermRef]);
 
   const handlePasteToInput = useCallback(() => {
-    if (!xtermRef.current) {
+    if (!connectionId && !xtermRef.current) {
       closeContextMenu();
       return;
     }
 
-    const selectedText = xtermRef.current.getSelection();
+    const selectedText = xtermRef.current?.getSelection();
     if (selectedText && selectedText.trim()) {
       pasteToInput(selectedText);
       closeContextMenu();

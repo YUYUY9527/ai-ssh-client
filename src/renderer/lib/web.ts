@@ -121,11 +121,6 @@ function sendSocket(type: string, payload: Record<string, unknown>): void {
 }
 
 function writeSshInput(connectionId: string, command: string): void {
-  if (socket?.readyState === WebSocket.OPEN) {
-    sendSocket('ssh-write', { connectionId, data: command });
-    return;
-  }
-
   void request<void>(`/api/ssh/${connectionId}/write`, {
     method: 'POST',
     body: JSON.stringify({ command }),
