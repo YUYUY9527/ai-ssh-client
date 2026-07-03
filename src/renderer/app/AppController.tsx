@@ -38,6 +38,18 @@ interface Tab {
   isConnecting: boolean;
 }
 
+function areTabsEqual(left: Tab[], right: Tab[]): boolean {
+  return left.length === right.length
+    && left.every((tab, index) => {
+      const next = right[index];
+      return next
+        && tab.id === next.id
+        && tab.name === next.name
+        && tab.isConnected === next.isConnected
+        && tab.isConnecting === next.isConnecting;
+    });
+}
+
 // 拖拽状态
 interface DragState {
   isDragging: boolean;
@@ -326,12 +338,14 @@ export function AppController() {
         }
       });
 
-      return nextTabs;
+      return areTabsEqual(previousTabs, nextTabs) ? previousTabs : nextTabs;
     });
 
     if (!activeTabId && sessionIds.length > 0) {
       setActiveTabId(sessionIds[0]);
-      setActiveSession(sessionIds[0]);
+      if (useSessionStore.getState().activeSessionId !== sessionIds[0]) {
+        setActiveSession(sessionIds[0]);
+      }
     }
   }, [activeTabId, sessionIds, sessionRecords, setActiveSession]);
 
