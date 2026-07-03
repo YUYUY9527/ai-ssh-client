@@ -36,6 +36,8 @@ const sessions = new Map();
 const sockets = new Set();
 const activeAiRequests = new Map();
 const activeAgentExecs = new Map();
+const SENTINEL_PREFIX = '__AGENT_DONE_';
+const AGENT_INTERRUPT_SETTLE_MS = 250;
 
 function success(data) {
   return data === undefined ? { success: true } : { success: true, data };
@@ -244,13 +246,76 @@ async function chatWithProvider(provider, messages, requestId) {
   }
 }
 
+function makeSentinelMarker(runId) {
+  return `${SENTINEL_PREFIX}${runId}__`;
+}
+
+function wrapCommandWithSentinel(command, runId) {
+  const marker = makeSentinelMarker(runId);
+  const trimmed = command.trimEnd();
+
+  if (trimmed.includes('\n') || trimmed.includes('<<')) {
+    return `\r${trimmed}\n__ais_ec=$?; printf '\\n${marker}:%s\\n' "$__ais_ec"\n`;
+  }
+
+  return `\r(${trimmed}); printf '\\n${marker}:%s\\n' "$?"\n`;
+}
+
+function formatAgentCommandEcho(command) {
+  return `\r\n${command.trimEnd()}\r\n`;
+}
+
+function stripCompleteSentinelArtifacts(input) {
+  if (!input.includes(SENTINEL_PREFIX) && !input.includes('__ais_ec=$?; printf')) {
+    return input;
+  }
+
+  return input
+    .split(/\r?\n/)
+    .filter((line) => !line.includes(SENTINEL_PREFIX) && !line.includes('__ais_ec=$?; printf'))
+    .join('\n');
+}
+
+function parseSentinel(buffer, marker) {
+  let markerIndex = buffer.indexOf(marker);
+  while (markerIndex !== -1) {
+    const afterMarker = buffer.slice(markerIndex + marker.length);
+    if (afterMarker.startsWith(':')) {
+      const exitCodeText = afterMarker.slice(1).split(/\r?\n/)[0].trim();
+      const exitCode = Number.parseInt(exitCodeText, 10);
+      if (Number.isInteger(exitCode)) {
+        return { output: buffer.slice(0, markerIndex), exitCode };
+      }
+    }
+    markerIndex = buffer.indexOf(marker, markerIndex + marker.length);
+  }
+
+  return null;
+}
+
+function stripVisibleAgentArtifacts(session, text) {
+  let nextText = text;
+  if (session.agentEchoPending) {
+    const lineEnd = nextText.search(/[\r\n]/);
+    if (lineEnd === -1) {
+      return '';
+    }
+    nextText = nextText.slice(lineEnd + 1).replace(/^\n/, '');
+    session.agentEchoPending = false;
+  }
+
+  return stripCompleteSentinelArtifacts(nextText);
+}
+
 function runSshCommand(connectionId, command, options = {}) {
   const session = getSession(connectionId);
+  const stream = session.stream;
   const runId = options.runId || `${connectionId}-${Date.now()}`;
   const timeoutMs = Number(options.timeoutMs || 45000);
+  const marker = makeSentinelMarker(runId);
 
   return new Promise((resolve) => {
-    let output = '';
+    let buffer = '';
     let settled = false;
     let timeout = null;
 
@@ -262,39 +327,39 @@ function runSshCommand(connectionId, command, options = {}) {
       if (timeout) {
         clearTimeout(timeout);
       }
+      stream.off('data', handleData);
+      stream.off('close', handleClose);
       activeAgentExecs.delete(connectionId);
+      const output = stripCompleteSentinelArtifacts(buffer);
       resolve(success({ output, exitCode, reason }));
     };
 
-    session.client.exec(command, (error, stream) => {
-      if (error) {
-        resolve(failure(error));
-        return;
+    const handleData = (data) => {
+      const text = data.toString('utf8');
+      buffer += text;
+      const parsed = parseSentinel(buffer, marker);
+      if (parsed) {
+        buffer = parsed.output;
+        finish('done', parsed.exitCode);
       }
+    };
 
-      activeAgentExecs.set(connectionId, () => {
-        stream.close();
-        finish('canceled');
-      });
+    const handleClose = () => finish('closed');
+    const interruptAndFinish = (reason) => {
+      stream.write('\x03');
+      setTimeout(() => finish(reason), AGENT_INTERRUPT_SETTLE_MS);
+    };
 
-      timeout = setTimeout(() => {
-        stream.close();
-        finish('timeout');
-      }, timeoutMs);
+    activeAgentExecs.get(connectionId)?.();
+    activeAgentExecs.set(connectionId, () => interruptAndFinish('canceled'));
 
-      stream
-        .on('data', (data) => {
-          const text = data.toString('utf8');
-          output += text;
-          broadcast('agent-terminal-output', { connectionId, data: text, runId });
-        })
-        .on('close', (code) => finish('done', typeof code === 'number' ? code : null))
-        .stderr.on('data', (data) => {
-          const text = data.toString('utf8');
-          output += text;
-          broadcast('agent-terminal-output', { connectionId, data: text, runId });
-        });
-    });
+    stream.on('data', handleData);
+    stream.on('close', handleClose);
+    timeout = setTimeout(() => interruptAndFinish('timeout'), timeoutMs);
+
+    broadcast('ssh-data', { connectionId, data: formatAgentCommandEcho(command) });
+    session.agentEchoPending = true;
+    stream.write(wrapCommandWithSentinel(command, runId));
   });
 }
 
@@ -378,9 +443,11 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
             session.ready = true;
             stream
               .on('data', (data) => {
+                const text = stripVisibleAgentArtifacts(session, data.toString('utf8'));
+                broadcast('agent-terminal-output', { connectionId: connection.id, data: text });
                 broadcast('ssh-data', {
                   connectionId: connection.id,
-                  data: data.toString('utf8'),
+                  data: text,
                 });
               })
               .on('close', () => {

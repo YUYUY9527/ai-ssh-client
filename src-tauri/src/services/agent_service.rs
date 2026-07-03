@@ -14,6 +14,7 @@ use crate::services::ssh_service::SshService;
 const SENTINEL_PREFIX: &str = "__AGENT_DONE_";
 // 默认命令执行超时时间（20 分钟）
 const DEFAULT_EXEC_TIMEOUT_MS: u64 = 20 * 60 * 1000;
+const INTERRUPT_SETTLE_MS: u64 = 250;
 // 输出缓冲区最大大小（1MB）
 const MAX_BUFFER_SIZE: usize = 1024 * 1024;
 // 缓冲区保留大小（当超过最大值时保留的尾部大小，768KB）
@@ -257,6 +258,8 @@ impl AgentService {
                     }
                 }
                 _ = &mut cancel_rx => {
+                    let _ = ssh.execute(&connection_id, "\u{3}".to_string());
+                    tokio::time::sleep(Duration::from_millis(INTERRUPT_SETTLE_MS)).await;
                     break AgentExecAwaitResult {
                         output: buffer,
                         exit_code: None,
@@ -264,6 +267,8 @@ impl AgentService {
                     };
                 }
                 _ = &mut timeout => {
+                    let _ = ssh.execute(&connection_id, "\u{3}".to_string());
+                    tokio::time::sleep(Duration::from_millis(INTERRUPT_SETTLE_MS)).await;
                     break AgentExecAwaitResult {
                         output: buffer,
                         exit_code: None,

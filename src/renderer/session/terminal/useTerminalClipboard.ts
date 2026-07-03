@@ -6,6 +6,26 @@ interface TerminalClipboardOptions {
   xtermRef: RefObject<XTerm | null>;
 }
 
+function copyText(text: string): void {
+  const fallbackCopy = () => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  };
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(fallbackCopy);
+    return;
+  }
+
+  fallbackCopy();
+}
+
 /** Handles terminal context-menu clipboard actions. */
 export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboardOptions) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -20,9 +40,7 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
       return false;
     }
 
-    navigator.clipboard.writeText(selection).catch((error) => {
-      console.error('Failed to copy terminal selection:', error);
-    });
+    copyText(selection);
     return true;
   }, [xtermRef]);
 
@@ -49,6 +67,7 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
           xtermRef.current?.paste(text);
         }
       }).catch((error) => {
+        xtermRef.current?.focus();
         console.error('Failed to read clipboard:', error);
       });
     }
@@ -74,6 +93,7 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
       }
       closeContextMenu();
     }).catch((error) => {
+      xtermRef.current?.focus();
       console.error('Failed to read clipboard:', error);
       closeContextMenu();
     });

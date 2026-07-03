@@ -123,19 +123,6 @@ export function useXtermInstance({
         return !copyTerminalSelectionToClipboard();
       }
 
-      if (event.ctrlKey && key === 'v' && event.type === 'keydown') {
-        event.preventDefault();
-        event.stopPropagation();
-        navigator.clipboard.readText().then((text) => {
-          if (text) {
-            term.paste(text);
-          }
-        }).catch((error) => {
-          console.error('Failed to paste clipboard text:', error);
-        });
-        return false;
-      }
-
       if (event.ctrlKey && key === 'f') {
         return false;
       }
