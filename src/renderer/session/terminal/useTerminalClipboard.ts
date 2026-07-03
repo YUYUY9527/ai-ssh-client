@@ -6,6 +6,14 @@ interface TerminalClipboardOptions {
   xtermRef: RefObject<XTerm | null>;
 }
 
+function inputTerminalText(term: XTerm | null, text: string): void {
+  if (!term || !text) {
+    return;
+  }
+
+  term.input(text);
+}
+
 function copyText(text: string): void {
   const fallbackCopy = () => {
     const textarea = document.createElement('textarea');
@@ -24,6 +32,14 @@ function copyText(text: string): void {
   }
 
   fallbackCopy();
+}
+
+function readClipboardText(): Promise<string> {
+  if (!navigator.clipboard?.readText) {
+    return Promise.reject(new Error('Clipboard API is unavailable'));
+  }
+
+  return navigator.clipboard.readText();
 }
 
 /** Handles terminal context-menu clipboard actions. */
@@ -51,7 +67,7 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
 
     const cleanText = text.replace(/[\r\n]+$/, '');
     if (cleanText) {
-      xtermRef.current.paste(cleanText);
+      inputTerminalText(xtermRef.current, cleanText);
     }
   }, [xtermRef]);
 
@@ -62,10 +78,8 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
 
   const handlePaste = useCallback(() => {
     if (xtermRef.current) {
-      navigator.clipboard.readText().then((text) => {
-        if (text) {
-          xtermRef.current?.paste(text);
-        }
+      readClipboardText().then((text) => {
+        inputTerminalText(xtermRef.current, text);
       }).catch((error) => {
         xtermRef.current?.focus();
         console.error('Failed to read clipboard:', error);
@@ -87,7 +101,7 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
       return;
     }
 
-    navigator.clipboard.readText().then((clipboardText) => {
+    readClipboardText().then((clipboardText) => {
       if (clipboardText) {
         pasteToInput(clipboardText);
       }
@@ -112,7 +126,7 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
       return;
     }
 
-    navigator.clipboard.readText().then((clipboardText) => {
+    readClipboardText().then((clipboardText) => {
       if (clipboardText) {
         onPasteToAI?.(clipboardText);
       }

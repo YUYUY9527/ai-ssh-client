@@ -104,6 +104,10 @@ export function useXtermInstance({
     onInstanceVersionChange();
 
     const handleTerminalPaste = (event: ClipboardEvent) => {
+      if (!terminalRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
       const text = event.clipboardData?.getData('text/plain');
       if (!text) {
         return;
@@ -111,10 +115,11 @@ export function useXtermInstance({
 
       event.preventDefault();
       event.stopPropagation();
-      term.paste(text);
+      term.input(text);
     };
 
     terminalRef.current.addEventListener('paste', handleTerminalPaste, true);
+    document.addEventListener('paste', handleTerminalPaste, true);
 
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
@@ -205,6 +210,7 @@ export function useXtermInstance({
         resizeObserverRef.current = null;
       }
       terminalRef.current?.removeEventListener('paste', handleTerminalPaste, true);
+      document.removeEventListener('paste', handleTerminalPaste, true);
       writeParsedDisposable.dispose();
       term.dispose();
       xtermRef.current = null;
@@ -226,7 +232,7 @@ export function useXtermInstance({
 
   useEffect(() => {
     const handler = (command: string) => {
-      xtermRef.current?.paste(command);
+      xtermRef.current?.input(command);
     };
 
     const claimWriteTarget = () => {
