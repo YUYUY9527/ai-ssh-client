@@ -120,8 +120,37 @@ function sendSocket(type: string, payload: Record<string, unknown>): void {
   }
 }
 
-function writeSshInput(connectionId: string, command: string): void {
-  void request<void>(`/api/ssh/${connectionId}/write`, {
+async function writeSshInput(connectionId: string, command: string): Promise<IPCResult> {
+  const result = await request<void>(`/api/ssh/${connectionId}/write`, {
+    method: 'POST',
+    body: JSON.stringify({ command }),
+  });
+
+  if (result.success || !result.error?.includes('SSH session is not connected')) {
+    return result;
+  }
+
+  const connectionsResult = await request<ConnectionsResult<SSHConnection>>('/api/connections');
+  const connection = connectionsResult.data?.connections.find((item) => item.id === connectionId);
+  if (!connection) {
+    return result;
+  }
+
+  const settingsResult = await request<SettingsResult<AppSettings>>('/api/settings');
+  const connectResult = await request<SSHConnectResult>('/api/ssh/connect', {
+    method: 'POST',
+    body: JSON.stringify({
+      connection,
+      cols: 120,
+      rows: 32,
+      settings: settingsResult.data?.settings,
+    }),
+  });
+  if (!connectResult.success) {
+    return connectResult;
+  }
+
+  return request<void>(`/api/ssh/${connectionId}/write`, {
     method: 'POST',
     body: JSON.stringify({ command }),
   });
@@ -174,12 +203,9 @@ const webApi: Window['electronAPI'] = {
     method: 'POST',
     body: '{}',
   }),
-  sshExecute: (connectionId, command) => request<void>(`/api/ssh/${connectionId}/write`, {
-    method: 'POST',
-    body: JSON.stringify({ command }),
-  }),
+  sshExecute: (connectionId, command) => writeSshInput(connectionId, command),
   sshExecuteSync: (connectionId, command) => {
-    writeSshInput(connectionId, command);
+    void writeSshInput(connectionId, command);
   },
   sshGetSessions: () => request<SSessionsResult>('/api/ssh/sessions'),
   sshResize: (connectionId, cols, rows) => request<void>(`/api/ssh/${connectionId}/resize`, {
