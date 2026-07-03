@@ -120,6 +120,18 @@ function sendSocket(type: string, payload: Record<string, unknown>): void {
   }
 }
 
+function writeSshInput(connectionId: string, command: string): void {
+  if (socket?.readyState === WebSocket.OPEN) {
+    sendSocket('ssh-write', { connectionId, data: command });
+    return;
+  }
+
+  void request<void>(`/api/ssh/${connectionId}/write`, {
+    method: 'POST',
+    body: JSON.stringify({ command }),
+  });
+}
+
 function chooseFile(options?: {
   filters?: { name: string; extensions: string[] }[];
 }): Promise<IPCResult<FileSelectResult>> {
@@ -172,7 +184,7 @@ const webApi: Window['electronAPI'] = {
     body: JSON.stringify({ command }),
   }),
   sshExecuteSync: (connectionId, command) => {
-    sendSocket('ssh-write', { connectionId, data: command });
+    writeSshInput(connectionId, command);
   },
   sshGetSessions: () => request<SSessionsResult>('/api/ssh/sessions'),
   sshResize: (connectionId, cols, rows) => request<void>(`/api/ssh/${connectionId}/resize`, {
