@@ -158,6 +158,17 @@ export function useXtermInstance({
         return !copyTerminalSelectionToClipboard();
       }
 
+      if (event.ctrlKey && key === 'v') {
+        if (event.type === 'keydown' && connectionId && window.electronAPI?.sshExecuteSync) {
+          void navigator.clipboard?.readText?.().then((text) => {
+            if (text) {
+              window.electronAPI.sshExecuteSync(connectionId, prepareTerminalPaste(text));
+            }
+          }).catch(() => {});
+        }
+        return false;
+      }
+
       if (event.ctrlKey && key === 'f') {
         return false;
       }

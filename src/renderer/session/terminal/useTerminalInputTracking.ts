@@ -210,6 +210,10 @@ export function useTerminalInputTracking({
     const term = xtermRef.current;
 
     const onDataDisposable = term.onData((data: string) => {
+      if (data === '\x16') {
+        return;
+      }
+
       if (connectionId && window.electronAPI) {
         window.electronAPI.sshExecuteSync(connectionId, data);
       }
