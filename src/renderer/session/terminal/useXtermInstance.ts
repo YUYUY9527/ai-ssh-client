@@ -115,7 +115,11 @@ export function useXtermInstance({
 
       event.preventDefault();
       event.stopPropagation();
-      term.input(text);
+      if (connectionId && window.electronAPI) {
+        window.electronAPI.sshExecuteSync(connectionId, text);
+      } else {
+        term.input(text);
+      }
     };
 
     terminalRef.current.addEventListener('paste', handleTerminalPaste, true);

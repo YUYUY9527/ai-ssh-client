@@ -2,12 +2,18 @@ import { useCallback, useState, type RefObject } from 'react';
 import type { Terminal as XTerm } from '@xterm/xterm';
 
 interface TerminalClipboardOptions {
+  connectionId: string | null;
   onPasteToAI?: (text: string) => void;
   xtermRef: RefObject<XTerm | null>;
 }
 
-function inputTerminalText(term: XTerm | null, text: string): void {
+function inputTerminalText(connectionId: string | null, term: XTerm | null, text: string): void {
   if (!term || !text) {
+    return;
+  }
+
+  if (connectionId && window.electronAPI) {
+    window.electronAPI.sshExecuteSync(connectionId, text);
     return;
   }
 
@@ -43,7 +49,7 @@ function readClipboardText(): Promise<string> {
 }
 
 /** Handles terminal context-menu clipboard actions. */
-export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboardOptions) {
+export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: TerminalClipboardOptions) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const closeContextMenu = useCallback(() => {
@@ -67,9 +73,9 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
 
     const cleanText = text.replace(/[\r\n]+$/, '');
     if (cleanText) {
-      inputTerminalText(xtermRef.current, cleanText);
+      inputTerminalText(connectionId, xtermRef.current, cleanText);
     }
-  }, [xtermRef]);
+  }, [connectionId, xtermRef]);
 
   const handleCopy = useCallback(() => {
     copyTerminalSelectionToClipboard();
@@ -79,14 +85,14 @@ export function useTerminalClipboard({ onPasteToAI, xtermRef }: TerminalClipboar
   const handlePaste = useCallback(() => {
     if (xtermRef.current) {
       readClipboardText().then((text) => {
-        inputTerminalText(xtermRef.current, text);
+        inputTerminalText(connectionId, xtermRef.current, text);
       }).catch((error) => {
         xtermRef.current?.focus();
         console.error('Failed to read clipboard:', error);
       });
     }
     closeContextMenu();
-  }, [closeContextMenu, xtermRef]);
+  }, [closeContextMenu, connectionId, xtermRef]);
 
   const handlePasteToInput = useCallback(() => {
     if (!xtermRef.current) {

@@ -102,7 +102,7 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
     handlePasteToAI,
     handlePasteToInput,
     setContextMenu,
-  } = useTerminalClipboard({ onPasteToAI, xtermRef });
+  } = useTerminalClipboard({ connectionId, onPasteToAI, xtermRef });
 
   const { renderedOutput, setRenderedOutput } = useXtermInstance({
     connectionId,
