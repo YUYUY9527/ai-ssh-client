@@ -12,6 +12,10 @@ import {
   getTerminalFontFamily,
 } from './terminal-theme';
 
+function prepareTerminalPaste(text: string): string {
+  return text.replace(/\r?\n/g, '\r');
+}
+
 interface XtermInstanceOptions {
   connectionId: string | null;
   copyTerminalSelectionToClipboard: () => boolean;
@@ -103,8 +107,29 @@ export function useXtermInstance({
     searchAddonRef.current = searchAddon;
     onInstanceVersionChange();
 
+    const shouldHandlePaste = (eventTarget: EventTarget | null) => {
+      const targetNode = eventTarget instanceof Node ? eventTarget : null;
+      const activeElement = document.activeElement;
+      const isEditable = activeElement instanceof HTMLElement
+        && (
+          activeElement.isContentEditable
+          || activeElement.tagName === 'INPUT'
+          || activeElement.tagName === 'TEXTAREA'
+        );
+
+      if (targetNode && terminalRef.current?.contains(targetNode)) {
+        return true;
+      }
+
+      if (activeElement && terminalRef.current?.contains(activeElement)) {
+        return true;
+      }
+
+      return !isEditable && Boolean(connectionId) && terminalRef.current?.offsetParent !== null;
+    };
+
     const handleTerminalPaste = (event: ClipboardEvent) => {
-      if (!terminalRef.current?.contains(event.target as Node)) {
+      if (!shouldHandlePaste(event.target)) {
         return;
       }
 
@@ -115,10 +140,11 @@ export function useXtermInstance({
 
       event.preventDefault();
       event.stopPropagation();
+      const terminalText = prepareTerminalPaste(text);
       if (connectionId && window.electronAPI) {
-        window.electronAPI.sshExecuteSync(connectionId, text);
+        window.electronAPI.sshExecuteSync(connectionId, terminalText);
       } else {
-        term.input(text);
+        term.input(terminalText);
       }
     };
 

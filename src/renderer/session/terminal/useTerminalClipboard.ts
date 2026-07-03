@@ -7,17 +7,22 @@ interface TerminalClipboardOptions {
   xtermRef: RefObject<XTerm | null>;
 }
 
+function prepareTerminalPaste(text: string): string {
+  return text.replace(/\r?\n/g, '\r');
+}
+
 function inputTerminalText(connectionId: string | null, term: XTerm | null, text: string): void {
   if (!term || !text) {
     return;
   }
 
+  const terminalText = prepareTerminalPaste(text);
   if (connectionId && window.electronAPI) {
-    window.electronAPI.sshExecuteSync(connectionId, text);
+    window.electronAPI.sshExecuteSync(connectionId, terminalText);
     return;
   }
 
-  term.input(text);
+  term.input(terminalText);
 }
 
 function copyText(text: string): void {
