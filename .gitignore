@@ -53,6 +53,10 @@ pnpm-debug.log*
 .claw/
 .workbuddy/
 .clawd-todos.json
+.agents
+.codex
+.trellis
+AGENTS.md
 
 # Local development diagnostics
 dev-*.log
