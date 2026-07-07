@@ -8,10 +8,12 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 
 use crate::error::{app_error, AppResult};
+use crate::services::sentinel::{
+    format_agent_command_echo, make_sentinel_marker, parse_sentinel,
+    strip_complete_sentinel_artifacts, wrap_command_with_sentinel, SentinelStripper,
+};
 use crate::services::ssh_service::SshService;
 
-// Sentinel 标记前缀，用于标识命令执行完成
-const SENTINEL_PREFIX: &str = "__AGENT_DONE_";
 // 默认命令执行超时时间（20 分钟）
 const DEFAULT_EXEC_TIMEOUT_MS: u64 = 20 * 60 * 1000;
 const INTERRUPT_SETTLE_MS: u64 = 250;
@@ -336,102 +338,6 @@ impl Default for AgentService {
     }
 }
 
-/// Sentinel 标记剥离器 - 用于从输出中移除 Sentinel 标记
-#[derive(Default)]
-struct SentinelStripper {
-    /// 缓冲区，用于临时存储输出
-    buffer: String,
-}
-
-impl SentinelStripper {
-    /// 接收新的输出块并返回清理后的输出
-    fn feed(&mut self, chunk: &str) -> String {
-        self.buffer.push_str(chunk);
-        let output = strip_complete_sentinel_artifacts(&self.buffer);
-        self.buffer.clear();
-        output
-    }
-
-    /// 刷新缓冲区，返回剩余的清理后的输出
-    fn flush(&mut self) -> String {
-        let output = strip_complete_sentinel_artifacts(&self.buffer);
-        self.buffer.clear();
-        output
-    }
-}
-
-/// 生成 Sentinel 标记
-///
-/// # 参数
-/// * `run_id` - 运行 ID
-///
-/// # 返回
-/// 返回唯一的 Sentinel 标记字符串
-fn make_sentinel_marker(run_id: &str) -> String {
-    format!("{SENTINEL_PREFIX}{run_id}__")
-}
-
-/// 将命令包装为带 Sentinel 标记的命令
-///
-/// 在命令执行后会打印 Sentinel 标记和退出码，用于检测命令完成。
-///
-/// # 参数
-/// * `command` - 原始命令
-/// * `run_id` - 运行 ID
-///
-/// # 返回
-/// 返回包装后的命令字符串
-fn wrap_command_with_sentinel(command: &str, run_id: &str) -> String {
-    let marker = make_sentinel_marker(run_id);
-    let trimmed = command.trim_end_matches(['\r', '\n']);
-
-    if trimmed.contains('\n') || trimmed.contains("<<") {
-        return format!("\r{trimmed}\n__ais_ec=$?; printf '\\n{marker}:%s\\n' \"$__ais_ec\"\n");
-    }
-
-    format!("\r({trimmed}); printf '\\n{marker}:%s\\n' \"$?\"\n")
-}
-
-/// 格式化命令回显（在终端中显示执行的命令）
-///
-/// # 参数
-/// * `command` - 原始命令
-///
-/// # 返回
-/// 返回格式化后的命令字符串（带换行）
-fn format_agent_command_echo(command: &str) -> String {
-    let trimmed = command.trim_end_matches(['\r', '\n']);
-    format!("\r\n{trimmed}\r\n")
-}
-
-/// 从输出缓冲区中解析 Sentinel 标记和退出码
-///
-/// # 参数
-/// * `buffer` - 输出缓冲区
-/// * `marker` - Sentinel 标记
-///
-/// # 返回
-/// 如果找到标记，返回 (命令输出, 退出码)；否则返回 None
-fn parse_sentinel(buffer: &str, marker: &str) -> Option<(String, i32)> {
-    for (marker_index, _) in buffer.match_indices(marker) {
-        let after_marker = &buffer[marker_index + marker.len()..];
-        let Some(exit_code_text) = after_marker.strip_prefix(':') else {
-            continue;
-        };
-        let exit_code_line = exit_code_text
-            .split(['\r', '\n'])
-            .next()
-            .unwrap_or_default()
-            .trim();
-        let Ok(exit_code) = exit_code_line.parse::<i32>() else {
-            continue;
-        };
-        return Some((buffer[..marker_index].to_string(), exit_code));
-    }
-
-    None
-}
-
 /// 检查输出缓冲区末尾是否包含 Shell 提示符
 ///
 /// 用于检测命令是否已经执行完成（Shell 已返回提示符）
@@ -557,23 +463,6 @@ fn is_shell_prompt_line(line: &str) -> bool {
         || suffix.ends_with("/$")
         || suffix.contains("bash-")
         || suffix.contains("sh-")
-}
-
-/// 从输出中移除完整的 Sentinel 相关内容
-///
-/// 过滤掉包含 Sentinel 标记的行和相关的辅助命令
-///
-/// # 参数
-/// * `input` - 原始输出
-///
-/// # 返回
-/// 返回清理后的输出
-fn strip_complete_sentinel_artifacts(input: &str) -> String {
-    input
-        .lines()
-        .filter(|line| !line.contains(SENTINEL_PREFIX) && !line.contains("__ais_ec=$?; printf"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// 检查命令安全性，阻止危险命令执行

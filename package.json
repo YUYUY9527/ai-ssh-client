@@ -9,6 +9,7 @@
     "build": "tauri build",
     "build:renderer": "vite build",
     "build:tauri": "tauri build",
+    "test:sentinel": "node scripts/test-sentinel-stripper.cjs",
     "web": "node server/index.cjs",
     "tauri": "tauri",
     "preview": "vite preview",

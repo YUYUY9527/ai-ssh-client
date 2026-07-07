@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 use crate::error::{app_error, AppError, AppResult};
 use crate::models::settings::AppSettings;
 use crate::models::ssh::{SftpFileInfo, SshConnection, SshEvent, SshSessionState};
+use crate::services::sentinel::SentinelStripper;
 
 enum SshControl {
     Input(String),
@@ -470,6 +471,7 @@ async fn start_shell_task(
 
     let task_session_id = session_id.clone();
     tauri::async_runtime::spawn(async move {
+        let mut visible_stripper = SentinelStripper::default();
         loop {
             tokio::select! {
                 Some(control) = control_rx.recv() => {
@@ -497,7 +499,7 @@ async fn start_shell_task(
                         Some(ChannelMsg::Data { data }) => {
                             let text = String::from_utf8_lossy(&data).to_string();
                             broadcast_session_output(&sessions, &task_session_id, &text);
-                            let visible_text = strip_agent_sentinel_lines(&text);
+                            let visible_text = visible_stripper.feed(&text);
                             if !visible_text.is_empty() {
                                 emit_ssh_data(&app_handle, &task_session_id, visible_text);
                             }
@@ -514,6 +516,11 @@ async fn start_shell_task(
                     }
                 }
             }
+        }
+
+        let visible_tail = visible_stripper.flush();
+        if !visible_tail.is_empty() {
+            emit_ssh_data(&app_handle, &task_session_id, visible_tail);
         }
 
         let _ = session
@@ -662,18 +669,6 @@ fn broadcast_session_output(
     }
 }
 
-fn strip_agent_sentinel_lines(input: &str) -> String {
-    if !input.contains("__AGENT_DONE_") && !input.contains("__ais_ec=$?; printf") {
-        return input.to_string();
-    }
-
-    input
-        .lines()
-        .filter(|line| !line.contains("__AGENT_DONE_") && !line.contains("__ais_ec=$?; printf"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn emit_ssh_state(app_handle: &AppHandle, state: SshSessionState) {
     let payload = SshEvent {
         connection_id: state.connection_id.clone(),
@@ -703,9 +698,6 @@ fn emit_ssh_error(app_handle: &AppHandle, connection_id: &str, error: &str) {
 }
 
 /// Emits a terminal SFTP transfer event for foreground and background UI listeners.
-pub fn emit_sftp_transfer_complete(
-    app_handle: &AppHandle,
-    event: SftpTransferCompleteEvent,
-) {
+pub fn emit_sftp_transfer_complete(app_handle: &AppHandle, event: SftpTransferCompleteEvent) {
     let _ = app_handle.emit("sftp-transfer-complete", event);
 }

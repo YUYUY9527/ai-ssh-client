@@ -7,6 +7,14 @@ const express = require('express');
 const multer = require('multer');
 const { Client } = require('ssh2');
 const { WebSocketServer } = require('ws');
+const {
+  formatAgentCommandEcho,
+  makeSentinelMarker,
+  parseSentinel,
+  stripCompleteSentinelArtifacts,
+  stripVisibleAgentArtifacts,
+  wrapCommandWithSentinel,
+} = require('./sentinel.cjs');
 
 const PORT = Number(process.env.WEB_PORT || 5080);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
@@ -36,7 +44,6 @@ const sessions = new Map();
 const sockets = new Set();
 const activeAiRequests = new Map();
 const activeAgentExecs = new Map();
-const SENTINEL_PREFIX = '__AGENT_DONE_';
 const AGENT_INTERRUPT_SETTLE_MS = 250;
 
 function success(data) {
@@ -244,67 +251,6 @@ async function chatWithProvider(provider, messages, requestId) {
   } finally {
     activeAiRequests.delete(effectiveRequestId);
   }
-}
-
-function makeSentinelMarker(runId) {
-  return `${SENTINEL_PREFIX}${runId}__`;
-}
-
-function wrapCommandWithSentinel(command, runId) {
-  const marker = makeSentinelMarker(runId);
-  const trimmed = command.trimEnd();
-
-  if (trimmed.includes('\n') || trimmed.includes('<<')) {
-    return `\r${trimmed}\n__ais_ec=$?; printf '\\n${marker}:%s\\n' "$__ais_ec"\n`;
-  }
-
-  return `\r(${trimmed}); printf '\\n${marker}:%s\\n' "$?"\n`;
-}
-
-function formatAgentCommandEcho(command) {
-  return `\r\n${command.trimEnd()}\r\n`;
-}
-
-function stripCompleteSentinelArtifacts(input) {
-  if (!input.includes(SENTINEL_PREFIX) && !input.includes('__ais_ec=$?; printf')) {
-    return input;
-  }
-
-  return input
-    .split(/\r?\n/)
-    .filter((line) => !line.includes(SENTINEL_PREFIX) && !line.includes('__ais_ec=$?; printf'))
-    .join('\n');
-}
-
-function parseSentinel(buffer, marker) {
-  let markerIndex = buffer.indexOf(marker);
-  while (markerIndex !== -1) {
-    const afterMarker = buffer.slice(markerIndex + marker.length);
-    if (afterMarker.startsWith(':')) {
-      const exitCodeText = afterMarker.slice(1).split(/\r?\n/)[0].trim();
-      const exitCode = Number.parseInt(exitCodeText, 10);
-      if (Number.isInteger(exitCode)) {
-        return { output: buffer.slice(0, markerIndex), exitCode };
-      }
-    }
-    markerIndex = buffer.indexOf(marker, markerIndex + marker.length);
-  }
-
-  return null;
-}
-
-function stripVisibleAgentArtifacts(session, text) {
-  let nextText = text;
-  if (session.agentEchoPending) {
-    const lineEnd = nextText.search(/[\r\n]/);
-    if (lineEnd === -1) {
-      return '';
-    }
-    nextText = nextText.slice(lineEnd + 1).replace(/^\n/, '');
-    session.agentEchoPending = false;
-  }
-
-  return stripCompleteSentinelArtifacts(nextText);
 }
 
 function runSshCommand(connectionId, command, options = {}) {
