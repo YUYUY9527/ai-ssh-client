@@ -64,7 +64,7 @@ interface AgentConversationSummary {
   latestTask: AgentTask;
 }
 
-const PET_BUTTON_SIZE = 64;
+const PET_BUTTON_SIZE = 56;
 const PET_DEFAULT_RIGHT = 20;
 const PET_DEFAULT_BOTTOM = 48;
 const PET_EDGE_PADDING = 12;
@@ -72,10 +72,10 @@ const PET_LONG_PRESS_MS = 360;
 const PET_MOVE_CANCEL_THRESHOLD = 8;
 const PET_PANEL_GAP = 16;
 const PET_PANEL_EDGE_PADDING = 16;
-const PET_PANEL_MAX_WIDTH = 430;
-const PET_PANEL_MAX_HEIGHT = 680;
+const PET_PANEL_MAX_WIDTH = 400;
+const PET_PANEL_MAX_HEIGHT = 620;
 const PET_PANEL_VERTICAL_RESERVE = 144;
-const COMPLETION_BURST_MS = 1900;
+const COMPLETION_BURST_MS = 1200;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -1098,9 +1098,12 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
       )}
 
       <button
+        type="button"
         ref={buttonRef}
         className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${shouldShowCompletionCue ? 'agent-pet-button-done' : ''} ${isCompletionBurstVisible && !isCompletionViewed ? 'agent-pet-button-complete-burst' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''} ${isDraggingPet ? 'agent-pet-button-dragging' : ''}`}
         style={{ left: `${position.x}px`, top: `${position.y}px` }}
+        aria-expanded={isOpen}
+        aria-pressed={isOpen}
         onPointerDown={handlePetPointerDown}
         onPointerMove={handlePetPointerMove}
         onPointerUp={handlePetPointerEnd}
@@ -1116,22 +1119,9 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
           <span className="agent-pet-mouth" />
           {isBusy && <span className="agent-pet-blush" />}
         </span>
-        {isBusy && (
-          <>
-            <span className="agent-pet-orbit" />
-            <span className="agent-pet-spark agent-pet-spark-1" />
-            <span className="agent-pet-spark agent-pet-spark-2" />
-            <span className="agent-pet-spark agent-pet-spark-3" />
-          </>
-        )}
+        {isBusy && <span className="agent-pet-orbit" />}
         {shouldShowCompletionEffects && (
-          <>
-            <span className="agent-pet-done-ring" />
-            <span className="agent-pet-done-spark agent-pet-done-spark-1" />
-            <span className="agent-pet-done-spark agent-pet-done-spark-2" />
-            <span className="agent-pet-done-spark agent-pet-done-spark-3" />
-            <span className="agent-pet-done-spark agent-pet-done-spark-4" />
-          </>
+          <span className="agent-pet-done-ring" />
         )}
         {hasAlert && <span className="agent-pet-exclaim">!</span>}
       </button>
