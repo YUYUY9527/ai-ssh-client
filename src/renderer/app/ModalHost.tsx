@@ -1,5 +1,5 @@
 import { lazy, Suspense, type Dispatch, type SetStateAction } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Wifi, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FolderOpen, KeyRound, Loader2, Wifi, X } from 'lucide-react';
 
 import type { AppSettings, CommandSuggestion, SSHConnection } from '../../shared/types';
 
@@ -73,6 +73,38 @@ export function ModalHost({
   onSetDeletingConnection,
   onTestConnection,
 }: ModalHostProps) {
+  const handleSelectPrivateKey = async () => {
+    if (!window.electronAPI) {
+      return;
+    }
+
+    const result = await window.electronAPI.selectFile({
+      title: translate('connection.form.selectPrivateKey'),
+      filters: [
+        { name: 'PEM Files', extensions: ['pem', 'key', 'ppk'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+
+    if (!result.success || result.data?.canceled || !result.data?.filePath) {
+      return;
+    }
+
+    const contentResult = await window.electronAPI.readPrivateKeyFile(result.data.filePath);
+    if (contentResult.success && contentResult.data?.content) {
+      onChangeEditingConnection((previous) => (
+        previous ? { ...previous, privateKey: contentResult.data.content } : null
+      ));
+      onSetConnectionTestResult(null);
+      return;
+    }
+
+    onSetConnectionTestResult({
+      success: false,
+      message: contentResult.error || translate('connection.form.privateKeyReadFailed'),
+    });
+  };
+
   return (
     <>
       {isSettingsOpen && (
@@ -168,6 +200,55 @@ export function ModalHost({
                   className="industrial-input w-full"
                   placeholder="********"
                 />
+              </div>
+              <div className="industrial-card space-y-3 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-sm border border-teal-500/35 bg-teal-500/10">
+                      <KeyRound className="h-4 w-4 text-teal-500" />
+                    </span>
+                    <div className="min-w-0">
+                      <label className="industrial-field-label mb-0">
+                        {translate('connection.form.authByKey')}
+                      </label>
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                        {translate('connection.form.privateKey')}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSelectPrivateKey}
+                    className="industrial-button-secondary shrink-0 px-3 py-1.5"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    {translate('connection.form.selectPrivateKey')}
+                  </button>
+                </div>
+                <textarea
+                  value={editingConnection.privateKey || ''}
+                  onChange={(event) => onChangeEditingConnection((previous) => (
+                    previous ? { ...previous, privateKey: event.target.value } : null
+                  ))}
+                  className="industrial-input h-24 w-full resize-none font-mono text-xs"
+                  placeholder={translate('connection.form.privateKeyPlaceholder')}
+                />
+                {editingConnection.privateKey && (
+                  <div>
+                    <label className="industrial-field-label">
+                      {translate('connection.form.passphrase')}
+                    </label>
+                    <input
+                      type="password"
+                      value={editingConnection.passphrase || ''}
+                      onChange={(event) => onChangeEditingConnection((previous) => (
+                        previous ? { ...previous, passphrase: event.target.value } : null
+                      ))}
+                      className="industrial-input w-full"
+                      placeholder={translate('connection.form.passphrasePlaceholder')}
+                    />
+                  </div>
+                )}
               </div>
               {connectionTestResult && (
                 <div className={`industrial-card flex items-center gap-2 px-3 py-2 ${

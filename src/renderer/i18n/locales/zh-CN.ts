@@ -61,6 +61,9 @@ const zhCN = {
       passphrase: '密钥密码',
       selectPrivateKey: '选择私钥文件',
       authByKey: '密钥认证',
+      privateKeyPlaceholder: '粘贴 OpenSSH 私钥内容，或从本机选择私钥文件',
+      passphrasePlaceholder: '私钥密码（可选）',
+      privateKeyReadFailed: '读取私钥文件失败',
     },
   },
   tab: {

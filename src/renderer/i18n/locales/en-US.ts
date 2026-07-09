@@ -67,6 +67,9 @@ const enUS: DeepStringify<typeof zhCN> = {
       passphrase: 'Passphrase',
       selectPrivateKey: 'Select Private Key File',
       authByKey: 'Key Authentication',
+      privateKeyPlaceholder: 'Paste an OpenSSH private key, or select a key file from this machine',
+      passphrasePlaceholder: 'Private key passphrase (optional)',
+      privateKeyReadFailed: 'Failed to read private key file',
     },
   },
   tab: {
