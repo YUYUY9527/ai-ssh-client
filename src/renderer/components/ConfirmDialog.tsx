@@ -1,5 +1,5 @@
 import { AlertTriangle, Info } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { useI18n } from '../i18n';
 
 interface ConfirmDialogProps {
@@ -24,12 +24,13 @@ export function ConfirmDialog({
   type = 'warning',
 }: ConfirmDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const messageId = useId();
   const { t } = useI18n();
 
   const resolvedConfirmText = confirmText ?? t('common.confirm');
   const resolvedCancelText = cancelText ?? t('common.cancel');
 
-  // 自动聚焦到确认按钮
   useEffect(() => {
     if (isOpen && confirmButtonRef.current) {
       confirmButtonRef.current.focus();
@@ -40,43 +41,50 @@ export function ConfirmDialog({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-      {/* 背景遮罩 */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onCancel}
       />
 
-      {/* 对话框 */}
-      <div className="industrial-modal relative max-w-md w-full mx-4 p-6 animate-in fade-in zoom-in-95 duration-200">
-        {/* 标题 */}
-        <div className="flex items-center gap-3 mb-4">
-          {type === 'warning' ? (
-            <AlertTriangle className="w-6 h-6 text-orange-500" />
-          ) : (
-            <Info className="w-6 h-6 text-blue-500" />
-          )}
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-            {title}
-          </h3>
+      <div
+        className="industrial-modal relative mx-4 w-full max-w-md animate-in fade-in zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
+      >
+        <div className="industrial-modal-header">
+          <div className="flex items-center gap-3">
+            {type === 'warning' ? (
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+            ) : (
+              <Info className="h-5 w-5 text-blue-500" />
+            )}
+            <h3 id={titleId} className="font-semibold text-slate-900 dark:text-white">
+              {title}
+            </h3>
+          </div>
         </div>
 
-        {/* 消息 */}
-        <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">
-          {message}
-        </p>
+        <div className="p-4">
+          <p id={messageId} className="text-sm text-slate-600 dark:text-slate-300">
+            {message}
+          </p>
+        </div>
 
-        {/* 按钮 */}
-        <div className="flex justify-end gap-3">
+        <div className="industrial-modal-footer">
           <button
+            type="button"
             onClick={onCancel}
             className="industrial-button-secondary"
           >
             {resolvedCancelText}
           </button>
           <button
+            type="button"
             ref={confirmButtonRef}
             onClick={onConfirm}
-            className="industrial-button-primary"
+            className={type === 'warning' ? 'industrial-button-danger' : 'industrial-button-primary'}
           >
             {resolvedConfirmText}
           </button>

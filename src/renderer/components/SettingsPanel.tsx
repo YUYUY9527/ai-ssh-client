@@ -16,15 +16,17 @@ type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'security' | 'agent' | 'la
 
 interface ToggleButtonProps {
   enabled: boolean;
+  label: string;
   onChange: (enabled: boolean) => void;
 }
 
-function ToggleButton({ enabled, onChange }: ToggleButtonProps) {
+function ToggleButton({ enabled, label, onChange }: ToggleButtonProps) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={enabled}
+      aria-label={label}
       onClick={() => onChange(!enabled)}
       className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full border transition-colors ${
         enabled
@@ -45,7 +47,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [localSettings, setLocalSettings] = useState<AppSettings>({
     ...settings,
-    // 安全设置
     approveHighRisk: settings.approveHighRisk ?? true,
     approveMediumRisk: settings.approveMediumRisk ?? true,
     rememberChoice: settings.rememberChoice ?? true,
@@ -72,28 +73,29 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   ] as const;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="industrial-modal w-full max-w-2xl max-h-[80vh] flex flex-col">
-        {/* Header */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">
+      <div className="industrial-modal flex max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
         <div className="industrial-modal-header">
           <h2 className="font-semibold text-slate-900 dark:text-white">{t('settings.title')}</h2>
           <button
+            type="button"
             onClick={onClose}
             className="icon-button"
+            aria-label={t('common.close')}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
-          <div className="w-48 border-r border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))] p-2 overflow-y-auto scrollbar-thin">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
+          <div className="scrollbar-thin flex w-full shrink-0 gap-1 overflow-x-auto border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))] p-2 sm:w-48 sm:flex-col sm:overflow-y-auto sm:border-b-0 sm:border-r">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-sm border text-sm transition-colors ${
+                aria-pressed={activeTab === tab.id}
+                className={`flex shrink-0 items-center gap-2 rounded-sm border px-3 py-2 text-sm transition-colors sm:w-full ${
                   activeTab === tab.id
                     ? 'border-teal-500 bg-teal-600 text-white'
                     : 'border-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -105,13 +107,11 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             ))}
           </div>
 
-          {/* Settings Content */}
-          <div className="flex-1 p-6 overflow-y-auto scrollbar-modern">
+          <div className="scrollbar-modern min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
             {activeTab === 'terminal' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.terminal.title')}</h3>
 
-                {/* 字体大小 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                     {t('settings.terminal.fontSize')}
@@ -122,7 +122,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       min="10"
                       max="24"
                       value={localSettings.fontSize}
-                      onChange={(e) => setLocalSettings({ ...localSettings, fontSize: parseInt(e.target.value) })}
+                      onChange={(e) => setLocalSettings({ ...localSettings, fontSize: parseInt(e.target.value, 10) })}
                       className="flex-1"
                     />
                     <span className="text-sm text-slate-600 dark:text-slate-400 w-12">
@@ -131,7 +131,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </div>
                 </div>
 
-                {/* 字体 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                     {t('settings.terminal.fontFamily')}
@@ -155,10 +154,9 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             )}
 
             {activeTab === 'ssh' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.ssh.title')}</h3>
 
-                {/* Keepalive 间隔 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                     {t('settings.ssh.keepaliveInterval')}
@@ -168,13 +166,12 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     min="0"
                     max="300"
                     value={localSettings.keepaliveInterval}
-                    onChange={(e) => setLocalSettings({ ...localSettings, keepaliveInterval: parseInt(e.target.value) || 0 })}
+                    onChange={(e) => setLocalSettings({ ...localSettings, keepaliveInterval: parseInt(e.target.value, 10) || 0 })}
                     className="industrial-input w-full"
                   />
                   <p className="text-xs text-slate-500 mt-1">{t('settings.ssh.keepaliveDisableHint')}</p>
                 </div>
 
-                {/* 最大 Keepalive 次数 */}
                 <div>
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                     {t('settings.ssh.keepaliveCountMax')}
@@ -184,12 +181,11 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     min="1"
                     max="10"
                     value={localSettings.keepaliveCountMax}
-                    onChange={(e) => setLocalSettings({ ...localSettings, keepaliveCountMax: parseInt(e.target.value) || 3 })}
+                    onChange={(e) => setLocalSettings({ ...localSettings, keepaliveCountMax: parseInt(e.target.value, 10) || 3 })}
                     className="industrial-input w-full"
                   />
                 </div>
 
-                {/* 自动重连 */}
                 <div className="flex items-center justify-between">
                   <div>
                     <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.ssh.autoReconnect')}</label>
@@ -197,11 +193,11 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </div>
                   <ToggleButton
                     enabled={localSettings.autoReconnect}
+                    label={t('settings.ssh.autoReconnect')}
                     onChange={(value) => setLocalSettings({ ...localSettings, autoReconnect: value })}
                   />
                 </div>
 
-                {/* 最大重连次数 */}
                 {localSettings.autoReconnect && (
                   <div>
                     <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
@@ -212,7 +208,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       min="1"
                       max="10"
                       value={localSettings.maxReconnectAttempts}
-                      onChange={(e) => setLocalSettings({ ...localSettings, maxReconnectAttempts: parseInt(e.target.value) || 5 })}
+                      onChange={(e) => setLocalSettings({ ...localSettings, maxReconnectAttempts: parseInt(e.target.value, 10) || 5 })}
                     className="industrial-input w-full"
                     />
                   </div>
@@ -221,7 +217,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             )}
 
             {activeTab === 'agent' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.agent.title')}</h3>
 
                 <div className="industrial-card border-teal-500/50 bg-teal-500/10 p-4">
@@ -230,7 +226,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </p>
                 </div>
 
-                {/* 执行控制 */}
                 <div>
                   <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.agent.executionControl')}</h4>
 
@@ -242,6 +237,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       </div>
                       <ToggleButton
                         enabled={localSettings.agentEnabled ?? true}
+                        label={t('settings.agent.enableAgent')}
                         onChange={(value) => setLocalSettings({ ...localSettings, agentEnabled: value })}
                       />
                     </div>
@@ -251,6 +247,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       <p className="text-xs text-slate-500 mb-2">{t('settings.agent.maxStepsDesc')}</p>
                       <div className="flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => {
                             const current = localSettings.agentMaxExecutionSteps ?? 20;
                             if (current > 1) {
@@ -265,7 +262,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           type="number"
                           value={localSettings.agentMaxExecutionSteps ?? 20}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value);
+                            const value = parseInt(e.target.value, 10);
                             if (!isNaN(value) && value >= 1) {
                               setLocalSettings({ ...localSettings, agentMaxExecutionSteps: value });
                             }
@@ -275,6 +272,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           className="industrial-input w-20 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                         <button
+                          type="button"
                           onClick={() => {
                             const current = localSettings.agentMaxExecutionSteps ?? 20;
                             if (current < 100) {
@@ -298,7 +296,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             )}
 
             {activeTab === 'security' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.security.title')}</h3>
 
                 <div className="industrial-card border-yellow-500/50 bg-yellow-500/10 p-4">
@@ -307,7 +305,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </p>
                 </div>
 
-                {/* 命令审批 */}
                 <div>
                   <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.security.commandApproval')}</h4>
 
@@ -319,6 +316,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       </div>
                       <ToggleButton
                         enabled={localSettings.approveHighRisk ?? true}
+                        label={t('settings.security.approveHighRisk')}
                         onChange={(value) => setLocalSettings({ ...localSettings, approveHighRisk: value })}
                       />
                     </div>
@@ -330,6 +328,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       </div>
                       <ToggleButton
                         enabled={localSettings.approveMediumRisk ?? false}
+                        label={t('settings.security.approveMediumRisk')}
                         onChange={(value) => setLocalSettings({ ...localSettings, approveMediumRisk: value })}
                       />
                     </div>
@@ -341,6 +340,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       </div>
                       <ToggleButton
                         enabled={localSettings.rememberChoice ?? true}
+                        label={t('settings.security.rememberChoice')}
                         onChange={(value) => setLocalSettings({ ...localSettings, rememberChoice: value })}
                       />
                     </div>
@@ -350,7 +350,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             )}
 
             {activeTab === 'language' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.language.title')}</h3>
 
                 <div>
@@ -362,10 +362,12 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     {(Object.entries(localeNames) as Array<[Locale, string]>).map(([locale, name]) => (
                       <button
                         key={locale}
+                        type="button"
                         onClick={() => {
                           setLocalSettings({ ...localSettings, language: locale });
                           useI18nStore.getState().setLocale(locale);
                         }}
+                        aria-pressed={localSettings.language === locale}
                         className={`flex items-center gap-3 px-4 py-3 rounded-sm border text-sm transition-colors ${
                           localSettings.language === locale
                             ? 'border-teal-500 bg-teal-600/10 text-teal-600 dark:text-teal-400'
@@ -386,15 +388,16 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="industrial-modal-footer">
+        <div className="industrial-modal-footer shrink-0">
           <button
+            type="button"
             onClick={onClose}
             className="industrial-button-secondary"
           >
             {t('common.cancel')}
           </button>
           <button
+            type="button"
             onClick={handleSave}
             className="industrial-button-primary"
           >

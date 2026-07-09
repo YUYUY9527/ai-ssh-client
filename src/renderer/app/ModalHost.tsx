@@ -128,8 +128,10 @@ export function ModalHost({
                   : translate('connection.newConnection')}
               </h3>
               <button
+                type="button"
                 onClick={() => onChangeEditingConnection(null)}
                 className="icon-button"
+                aria-label={translate('common.close')}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -268,6 +270,7 @@ export function ModalHost({
 
               <div className="flex items-center justify-between pt-2">
                 <button
+                  type="button"
                   onClick={onTestConnection}
                   disabled={testingConnection || !editingConnection.host || !editingConnection.username}
                   className="industrial-button-secondary"
@@ -282,6 +285,7 @@ export function ModalHost({
 
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={() => {
                       onChangeEditingConnection(null);
                       onSetConnectionTestResult(null);
@@ -291,6 +295,7 @@ export function ModalHost({
                     {translate('common.cancel')}
                   </button>
                   <button
+                    type="button"
                     onClick={onSaveConnection}
                     disabled={
                       !editingConnection.name
@@ -323,12 +328,14 @@ export function ModalHost({
             </div>
             <div className="industrial-modal-footer">
               <button
+                type="button"
                 onClick={() => onSetDeletingConnection(null)}
                 className="industrial-button-secondary"
               >
                 {translate('common.cancel')}
               </button>
               <button
+                type="button"
                 onClick={onDeleteConnection}
                 className="industrial-button-danger"
               >

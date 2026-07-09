@@ -216,7 +216,9 @@ const enUS: DeepStringify<typeof zhCN> = {
     system: 'Follow System',
   },
   commandStatus: {
+    running: 'Running: {command}',
     completed: 'Command completed',
+    failed: 'Command failed',
   },
   aiProvider: {
     title: 'AI Providers',

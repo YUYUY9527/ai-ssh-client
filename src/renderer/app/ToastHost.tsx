@@ -20,10 +20,15 @@ export function ToastHost({ toasts, onDismiss, translate }: ToastHostProps) {
   }
 
   return (
-    <div className="fixed right-4 top-16 z-[70] w-[min(22rem,calc(100vw-2rem))] space-y-2">
+    <div
+      className="fixed right-4 top-16 z-[70] w-[min(22rem,calc(100vw-2rem))] space-y-2"
+      aria-live="polite"
+      aria-relevant="additions text"
+    >
       {toasts.map((toast) => (
         <div
           key={toast.id}
+          role="status"
           className={`industrial-card border px-3 py-2 shadow-lg ${
             toast.type === 'success'
               ? 'border-green-500/30 bg-green-50 text-green-800 dark:bg-green-950/70 dark:text-green-200'
@@ -38,13 +43,15 @@ export function ToastHost({ toasts, onDismiss, translate }: ToastHostProps) {
             )}
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium">{toast.title}</div>
-              <div className="mt-0.5 truncate text-xs opacity-80" title={toast.body}>
+              <div className="mt-0.5 break-words text-xs opacity-80" title={toast.body}>
                 {toast.body}
               </div>
             </div>
             <button
+              type="button"
               onClick={() => onDismiss(toast.id)}
               className="rounded-sm p-0.5 opacity-70 transition-opacity hover:opacity-100"
+              aria-label={translate('common.close')}
               title={translate('common.close')}
             >
               <X className="h-3.5 w-3.5" />

@@ -164,7 +164,7 @@
   .app-popover-header {
     @apply flex items-center justify-between border-b px-3 py-2 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
     border-color: color-mix(in srgb, var(--accent-primary) 20%, var(--border-color));
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
   }
 
   .app-popover-row {
@@ -735,7 +735,7 @@
 
   .agent-chat-detail-label {
     @apply text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
   }
 
   .agent-chat-command {
@@ -955,7 +955,7 @@
   }
 
   .industrial-modal-footer {
-    @apply flex items-center justify-end gap-2 border-t p-4;
+    @apply flex flex-wrap items-center justify-end gap-2 border-t p-4;
     background: color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--accent-primary) 20%, var(--border-color));
   }
@@ -1005,21 +1005,21 @@
   }
 
   .industrial-button-danger {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200;
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50;
     box-shadow: 0 14px 30px rgba(220, 38, 38, 0.18);
   }
 
-  .industrial-button-danger:hover {
+  .industrial-button-danger:hover:not(:disabled) {
     @apply bg-red-500;
   }
 
   .industrial-field-label {
     @apply mb-1.5 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
   }
 
   .industrial-setting-row {
-    @apply flex items-center justify-between gap-4 rounded-md border p-3;
+    @apply flex flex-col items-start justify-between gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:gap-4;
     background:
       linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 48%),
       color-mix(in srgb, var(--bg-primary) 60%, var(--bg-secondary));
@@ -1029,7 +1029,7 @@
   .industrial-table-head {
     @apply border-b px-3 py-2 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
     border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
   }
 
   .agent-task-card {

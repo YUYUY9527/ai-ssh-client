@@ -210,7 +210,9 @@ const zhCN = {
     system: '跟随系统',
   },
   commandStatus: {
+    running: '执行中：{command}',
     completed: '命令执行完成',
+    failed: '命令执行失败',
   },
   aiProvider: {
     title: 'AI 供应商',

@@ -76,7 +76,6 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
 
   const handleApprove = () => {
     if (rememberChoice) {
-      // 保存选择到本地存储
       localStorage.setItem(`risk_approval_${command.riskLevel}`, 'approved');
     }
     onApprove();
@@ -92,30 +91,30 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className={`industrial-modal border-2 ${colors.border} w-full max-w-lg`}>
-        <div className={`p-6 border-b border-slate-700 ${colors.bg}`}>
+        <div className={`border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] p-4 sm:p-5 ${colors.bg}`}>
           <div className="flex items-start gap-4">
-            <div className={`${colors.iconBg} p-3 rounded-md`}>
+            <div className={`${colors.iconBg} rounded-md p-3 text-white`}>
               {getRiskIcon()}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-lg text-white">{t('commandApproval.title')}</h3>
-                <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{t('commandApproval.title')}</h3>
+                <span className={`rounded-sm border px-2 py-0.5 text-xs font-medium ${colors.bg} ${colors.border} ${colors.text}`}>
                   {getRiskLabel()}
                 </span>
               </div>
-              <p className="text-slate-400 text-sm mt-1">{command.description}</p>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{command.description}</p>
             </div>
           </div>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="space-y-4 p-4 sm:p-5">
           <div>
-            <label className="block text-xs text-slate-500 mb-2 uppercase tracking-wider">
+            <label className="mb-2 block text-xs font-semibold uppercase text-slate-500">
               {t('commandApproval.commandToExecute')}
             </label>
             <div className="industrial-card p-4">
-              <code className="text-sm font-mono text-green-400 break-all">
+              <code className="break-all font-mono text-sm text-emerald-700 dark:text-green-400">
                 {command.command}
               </code>
             </div>
@@ -126,16 +125,18 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="text-red-400 font-medium text-sm">{t('commandApproval.riskWarning')}</h4>
-                  <p className="text-red-300 text-sm mt-1">{command.riskDescription}</p>
+                  <h4 className="text-sm font-medium text-red-600 dark:text-red-400">{t('commandApproval.riskWarning')}</h4>
+                  <p className="mt-1 text-sm text-red-700 dark:text-red-300">{command.riskDescription}</p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* 记住选择 */}
           <div className="flex items-center gap-2 p-3 industrial-card">
             <button
+              type="button"
+              role="checkbox"
+              aria-checked={rememberChoice}
               onClick={() => setRememberChoice(!rememberChoice)}
               className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
                 rememberChoice
@@ -148,7 +149,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
               )}
             </button>
             <div className="flex-1">
-              <span className="text-sm text-slate-300 flex items-center gap-1.5">
+              <span className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300">
                 <Save className="w-3.5 h-3.5" />
                 {t('commandApproval.rememberChoice')}
               </span>
@@ -163,6 +164,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
 
         <div className="industrial-modal-footer">
           <button
+            type="button"
             onClick={handleReject}
             className="industrial-button-secondary"
           >
@@ -170,6 +172,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
             {t('common.cancel')}
           </button>
           <button
+            type="button"
             onClick={handleApprove}
             className={`${
               command.riskLevel === 'critical'
