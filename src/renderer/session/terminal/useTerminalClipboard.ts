@@ -1,8 +1,10 @@
 import { useCallback, useState, type RefObject } from 'react';
 import type { Terminal as XTerm } from '@xterm/xterm';
 
+import { t } from '../../i18n';
+
 interface TerminalClipboardOptions {
-  connectionId: string | null;
+  liveConnectionId: string | null;
   onPasteToAI?: (text: string) => void;
   xtermRef: RefObject<XTerm | null>;
 }
@@ -11,7 +13,7 @@ function prepareTerminalPaste(text: string): string {
   return text.replace(/\r?\n/g, '\r');
 }
 
-function inputTerminalText(connectionId: string | null, term: XTerm | null, text: string): void {
+function inputTerminalText(connectionId: string | null, text: string): void {
   if (!text) {
     return;
   }
@@ -19,10 +21,7 @@ function inputTerminalText(connectionId: string | null, term: XTerm | null, text
   const terminalText = prepareTerminalPaste(text);
   if (connectionId && window.electronAPI) {
     window.electronAPI.sshExecuteSync(connectionId, terminalText);
-    return;
   }
-
-  term?.input(terminalText);
 }
 
 function copyText(text: string): void {
@@ -54,11 +53,11 @@ function readClipboardText(): Promise<string> {
 }
 
 function promptPasteText(): string {
-  return window.prompt('浏览器限制了网页读取剪贴板，请在这里按 Ctrl+V 后回车。') || '';
+  return window.prompt(t('terminal.clipboardPrompt')) || '';
 }
 
 /** Handles terminal context-menu clipboard actions. */
-export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: TerminalClipboardOptions) {
+export function useTerminalClipboard({ liveConnectionId, onPasteToAI, xtermRef }: TerminalClipboardOptions) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const closeContextMenu = useCallback(() => {
@@ -78,9 +77,9 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
   const pasteToInput = useCallback((text: string) => {
     const cleanText = text.replace(/[\r\n]+$/, '');
     if (cleanText) {
-      inputTerminalText(connectionId, xtermRef.current, cleanText);
+      inputTerminalText(liveConnectionId, cleanText);
     }
-  }, [connectionId, xtermRef]);
+  }, [liveConnectionId]);
 
   const handleCopy = useCallback(() => {
     copyTerminalSelectionToClipboard();
@@ -88,24 +87,24 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
   }, [closeContextMenu, copyTerminalSelectionToClipboard]);
 
   const handlePaste = useCallback(() => {
-    if (!connectionId && !xtermRef.current) {
+    if (!liveConnectionId) {
       closeContextMenu();
       return;
     }
 
     readClipboardText().then((text) => {
-      inputTerminalText(connectionId, xtermRef.current, text);
+      inputTerminalText(liveConnectionId, text);
       closeContextMenu();
     }).catch((error) => {
       console.error('Failed to read clipboard:', error);
-      inputTerminalText(connectionId, xtermRef.current, promptPasteText());
+      inputTerminalText(liveConnectionId, promptPasteText());
       xtermRef.current?.focus();
       closeContextMenu();
     });
-  }, [closeContextMenu, connectionId, xtermRef]);
+  }, [closeContextMenu, liveConnectionId, xtermRef]);
 
   const handlePasteToInput = useCallback(() => {
-    if (!connectionId && !xtermRef.current) {
+    if (!liveConnectionId) {
       closeContextMenu();
       return;
     }
@@ -124,11 +123,11 @@ export function useTerminalClipboard({ connectionId, onPasteToAI, xtermRef }: Te
       closeContextMenu();
     }).catch((error) => {
       console.error('Failed to read clipboard:', error);
-      inputTerminalText(connectionId, xtermRef.current, promptPasteText());
+      inputTerminalText(liveConnectionId, promptPasteText());
       xtermRef.current?.focus();
       closeContextMenu();
     });
-  }, [closeContextMenu, pasteToInput, xtermRef]);
+  }, [closeContextMenu, liveConnectionId, pasteToInput, xtermRef]);
 
   const handlePasteToAI = useCallback(() => {
     if (!xtermRef.current) {

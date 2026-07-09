@@ -9,6 +9,8 @@ interface TerminalContextMenuProps {
   onPasteToInput: () => void;
   onPasteToAI: () => void;
   onClose: () => void;
+  canPasteToTerminal: boolean;
+  translate: (key: string, params?: Record<string, string | number>) => string;
 }
 
 /** Context menu for terminal selection, paste and assistant actions. */
@@ -20,6 +22,8 @@ export function TerminalContextMenu({
   onPasteToInput,
   onPasteToAI,
   onClose,
+  canPasteToTerminal,
+  translate,
 }: TerminalContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y });
@@ -65,29 +69,31 @@ export function TerminalContextMenu({
         className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
       >
         <Copy className="w-4 h-4" />
-        复制
+        {translate('terminal.copy')}
       </button>
       <button
         onClick={(event) => { event.stopPropagation(); onPaste(); }}
-        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+        disabled={!canPasteToTerminal}
+        className="app-popover-row text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-300"
       >
         <Clipboard className="w-4 h-4" />
-        粘贴
+        {translate('terminal.paste')}
       </button>
       <div className="border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] my-1" />
       <button
         onClick={(event) => { event.stopPropagation(); onPasteToInput(); }}
-        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+        disabled={!canPasteToTerminal}
+        className="app-popover-row text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-300"
       >
         <Edit3 className="w-4 h-4" />
-        粘贴到终端输入栏
+        {translate('terminal.pasteToInput')}
       </button>
       <button
         onClick={(event) => { event.stopPropagation(); onPasteToAI(); }}
         className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
       >
         <Edit3 className="w-4 h-4" />
-        粘贴到AI助手
+        {translate('terminal.pasteToAI')}
       </button>
     </div>
   );

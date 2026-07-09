@@ -41,6 +41,14 @@ export function WorkspaceTabs({
     return null;
   }
 
+  const getTabStatusClass = (tab: WorkspaceTab) => {
+    if (tab.restoredFromScrollback) return 'bg-slate-400';
+    if (tab.state === 'error') return 'bg-red-500';
+    if (tab.isConnecting) return 'bg-yellow-500 animate-pulse';
+    if (tab.isConnected) return 'bg-green-500';
+    return 'bg-slate-500';
+  };
+
   return (
     <div className="workspace-tabbar">
       {tabs.map((tab) => (
@@ -60,10 +68,7 @@ export function WorkspaceTabs({
             dragState.isDragging && dragState.draggedTabId === tab.id ? 'opacity-50' : ''
           }`}
         >
-          <span className={`status-dot ${
-            tab.isConnecting ? 'bg-yellow-500 animate-pulse' :
-            tab.isConnected ? 'bg-green-500' : 'bg-slate-500'
-          }`} />
+          <span className={`status-dot ${getTabStatusClass(tab)}`} />
           <span className="truncate max-w-32">{tab.name}</span>
           <button
             onClick={(event) => onCloseTab(event, tab.id)}

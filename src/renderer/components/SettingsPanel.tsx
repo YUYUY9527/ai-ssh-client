@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Terminal, Wifi, Shield, Bot, KeyRound, Globe } from 'lucide-react';
+import { Check, X, Terminal, Wifi, Shield, Bot, KeyRound, Globe } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
 import { useI18n, useI18nStore, localeNames } from '../i18n';
 import type { Locale } from '../i18n';
@@ -375,7 +375,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                         <Globe className="w-4 h-4" />
                         <span className="font-medium">{name}</span>
                         {localSettings.language === locale && (
-                          <span className="ml-auto text-xs text-teal-500">✓</span>
+                          <Check className="ml-auto h-4 w-4 text-teal-500" />
                         )}
                       </button>
                     ))}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, XCircle, ShieldAlert, Save } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, XCircle, ShieldAlert, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { CommandSuggestion } from '../../shared/types';
 
@@ -89,9 +89,6 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
     onReject();
   };
 
-  // 检查是否有记住的选择
-  const savedChoice = localStorage.getItem(`risk_approval_${command.riskLevel}`);
-
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className={`industrial-modal border-2 ${colors.border} w-full max-w-lg`}>
@@ -147,9 +144,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
               }`}
             >
               {rememberChoice && (
-                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                </svg>
+                <Check className="w-3 h-3 text-white" />
               )}
             </button>
             <div className="flex-1">

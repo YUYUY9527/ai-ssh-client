@@ -147,7 +147,7 @@ function extractCommandFromTerminalOutput(output: string): string | null {
 }
 
 interface TerminalInputTrackingOptions {
-  connectionId: string | null;
+  liveConnectionId: string | null;
   syncAlternateScreenState: () => boolean | undefined;
   terminalInstanceVersion: number;
   xtermRef: RefObject<XTerm | null>;
@@ -155,7 +155,7 @@ interface TerminalInputTrackingOptions {
 
 /** Tracks user input, cwd hints and command history writes for one terminal instance. */
 export function useTerminalInputTracking({
-  connectionId,
+  liveConnectionId,
   syncAlternateScreenState,
   terminalInstanceVersion,
   xtermRef,
@@ -192,10 +192,10 @@ export function useTerminalInputTracking({
       }
     };
     void loadData();
-  }, [connectionId]);
+  }, [liveConnectionId]);
 
   useEffect(() => {
-    if (!xtermRef.current || !connectionId) {
+    if (!xtermRef.current || !liveConnectionId) {
       if (onDataDisposableRef.current) {
         onDataDisposableRef.current.dispose();
         onDataDisposableRef.current = null;
@@ -214,8 +214,8 @@ export function useTerminalInputTracking({
         return;
       }
 
-      if (connectionId && window.electronAPI) {
-        window.electronAPI.sshExecuteSync(connectionId, data);
+      if (liveConnectionId && window.electronAPI) {
+        window.electronAPI.sshExecuteSync(liveConnectionId, data);
       }
 
       if (syncAlternateScreenState()) {
@@ -256,12 +256,12 @@ export function useTerminalInputTracking({
           void (async () => {
             if (window.electronAPI) {
               const { connections } = useConnectionStore.getState();
-              const connection = connections.find(item => item.id === connectionId);
+              const connection = connections.find(item => item.id === liveConnectionId);
               const historyItem: CommandHistoryItem = {
                 id: Date.now().toString(),
                 command,
                 timestamp: Date.now(),
-                connectionId: connectionId || '',
+                connectionId: liveConnectionId || '',
                 connectionName: connection?.name || 'Unknown',
                 host: connection?.host,
                 username: connection?.username,
@@ -314,7 +314,7 @@ export function useTerminalInputTracking({
         onDataDisposableRef.current = null;
       }
     };
-  }, [connectionId, syncAlternateScreenState, terminalInstanceVersion, xtermRef]);
+  }, [liveConnectionId, syncAlternateScreenState, terminalInstanceVersion, xtermRef]);
 
   return {
     consumeOutputChunk,

@@ -17,12 +17,13 @@ function prepareTerminalPaste(text: string): string {
 }
 
 interface XtermInstanceOptions {
-  connectionId: string | null;
   copyTerminalSelectionToClipboard: () => boolean;
   fontSize: number;
+  liveConnectionId: string | null;
   onInstanceVersionChange: () => void;
   resetInputTracking: () => void;
   searchAddonRef: RefObject<SearchAddon | null>;
+  sessionId: string | null;
   settings?: AppSettings;
   syncAlternateScreenState: () => boolean | undefined;
   terminalRef: RefObject<HTMLDivElement | null>;
@@ -32,12 +33,13 @@ interface XtermInstanceOptions {
 
 /** Owns xterm lifecycle, sizing, write target registration and option synchronization. */
 export function useXtermInstance({
-  connectionId,
   copyTerminalSelectionToClipboard,
   fontSize,
+  liveConnectionId,
   onInstanceVersionChange,
   resetInputTracking,
   searchAddonRef,
+  sessionId,
   settings,
   syncAlternateScreenState,
   terminalRef,
@@ -49,13 +51,18 @@ export function useXtermInstance({
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveConnectionIdRef = useRef(liveConnectionId);
   const [renderedOutput, setRenderedOutput] = useState('');
 
+  useEffect(() => {
+    liveConnectionIdRef.current = liveConnectionId;
+  }, [liveConnectionId]);
+
   const resizeSSH = useCallback((cols: number, rows: number) => {
-    if (connectionId && window.electronAPI) {
-      window.electronAPI.sshResize(connectionId, cols, rows);
+    if (liveConnectionIdRef.current && window.electronAPI) {
+      window.electronAPI.sshResize(liveConnectionIdRef.current, cols, rows);
     }
-  }, [connectionId]);
+  }, []);
 
   const fitAndResize = useCallback(() => {
     if (!xtermRef.current || !fitAddonRef.current) {
@@ -70,7 +77,13 @@ export function useXtermInstance({
   }, [resizeSSH, xtermRef]);
 
   useEffect(() => {
-    if (!connectionId || !terminalRef.current) {
+    if (liveConnectionId) {
+      fitAndResize();
+    }
+  }, [fitAndResize, liveConnectionId]);
+
+  useEffect(() => {
+    if (!sessionId || !terminalRef.current) {
       if (xtermRef.current) {
         xtermRef.current.dispose();
         xtermRef.current = null;
@@ -105,6 +118,7 @@ export function useXtermInstance({
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
+    setRenderedOutput('');
     onInstanceVersionChange();
 
     const shouldHandlePaste = (eventTarget: EventTarget | null) => {
@@ -125,7 +139,7 @@ export function useXtermInstance({
         return true;
       }
 
-      return !isEditable && Boolean(connectionId) && terminalRef.current?.offsetParent !== null;
+      return !isEditable && Boolean(liveConnectionIdRef.current) && terminalRef.current?.offsetParent !== null;
     };
 
     const handleTerminalPaste = (event: ClipboardEvent) => {
@@ -141,10 +155,8 @@ export function useXtermInstance({
       event.preventDefault();
       event.stopPropagation();
       const terminalText = prepareTerminalPaste(text);
-      if (connectionId && window.electronAPI) {
-        window.electronAPI.sshExecuteSync(connectionId, terminalText);
-      } else {
-        term.input(terminalText);
+      if (liveConnectionIdRef.current && window.electronAPI) {
+        window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, terminalText);
       }
     };
 
@@ -159,10 +171,10 @@ export function useXtermInstance({
       }
 
       if (event.ctrlKey && key === 'v') {
-        if (event.type === 'keydown' && connectionId && window.electronAPI?.sshExecuteSync) {
+        if (event.type === 'keydown' && liveConnectionIdRef.current && window.electronAPI?.sshExecuteSync) {
           void navigator.clipboard?.readText?.().then((text) => {
-            if (text) {
-              window.electronAPI.sshExecuteSync(connectionId, prepareTerminalPaste(text));
+            if (text && liveConnectionIdRef.current) {
+              window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, prepareTerminalPaste(text));
             }
           }).catch(() => {});
         }
@@ -195,15 +207,17 @@ export function useXtermInstance({
     fitTimeoutRef.current = setTimeout(doInitialFit, 200);
 
     const handleWindowResize = () => {
-      if (connectionId && terminalRef.current) {
+      if (terminalRef.current) {
         fitAndResize();
       }
     };
     window.addEventListener('resize', handleWindowResize);
 
     term.clear();
-    term.write(`\x1b[1;32m=== ${t('terminal.sshConnected')} ===\x1b[0m\r\n`);
-    term.write(`\x1b[1;33m${t('terminal.waitingServer')}\x1b[0m\r\n\r\n`);
+    if (liveConnectionIdRef.current) {
+      term.write(`\x1b[1;32m=== ${t('terminal.sshConnected')} ===\x1b[0m\r\n`);
+      term.write(`\x1b[1;33m${t('terminal.waitingServer')}\x1b[0m\r\n\r\n`);
+    }
     resetInputTracking();
 
     const writeParsedDisposable = term.onWriteParsed(() => {
@@ -260,12 +274,12 @@ export function useXtermInstance({
       onInstanceVersionChange();
     };
   }, [
-    connectionId,
     copyTerminalSelectionToClipboard,
     fitAndResize,
     onInstanceVersionChange,
     resetInputTracking,
     searchAddonRef,
+    sessionId,
     syncAlternateScreenState,
     terminalRef,
     xtermRef,
@@ -273,12 +287,9 @@ export function useXtermInstance({
 
   useEffect(() => {
     const handler = (command: string) => {
-      if (connectionId && window.electronAPI) {
-        window.electronAPI.sshExecuteSync(connectionId, command);
-        return;
+      if (liveConnectionIdRef.current && window.electronAPI) {
+        window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, command);
       }
-
-      xtermRef.current?.input(command);
     };
 
     const claimWriteTarget = () => {
@@ -324,7 +335,7 @@ export function useXtermInstance({
         delete (window as any).writeToTerminal;
       }
     };
-  }, [connectionId, terminalRef, xtermRef]);
+  }, [terminalRef, xtermRef]);
 
   useEffect(() => {
     if (xtermRef.current) {

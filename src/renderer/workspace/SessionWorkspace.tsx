@@ -1,4 +1,5 @@
 import type { AppSettings } from '../../shared/types';
+import type { Session } from '../../shared/types';
 import { SessionTerminal } from '../session/SessionTerminal';
 import { SftpSidebar } from '../transfer/SftpSidebar';
 import { WorkspaceLayout } from './WorkspaceLayout';
@@ -8,6 +9,9 @@ export interface WorkspaceTab {
   name: string;
   isConnected: boolean;
   isConnecting: boolean;
+  lastError?: string;
+  restoredFromScrollback?: boolean;
+  state?: Session['state'];
 }
 
 interface SessionWorkspaceProps {
@@ -49,7 +53,8 @@ export function SessionWorkspace({
           style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
         >
           <SessionTerminal
-            connectionId={tab.isConnected ? tab.id : null}
+            liveConnectionId={tab.isConnected ? tab.id : null}
+            sessionId={tab.id}
             onPasteToAI={onPasteToAI}
             theme={theme}
             settings={settings}
@@ -58,7 +63,8 @@ export function SessionWorkspace({
       ))}
       {tabs.length === 0 && (
         <SessionTerminal
-          connectionId={null}
+          liveConnectionId={null}
+          sessionId={null}
           onPasteToAI={onPasteToAI}
           theme={theme}
           settings={settings}

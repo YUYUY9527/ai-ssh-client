@@ -16,7 +16,7 @@ import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../i18n';
-import type { CommandSuggestion, SSHSessionState, SSHConnection } from '../../shared/types';
+import type { CommandSuggestion, SSHSessionState, SSHConnection, Session } from '../../shared/types';
 import type { AppSettings } from '../../shared/types';
 import { useSessionBridge } from '../session/useSessionBridge';
 import { useSessionRecovery } from '../session/useSessionRecovery';
@@ -36,6 +36,9 @@ interface Tab {
   name: string;
   isConnected: boolean;
   isConnecting: boolean;
+  lastError?: string;
+  restoredFromScrollback?: boolean;
+  state?: Session['state'];
 }
 
 function areTabsEqual(left: Tab[], right: Tab[]): boolean {
@@ -46,7 +49,10 @@ function areTabsEqual(left: Tab[], right: Tab[]): boolean {
         && tab.id === next.id
         && tab.name === next.name
         && tab.isConnected === next.isConnected
-        && tab.isConnecting === next.isConnecting;
+        && tab.isConnecting === next.isConnecting
+        && tab.state === next.state
+        && tab.restoredFromScrollback === next.restoredFromScrollback
+        && tab.lastError === next.lastError;
     });
 }
 
@@ -319,6 +325,9 @@ export function AppController() {
         name: session.title,
         isConnected: session.state === 'connected',
         isConnecting: session.state === 'connecting' || session.state === 'reconnecting',
+        lastError: session.lastError,
+        restoredFromScrollback: session.restoredFromScrollback,
+        state: session.state,
       };
     };
 
@@ -379,8 +388,11 @@ export function AppController() {
   const getConnectionStatus = () => {
     const currentTab = openTabs.find(tab => tab.id === activeTabId);
     if (!currentTab) return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.disconnected'), color: 'text-slate-500' };
+    if (currentTab.restoredFromScrollback) return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.restored'), color: 'text-slate-500' };
+    if (currentTab.state === 'reconnecting') return { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: t('connection.status.reconnecting'), color: 'text-yellow-500' };
     if (currentTab.isConnecting) return { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: t('connection.status.connecting'), color: 'text-yellow-500' };
     if (currentTab.isConnected) return { icon: <Wifi className="w-3 h-3" />, text: t('connection.status.connected'), color: 'text-green-500' };
+    if (currentTab.state === 'error') return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.error'), color: 'text-red-500' };
     return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.closed'), color: 'text-red-500' };
   };
 

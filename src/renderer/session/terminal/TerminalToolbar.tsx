@@ -1,4 +1,4 @@
-import { Search, ZoomIn, ZoomOut } from 'lucide-react';
+import { Palette, Search, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface TerminalToolbarProps {
   fontSize: number;
@@ -6,6 +6,7 @@ interface TerminalToolbarProps {
   terminalTheme: string;
   themeNames: Record<string, string>;
   themes: Record<string, { background?: string }>;
+  translate: (key: string, params?: Record<string, string | number>) => string;
   isThemeSelectorOpen: boolean;
   onDecreaseFontSize: () => void;
   onIncreaseFontSize: () => void;
@@ -21,6 +22,7 @@ export function TerminalToolbar({
   terminalTheme,
   themeNames,
   themes,
+  translate,
   isThemeSelectorOpen,
   onDecreaseFontSize,
   onIncreaseFontSize,
@@ -33,7 +35,7 @@ export function TerminalToolbar({
       <button
         onClick={onDecreaseFontSize}
         className="terminal-control"
-        title="缩小 (Ctrl+-)"
+        title={translate('terminal.zoomOut')}
       >
         <ZoomOut className="w-4 h-4" />
       </button>
@@ -41,14 +43,14 @@ export function TerminalToolbar({
       <button
         onClick={onIncreaseFontSize}
         className="terminal-control"
-        title="放大 (Ctrl++)"
+        title={translate('terminal.zoomIn')}
       >
         <ZoomIn className="w-4 h-4" />
       </button>
       <button
         onClick={onToggleSearch}
         className={`terminal-control ${isSearchOpen ? 'terminal-control-active' : ''}`}
-        title="搜索 (Ctrl+F)"
+        title={translate('terminal.search')}
       >
         <Search className="w-4 h-4" />
       </button>
@@ -57,11 +59,9 @@ export function TerminalToolbar({
         <button
           onClick={onToggleThemeSelector}
           className="terminal-control"
-          title="切换主题"
+          title={translate('terminal.changeTheme')}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-          </svg>
+          <Palette className="w-4 h-4" />
         </button>
 
         {isThemeSelectorOpen && (
@@ -81,7 +81,7 @@ export function TerminalToolbar({
                     className="w-4 h-4 rounded-sm border border-slate-300 dark:border-slate-600"
                     style={{ background: themes[themeKey].background }}
                   />
-                  {themeNames[themeKey]}
+                  {themeNames[themeKey].startsWith('terminal.') ? translate(themeNames[themeKey]) : themeNames[themeKey]}
                 </div>
               </button>
             ))}

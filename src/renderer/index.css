@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-  /* 鏆楄壊涓婚 (榛樿) */
+  /* Dark theme */
   :root, .dark {
     --bg-primary: #080c10;
     --bg-secondary: #0f151b;
@@ -18,7 +18,7 @@
     --surface-shadow: 0 18px 55px rgba(0, 0, 0, 0.32);
   }
 
-  /* 娴呰壊涓婚 */
+  /* Light theme */
   .light {
     --bg-primary: #f3f1ea;
     --bg-secondary: #fcfbf6;
@@ -75,22 +75,20 @@
   .app-shell {
     @apply flex h-screen flex-col overflow-hidden text-slate-900 dark:text-slate-100;
     background:
-      radial-gradient(circle at 12% 10%, rgba(20, 184, 166, 0.16), transparent 28%),
-      radial-gradient(circle at 86% 8%, rgba(249, 115, 22, 0.12), transparent 30%),
-      linear-gradient(90deg, rgba(20, 184, 166, 0.06) 1px, transparent 1px),
-      linear-gradient(180deg, rgba(249, 115, 22, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 5%, transparent) 1px, transparent 1px),
+      linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 3%, transparent) 1px, transparent 1px),
       var(--bg-primary);
-    background-size: auto, auto, 58px 58px, 58px 58px, auto;
+    background-size: 64px 64px, 64px 64px, auto;
   }
 
   .app-header {
     @apply relative z-[80] flex h-14 flex-shrink-0 items-center justify-between border-b px-3;
     background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 30%),
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 42%),
       color-mix(in srgb, var(--bg-secondary) 86%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 30%, var(--border-color));
-    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent-primary) 28%, transparent), 0 18px 44px rgba(0, 0, 0, 0.22);
-    backdrop-filter: blur(18px);
+    border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent-primary) 18%, transparent), 0 10px 30px rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(14px);
   }
 
   .app-title-mark {
@@ -129,7 +127,6 @@
 
   .toolbar-button-primary:hover {
     background: linear-gradient(180deg, #2dd4bf, #0f8f84);
-    transform: translateY(-1px);
   }
 
   .toolbar-button-active {
@@ -180,10 +177,8 @@
 
   .workspace-tabbar {
     @apply relative z-[40] flex h-10 flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2;
-    background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 38%),
-      color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary));
-    border-color: color-mix(in srgb, var(--accent-primary) 22%, var(--border-color));
+    background: color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
   }
 
   .workspace-tab {
@@ -198,9 +193,9 @@
   .workspace-tab-active {
     @apply text-slate-950 shadow-sm dark:text-white;
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary)), var(--bg-primary));
+      linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 10%, var(--bg-secondary)), var(--bg-primary));
     border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
-    box-shadow: inset 0 2px 0 var(--accent-primary), 0 10px 28px rgba(20, 184, 166, 0.1);
+    box-shadow: inset 0 2px 0 var(--accent-primary), 0 8px 20px rgba(20, 184, 166, 0.08);
   }
 
   .status-dot {
@@ -218,8 +213,8 @@
       linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 24%, transparent), transparent 55%),
       var(--bg-secondary);
     border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    animation: agent-pet-float 3.6s ease-in-out infinite, agent-pet-idle-tilt 8s ease-in-out infinite;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    animation: agent-pet-float 5s ease-in-out infinite;
     touch-action: none;
     user-select: none;
   }
@@ -230,12 +225,12 @@
       linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 34%, transparent), transparent 58%),
       color-mix(in srgb, var(--bg-hover) 72%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--accent-primary) 82%, var(--border-color));
-    animation: agent-pet-float 3.6s ease-in-out infinite, agent-pet-glow 2s ease-in-out infinite;
+    animation: agent-pet-float 5s ease-in-out infinite;
   }
 
   .agent-pet-button-alert {
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3), 0 0 0 3px rgba(249, 115, 22, 0.22);
-    animation: agent-pet-float 3.6s ease-in-out infinite, agent-pet-alert-bounce 0.6s ease-in-out infinite;
+    animation: agent-pet-float 5s ease-in-out infinite;
   }
 
   .agent-pet-button-busy {
@@ -909,11 +904,46 @@
     border-color: color-mix(in srgb, var(--accent-primary) 70%, #063b36);
   }
 
-  .terminal-empty-state {
+  .terminal-state-overlay {
     @apply absolute inset-0 flex items-center justify-center text-slate-500 dark:text-slate-400;
     background:
-      radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent-primary) 11%, transparent), transparent 34%),
+      linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 76%, transparent), transparent),
       var(--bg-primary);
+  }
+
+  .terminal-state-overlay-waiting {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, #eab308 9%, var(--bg-secondary)), transparent),
+      var(--bg-primary);
+  }
+
+  .terminal-state-overlay-error {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, #ef4444 10%, var(--bg-secondary)), transparent),
+      var(--bg-primary);
+  }
+
+  .terminal-state-banner {
+    @apply absolute left-3 top-3 z-10 flex max-w-[min(28rem,calc(100%-1.5rem))] items-center gap-2 rounded-md border px-3 py-2 text-slate-600 shadow-lg dark:text-slate-300;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .terminal-state-banner-icon {
+    @apply flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-sm border;
+    background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+  }
+
+  .terminal-state-banner-waiting {
+    @apply text-yellow-700 dark:text-yellow-200;
+    border-color: color-mix(in srgb, #eab308 34%, var(--border-color));
+  }
+
+  .terminal-state-banner-error {
+    @apply text-red-700 dark:text-red-200;
+    border-color: color-mix(in srgb, #ef4444 34%, var(--border-color));
   }
 
   .terminal-empty-icon {
@@ -925,16 +955,14 @@
   .terminal-shell {
     @apply relative flex-1 overflow-hidden;
     background:
-      radial-gradient(circle at 18% 12%, rgba(20, 184, 166, 0.1), transparent 28%),
-      radial-gradient(circle at 92% 4%, rgba(249, 115, 22, 0.08), transparent 28%),
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 5%, transparent) 1px, transparent 1px),
-      linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 3%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 3%, transparent) 1px, transparent 1px),
+      linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 2%, transparent) 1px, transparent 1px),
       color-mix(in srgb, var(--bg-primary) 96%, #000);
-    background-size: auto, auto, 38px 38px, 38px 38px, auto;
+    background-size: 42px 42px, 42px 42px, auto;
   }
 
   .terminal-toolbar {
-    @apply absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border p-1;
+    @apply absolute right-3 top-3 z-20 flex items-center gap-1 rounded-md border p-1;
     background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 22%, var(--border-color));
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -948,7 +976,7 @@
   }
 
   .terminal-search-panel {
-    @apply absolute left-3 top-3 z-10 flex items-center gap-1 rounded-md border p-2;
+    @apply absolute left-3 top-3 z-30 flex items-center gap-1 rounded-md border p-2;
     background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-color));
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
@@ -1019,7 +1047,6 @@
 
   .industrial-button-primary:hover:not(:disabled) {
     background: linear-gradient(180deg, #2dd4bf, #0f8f84);
-    transform: translateY(-1px);
   }
 
   .industrial-button-secondary {
@@ -1108,13 +1135,11 @@
   }
 
   .agent-pet-panel {
-    @apply rounded-2xl;
-    background:
-      radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.14), transparent 34%),
-      color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+    @apply rounded-md;
+    background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 82%, var(--accent-primary));
     box-shadow:
-      0 30px 86px rgba(0, 0, 0, 0.46),
+      0 24px 64px rgba(0, 0, 0, 0.38),
       inset 0 1px 0 rgba(255, 255, 255, 0.07);
     backdrop-filter: blur(18px);
   }
@@ -1123,7 +1148,7 @@
     background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
   }
 
-  /* 鐜颁唬缁嗘粴鍔ㄦ潯 - 榛樿鏍峰紡 */
+  /* Thin scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
@@ -1157,21 +1182,21 @@
     display: none;
   }
 
-  /* 鏆楄壊涓婚婊氬姩鏉″彉閲?*/
+  /* Dark scrollbar */
   .dark {
     --scrollbar-thumb: rgba(100, 116, 139, 0.72);
     --scrollbar-thumb-hover: rgba(148, 163, 184, 0.95);
     --scrollbar-track: rgba(15, 23, 42, 0.35);
   }
 
-  /* 娴呰壊涓婚婊氬姩鏉″彉閲?*/
+  /* Light scrollbar */
   .light {
     --scrollbar-thumb: rgba(148, 163, 184, 0.75);
     --scrollbar-thumb-hover: rgba(100, 116, 139, 0.95);
     --scrollbar-track: rgba(226, 232, 240, 0.65);
   }
 
-  /* 鐜颁唬婊氬姩鏉?- 鏇村鏇存槑鏄?*/
+  /* Modern scrollbar */
   .scrollbar-modern {
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
@@ -1207,7 +1232,7 @@
     background-clip: padding-box;
   }
 
-  /* 闅愯棌婊氬姩鏉′絾淇濇寔鍔熻兘 */
+  /* Hide scrollbar while preserving scroll */
   .scrollbar-none {
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -1218,21 +1243,25 @@
   }
 
   .file-transfer-scroll {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
-  .file-transfer-scroll::-webkit-scrollbar,
-  .file-transfer-scroll::-webkit-scrollbar-button,
-  .file-transfer-scroll::-webkit-scrollbar-track,
+  .file-transfer-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .file-transfer-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   .file-transfer-scroll::-webkit-scrollbar-thumb {
-    width: 0 !important;
-    height: 0 !important;
-    display: none !important;
-    background: transparent !important;
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
   }
 
-  /* 鍦嗚婊氬姩鏉?*/
+  /* Rounded scrollbar */
   .scrollbar-rounded::-webkit-scrollbar {
     border-radius: 9999px;
   }
@@ -1242,7 +1271,7 @@
   @apply h-full;
 }
 
-/* 璁?xterm.js 鑷繁澶勭悊婊氬姩鏉★紝纭繚鍙互姝ｅ父鎷栧姩 */
+/* Let xterm own viewport scrolling so dragging the scrollbar stays reliable. */
 .xterm-viewport {
   overflow-y: auto !important;
   pointer-events: auto !important;

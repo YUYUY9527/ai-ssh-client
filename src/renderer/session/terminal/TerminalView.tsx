@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { SearchAddon } from '@xterm/addon-search';
-import { Search, Terminal as TerminalIcon } from 'lucide-react';
+import { AlertCircle, Clock3, Search, Terminal as TerminalIcon, WifiOff } from 'lucide-react';
 import { useSessionStore } from '../useSessionStore';
 import { useTheme } from '../../hooks/useTheme';
+import { useI18n } from '../../i18n';
 import type { AppSettings } from '../../../shared/types';
 import { TerminalContextMenu } from './TerminalContextMenu';
 import { TerminalToolbar } from './TerminalToolbar';
@@ -19,8 +20,9 @@ import { useTerminalSearch } from './useTerminalSearch';
 import { useXtermInstance } from './useXtermInstance';
 
 interface TerminalProps {
-  connectionId: string | null;
+  liveConnectionId: string | null;
   onPasteToAI?: (text: string) => void;
+  sessionId: string | null;
   theme?: 'dark' | 'light' | 'system';
   settings?: AppSettings;
 }
@@ -30,8 +32,8 @@ export { TERMINAL_THEMES } from './terminal-theme';
 
 // 主题名称映射
 const THEME_NAMES: Record<string, string> = {
-  dark: '默认暗色',
-  light: '默认亮色',
+  dark: 'terminal.themeNames.dark',
+  light: 'terminal.themeNames.light',
   monokai: 'Monokai',
   solarized: 'Solarized Dark',
   oneDark: 'One Dark',
@@ -42,7 +44,7 @@ const THEME_NAMES: Record<string, string> = {
 };
 
 /** Terminal view that owns xterm rendering and delegates runtime sub-concerns to hooks. */
-export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, settings }: TerminalProps) {
+export function TerminalView({ liveConnectionId, onPasteToAI, sessionId, theme: themeProp, settings }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
@@ -54,10 +56,18 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
   
   // 如果没有传入 theme，则使用 useTheme hook
   const { theme: hookTheme } = useTheme();
+  const { t } = useI18n();
   const theme = themeProp ?? hookTheme;
-  const terminalOutput = useSessionStore((state) => (
-    connectionId ? state.outputs[connectionId] || '' : ''
+  const activeSession = useSessionStore((state) => (
+    sessionId ? state.sessions[sessionId] : null
   ));
+  const terminalOutput = useSessionStore((state) => (
+    sessionId ? state.outputs[sessionId] || '' : ''
+  ));
+  const isLive = Boolean(liveConnectionId);
+  const hasSession = Boolean(sessionId);
+  const isRestored = Boolean(activeSession?.restoredFromScrollback);
+  const hasTerminalOutput = terminalOutput.length > 0;
 
   const syncAlternateScreenState = useCallback(() => {
     const isAlternateScreen = xtermRef.current?.buffer.active.type === 'alternate';
@@ -72,7 +82,7 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
   }, []);
 
   const { consumeOutputChunk, resetInputTracking } = useTerminalInputTracking({
-    connectionId,
+    liveConnectionId,
     syncAlternateScreenState,
     terminalInstanceVersion,
     xtermRef,
@@ -102,15 +112,16 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
     handlePasteToAI,
     handlePasteToInput,
     setContextMenu,
-  } = useTerminalClipboard({ connectionId, onPasteToAI, xtermRef });
+  } = useTerminalClipboard({ liveConnectionId, onPasteToAI, xtermRef });
 
   const { renderedOutput, setRenderedOutput } = useXtermInstance({
-    connectionId,
     copyTerminalSelectionToClipboard,
     fontSize,
+    liveConnectionId,
     onInstanceVersionChange: handleTerminalInstanceVersionChange,
     resetInputTracking,
     searchAddonRef,
+    sessionId,
     settings,
     syncAlternateScreenState,
     terminalRef,
@@ -120,7 +131,7 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
 
   // 终端右键菜单
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (!connectionId) return;
+    if (!sessionId) return;
     e.preventDefault();
     xtermRef.current?.focus();
     setContextMenu({ x: e.clientX, y: e.clientY });
@@ -164,7 +175,7 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
 
   // 消费 session store 中的输出缓存，统一由 session bridge 写入底层 SSH 事件。
   useEffect(() => {
-    if (!connectionId || !xtermRef.current) {
+    if (!sessionId || !xtermRef.current) {
       setRenderedOutput('');
       return;
     }
@@ -195,13 +206,57 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
       setRenderedOutput(currentOutput);
     }
   }, [
-    connectionId,
     consumeOutputChunk,
     renderedOutput,
     resetInputTracking,
     setRenderedOutput,
+    sessionId,
     terminalOutput,
   ]);
+
+  const terminalStatus = (() => {
+    if (!hasSession) {
+      return {
+        icon: <TerminalIcon className="h-5 w-5" />,
+        title: t('terminal.emptyTitle'),
+        body: t('terminal.emptyDescription'),
+        tone: 'idle',
+      };
+    }
+    if (isRestored) {
+      return {
+        icon: <Clock3 className="h-5 w-5" />,
+        title: t('terminal.restoredTitle'),
+        body: t('terminal.restoredDescription'),
+        tone: 'restored',
+      };
+    }
+    if (activeSession?.state === 'reconnecting' || activeSession?.state === 'connecting') {
+      return {
+        icon: <Clock3 className="h-5 w-5" />,
+        title: activeSession.state === 'reconnecting' ? t('terminal.reconnectingTitle') : t('terminal.connectingTitle'),
+        body: t('terminal.waitingServer'),
+        tone: 'waiting',
+      };
+    }
+    if (activeSession?.state === 'error') {
+      return {
+        icon: <AlertCircle className="h-5 w-5" />,
+        title: t('terminal.errorTitle'),
+        body: activeSession.lastError || t('common.error'),
+        tone: 'error',
+      };
+    }
+    if (!isLive && activeSession?.state === 'closed') {
+      return {
+        icon: <WifiOff className="h-5 w-5" />,
+        title: t('terminal.closedTitle'),
+        body: t('terminal.closedDescription'),
+        tone: 'closed',
+      };
+    }
+    return null;
+  })();
 
   // 监听系统主题变化（当 theme 为 'system' 时）
   useEffect(() => {
@@ -229,6 +284,7 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
         terminalTheme={terminalTheme}
         themeNames={THEME_NAMES}
         themes={TERMINAL_THEMES}
+        translate={t}
         isThemeSelectorOpen={showThemeSelector}
         onDecreaseFontSize={() => setFontSize(prev => Math.max(prev - 2, MIN_TERMINAL_FONT_SIZE))}
         onIncreaseFontSize={() => setFontSize(prev => Math.min(prev + 2, MAX_TERMINAL_FONT_SIZE))}
@@ -250,7 +306,7 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
                 e.shiftKey ? searchPrevious() : searchNext();
               }
             }}
-            placeholder="搜索..."
+            placeholder={t('common.search')}
             className="w-48 bg-transparent text-sm text-slate-900 outline-none dark:text-white"
             autoFocus
           />
@@ -288,17 +344,30 @@ export function TerminalView({ connectionId, onPasteToAI, theme: themeProp, sett
             onPasteToInput={handlePasteToInput}
             onPasteToAI={handlePasteToAI}
             onClose={closeContextMenu}
+            canPasteToTerminal={isLive}
+            translate={t}
           />
         )}
 
       {/* No Connection State */}
-      {!connectionId && (
-        <div className="terminal-empty-state">
+      {terminalStatus && hasSession && hasTerminalOutput && (
+        <div className={`terminal-state-banner terminal-state-banner-${terminalStatus.tone}`}>
+          <span className="terminal-state-banner-icon">{terminalStatus.icon}</span>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold">{terminalStatus.title}</p>
+            <p className="truncate text-[11px] opacity-80">{terminalStatus.body}</p>
+          </div>
+        </div>
+      )}
+
+      {terminalStatus && (!hasSession || !hasTerminalOutput) && (
+        <div className={`terminal-state-overlay terminal-state-overlay-${terminalStatus.tone}`}>
           <div className="text-center">
             <div className="terminal-empty-icon">
-              <TerminalIcon className="h-5 w-5" />
+              {terminalStatus.icon}
             </div>
-            <p className="text-sm text-slate-600 dark:text-slate-400">选择一个连接并点击"连接"开始</p>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{terminalStatus.title}</p>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500 dark:text-slate-400">{terminalStatus.body}</p>
           </div>
         </div>
       )}

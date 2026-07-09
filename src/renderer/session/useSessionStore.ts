@@ -59,6 +59,12 @@ function buildSessionFromConnection(
   };
 }
 
+function shouldClearRestoredFlag(patch: Partial<Session>): boolean {
+  return patch.restoredFromScrollback === undefined
+    && patch.state !== undefined
+    && patch.state !== 'closed';
+}
+
 interface SessionStoreState {
   sessions: SessionRecord;
   orderedSessionIds: string[];
@@ -202,6 +208,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
           [sessionId]: {
             ...current,
             ...patch,
+            ...(shouldClearRestoredFlag(patch) ? { restoredFromScrollback: false } : null),
           },
         },
       };
