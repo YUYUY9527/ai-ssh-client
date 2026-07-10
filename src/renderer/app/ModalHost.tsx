@@ -120,8 +120,8 @@ export function ModalHost({
 
       {editingConnection !== null && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="industrial-modal w-full max-w-md">
-            <div className="industrial-modal-header">
+          <div className="industrial-modal flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden">
+            <div className="industrial-modal-header shrink-0">
               <h3 className="font-semibold text-slate-900 dark:text-white">
                 {editingConnection.id
                   ? translate('connection.editConnection')
@@ -136,7 +136,7 @@ export function ModalHost({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="min-h-0 space-y-4 overflow-y-auto p-4">
               <div>
                 <label className="industrial-field-label">{translate('connection.form.name')}</label>
                 <input

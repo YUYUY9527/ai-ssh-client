@@ -74,8 +74,13 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
     }
 
     const session = useSessionStore.getState().sessions[sessionId];
+    const connection = connections.find((item) => item.id === sessionId);
+    if (!session || !connection) {
+      return;
+    }
+
     const maxReconnectAttempts = settings.maxReconnectAttempts || 0;
-    const reconnectAttempts = session?.reconnectAttempts ?? 0;
+    const reconnectAttempts = session.reconnectAttempts;
     if (maxReconnectAttempts > 0 && reconnectAttempts >= maxReconnectAttempts) {
       return;
     }
@@ -87,11 +92,6 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
 
     const timer = setTimeout(async () => {
       reconnectTimersRef.current.delete(sessionId);
-      const connection = connections.find((item) => item.id === sessionId);
-      if (!connection) {
-        return;
-      }
-
       const success = await useConnectionStore.getState().connect(
         connection,
         undefined,
@@ -215,6 +215,7 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
           const session = useSessionStore.getState().sessions[sessionId];
           if (session?.state === 'connected' && !activeSessions.has(sessionId)) {
             useSessionStore.getState().setSessionState(sessionId, { state: 'closed' });
+            scheduleReconnect(sessionId);
           }
         });
       }, 2000);
