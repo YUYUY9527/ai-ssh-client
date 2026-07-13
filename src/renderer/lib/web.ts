@@ -571,15 +571,15 @@ const webApi: Window['electronAPI'] = {
     }
 
     try {
-      // XHR 才能拿到真实 upload progress
+      // 两段进度：浏览器→服务端 0-50%，服务端→远端 50-99%（由 server WS 上报）
       const result = await new Promise<IPCResult<FileUploadResult>>((resolve) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `/api/sftp/${connectionId}/upload`);
         xhr.upload.onprogress = (event) => {
-          if (!event.lengthComputable) {
+          if (!event.lengthComputable || event.total <= 0) {
             return;
           }
-          const progress = Math.min(99, Math.round((event.loaded / event.total) * 100));
+          const progress = Math.min(50, Math.round((event.loaded / event.total) * 50));
           emit('sftp-upload-progress', {
             connectionId,
             taskId,
@@ -610,35 +610,19 @@ const webApi: Window['electronAPI'] = {
       });
 
       const remotePath = `${remoteDir.replace(/\/$/, '')}/${filename}`;
-      if (result.success) {
-        // HTTP 成功时本地也发完成事件，避免仅依赖 websocket
-        emit('sftp-upload-progress', {
-          connectionId,
-          taskId,
-          filename,
-          progress: 100,
-        });
-        emit('sftp-transfer-complete', {
-          connectionId,
-          taskId,
-          filename,
-          transferType: 'upload',
-          success: true,
-          localPath,
-          remotePath: result.data?.remotePath || remotePath,
-        });
-      } else {
-        emit('sftp-transfer-complete', {
-          connectionId,
-          taskId,
-          filename,
-          transferType: 'upload',
-          success: false,
-          error: result.error,
-          localPath,
-          remotePath,
-        });
-      }
+      // HTTP 返回时服务端已写完远端；本地强制完成，避免 WS 丢事件卡在 99%
+      emit('sftp-transfer-complete', {
+        connectionId,
+        taskId,
+        filename,
+        transferType: 'upload',
+        success: result.success,
+        error: result.success ? undefined : result.error,
+        localPath,
+        remotePath: result.success
+          ? (result.data?.remotePath || remotePath)
+          : remotePath,
+      });
       return result;
     } finally {
       selectedFiles.delete(localPath);

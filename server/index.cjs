@@ -858,7 +858,7 @@ app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) =>
   const connectionId = request.params.id;
   const total = Number(request.file.size || request.file.buffer?.length || 0);
 
-  // 分块写远端，便于广播上传进度
+  // 分块写远端；进度映射到 50-99%，接在浏览器上传 0-50% 之后
   await new Promise((resolve, reject) => {
     const writeStream = sftp.createWriteStream(remotePath);
     const buffer = request.file.buffer;
@@ -874,9 +874,8 @@ app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) =>
         const end = Math.min(offset + chunkSize, buffer.length);
         const chunk = buffer.subarray(offset, end);
         offset = end;
-        const progress = total > 0
-          ? Math.min(99, Math.round((offset / total) * 100))
-          : 99;
+        const ratio = total > 0 ? offset / total : 1;
+        const progress = Math.min(99, 50 + Math.round(ratio * 49));
         if (progress !== lastProgress) {
           lastProgress = progress;
           broadcast('sftp-upload-progress', {

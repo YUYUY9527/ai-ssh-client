@@ -117,13 +117,23 @@ export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
     set((state) => ({
       tasks: state.tasks.map((task) => {
         const isSameTask = event.taskId ? task.id === event.taskId : task.name === event.filename;
+        // 进度只增不减，避免客户端/服务端两段进度互相回退
         if (
           isSameTask
           && task.type === type
           && task.connectionId === event.connectionId
-          && task.status === 'transferring'
+          && (task.status === 'pending' || task.status === 'transferring')
         ) {
-          return { ...task, progress: event.progress, updatedAt: Date.now() };
+          const nextProgress = Math.max(task.progress, Math.min(100, Math.max(0, event.progress)));
+          if (nextProgress === task.progress && task.status === 'transferring') {
+            return task;
+          }
+          return {
+            ...task,
+            status: 'transferring',
+            progress: nextProgress,
+            updatedAt: Date.now(),
+          };
         }
         return task;
       }),
@@ -139,6 +149,19 @@ export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
 
       const tasks = [...state.tasks];
       const task = tasks[taskIndex];
+      // 已终态且成功完成时忽略重复失败/进度回写
+      if (task.status === 'completed' && event.success) {
+        return state;
+      }
+      if (task.status === 'completed' || task.status === 'error') {
+        if (!event.success && task.status === 'error') {
+          return state;
+        }
+        if (task.status === 'completed') {
+          return state;
+        }
+      }
+
       tasks[taskIndex] = {
         ...task,
         progress: event.success ? 100 : task.progress,
