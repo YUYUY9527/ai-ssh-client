@@ -61,6 +61,30 @@ function makeError<T = void>(message: string): IPCResult<T> {
   return { success: false, error: message };
 }
 
+// 非 secure context 下 crypto.randomUUID 可能不可用
+function createWebId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}:${crypto.randomUUID()}`;
+  }
+  return `${prefix}:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getFilenameFromDisposition(header: string | null, fallback: string): string {
+  if (!header) {
+    return fallback;
+  }
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+  const plainMatch = /filename="?([^";]+)"?/i.exec(header);
+  return plainMatch?.[1] || fallback;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -243,18 +267,43 @@ function chooseFile(options?: {
       .filter((extension) => extension !== '*')
       .map((extension) => `.${extension}`)
       .join(',') || '';
+
+    let settled = false;
+    const settle = (result: IPCResult<FileSelectResult>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.removeEventListener('focus', handleWindowFocus);
+      input.remove();
+      resolve(result);
+    };
+
+    // 取消选择时浏览器不一定触发 change，用 focus 兜底
+    const handleWindowFocus = () => {
+      window.setTimeout(() => {
+        if (!settled && !input.files?.length) {
+          settle({ success: true, data: { canceled: true, filePath: '', fileName: '' } });
+        }
+      }, 300);
+    };
+
     input.onchange = () => {
       const file = input.files?.[0];
-      input.remove();
       if (!file) {
-        resolve({ success: true, data: { canceled: true, filePath: '', fileName: '' } });
+        settle({ success: true, data: { canceled: true, filePath: '', fileName: '' } });
         return;
       }
 
-      const id = `web-file:${crypto.randomUUID()}`;
+      const id = createWebId('web-file');
       selectedFiles.set(id, file);
-      resolve({ success: true, data: { canceled: false, filePath: id, fileName: file.name } });
+      settle({ success: true, data: { canceled: false, filePath: id, fileName: file.name } });
     };
+    input.oncancel = () => {
+      settle({ success: true, data: { canceled: true, filePath: '', fileName: '' } });
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
     document.body.appendChild(input);
     input.click();
   });
@@ -393,31 +442,118 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/list?path=${encodeURIComponent(remotePath)}`,
   ),
   downloadFile: async (connectionId, remotePath, taskId) => {
+    const filename = remotePath.split('/').pop() || 'download';
     try {
-      const response = await fetch(`/api/sftp/${connectionId}/download?path=${encodeURIComponent(remotePath)}`);
+      const response = await fetch(
+        `/api/sftp/${connectionId}/download?path=${encodeURIComponent(remotePath)}`,
+      );
       if (!response.ok) {
-        return makeError<FileDownloadResult>(await response.text());
+        const errorText = await response.text();
+        emit('sftp-transfer-complete', {
+          connectionId,
+          taskId,
+          filename,
+          transferType: 'download',
+          success: false,
+          error: errorText || `Download failed (${response.status})`,
+          remotePath,
+        });
+        return makeError<FileDownloadResult>(errorText || `Download failed (${response.status})`);
       }
 
-      const blob = await response.blob();
-      const filename = remotePath.split('/').pop() || 'download';
+      // 按流读取响应，边下边推进度
+      const total = Number(response.headers.get('content-length') || 0);
+      const resolvedName = getFilenameFromDisposition(
+        response.headers.get('content-disposition'),
+        filename,
+      );
+      const reader = response.body?.getReader();
+      if (!reader) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = resolvedName;
+        link.click();
+        URL.revokeObjectURL(url);
+        emit('sftp-download-progress', {
+          connectionId,
+          taskId,
+          filename: resolvedName,
+          progress: 100,
+        });
+        emit('sftp-transfer-complete', {
+          connectionId,
+          taskId,
+          filename: resolvedName,
+          transferType: 'download',
+          success: true,
+          remotePath,
+        });
+        return { success: true, data: { localPath: resolvedName } };
+      }
+
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      let lastProgress = -1;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (!value) {
+          continue;
+        }
+        chunks.push(value);
+        received += value.byteLength;
+        const progress = total > 0
+          ? Math.min(99, Math.round((received / total) * 100))
+          : Math.min(99, Math.max(1, Math.round(Math.log10(received + 10) * 20)));
+        if (progress !== lastProgress) {
+          lastProgress = progress;
+          emit('sftp-download-progress', {
+            connectionId,
+            taskId,
+            filename: resolvedName,
+            progress,
+          });
+        }
+      }
+
+      const blob = new Blob(chunks as BlobPart[]);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = filename;
+      link.download = resolvedName;
       link.click();
       URL.revokeObjectURL(url);
-      emit('sftp-download-progress', { connectionId, taskId, filename, progress: 100 });
+      emit('sftp-download-progress', {
+        connectionId,
+        taskId,
+        filename: resolvedName,
+        progress: 100,
+      });
+      emit('sftp-transfer-complete', {
+        connectionId,
+        taskId,
+        filename: resolvedName,
+        transferType: 'download',
+        success: true,
+        remotePath,
+      });
+      return { success: true, data: { localPath: resolvedName } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       emit('sftp-transfer-complete', {
         connectionId,
         taskId,
         filename,
         transferType: 'download',
-        success: true,
+        success: false,
+        error: message,
+        remotePath,
       });
-      return { success: true, data: { localPath: filename } };
-    } catch (error) {
-      return makeError<FileDownloadResult>(error instanceof Error ? error.message : String(error));
+      return makeError<FileDownloadResult>(message);
     }
   },
   uploadFile: async (connectionId, localPath, remoteDir, taskId) => {
@@ -426,6 +562,7 @@ const webApi: Window['electronAPI'] = {
       return makeError<FileUploadResult>('Selected file is no longer available');
     }
 
+    const filename = file.name || localPath.split(/[/\\]/).pop() || 'upload';
     const formData = new FormData();
     formData.append('file', file);
     formData.append('remoteDir', remoteDir);
@@ -433,12 +570,79 @@ const webApi: Window['electronAPI'] = {
       formData.append('taskId', taskId);
     }
 
-    const result = await request<FileUploadResult>(`/api/sftp/${connectionId}/upload`, {
-      method: 'POST',
-      body: formData,
-    });
-    selectedFiles.delete(localPath);
-    return result;
+    try {
+      // XHR 才能拿到真实 upload progress
+      const result = await new Promise<IPCResult<FileUploadResult>>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/api/sftp/${connectionId}/upload`);
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) {
+            return;
+          }
+          const progress = Math.min(99, Math.round((event.loaded / event.total) * 100));
+          emit('sftp-upload-progress', {
+            connectionId,
+            taskId,
+            filename,
+            progress,
+          });
+        };
+        xhr.onload = () => {
+          try {
+            const payload = JSON.parse(xhr.responseText || '{}') as IPCResult<FileUploadResult>;
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(payload);
+              return;
+            }
+            resolve(makeError<FileUploadResult>(
+              (!payload.success && payload.error) || `Upload failed (${xhr.status})`,
+            ));
+          } catch (error) {
+            resolve(makeError<FileUploadResult>(
+              error instanceof Error ? error.message : String(error),
+            ));
+          }
+        };
+        xhr.onerror = () => {
+          resolve(makeError<FileUploadResult>('Network request failed'));
+        };
+        xhr.send(formData);
+      });
+
+      const remotePath = `${remoteDir.replace(/\/$/, '')}/${filename}`;
+      if (result.success) {
+        // HTTP 成功时本地也发完成事件，避免仅依赖 websocket
+        emit('sftp-upload-progress', {
+          connectionId,
+          taskId,
+          filename,
+          progress: 100,
+        });
+        emit('sftp-transfer-complete', {
+          connectionId,
+          taskId,
+          filename,
+          transferType: 'upload',
+          success: true,
+          localPath,
+          remotePath: result.data?.remotePath || remotePath,
+        });
+      } else {
+        emit('sftp-transfer-complete', {
+          connectionId,
+          taskId,
+          filename,
+          transferType: 'upload',
+          success: false,
+          error: result.error,
+          localPath,
+          remotePath,
+        });
+      }
+      return result;
+    } finally {
+      selectedFiles.delete(localPath);
+    }
   },
   onSftpUploadProgress: (callback) => on('sftp-upload-progress', callback),
   onSftpDownloadProgress: (callback) => on('sftp-download-progress', callback),

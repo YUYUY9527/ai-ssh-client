@@ -801,10 +801,45 @@ app.get('/api/sftp/:id/download', async (request, response) => {
     const remotePath = String(request.query.path || '');
     const filename = posixPath.basename(remotePath);
     const sftp = await getSftp(request.params.id);
-    response.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    sftp.createReadStream(remotePath).pipe(response);
+    // 尽量带上 content-length，方便前端显示下载进度
+    let size = 0;
+    try {
+      const stats = await new Promise((resolve, reject) => {
+        sftp.stat(remotePath, (error, attrs) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(attrs);
+        });
+      });
+      size = Number(stats.size || 0);
+    } catch {
+      size = 0;
+    }
+
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    response.setHeader('Content-Type', 'application/octet-stream');
+    if (size > 0) {
+      response.setHeader('Content-Length', String(size));
+    }
+
+    const readStream = sftp.createReadStream(remotePath);
+    readStream.on('error', (error) => {
+      if (!response.headersSent) {
+        response.status(500).json(failure(error));
+        return;
+      }
+      response.destroy(error);
+    });
+    readStream.pipe(response);
   } catch (error) {
-    response.status(500).json(failure(error));
+    if (!response.headersSent) {
+      response.status(500).json(failure(error));
+    }
   }
 });
 
@@ -815,25 +850,61 @@ app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) =>
 
   const sftp = await getSftp(request.params.id);
   const filename = request.file.originalname;
-  const remotePath = posixPath.join(request.body.remoteDir || '/', filename);
+  const remoteDir = request.body.remoteDir || '/';
+  const remotePath = remoteDir === '/'
+    ? `/${filename}`
+    : posixPath.join(remoteDir, filename);
   const taskId = request.body.taskId;
+  const connectionId = request.params.id;
+  const total = Number(request.file.size || request.file.buffer?.length || 0);
 
-  // ponytail: memory upload is simple for LAN use; stream multipart if large uploads matter.
+  // 分块写远端，便于广播上传进度
   await new Promise((resolve, reject) => {
     const writeStream = sftp.createWriteStream(remotePath);
-    writeStream.on('finish', resolve);
+    const buffer = request.file.buffer;
+    const chunkSize = 64 * 1024;
+    let offset = 0;
+    let lastProgress = -1;
+
     writeStream.on('error', reject);
-    writeStream.end(request.file.buffer);
+    writeStream.on('finish', resolve);
+
+    const writeNext = () => {
+      while (offset < buffer.length) {
+        const end = Math.min(offset + chunkSize, buffer.length);
+        const chunk = buffer.subarray(offset, end);
+        offset = end;
+        const progress = total > 0
+          ? Math.min(99, Math.round((offset / total) * 100))
+          : 99;
+        if (progress !== lastProgress) {
+          lastProgress = progress;
+          broadcast('sftp-upload-progress', {
+            connectionId,
+            taskId,
+            filename,
+            progress,
+          });
+        }
+        if (!writeStream.write(chunk)) {
+          writeStream.once('drain', writeNext);
+          return;
+        }
+      }
+      writeStream.end();
+    };
+
+    writeNext();
   });
 
   broadcast('sftp-upload-progress', {
-    connectionId: request.params.id,
+    connectionId,
     taskId,
     filename,
     progress: 100,
   });
   broadcast('sftp-transfer-complete', {
-    connectionId: request.params.id,
+    connectionId,
     taskId,
     filename,
     transferType: 'upload',

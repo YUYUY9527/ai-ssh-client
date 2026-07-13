@@ -282,6 +282,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     }
 
     let selectedLocalPath = localPath;
+    let selectedFileName: string | undefined;
     if (!selectedLocalPath && window.electronAPI) {
       const result = await window.electronAPI.selectFile({
         title: t('common.upload'),
@@ -291,13 +292,17 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         return;
       }
       selectedLocalPath = result.data.filePath;
+      selectedFileName = result.data.fileName || undefined;
     }
 
     if (!selectedLocalPath) {
       return;
     }
 
-    const filename = selectedLocalPath.split(/[/\\]/).pop() || 'unknown';
+    // web 端 filePath 是 web-file:id，文件名需单独取 fileName
+    const filename = selectedFileName
+      || selectedLocalPath.split(/[/\\]/).pop()
+      || 'unknown';
     const remotePath = `${currentPath.replace(/\/$/, '')}/${filename}`;
     const task: SftpTransferTask = {
       id: createTaskId(),
