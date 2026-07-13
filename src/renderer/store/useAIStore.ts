@@ -2,12 +2,16 @@ import { create } from 'zustand';
 import type { AIProviderConfig, AIProviderSummary, Message, CommandSuggestion } from '../../shared/types';
 import type { AIChatResponse } from '../../shared/ipc-types';
 import { extractCommand, riskAnalysisToSuggestion } from '../ai';
+import { useSessionStore } from '../session/useSessionStore';
+import { loadSessionScrollbackSnapshots } from '../session/session-scrollback';
 import { t } from '../i18n';
 
 export type ContextStrategy = 'keep-all' | 'keep-recent' | 'keep-summary';
 
 const SUMMARY_TRIGGER_THRESHOLD = 10;
 const SUMMARY_MAX_LENGTH = 1200;
+const SUMMARY_KEEP_RECENT = 4;
+const SUMMARY_SYSTEM_PROMPT = `你是对话摘要助手。请把下面的多轮对话压缩成简洁的要点摘要，保留：关键事实、用户目标、已确认的决定、待办事项与重要的命令或结论。使用简体中文分条列出，不要寒暄，不超过 200 字。`;
 
 function trimText(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
@@ -18,6 +22,16 @@ function summarizeMessages(messages: Message[]): string {
     .slice(-6)
     .map((message) => `${message.role}: ${trimText(message.content.replace(/\s+/g, ' '), 120)}`)
     .join('\n');
+}
+
+// 构建 AI 摘要输入：已有摘要 + 待压缩的历史消息
+function buildSummaryInput(messages: Message[], previousSummary: string): string {
+  const history = messages
+    .map((message) => `${message.role}: ${trimText(message.content.replace(/\s+/g, ' '), 400)}`)
+    .join('\n');
+  return previousSummary
+    ? `已有摘要：\n${previousSummary}\n\n新的对话：\n${history}`
+    : history;
 }
 
 function estimateMessageCost(message: Message): number {
@@ -52,14 +66,52 @@ function formatAIErrorMessage(message: string, code?: string): string {
   return message || t('aiErrors.defaultError');
 }
 
+const TERMINAL_CONTEXT_MAX_CHARS = 1600;
+
+// 清理终端输出中的 ANSI 转义码
+function stripAnsiSequences(text: string): string {
+  return text
+    .replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, '')
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+}
+
+// 采集当前活动会话的终端上下文（当前目录 + 最近输出），供 AI 感知会话状态
+function collectTerminalContext(): string {
+  try {
+    const sessionId = useSessionStore.getState().activeSessionId;
+    if (!sessionId) {
+      return '';
+    }
+    const snapshot = loadSessionScrollbackSnapshots().find(
+      (item) => item.sessionId === sessionId,
+    );
+    if (!snapshot) {
+      return '';
+    }
+    const cleaned = stripAnsiSequences(snapshot.content || '')
+      .replace(/\r/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    const tail = cleaned.slice(-TERMINAL_CONTEXT_MAX_CHARS);
+    const cwdLine = snapshot.cwd ? `当前目录：${snapshot.cwd}\n` : '';
+    if (!tail && !cwdLine) {
+      return '';
+    }
+    return `${cwdLine}${tail ? `最近终端输出：\n${tail}` : ''}`.trim();
+  } catch {
+    return '';
+  }
+}
+
 function buildChatContext(params: {
   messages: Message[];
   userMessage: Message;
   contextStrategy: ContextStrategy;
   conversationSummary: string;
   maxContextMessages: number;
+  terminalContext?: string;
 }): Message[] {
-  const { messages, userMessage, contextStrategy, conversationSummary, maxContextMessages } = params;
+  const { messages, userMessage, contextStrategy, conversationSummary, maxContextMessages, terminalContext } = params;
 
   let systemPrompt = `你是一个专业的Linux系统管理员助手。请简洁地回答用户关于Linux命令的问题。
 
@@ -70,6 +122,10 @@ function buildChatContext(params: {
 
   if (contextStrategy === 'keep-summary' && conversationSummary) {
     systemPrompt = `【对话摘要】\n${conversationSummary}\n\n---\n\n${systemPrompt}`;
+  }
+
+  if (terminalContext) {
+    systemPrompt = `${systemPrompt}\n\n【当前会话终端上下文（用于让命令建议贴合当前服务器状态，勿直接复述）】\n${terminalContext}`;
   }
 
   const budget = Math.max(600, maxContextMessages * 400);
@@ -103,6 +159,7 @@ interface AIState {
   maxContextMessages: number;
   conversationSummary: string;
   currentRequestId: string | null;
+  isSummarizing: boolean;
 
   loadProviders: () => Promise<void>;
   saveProvider: (provider: AIProviderConfig) => Promise<void>;
@@ -119,7 +176,7 @@ interface AIState {
   setMaxContextMessages: (max: number) => void;
   trimContext: () => void;
   updateSummary: (summary: string) => void;
-  maybeRefreshSummary: () => void;
+  maybeRefreshSummary: () => Promise<void>;
   getContextMessages: () => Message[];
 }
 
@@ -133,6 +190,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   maxContextMessages: 6,
   conversationSummary: '',
   currentRequestId: null,
+  isSummarizing: false,
 
   loadProviders: async () => {
     if (!window.electronAPI) return;
@@ -192,6 +250,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       contextStrategy,
       conversationSummary,
       maxContextMessages,
+      terminalContext: collectTerminalContext(),
     });
 
     try {
@@ -219,7 +278,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         currentRequestId: null,
       }));
 
-      get().maybeRefreshSummary();
+      void get().maybeRefreshSummary();
 
       const currentMessages = get().messages;
       if (contextStrategy === 'keep-recent' && currentMessages.length > maxContextMessages * 2) {
@@ -274,6 +333,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       contextStrategy,
       conversationSummary,
       maxContextMessages,
+      terminalContext: collectTerminalContext(),
     });
   },
 
@@ -295,12 +355,53 @@ export const useAIStore = create<AIState>((set, get) => ({
     set({ conversationSummary: trimText(summary, SUMMARY_MAX_LENGTH) });
   },
 
-  maybeRefreshSummary: () => {
-    const { messages, contextStrategy } = get();
+  maybeRefreshSummary: async () => {
+    const { messages, contextStrategy, activeProviderId, isSummarizing } = get();
     if (contextStrategy !== 'keep-summary' || messages.length < SUMMARY_TRIGGER_THRESHOLD) {
       return;
     }
-    get().updateSummary(summarizeMessages(messages));
+    // 无 provider 或正在摘要时，回退到机械摘要以保证有内容
+    if (isSummarizing || !activeProviderId || !window.electronAPI) {
+      if (!get().conversationSummary) {
+        get().updateSummary(summarizeMessages(messages));
+      }
+      return;
+    }
+
+    // 保留最近若干条不摘要，其余压缩为语义摘要
+    const toSummarize = messages.slice(0, -SUMMARY_KEEP_RECENT);
+    if (toSummarize.length === 0) {
+      return;
+    }
+
+    set({ isSummarizing: true });
+    try {
+      // 调用 AI 生成语义摘要
+      const summaryMessages: Message[] = [
+        { id: 'summary-system', role: 'system', content: SUMMARY_SYSTEM_PROMPT, timestamp: Date.now() },
+        {
+          id: 'summary-user',
+          role: 'user',
+          content: buildSummaryInput(toSummarize, get().conversationSummary),
+          timestamp: Date.now(),
+        },
+      ];
+      const result = await window.electronAPI.aiChat(activeProviderId, summaryMessages, {
+        requestId: `summary-${Date.now()}`,
+      });
+      if (result.success && result.data?.content) {
+        get().updateSummary(result.data.content);
+      } else if (!get().conversationSummary) {
+        get().updateSummary(summarizeMessages(messages));
+      }
+    } catch {
+      // 摘要失败不影响主对话流程，必要时回退机械摘要
+      if (!get().conversationSummary) {
+        get().updateSummary(summarizeMessages(get().messages));
+      }
+    } finally {
+      set({ isSummarizing: false });
+    }
   },
 
   extractCommand: (aiResponse: string): string | null => {
