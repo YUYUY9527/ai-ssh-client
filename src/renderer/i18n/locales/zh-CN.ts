@@ -159,6 +159,14 @@ const zhCN = {
       modified: '修改时间',
     },
   },
+  commandHistory: {
+    title: '历史命令',
+    searchPlaceholder: '搜索命令 / 主机 / 目录...',
+    currentOnly: '当前上下文',
+    empty: '暂无历史命令',
+    noMatches: '无匹配结果',
+    rerunInDir: '在该目录重新执行',
+  },
   quickCommands: {
     title: '快速命令',
     commands: '命令',

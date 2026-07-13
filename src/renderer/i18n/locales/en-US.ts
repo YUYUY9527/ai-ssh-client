@@ -165,6 +165,14 @@ const enUS: DeepStringify<typeof zhCN> = {
       modified: 'Modified',
     },
   },
+  commandHistory: {
+    title: 'Command History',
+    searchPlaceholder: 'Search command / host / directory...',
+    currentOnly: 'Current context',
+    empty: 'No command history yet',
+    noMatches: 'No matches',
+    rerunInDir: 'Rerun in this directory',
+  },
   quickCommands: {
     title: 'Quick Commands',
     commands: 'Commands',

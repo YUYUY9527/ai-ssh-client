@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { Terminal as XTerm } from '@xterm/xterm';
 
+import {
+  DEFAULT_CWD,
+  nextTrackedCwd,
+  normalizeHistoryPath,
+} from '../../history/command-history-index';
+import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
 import { useConnectionStore } from '../../store/useConnectionStore';
+import { useSessionStore } from '../useSessionStore';
 import type { CommandHistoryItem } from '../../../shared/types';
 
 function tailText(input: string, maxChars: number): string {
@@ -163,35 +170,45 @@ export function useTerminalInputTracking({
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const inputTrackingReliableRef = useRef(true);
   const currentInputRef = useRef('');
-  const cwdRef = useRef('~');
+  const cwdRef = useRef(DEFAULT_CWD);
   const outputTailRef = useRef('');
-  const [, setCommandHistory] = useState<CommandHistoryItem[]>([]);
+
+  const syncSessionCwd = useCallback((cwd: string) => {
+    if (!liveConnectionId) {
+      return;
+    }
+    const normalized = normalizeHistoryPath(cwd);
+    cwdRef.current = normalized;
+    useSessionStore.getState().setSessionCwd(liveConnectionId, normalized);
+  }, [liveConnectionId]);
 
   const resetInputTracking = useCallback(() => {
     inputTrackingReliableRef.current = true;
     currentInputRef.current = '';
-    cwdRef.current = '~';
+    const sessionCwd = liveConnectionId
+      ? useSessionStore.getState().sessions[liveConnectionId]?.cwd
+      : undefined;
+    cwdRef.current = normalizeHistoryPath(sessionCwd || DEFAULT_CWD);
     outputTailRef.current = '';
-  }, []);
+  }, [liveConnectionId]);
 
   const consumeOutputChunk = useCallback((chunk: string) => {
     outputTailRef.current = tailText(`${outputTailRef.current}${chunk}`, 4096);
     const detectedCwd = extractCwdFromTerminalOutput(outputTailRef.current);
     if (detectedCwd) {
-      cwdRef.current = detectedCwd;
+      syncSessionCwd(detectedCwd);
     }
-  }, []);
+  }, [syncSessionCwd]);
 
   useEffect(() => {
-    const loadData = async () => {
-      if (window.electronAPI) {
-        const historyResult = await window.electronAPI.getCommandHistory();
-        if (historyResult.success) {
-          setCommandHistory(Array.isArray(historyResult.data?.history) ? historyResult.data.history : []);
-        }
-      }
-    };
-    void loadData();
+    // 预热历史缓存，供面板与后续补全共用
+    void useCommandHistoryStore.getState().loadHistory();
+    if (liveConnectionId) {
+      const sessionCwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd;
+      cwdRef.current = normalizeHistoryPath(sessionCwd || DEFAULT_CWD);
+    } else {
+      cwdRef.current = DEFAULT_CWD;
+    }
   }, [liveConnectionId]);
 
   useEffect(() => {
@@ -228,55 +245,28 @@ export function useTerminalInputTracking({
           ? currentInputRef.current.trim()
           : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
         if (command) {
-          const currentCwd = cwdRef.current;
-          const cdMatch = command.match(/^cd\s+(.+)$/);
-          if (cdMatch) {
-            const target = cdMatch[1].trim().replace(/["']/g, '');
-            if (target.startsWith('/')) {
-              cwdRef.current = target;
-            } else if (target === '~' || target === '') {
-              cwdRef.current = '~';
-            } else if (target === '-') {
-              // The previous directory is shell-owned, so the UI keeps the last known cwd.
-            } else if (target === '..') {
-              const parts = cwdRef.current.split('/').filter(Boolean);
-              parts.pop();
-              cwdRef.current = parts.length === 0 ? '/' : `/${parts.join('/')}`;
-            } else if (target.startsWith('~/')) {
-              cwdRef.current = target;
-            } else if (cwdRef.current === '~') {
-              cwdRef.current = `~/${target}`;
-            } else {
-              cwdRef.current = `${cwdRef.current.replace(/\/$/, '')}/${target}`;
-            }
-          } else if (command === 'cd') {
-            cwdRef.current = '~';
+          const currentCwd = normalizeHistoryPath(cwdRef.current || DEFAULT_CWD);
+          const inferredNextCwd = nextTrackedCwd(currentCwd, command);
+          if (inferredNextCwd) {
+            syncSessionCwd(inferredNextCwd);
           }
 
           void (async () => {
-            if (window.electronAPI) {
-              const { connections } = useConnectionStore.getState();
-              const connection = connections.find(item => item.id === liveConnectionId);
-              const historyItem: CommandHistoryItem = {
-                id: Date.now().toString(),
-                command,
-                timestamp: Date.now(),
-                connectionId: liveConnectionId || '',
-                connectionName: connection?.name || 'Unknown',
-                host: connection?.host,
-                username: connection?.username,
-                executedBy: 'user',
-                approved: true,
-                cwd: currentCwd,
-              };
-              await window.electronAPI.addCommandHistory(historyItem);
-              window.dispatchEvent(new CustomEvent('command-history-updated'));
-
-              const historyResult = await window.electronAPI.getCommandHistory();
-              if (historyResult.success) {
-                setCommandHistory(Array.isArray(historyResult.data?.history) ? historyResult.data.history : []);
-              }
-            }
+            const { connections } = useConnectionStore.getState();
+            const connection = connections.find(item => item.id === liveConnectionId);
+            const historyItem: CommandHistoryItem = {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              command,
+              timestamp: Date.now(),
+              connectionId: liveConnectionId || '',
+              connectionName: connection?.name || 'Unknown',
+              host: connection?.host,
+              username: connection?.username,
+              executedBy: 'user',
+              approved: true,
+              cwd: currentCwd,
+            };
+            await useCommandHistoryStore.getState().addHistoryItem(historyItem);
           })();
         }
         inputTrackingReliableRef.current = true;
@@ -314,7 +304,7 @@ export function useTerminalInputTracking({
         onDataDisposableRef.current = null;
       }
     };
-  }, [liveConnectionId, syncAlternateScreenState, terminalInstanceVersion, xtermRef]);
+  }, [liveConnectionId, syncAlternateScreenState, syncSessionCwd, terminalInstanceVersion, xtermRef]);
 
   return {
     consumeOutputChunk,

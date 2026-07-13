@@ -194,7 +194,12 @@ export function WorkspaceHeader({
         )}
 
         {activeTabId && <QuickCommandsPanel onPasteCommand={onPasteCommand} />}
-        {activeTabId && <CommandHistoryPanel onPasteCommand={onPasteCommand} />}
+        {activeTabId && (
+          <CommandHistoryPanel
+            onPasteCommand={onPasteCommand}
+            activeSessionId={activeTabId}
+          />
+        )}
       </div>
 
       <div className="flex items-center gap-2">
