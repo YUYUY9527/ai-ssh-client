@@ -36,11 +36,14 @@ export function SessionWorkspace({
   settings,
 }: SessionWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  const activeConnectionId = activeTab?.isConnected ? activeTab.id : null;
+  // 侧栏绑定活动标签；断线时仍保留会话上下文，方便查看任务与上次路径
+  const activeConnectionId = activeTab?.id ?? null;
+  const isLive = Boolean(activeTab?.isConnected);
 
   const sidebar = isSftpSidebarOpen ? (
     <SftpSidebar
       connectionId={activeConnectionId}
+      isLive={isLive}
       onClose={onCloseSftpSidebar}
     />
   ) : null;

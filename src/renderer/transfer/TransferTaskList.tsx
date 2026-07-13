@@ -8,6 +8,13 @@ interface TransferTaskListProps {
   translate: (key: string, params?: Record<string, string | number>) => string;
 }
 
+function formatUpdatedAt(timestamp: number): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 /** Displays transfer progress for the active SFTP session. */
 export function TransferTaskList({ onRemoveTask, tasks, translate }: TransferTaskListProps) {
   if (tasks.length === 0) {
@@ -21,7 +28,7 @@ export function TransferTaskList({ onRemoveTask, tasks, translate }: TransferTas
 
   return (
     <div className="file-transfer-scroll h-full overflow-y-auto bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
-      <div className="p-3 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]">
+      <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
           {translate('fileTransfer.transferTasks')}
         </h3>
@@ -49,14 +56,11 @@ export function TransferTaskList({ onRemoveTask, tasks, translate }: TransferTas
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-1.5">
                   {task.type === 'upload' ? (
-                    <Upload className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
+                    <Upload className="h-3.5 w-3.5 flex-shrink-0 text-teal-500" />
                   ) : (
-                    <Download className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                    <Download className="h-3.5 w-3.5 flex-shrink-0 text-green-500" />
                   )}
-                  <span
-                    className="truncate text-sm text-slate-700 dark:text-slate-300"
-                    title={task.name}
-                  >
+                  <span className="truncate text-sm text-slate-700 dark:text-slate-300" title={task.name}>
                     {task.name}
                   </span>
                 </div>
@@ -65,7 +69,7 @@ export function TransferTaskList({ onRemoveTask, tasks, translate }: TransferTas
                   className="icon-button h-6 w-6"
                   title={translate('common.close')}
                 >
-                  <X className="w-3 h-3" />
+                  <X className="h-3 w-3" />
                 </button>
               </div>
 
@@ -87,6 +91,21 @@ export function TransferTaskList({ onRemoveTask, tasks, translate }: TransferTas
                   className={`h-full rounded-sm transition-all ${progressTone}`}
                   style={{ width: `${progressValue}%` }}
                 />
+              </div>
+
+              {(task.remotePath || task.localPath) && (
+                <p
+                  className="mt-2 truncate text-[11px] text-slate-500 dark:text-slate-400"
+                  title={task.remotePath || task.localPath}
+                >
+                  {task.type === 'upload'
+                    ? translate('fileTransfer.toRemote', { path: task.remotePath || '-' })
+                    : translate('fileTransfer.fromRemote', { path: task.remotePath || task.name })}
+                </p>
+              )}
+
+              <div className="mt-1 text-[11px] tabular-nums text-slate-400">
+                {formatUpdatedAt(task.updatedAt)}
               </div>
 
               {task.status === 'error' && task.error && (

@@ -14,6 +14,7 @@ import { AssistantHost } from '../assistant/AssistantHost';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
+import { useSftpTransferStore } from '../store/useSftpTransferStore';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../i18n';
 import type { CommandSuggestion, SSHSessionState, SSHConnection, Session } from '../../shared/types';
@@ -178,6 +179,7 @@ export function AppController() {
     intentionalDisconnectsRef.current.add(tabId);
     await disconnect(tabId);
     removeSession(tabId);
+    useSftpTransferStore.getState().clearBrowserState(tabId);
     setOpenTabs(prev => prev.filter(tab => tab.id !== tabId));
     if (activeTabId === tabId) {
       const remainingTabs = openTabs.filter(tab => tab.id !== tabId);
@@ -187,6 +189,7 @@ export function AppController() {
       } else {
         setActiveTabId(null);
         setActiveSession(null);
+        setSftpSidebarOpen(false);
       }
     }
   };
@@ -397,6 +400,28 @@ export function AppController() {
   };
 
   const status = getConnectionStatus();
+  const transferTasks = useSftpTransferStore((state) => state.tasks);
+  const activeTransferSummary = (() => {
+    const scopeTasks = activeTabId
+      ? transferTasks.filter((task) => task.connectionId === activeTabId)
+      : transferTasks;
+    const activeTasks = scopeTasks.filter(
+      (task) => task.status === 'pending' || task.status === 'transferring',
+    );
+    if (activeTasks.length === 0) {
+      return null;
+    }
+
+    const progress = Math.round(
+      activeTasks.reduce((sum, task) => sum + Math.max(0, Math.min(100, task.progress)), 0)
+        / activeTasks.length,
+    );
+
+    return {
+      count: activeTasks.length,
+      progress,
+    };
+  })();
 
   // Tab右键菜单处理
   const handleTabContextMenu = (e: React.MouseEvent, tab: Tab) => {
@@ -463,7 +488,10 @@ export function AppController() {
     });
     // 等待所有断开连接完成
     await Promise.all(tabsToClose.map(tab => disconnect(tab.id)));
-    tabsToClose.forEach((tab) => removeSession(tab.id));
+    tabsToClose.forEach((tab) => {
+      removeSession(tab.id);
+      useSftpTransferStore.getState().clearBrowserState(tab.id);
+    });
     setOpenTabs([openTabs.find(tab => tab.id === tabId)!]);
     setActiveTabId(tabId);
     setActiveSession(tabId);
@@ -478,10 +506,14 @@ export function AppController() {
     });
     // 等待所有断开连接完成
     await Promise.all(openTabs.map(tab => disconnect(tab.id)));
-    openTabs.forEach((tab) => removeSession(tab.id));
+    openTabs.forEach((tab) => {
+      removeSession(tab.id);
+      useSftpTransferStore.getState().clearBrowserState(tab.id);
+    });
     setOpenTabs([]);
     setActiveTabId(null);
     setActiveSession(null);
+    setSftpSidebarOpen(false);
     setTabContextMenu(null);
   };
 
@@ -507,7 +539,11 @@ export function AppController() {
       intentionalDisconnectsRef.current.add(deletingConnection);
       await disconnect(deletingConnection);
       removeSession(deletingConnection);
+      useSftpTransferStore.getState().clearBrowserState(deletingConnection);
       setOpenTabs(prev => prev.filter(tab => tab.id !== deletingConnection));
+      if (activeTabId === deletingConnection) {
+        setSftpSidebarOpen(false);
+      }
     }
     setDeletingConnection(null);
   };
@@ -766,7 +802,15 @@ export function AppController() {
       />
       )}
       toasts={<ToastHost toasts={toasts} onDismiss={dismissToast} translate={t} />}
-      footer={<AppFooter status={status} commandStatus={commandStatus} translate={t} />}
+      footer={(
+        <AppFooter
+          status={status}
+          commandStatus={commandStatus}
+          transferSummary={activeTransferSummary}
+          onOpenTransfers={() => setSftpSidebarOpen(true)}
+          translate={t}
+        />
+      )}
       modals={(
         <ModalHost
         connectionTestResult={connectionTestResult}

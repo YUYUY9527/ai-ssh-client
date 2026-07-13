@@ -1,7 +1,14 @@
 import { create } from 'zustand';
 
-export type SftpTransferType = 'upload' | 'download';
-export type SftpTransferStatus = 'pending' | 'transferring' | 'completed' | 'error';
+import {
+  DEFAULT_REMOTE_PATH,
+  type SftpBrowserSessionState,
+  type TransferDirection,
+  type TransferTaskStatus,
+} from '../transfer/transfer-types';
+
+export type SftpTransferType = TransferDirection;
+export type SftpTransferStatus = TransferTaskStatus;
 
 export interface SftpTransferTask {
   id: string;
@@ -13,6 +20,7 @@ export interface SftpTransferTask {
   error?: string;
   localPath?: string;
   remotePath?: string;
+  updatedAt: number;
 }
 
 export interface SftpTransferCompleteEvent {
@@ -35,12 +43,25 @@ interface SftpTransferProgressEvent {
 
 interface SftpTransferState {
   tasks: SftpTransferTask[];
-  addTask: (task: SftpTransferTask) => void;
+  browserByConnection: Record<string, SftpBrowserSessionState>;
+  addTask: (task: Omit<SftpTransferTask, 'updatedAt'> & { updatedAt?: number }) => void;
   markTransferring: (taskId: string) => void;
   updateProgress: (type: SftpTransferType, event: SftpTransferProgressEvent) => void;
   completeTask: (event: SftpTransferCompleteEvent) => void;
   removeTask: (taskId: string) => void;
+  clearCompletedTasks: (connectionId?: string) => void;
+  getBrowserState: (connectionId: string, preferredPath?: string) => SftpBrowserSessionState;
+  setBrowserPath: (connectionId: string, remotePath: string) => void;
+  setBrowserView: (connectionId: string, activeView: SftpBrowserSessionState['activeView']) => void;
+  setBrowserSelection: (connectionId: string, selectedPath: string | null) => void;
+  clearBrowserState: (connectionId: string) => void;
 }
+
+const DEFAULT_BROWSER_STATE: SftpBrowserSessionState = {
+  remotePath: DEFAULT_REMOTE_PATH,
+  activeView: 'files',
+  selectedPath: null,
+};
 
 const findTaskIndex = (
   tasks: SftpTransferTask[],
@@ -51,20 +72,43 @@ const findTaskIndex = (
   return isSameTask && task.type === type && task.connectionId === event.connectionId;
 });
 
-/** Stores SFTP transfer state independently of the SFTP modal lifecycle. */
-export const useSftpTransferStore = create<SftpTransferState>((set) => ({
+function ensureBrowserState(
+  browserByConnection: Record<string, SftpBrowserSessionState>,
+  connectionId: string,
+  preferredPath?: string,
+): SftpBrowserSessionState {
+  const existing = browserByConnection[connectionId];
+  if (existing) {
+    return existing;
+  }
+
+  return {
+    ...DEFAULT_BROWSER_STATE,
+    remotePath: preferredPath || DEFAULT_REMOTE_PATH,
+  };
+}
+
+/** Stores SFTP transfer and per-session browser state independently of sidebar lifecycle. */
+export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
   tasks: [],
+  browserByConnection: {},
 
   addTask: (task) => {
+    const nextTask: SftpTransferTask = {
+      ...task,
+      updatedAt: task.updatedAt ?? Date.now(),
+    };
     set((state) => ({
-      tasks: [...state.tasks.filter((item) => item.id !== task.id), task],
+      tasks: [...state.tasks.filter((item) => item.id !== nextTask.id), nextTask],
     }));
   },
 
   markTransferring: (taskId) => {
     set((state) => ({
       tasks: state.tasks.map((task) => (
-        task.id === taskId ? { ...task, status: 'transferring' } : task
+        task.id === taskId
+          ? { ...task, status: 'transferring', updatedAt: Date.now() }
+          : task
       )),
     }));
   },
@@ -74,12 +118,12 @@ export const useSftpTransferStore = create<SftpTransferState>((set) => ({
       tasks: state.tasks.map((task) => {
         const isSameTask = event.taskId ? task.id === event.taskId : task.name === event.filename;
         if (
-          isSameTask &&
-          task.type === type &&
-          task.connectionId === event.connectionId &&
-          task.status === 'transferring'
+          isSameTask
+          && task.type === type
+          && task.connectionId === event.connectionId
+          && task.status === 'transferring'
         ) {
-          return { ...task, progress: event.progress };
+          return { ...task, progress: event.progress, updatedAt: Date.now() };
         }
         return task;
       }),
@@ -102,6 +146,7 @@ export const useSftpTransferStore = create<SftpTransferState>((set) => ({
         error: event.error,
         localPath: event.localPath ?? task.localPath,
         remotePath: event.remotePath ?? task.remotePath,
+        updatedAt: Date.now(),
       };
 
       return { tasks };
@@ -112,5 +157,89 @@ export const useSftpTransferStore = create<SftpTransferState>((set) => ({
     set((state) => ({
       tasks: state.tasks.filter((task) => task.id !== taskId),
     }));
+  },
+
+  clearCompletedTasks: (connectionId) => {
+    set((state) => ({
+      tasks: state.tasks.filter((task) => {
+        if (connectionId && task.connectionId !== connectionId) {
+          return true;
+        }
+        return task.status !== 'completed' && task.status !== 'error';
+      }),
+    }));
+  },
+
+  getBrowserState: (connectionId, preferredPath) => {
+    const existing = get().browserByConnection[connectionId];
+    if (existing) {
+      return existing;
+    }
+
+    const created = ensureBrowserState({}, connectionId, preferredPath);
+    set((state) => ({
+      browserByConnection: {
+        ...state.browserByConnection,
+        [connectionId]: created,
+      },
+    }));
+    return created;
+  },
+
+  setBrowserPath: (connectionId, remotePath) => {
+    set((state) => {
+      const current = ensureBrowserState(state.browserByConnection, connectionId);
+      return {
+        browserByConnection: {
+          ...state.browserByConnection,
+          [connectionId]: {
+            ...current,
+            remotePath,
+            selectedPath: null,
+          },
+        },
+      };
+    });
+  },
+
+  setBrowserView: (connectionId, activeView) => {
+    set((state) => {
+      const current = ensureBrowserState(state.browserByConnection, connectionId);
+      return {
+        browserByConnection: {
+          ...state.browserByConnection,
+          [connectionId]: {
+            ...current,
+            activeView,
+          },
+        },
+      };
+    });
+  },
+
+  setBrowserSelection: (connectionId, selectedPath) => {
+    set((state) => {
+      const current = ensureBrowserState(state.browserByConnection, connectionId);
+      return {
+        browserByConnection: {
+          ...state.browserByConnection,
+          [connectionId]: {
+            ...current,
+            selectedPath,
+          },
+        },
+      };
+    });
+  },
+
+  clearBrowserState: (connectionId) => {
+    set((state) => {
+      if (!state.browserByConnection[connectionId]) {
+        return state;
+      }
+      const next = { ...state.browserByConnection };
+      delete next[connectionId];
+      return { browserByConnection: next };
+    });
   },
 }));
