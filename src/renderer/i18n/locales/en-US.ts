@@ -48,6 +48,8 @@ const enUS: DeepStringify<typeof zhCN> = {
     confirmDelete: 'Are you sure you want to delete this connection? This action cannot be undone.',
     confirmDeleteTitle: 'Confirm Delete',
     copySuffix: '(Copy)',
+    searchPlaceholder: 'Search connections...',
+    noMatches: 'No matching connections',
     status: {
       disconnected: 'Disconnected',
       connecting: 'Connecting...',
@@ -70,6 +72,14 @@ const enUS: DeepStringify<typeof zhCN> = {
       privateKeyPlaceholder: 'Paste an OpenSSH private key, or select a key file from this machine',
       passphrasePlaceholder: 'Private key passphrase (optional)',
       privateKeyReadFailed: 'Failed to read private key file',
+    },
+  },
+  workspace: {
+    empty: {
+      title: 'Start a new session',
+      subtitle: 'Pick or create an SSH connection from "Connect" in the top-left',
+      hintConnect: 'Click "Connect" to open or manage your servers',
+      hintAI: 'Once connected, use the AI assistant to drive the terminal in natural language',
     },
   },
   tab: {

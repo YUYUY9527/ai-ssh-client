@@ -47,7 +47,7 @@ export function AppFooter({ status, commandStatus, translate }: AppFooterProps) 
           </div>
         )}
       </div>
-      <span>AI SSH Client v1.2.0</span>
+      <span>AI SSH Client v{__APP_VERSION__}</span>
     </footer>
   );
 }

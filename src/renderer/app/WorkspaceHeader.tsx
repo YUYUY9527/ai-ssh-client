@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { RefObject } from 'react';
 import {
   Edit3,
@@ -57,6 +58,26 @@ export function WorkspaceHeader({
   onToggleSettings,
   onToggleSftpSidebar,
 }: WorkspaceHeaderProps) {
+  const [connectionQuery, setConnectionQuery] = useState('');
+  const normalizedQuery = connectionQuery.trim().toLowerCase();
+  // 按名称/主机/用户名过滤连接，便于在大量连接中快速定位
+  const filteredConnections = normalizedQuery
+    ? connections.filter((connection) =>
+        `${connection.name} ${connection.username} ${connection.host}`
+          .toLowerCase()
+          .includes(normalizedQuery),
+      )
+    : connections;
+  // 连接较多时才显示搜索框，避免少量连接时的冗余
+  const showConnectionSearch = connections.length > 5;
+
+  // 下拉关闭时清空搜索词
+  useEffect(() => {
+    if (!isConnectionDropdownOpen) {
+      setConnectionQuery('');
+    }
+  }, [isConnectionDropdownOpen]);
+
   return (
     <header className="app-header">
       <div className="flex items-center gap-2">
@@ -90,12 +111,28 @@ export function WorkspaceHeader({
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
+              {showConnectionSearch && (
+                <div className="px-2 pb-2 pt-1">
+                  <input
+                    type="text"
+                    value={connectionQuery}
+                    onChange={(event) => setConnectionQuery(event.target.value)}
+                    placeholder={translate('connection.searchPlaceholder')}
+                    className="industrial-input w-full text-sm"
+                    autoFocus
+                  />
+                </div>
+              )}
               {connections.length === 0 ? (
                 <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
                   {translate('connection.noConnections')}
                 </div>
+              ) : filteredConnections.length === 0 ? (
+                <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
+                  {translate('connection.noMatches')}
+                </div>
               ) : (
-                connections.map((connection) => (
+                filteredConnections.map((connection) => (
                   <div
                     key={connection.id}
                     className="group mx-2 my-1 flex items-center rounded-sm border border-[color-mix(in_srgb,var(--border-color)_68%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] px-2 py-2 transition-colors hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]"

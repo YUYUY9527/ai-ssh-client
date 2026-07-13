@@ -689,7 +689,10 @@ export function AppController() {
             <div
               ref={tabContextMenuRef}
               className="app-popover fixed top-auto mt-0 py-1 min-w-[160px]"
-              style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
+              style={{
+                left: Math.max(8, Math.min(tabContextMenu.x, window.innerWidth - 188)),
+                top: Math.max(8, Math.min(tabContextMenu.y, window.innerHeight - 268)),
+              }}
             >
               <button
                 onClick={handleCopyConnection}

@@ -1260,7 +1260,7 @@
   background-color: #f6f2e8 !important;
 }
 
-/* 鑷畾涔夊姩鐢?*/
+/* 自定义动画 */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AlertTriangle, Check, CheckCircle2, XCircle, ShieldAlert, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { CommandSuggestion } from '../../shared/types';
+import { Modal } from '../shared-ui/Modal';
 
 interface CommandApprovalProps {
   command: CommandSuggestion;
@@ -11,6 +12,7 @@ interface CommandApprovalProps {
 
 export function CommandApproval({ command, onApprove, onReject }: CommandApprovalProps) {
   const [rememberChoice, setRememberChoice] = useState(false);
+  const rejectButtonRef = useRef<HTMLButtonElement>(null);
   const { t } = useI18n();
 
   const getRiskColor = () => {
@@ -89,9 +91,15 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className={`industrial-modal border-2 ${colors.border} w-full max-w-lg`}>
-        <div className={`border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] p-4 sm:p-5 ${colors.bg}`}>
+    <Modal
+      isOpen
+      onClose={handleReject}
+      size="lg"
+      showClose={false}
+      panelClassName={`border-2 ${colors.border}`}
+      initialFocusRef={rejectButtonRef}
+    >
+      <div className={`border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] p-4 sm:p-5 ${colors.bg}`}>
           <div className="flex items-start gap-4">
             <div className={`${colors.iconBg} rounded-md p-3 text-white`}>
               {getRiskIcon()}
@@ -165,6 +173,7 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
         <div className="industrial-modal-footer">
           <button
             type="button"
+            ref={rejectButtonRef}
             onClick={handleReject}
             className="industrial-button-secondary"
           >
@@ -186,7 +195,6 @@ export function CommandApproval({ command, onApprove, onReject }: CommandApprova
             {command.riskLevel === 'critical' ? t('commandApproval.confirmDangerous') : t('commandApproval.confirmExecute')}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -50,7 +50,15 @@ export function WorkspaceTabs({
   };
 
   return (
-    <div className="workspace-tabbar">
+    <div
+      className="workspace-tabbar scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent"
+      onWheel={(event) => {
+        // 标签溢出时将纵向滚轮转为横向滚动，方便浏览大量标签
+        if (event.deltaY !== 0) {
+          event.currentTarget.scrollLeft += event.deltaY;
+        }
+      }}
+    >
       {tabs.map((tab) => (
         <div
           key={tab.id}
@@ -61,6 +69,13 @@ export function WorkspaceTabs({
           onDrop={(event) => onDrop(event, tab.id)}
           onDragEnd={onDragEnd}
           onClick={() => onTabClick(tab.id)}
+          onAuxClick={(event) => {
+            // 鼠标中键关闭标签
+            if (event.button === 1) {
+              event.preventDefault();
+              onCloseTab(event, tab.id);
+            }
+          }}
           onContextMenu={(event) => onTabContextMenu(event, tab)}
           className={`workspace-tab group ${
             activeTabId === tab.id ? 'workspace-tab-active' : ''

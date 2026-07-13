@@ -2,6 +2,7 @@ import type { AppSettings } from '../../shared/types';
 import type { Session } from '../../shared/types';
 import { SessionTerminal } from '../session/SessionTerminal';
 import { SftpSidebar } from '../transfer/SftpSidebar';
+import { WorkspaceEmptyState } from './WorkspaceEmptyState';
 import { WorkspaceLayout } from './WorkspaceLayout';
 
 export interface WorkspaceTab {
@@ -61,15 +62,7 @@ export function SessionWorkspace({
           />
         </div>
       ))}
-      {tabs.length === 0 && (
-        <SessionTerminal
-          liveConnectionId={null}
-          sessionId={null}
-          onPasteToAI={onPasteToAI}
-          theme={theme}
-          settings={settings}
-        />
-      )}
+      {tabs.length === 0 && <WorkspaceEmptyState />}
     </WorkspaceLayout>
   );
 }

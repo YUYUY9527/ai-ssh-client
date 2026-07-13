@@ -42,6 +42,8 @@ const zhCN = {
     confirmDelete: '确定要删除这个连接配置吗？此操作无法撤销。',
     confirmDeleteTitle: '确认删除',
     copySuffix: '(副本)',
+    searchPlaceholder: '搜索连接...',
+    noMatches: '未找到匹配的连接',
     status: {
       disconnected: '未连接',
       connecting: '连接中...',
@@ -64,6 +66,14 @@ const zhCN = {
       privateKeyPlaceholder: '粘贴 OpenSSH 私钥内容，或从本机选择私钥文件',
       passphrasePlaceholder: '私钥密码（可选）',
       privateKeyReadFailed: '读取私钥文件失败',
+    },
+  },
+  workspace: {
+    empty: {
+      title: '开始一个新的会话',
+      subtitle: '从左上角的「连接」选择或新建一个 SSH 连接',
+      hintConnect: '点击「连接」打开或管理你的服务器',
+      hintAI: '连接后可用 AI 助手，用自然语言操作终端',
     },
   },
   tab: {
