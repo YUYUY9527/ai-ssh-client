@@ -123,6 +123,7 @@ export const DEFAULT_SETTINGS = {
   maxReconnectAttempts: 5,
   showTerminalOutputPrompt: true,
   terminalTheme: 'dark',
+  agentSemanticSummaryContextLength: 12000,
   maxPersistedSessions: 8,
   maxScrollbackBytesPerSession: 150 * 1024,
 };

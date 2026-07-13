@@ -175,7 +175,6 @@ const enUS: DeepStringify<typeof zhCN> = {
       ssh: 'SSH',
       providers: 'Providers',
       agent: 'Agent',
-      security: 'Security',
       language: 'Language',
     },
     terminal: {
@@ -200,13 +199,11 @@ const enUS: DeepStringify<typeof zhCN> = {
       executionControl: 'Execution Control',
       enableAgent: 'Enable Agent Mode',
       enableAgentDesc: 'Allow the agent to analyze tasks and execute commands based on your goal',
-      maxSteps: 'Max Execution Steps',
-      maxStepsDesc: 'Maximum number of commands per task',
+      summaryContextLength: 'Semantic Summary Context Length',
+      summaryContextLengthDesc: 'When this estimated token limit is reached, older task context is summarized while recent content stays verbatim.',
+      commandApproval: 'Command Approval',
     },
     security: {
-      title: 'Security Settings',
-      storageWarning: 'Passwords are currently stored in plaintext. Key authentication is recommended.',
-      commandApproval: 'Command Approval',
       approveHighRisk: 'Approve High-Risk Commands',
       approveHighRiskDesc: 'e.g. rm, chmod, kill',
       approveMediumRisk: 'Approve Medium-Risk Commands',
@@ -364,7 +361,6 @@ const enUS: DeepStringify<typeof zhCN> = {
       approvedCommand: 'Execute approved: {command}',
     },
     finishReasons: {
-      maxSteps: 'Maximum execution steps reached',
       aiInvalid: 'AI response invalid',
       aiFailed: 'AI response failed',
       noCommand: 'AI did not provide an executable command',

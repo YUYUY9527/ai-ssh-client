@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, X, Terminal, Wifi, Shield, Bot, KeyRound, Globe } from 'lucide-react';
+import { Check, X, Terminal, Wifi, Bot, KeyRound, Globe } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
 import { useI18n, useI18nStore, localeNames } from '../i18n';
 import type { Locale } from '../i18n';
@@ -12,7 +12,7 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
-type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'security' | 'agent' | 'language';
+type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'language';
 
 interface ToggleButtonProps {
   enabled: boolean;
@@ -53,7 +53,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   });
 
   const handleSave = () => {
-    onSave(localSettings);
+    onSave({
+      ...localSettings,
+      agentSemanticSummaryContextLength: Math.max(
+        1000,
+        Math.floor(localSettings.agentSemanticSummaryContextLength ?? 12000),
+      ),
+    });
     onClose();
   };
 
@@ -68,7 +74,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     { id: 'ssh', label: t('settings.tabs.ssh'), icon: Wifi },
     { id: 'providers', label: t('settings.tabs.providers'), icon: KeyRound },
     { id: 'agent', label: t('settings.tabs.agent'), icon: Bot },
-    { id: 'security', label: t('settings.tabs.security'), icon: Shield },
     { id: 'language', label: t('settings.tabs.language'), icon: Globe },
   ] as const;
 
@@ -243,70 +248,30 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     </div>
 
                     <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.maxSteps')}</label>
-                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.maxStepsDesc')}</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const current = localSettings.agentMaxExecutionSteps ?? 20;
-                            if (current > 1) {
-                              setLocalSettings({ ...localSettings, agentMaxExecutionSteps: current - 1 });
-                            }
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          -
-                        </button>
-                        <input
-                          type="number"
-                          value={localSettings.agentMaxExecutionSteps ?? 20}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (!isNaN(value) && value >= 1) {
-                              setLocalSettings({ ...localSettings, agentMaxExecutionSteps: value });
-                            }
-                          }}
-                          min={1}
-                          max={100}
-                          className="industrial-input w-20 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const current = localSettings.agentMaxExecutionSteps ?? 20;
-                            if (current < 100) {
-                              setLocalSettings({ ...localSettings, agentMaxExecutionSteps: current + 1 });
-                            }
-                          }}
-                          className="industrial-button-secondary h-8 w-8 px-0 py-0"
-                        >
-                          +
-                        </button>
-                      </div>
+                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.summaryContextLength')}</label>
+                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.summaryContextLengthDesc')}</p>
+                      <input
+                        type="number"
+                        min={1000}
+                        step={1000}
+                        value={localSettings.agentSemanticSummaryContextLength ?? 12000}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10);
+                          if (!isNaN(value)) {
+                            setLocalSettings({
+                              ...localSettings,
+                              agentSemanticSummaryContextLength: Math.max(1000, value),
+                            });
+                          }
+                        }}
+                        className="industrial-input w-36"
+                      />
                     </div>
                   </div>
                 </div>
 
-              </div>
-            )}
-
-            {activeTab === 'providers' && (
-              <AIProviderSettings />
-            )}
-
-            {activeTab === 'security' && (
-              <div className="space-y-5">
-                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.security.title')}</h3>
-
-                <div className="industrial-card border-yellow-500/50 bg-yellow-500/10 p-4">
-                  <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                    {t('settings.security.storageWarning')}
-                  </p>
-                </div>
-
                 <div>
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.security.commandApproval')}</h4>
+                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.agent.commandApproval')}</h4>
 
                   <div className="space-y-4">
                     <div className="industrial-setting-row">
@@ -327,7 +292,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                         <p className="text-xs text-slate-500">{t('settings.security.approveMediumRiskDesc')}</p>
                       </div>
                       <ToggleButton
-                        enabled={localSettings.approveMediumRisk ?? false}
+                        enabled={localSettings.approveMediumRisk ?? true}
                         label={t('settings.security.approveMediumRisk')}
                         onChange={(value) => setLocalSettings({ ...localSettings, approveMediumRisk: value })}
                       />
@@ -347,6 +312,10 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </div>
                 </div>
               </div>
+            )}
+
+            {activeTab === 'providers' && (
+              <AIProviderSettings />
             )}
 
             {activeTab === 'language' && (

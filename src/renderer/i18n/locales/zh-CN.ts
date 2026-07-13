@@ -169,7 +169,6 @@ const zhCN = {
       ssh: 'SSH',
       providers: '供应商',
       agent: '智能体',
-      security: '安全',
       language: '语言',
     },
     terminal: {
@@ -194,13 +193,11 @@ const zhCN = {
       executionControl: '执行控制',
       enableAgent: '启用智能体模式',
       enableAgentDesc: '允许智能体根据你的目标分析任务并执行命令',
-      maxSteps: '最大执行步数',
-      maxStepsDesc: '智能体单次任务最多执行的命令数',
+      summaryContextLength: '触发语义摘要的上下文长度',
+      summaryContextLengthDesc: '达到该估算 token 数后，较早的任务上下文会被摘要，近期内容保持原文。',
+      commandApproval: '命令审批',
     },
     security: {
-      title: '安全设置',
-      storageWarning: '当前密码以明文形式存储，建议使用密钥认证。',
-      commandApproval: '命令审批',
       approveHighRisk: '审批高风险命令',
       approveHighRiskDesc: '如 rm, chmod, kill 等',
       approveMediumRisk: '审批中风险命令',
@@ -358,7 +355,6 @@ const zhCN = {
       approvedCommand: '执行已批准命令：{command}',
     },
     finishReasons: {
-      maxSteps: '超过最大执行步数限制',
       aiInvalid: 'AI 响应无效',
       aiFailed: 'AI 响应失败',
       noCommand: 'AI 未提供可执行命令',

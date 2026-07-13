@@ -161,7 +161,7 @@ export interface AppSettings {
   showTerminalOutputPrompt?: boolean;
   terminalTheme?: string;
   agentEnabled?: boolean;
-  agentMaxExecutionSteps?: number;
+  agentSemanticSummaryContextLength?: number;
   maxPersistedSessions?: number;
   maxScrollbackBytesPerSession?: number;
 }
@@ -217,7 +217,7 @@ export interface AgentTask {
 
 export interface AgentConfig {
   enabled: boolean;
-  maxExecutionSteps: number;
+  semanticSummaryContextLength: number;
   requireApprovalForRisk: boolean;
   approveHighRisk: boolean;
   approveMediumRisk: boolean;

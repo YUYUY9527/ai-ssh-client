@@ -36,6 +36,7 @@ const defaultSettings = {
   maxReconnectAttempts: 5,
   showTerminalOutputPrompt: true,
   terminalTheme: 'dark',
+  agentSemanticSummaryContextLength: 12000,
   maxPersistedSessions: 8,
   maxScrollbackBytesPerSession: 150 * 1024,
 };
@@ -54,8 +55,15 @@ function failure(error) {
   return { success: false, error: error instanceof Error ? error.message : String(error) };
 }
 
+function normalizeSettings(settings) {
+  const normalized = { ...defaultSettings, ...(settings || {}) };
+  delete normalized.agentMaxExecutionSteps;
+  return normalized;
+}
+
 function readStore() {
   try {
+    const stored = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
     return {
       connections: [],
       settings: defaultSettings,
@@ -64,7 +72,8 @@ function readStore() {
       quickCommandGroups: [],
       aiProviders: [],
       agentTasks: [],
-      ...JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')),
+      ...stored,
+      settings: normalizeSettings(stored.settings),
     };
   } catch {
     return {
@@ -666,7 +675,7 @@ app.delete('/api/connections/:id', route((request) => {
 app.get('/api/settings', route(() => success({ settings: readStore().settings })));
 app.post('/api/settings', route((request) => {
   updateStore((store) => {
-    store.settings = { ...defaultSettings, ...request.body.settings };
+    store.settings = normalizeSettings(request.body.settings);
   });
   return success();
 }));

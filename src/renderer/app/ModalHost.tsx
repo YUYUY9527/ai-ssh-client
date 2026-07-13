@@ -27,7 +27,7 @@ interface ModalHostProps {
   isSettingsOpen: boolean;
   pendingCommand: CommandSuggestion | null;
   settings: AppSettings;
-  settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'security' | 'agent';
+  settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'agent';
   testingConnection: boolean;
   translate: (key: string, params?: Record<string, string | number>) => string;
   onApproveCommand: () => void;

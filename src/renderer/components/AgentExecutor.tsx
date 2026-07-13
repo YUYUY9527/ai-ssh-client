@@ -22,7 +22,6 @@ export function AgentExecutor() {
     setPendingQuestion,
     setPendingInput,
     setPendingTerminalPrompt,
-    trimAgentContext,
     taskHistory,
     activeConversationId,
   } = useAgentStore();
@@ -41,7 +40,6 @@ export function AgentExecutor() {
     setPendingQuestion,
     setPendingInput,
     setPendingTerminalPrompt,
-    trimAgentContext,
   }), [
     setAgentState,
     addThinkingStep,
@@ -52,7 +50,6 @@ export function AgentExecutor() {
     setPendingQuestion,
     setPendingInput,
     setPendingTerminalPrompt,
-    trimAgentContext,
   ]);
 
   const services = useMemo(() => ({

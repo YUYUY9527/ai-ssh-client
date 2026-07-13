@@ -111,9 +111,6 @@ interface AgentStore {
   resumeTask: () => void;
   cancelTask: () => void;
 
-  // 婵犵數鍋為崹鍫曞箰閹间焦鏅濋柨婵嗘川缁犳棃鏌涘☉娆愮稇婵☆偅锕㈤弻娑㈠Ψ椤旂粯鍠氬┑顔硷工濞硷繝寮?
-  trimAgentContext: () => void;
-
   // 闂傚倸鍊烽悞锕併亹閸愵亞鐭撻柛顐ｆ礃閸?
   reset: () => void;
 }
@@ -155,7 +152,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   // 婵犳鍠楃敮妤冪矙閹烘せ鈧箓宕奸妷顔芥櫍婵犵數濮电喊宥夋偂閳ь剟鎮楅獮鍨姎婵炲眰鍔戝?
   config: {
     enabled: true,
-    maxExecutionSteps: 20,
+    semanticSummaryContextLength: 12000,
     requireApprovalForRisk: true,
     approveHighRisk: true,
     approveMediumRisk: true,
@@ -171,7 +168,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       requireApprovalForRisk: true,
       approveHighRisk: settings.approveHighRisk ?? true,
       approveMediumRisk: settings.approveMediumRisk ?? true,
-      maxExecutionSteps: settings.agentMaxExecutionSteps ?? 20,
+      semanticSummaryContextLength: settings.agentSemanticSummaryContextLength ?? 12000,
     },
   })),
 
@@ -345,9 +342,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       approvalResult: null,
     };
   }),
-
-  // Agent context trimming is handled inside AgentRuntime.
-  trimAgentContext: () => {},
 
   // Reset runtime state.
   reset: () => set({

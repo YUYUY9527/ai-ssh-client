@@ -25,7 +25,7 @@ pub struct AppSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_max_execution_steps: Option<u32>,
+    pub agent_semantic_summary_context_length: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_persisted_sessions: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,7 +49,7 @@ impl Default for AppSettings {
             show_terminal_output_prompt: Some(true),
             terminal_theme: Some("dark".to_string()),
             agent_enabled: None,
-            agent_max_execution_steps: None,
+            agent_semantic_summary_context_length: Some(12_000),
             max_persisted_sessions: Some(8),
             max_scrollback_bytes_per_session: Some(150 * 1024),
         }

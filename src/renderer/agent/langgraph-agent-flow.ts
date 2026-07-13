@@ -1,12 +1,5 @@
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { tool } from '@langchain/core/tools';
-import {
-  AIMessage,
-  HumanMessage,
-  SystemMessage,
-  trimMessages,
-  type BaseMessage,
-} from '@langchain/core/messages';
 
 import type { AgentResponse, Message } from '../../shared/types';
 import type {
@@ -15,8 +8,6 @@ import type {
   AIChatStreamOptions,
   IPCResult,
 } from '../../shared/ipc-types';
-
-const AGENT_CONTEXT_TOKEN_BUDGET = 12000;
 
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 type AnalyzeCommand = (command: string) => { riskLevel: RiskLevel };
@@ -184,49 +175,11 @@ type AnyCompiledGraph = {
 
 let roundGraph: AnyCompiledGraph | null = null;
 
-function estimateMessagesTokens(messages: BaseMessage[]): number {
-  return messages.reduce((total, message) => {
-    const content = typeof message.content === 'string'
-      ? message.content
-      : JSON.stringify(message.content);
-    return total + Math.ceil(content.length / 4) + 4;
-  }, 0);
-}
-
-function toLangChainMessage(message: Message): BaseMessage {
-  if (message.role === 'system') {
-    return new SystemMessage({ content: message.content, id: message.id });
-  }
-  if (message.role === 'assistant') {
-    return new AIMessage({ content: message.content, id: message.id });
-  }
-  return new HumanMessage({ content: message.content, id: message.id });
-}
-
-function toAppMessage(message: BaseMessage, index: number): Message {
-  const type = message.getType();
-  const content = typeof message.content === 'string'
-    ? message.content
-    : JSON.stringify(message.content);
-  return {
-    id: message.id || `trimmed-${index}`,
-    role: type === 'system' ? 'system' : type === 'ai' ? 'assistant' : 'user',
-    content,
-    timestamp: Date.now(),
-  };
-}
-
-async function prepareAgentContext(messages: Message[]): Promise<Message[]> {
-  const langChainMessages = messages.map(toLangChainMessage);
-  const trimmedMessages = await trimMessages(langChainMessages, {
-    maxTokens: AGENT_CONTEXT_TOKEN_BUDGET,
-    tokenCounter: estimateMessagesTokens,
-    strategy: 'last',
-    includeSystem: true,
-    allowPartial: true,
-  });
-
-  return trimmedMessages.map(toAppMessage);
+export function estimateAgentMessagesTokens(messages: Message[]): number {
+  return messages.reduce(
+    (total, message) => total + Math.ceil(message.content.length / 4) + 4,
+    0,
+  );
 }
 
 /**
@@ -345,8 +298,8 @@ function getRoundGraph(): AnyCompiledGraph {
   if (roundGraph) return roundGraph;
 
   roundGraph = new StateGraph(RoundGraphAnnotation)
-    .addNode('prepareContext', async (state) => ({
-      preparedMessages: await prepareAgentContext(state.messages),
+    .addNode('prepareContext', (state) => ({
+      preparedMessages: state.messages,
     }))
     .addNode('callModel', async (state) => {
       const result = await state.aiChatStream(state.providerId, state.preparedMessages, {

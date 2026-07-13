@@ -66,7 +66,7 @@ interface DragState {
 export function AppController() {
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'security' | 'agent'>('terminal');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'agent'>('terminal');
   const [showAgentPet, setShowAgentPet] = useState(false);
   const [agentInput, setAgentInput] = useState('');
   const [agentInputFocusToken, setAgentInputFocusToken] = useState(0);
