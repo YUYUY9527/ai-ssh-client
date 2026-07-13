@@ -72,7 +72,8 @@ export function AppController() {
   const [agentInput, setAgentInput] = useState('');
   const [agentInputFocusToken, setAgentInputFocusToken] = useState(0);
   const [pendingCommand, setPendingCommand] = useState<CommandSuggestion | null>(null);
-  const [pendingHostTrust, setPendingHostTrust] = useState<HostTrustPromptEvent | null>(null);
+  const [hostTrustQueue, setHostTrustQueue] = useState<HostTrustPromptEvent[]>([]);
+  const pendingHostTrust = hostTrustQueue[0] ?? null;
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showConnectionDropdown, setShowConnectionDropdown] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SSHConnection | null>(null);
@@ -292,13 +293,13 @@ export function AppController() {
 
   // 响应主机指纹确认：接受后落盘并继续握手
   const respondHostTrust = useCallback(async (accepted: boolean) => {
-    const requestId = pendingHostTrust?.requestId;
-    setPendingHostTrust(null);
+    const requestId = hostTrustQueue[0]?.requestId;
     if (!requestId || !window.electronAPI?.sshRespondHostTrust) {
       return;
     }
+    setHostTrustQueue((queue) => queue.filter((prompt) => prompt.requestId !== requestId));
     await window.electronAPI.sshRespondHostTrust(requestId, accepted);
-  }, [pendingHostTrust]);
+  }, [hostTrustQueue]);
 
   const handleAcceptHostTrust = useCallback(() => {
     void respondHostTrust(true);
@@ -314,7 +315,11 @@ export function AppController() {
       return undefined;
     }
     return window.electronAPI.onSshHostTrustPrompt((prompt) => {
-      setPendingHostTrust(prompt);
+      setHostTrustQueue((queue) => (
+        queue.some((item) => item.requestId === prompt.requestId)
+          ? queue
+          : [...queue, prompt]
+      ));
     });
   }, []);
 
@@ -869,4 +874,3 @@ export function AppController() {
     />
   );
 }
-

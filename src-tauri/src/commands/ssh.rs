@@ -27,24 +27,30 @@ use crate::AppState;
 /// # 返回
 /// 返回包含会话 ID 的连接结果
 #[tauri::command]
-pub fn ssh_connect(
+pub async fn ssh_connect(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     connection: SshConnection,
     cols: Option<u32>,
     rows: Option<u32>,
     settings: Option<AppSettings>,
-) -> IpcResult<SshConnectResult> {
-    match state.ssh.connect(
-        app_handle,
-        connection,
-        cols.unwrap_or(80),
-        rows.unwrap_or(24),
-        settings,
-    ) {
-        Ok(session_id) => success(SshConnectResult { session_id }),
-        Err(err) => error(err.to_string()),
-    }
+) -> Result<IpcResult<SshConnectResult>, String> {
+    Ok(
+        match state
+            .ssh
+            .connect(
+                app_handle,
+                connection,
+                cols.unwrap_or(80),
+                rows.unwrap_or(24),
+                settings,
+            )
+            .await
+        {
+            Ok(session_id) => success(SshConnectResult { session_id }),
+            Err(err) => error(err.to_string()),
+        },
+    )
 }
 
 /// 断开 SSH 会话
@@ -111,14 +117,26 @@ pub fn ssh_get_sessions(state: State<'_, AppState>) -> IpcResult<serde_json::Val
 /// * `state` - 应用状态
 /// * `connection` - SSH 连接配置
 #[tauri::command]
-pub fn ssh_test_connection(
+pub async fn ssh_test_connection(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     connection: SshConnection,
-) -> IpcResult<()> {
-    match state.ssh.test_connection(app_handle, connection) {
-        Ok(()) => empty_success(),
-        Err(err) => error(err.to_string()),
+) -> Result<IpcResult<()>, String> {
+    Ok(
+        match state.ssh.test_connection(app_handle, connection).await {
+            Ok(()) => empty_success(),
+            Err(err) => error(err.to_string()),
+        },
+    )
+}
+
+fn resolve_sftp_connection(
+    state: &AppState,
+    connection_id: &str,
+) -> crate::error::AppResult<Option<SshConnection>> {
+    match state.ssh.runtime_connection(connection_id)? {
+        Some(connection) => Ok(Some(connection)),
+        None => state.storage.get_connection(connection_id),
     }
 }
 
@@ -233,7 +251,7 @@ pub async fn sftp_list_directory(
     connection_id: String,
     remote_path: String,
 ) -> Result<IpcResult<serde_json::Value>, String> {
-    let connection = match state.storage.get_connection(&connection_id) {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
         Ok(Some(connection)) => connection,
         Ok(None) => return Ok(error("Connection not found")),
         Err(err) => return Ok(error(err.to_string())),
@@ -280,7 +298,7 @@ pub async fn sftp_download_file(
     remote_path: String,
     task_id: Option<String>,
 ) -> Result<IpcResult<serde_json::Value>, String> {
-    let connection = match state.storage.get_connection(&connection_id) {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
         Ok(Some(connection)) => connection,
         Ok(None) => return Ok(error("Connection not found")),
         Err(err) => return Ok(error(err.to_string())),
@@ -381,7 +399,7 @@ pub async fn sftp_upload_file(
             .to_string();
     }
 
-    let connection = match state.storage.get_connection(&connection_id) {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
         Ok(Some(connection)) => connection,
         Ok(None) => return Ok(error("Connection not found")),
         Err(err) => return Ok(error(err.to_string())),

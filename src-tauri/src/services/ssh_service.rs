@@ -36,6 +36,7 @@ enum SshControl {
 const SFTP_REQUEST_TIMEOUT_SECS: u64 = 120;
 
 struct SshSession {
+    connection: SshConnection,
     state: SshSessionState,
     control: mpsc::UnboundedSender<SshControl>,
     output_subscribers: Vec<mpsc::UnboundedSender<String>>,
@@ -182,7 +183,7 @@ impl SshService {
     }
 
     /// Starts an interactive SSH shell and emits terminal output to the frontend.
-    pub fn connect(
+    pub async fn connect(
         &self,
         app_handle: AppHandle,
         connection: SshConnection,
@@ -196,6 +197,7 @@ impl SshService {
         self.disconnect(&session_id).ok();
         self.insert_session(
             session_id.clone(),
+            connection.clone(),
             SshSessionState {
                 connection_id: session_id.clone(),
                 is_connected: false,
@@ -209,7 +211,7 @@ impl SshService {
         let sessions = Arc::clone(&self.sessions);
         let storage = Arc::clone(&self.storage);
         let pending_trust = Arc::clone(&self.pending_trust);
-        let setup_result = tauri::async_runtime::block_on(start_shell_task(
+        let setup_result = start_shell_task(
             app_handle,
             Arc::clone(&sessions),
             storage,
@@ -220,7 +222,8 @@ impl SshService {
             rows,
             settings,
             control_rx,
-        ));
+        )
+        .await;
 
         if let Err(error) = setup_result {
             remove_session(&sessions, &session_id);
@@ -307,24 +310,31 @@ impl SshService {
     }
 
     /// Tests an SSH connection by authenticating and disconnecting.
-    pub fn test_connection(&self, app_handle: AppHandle, connection: SshConnection) -> AppResult<()> {
+    pub async fn test_connection(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+    ) -> AppResult<()> {
         let storage = Arc::clone(&self.storage);
         let pending_trust = Arc::clone(&self.pending_trust);
-        tauri::async_runtime::block_on(async {
-            let session = connect_authenticated_session(
-                &connection,
-                None,
-                storage,
-                app_handle,
-                pending_trust,
-            )
-            .await?;
-            session
-                .disconnect(Disconnect::ByApplication, "", "en")
+        let session =
+            connect_authenticated_session(&connection, None, storage, app_handle, pending_trust)
                 .await?;
-            Ok::<(), crate::error::AppError>(())
-        })?;
+        session
+            .disconnect(Disconnect::ByApplication, "", "en")
+            .await?;
         Ok(())
+    }
+
+    /// Returns the connection config owned by a currently tracked session.
+    pub fn runtime_connection(&self, connection_id: &str) -> AppResult<Option<SshConnection>> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| app_error("SSH 状态锁已损坏"))?;
+        Ok(sessions
+            .get(connection_id)
+            .map(|session| session.connection.clone()))
     }
 
     /// Lists a remote directory through SFTP.
@@ -341,7 +351,8 @@ impl SshService {
             Arc::clone(&self.pending_trust),
         )
         .await?;
-        let entries = sftp.read_dir(remote_path.as_str()).await?;
+        let protocol_path = sftp_protocol_path(&remote_path);
+        let entries = sftp.read_dir(protocol_path.as_str()).await?;
         let mut files = Vec::new();
 
         for entry in entries {
@@ -396,7 +407,8 @@ impl SshService {
             Arc::clone(&self.pending_trust),
         )
         .await?;
-        let mut remote_file = sftp.open(remote_path.as_str()).await?;
+        let protocol_path = sftp_protocol_path(&remote_path);
+        let mut remote_file = sftp.open(protocol_path.as_str()).await?;
         let total = remote_file.metadata().await?.len();
         let mut local_file = tokio::fs::File::create(&local_path).await?;
         let filename = Path::new(&remote_path)
@@ -470,9 +482,10 @@ impl SshService {
             .to_string();
         let total = tokio::fs::metadata(&local_path).await?.len();
         let mut local_file = tokio::fs::File::open(&local_path).await?;
+        let protocol_path = sftp_protocol_path(&remote_path);
         let mut remote_file = sftp
             .open_with_flags(
-                remote_path.as_str(),
+                protocol_path.as_str(),
                 OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
             )
             .await?;
@@ -500,10 +513,10 @@ impl SshService {
         }
 
         if let Err(err) = remote_file.flush().await {
-            ensure_uploaded_after_close_error(&sftp, &remote_path, total, err).await?;
+            ensure_uploaded_after_close_error(&sftp, &protocol_path, total, err).await?;
         }
         if let Err(err) = remote_file.shutdown().await {
-            ensure_uploaded_after_close_error(&sftp, &remote_path, total, err).await?;
+            ensure_uploaded_after_close_error(&sftp, &protocol_path, total, err).await?;
         }
         let _ = session
             .disconnect(Disconnect::ByApplication, "", "en")
@@ -527,6 +540,7 @@ impl SshService {
     fn insert_session(
         &self,
         connection_id: String,
+        connection: SshConnection,
         state: SshSessionState,
         control: mpsc::UnboundedSender<SshControl>,
     ) -> AppResult<()> {
@@ -537,6 +551,7 @@ impl SshService {
         sessions.insert(
             connection_id,
             SshSession {
+                connection,
                 state,
                 control,
                 output_subscribers: Vec::new(),
@@ -554,6 +569,16 @@ fn calculate_progress(transferred: u64, total: u64) -> u32 {
     ((transferred as f64 / total as f64) * 100.0)
         .round()
         .min(100.0) as u32
+}
+
+fn sftp_protocol_path(path: &str) -> String {
+    if path == "~" {
+        ".".to_string()
+    } else if let Some(relative) = path.strip_prefix("~/") {
+        format!("./{relative}")
+    } else {
+        path.to_string()
+    }
 }
 
 impl Default for SshService {
@@ -797,12 +822,7 @@ async fn wait_for_host_trust_decision(
         )));
     }
 
-    match tokio::time::timeout(
-        Duration::from_secs(HOST_TRUST_PROMPT_TIMEOUT_SECS),
-        rx,
-    )
-    .await
-    {
+    match tokio::time::timeout(Duration::from_secs(HOST_TRUST_PROMPT_TIMEOUT_SECS), rx).await {
         Ok(Ok(accepted)) => Ok(accepted),
         Ok(Err(_)) => Err(russh::Error::IO(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -908,4 +928,19 @@ fn emit_ssh_error(app_handle: &AppHandle, connection_id: &str, error: &str) {
 /// Emits a terminal SFTP transfer event for foreground and background UI listeners.
 pub fn emit_sftp_transfer_complete(app_handle: &AppHandle, event: SftpTransferCompleteEvent) {
     let _ = app_handle.emit("sftp-transfer-complete", event);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sftp_protocol_path;
+
+    #[test]
+    fn converts_shell_home_paths_for_sftp() {
+        assert_eq!(sftp_protocol_path(""), "");
+        assert_eq!(sftp_protocol_path("~"), ".");
+        assert_eq!(sftp_protocol_path("~/"), "./");
+        assert_eq!(sftp_protocol_path("~/project"), "./project");
+        assert_eq!(sftp_protocol_path("~/../shared"), "./../shared");
+        assert_eq!(sftp_protocol_path("/var/log"), "/var/log");
+    }
 }

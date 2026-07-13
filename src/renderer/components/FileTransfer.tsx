@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 import { useI18n } from '../i18n';
+import { normalizeHistoryPath } from '../history/command-history-index';
 import { useSessionStore } from '../session/useSessionStore';
 import {
   useSftpTransferStore,
@@ -208,12 +209,10 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   };
 
   const goUp = () => {
-    const parts = currentPath.split('/').filter(Boolean);
-    if (parts.length === 0) {
+    if (currentPath === '/') {
       return;
     }
-    parts.pop();
-    navigateTo(`/${parts.join('/')}` || '/');
+    navigateTo(normalizeHistoryPath(`${currentPath.replace(/\/$/, '')}/..`));
   };
 
   const goHome = () => {
@@ -404,7 +403,11 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     };
   }, [connectionId, currentPath, isLive]);
 
-  const pathParts = currentPath.split('/').filter(Boolean);
+  const isHomePath = currentPath === '~' || currentPath.startsWith('~/');
+  const pathParts = (isHomePath ? currentPath.replace(/^~\/?/, '') : currentPath)
+    .split('/')
+    .filter(Boolean);
+  const pathRoot = isHomePath ? '~' : '/';
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[color-mix(in_srgb,var(--bg-primary)_76%,var(--bg-secondary))]">
@@ -527,17 +530,19 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
       {activeView === 'files' && (
         <div className="flex items-center gap-1 overflow-x-auto border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_66%,var(--bg-secondary))] px-3 py-2 text-sm">
           <button
-            onClick={() => navigateTo('/')}
+            onClick={() => navigateTo(pathRoot)}
             className="whitespace-nowrap text-slate-500 hover:text-teal-500 disabled:opacity-50"
             disabled={!isLive}
           >
-            /
+            {pathRoot}
           </button>
           {pathParts.map((part, index) => (
             <span key={`${part}-${index}`} className="flex items-center">
               <ChevronRight className="mx-0.5 h-3 w-3 text-slate-400" />
               <button
-                onClick={() => navigateTo(`/${pathParts.slice(0, index + 1).join('/')}`)}
+                onClick={() => navigateTo(
+                  `${isHomePath ? '~/' : '/'}${pathParts.slice(0, index + 1).join('/')}`,
+                )}
                 className="whitespace-nowrap text-slate-500 hover:text-teal-500 disabled:opacity-50"
                 disabled={!isLive}
               >

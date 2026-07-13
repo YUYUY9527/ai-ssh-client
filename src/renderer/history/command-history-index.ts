@@ -70,7 +70,12 @@ export function normalizeHistoryPath(path: string): string {
       return;
     }
     if (segment === '..') {
-      segments.pop();
+      const previous = segments[segments.length - 1];
+      if (previous && previous !== '..') {
+        segments.pop();
+      } else if (prefix === '~') {
+        segments.push('..');
+      }
       return;
     }
     segments.push(segment);
