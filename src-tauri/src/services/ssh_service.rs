@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use russh::client::{self, AuthResult, Handle};
 use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
@@ -13,12 +13,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::error::{app_error, AppError, AppResult};
 use crate::models::settings::AppSettings;
-use crate::models::ssh::{SftpFileInfo, SshConnection, SshEvent, SshSessionState};
+use crate::models::ssh::{
+    HostTrustPromptEvent, HostTrustPromptKind, HostTrustRecord, SftpFileInfo, SshConnection,
+    SshEvent, SshSessionState,
+};
 use crate::services::sentinel::SentinelStripper;
+use crate::services::storage_service::StorageService;
+
+/// How long to wait for the user to accept/reject a host key.
+const HOST_TRUST_PROMPT_TIMEOUT_SECS: u64 = 90;
 
 enum SshControl {
     Input(String),
@@ -56,16 +63,89 @@ pub struct SftpTransferCompleteEvent {
     pub remote_path: Option<String>,
 }
 
+type PendingTrustMap = Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>;
+
 #[derive(Clone)]
-struct SshHandler;
+struct SshHandler {
+    host: String,
+    port: u16,
+    storage: Arc<StorageService>,
+    app_handle: AppHandle,
+    pending_trust: PendingTrustMap,
+}
 
 impl client::Handler for SshHandler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        server_public_key: &ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
+        // 已信任则直接通过；首次或密钥变更时弹窗等待前端确认
+        let algorithm = server_public_key.algorithm().to_string();
+        let fingerprint = server_public_key
+            .fingerprint(ssh_key::HashAlg::Sha256)
+            .to_string();
+
+        let existing = self
+            .storage
+            .get_host_trust_record(&self.host, self.port)
+            .map_err(|err| {
+                russh::Error::IO(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err.to_string(),
+                ))
+            })?;
+
+        if let Some(existing) = existing.as_ref() {
+            if existing.fingerprint == fingerprint && existing.algorithm == algorithm {
+                return Ok(true);
+            }
+        }
+
+        let kind = if existing.is_some() {
+            HostTrustPromptKind::KeyChanged
+        } else {
+            HostTrustPromptKind::FirstConnect
+        };
+        let accepted = wait_for_host_trust_decision(
+            &self.app_handle,
+            &self.pending_trust,
+            HostTrustPromptEvent {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                host: self.host.clone(),
+                port: self.port,
+                algorithm: algorithm.clone(),
+                fingerprint: fingerprint.clone(),
+                kind,
+                previous_algorithm: existing.as_ref().map(|item| item.algorithm.clone()),
+                previous_fingerprint: existing.as_ref().map(|item| item.fingerprint.clone()),
+            },
+        )
+        .await?;
+
+        if !accepted {
+            return Err(russh::Error::KeyChanged { line: 0 });
+        }
+
+        let trusted_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        self.storage
+            .upsert_host_trust_record(HostTrustRecord {
+                host: self.host.clone(),
+                port: self.port,
+                algorithm,
+                fingerprint,
+                trusted_at,
+            })
+            .map_err(|err| {
+                russh::Error::IO(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err.to_string(),
+                ))
+            })?;
         Ok(true)
     }
 }
@@ -74,14 +154,31 @@ impl client::Handler for SshHandler {
 #[derive(Clone)]
 pub struct SshService {
     sessions: Arc<Mutex<HashMap<String, SshSession>>>,
+    storage: Arc<StorageService>,
+    pending_trust: PendingTrustMap,
 }
 
 impl SshService {
-    /// Creates an empty SSH service.
-    pub fn new() -> Self {
+    /// Creates an SSH service bound to the shared storage layer.
+    pub fn new(storage: Arc<StorageService>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            storage,
+            pending_trust: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Resolves a pending host-key confirmation from the frontend.
+    pub fn respond_host_trust(&self, request_id: &str, accepted: bool) -> AppResult<()> {
+        let mut pending = self
+            .pending_trust
+            .lock()
+            .map_err(|_| app_error("主机信任状态锁已损坏"))?;
+        let Some(sender) = pending.remove(request_id) else {
+            return Err(app_error("信任确认请求不存在或已过期"));
+        };
+        let _ = sender.send(accepted);
+        Ok(())
     }
 
     /// Starts an interactive SSH shell and emits terminal output to the frontend.
@@ -110,9 +207,13 @@ impl SshService {
         )?;
 
         let sessions = Arc::clone(&self.sessions);
+        let storage = Arc::clone(&self.storage);
+        let pending_trust = Arc::clone(&self.pending_trust);
         let setup_result = tauri::async_runtime::block_on(start_shell_task(
             app_handle,
             Arc::clone(&sessions),
+            storage,
+            pending_trust,
             session_id.clone(),
             connection,
             cols,
@@ -206,9 +307,18 @@ impl SshService {
     }
 
     /// Tests an SSH connection by authenticating and disconnecting.
-    pub fn test_connection(&self, connection: SshConnection) -> AppResult<()> {
+    pub fn test_connection(&self, app_handle: AppHandle, connection: SshConnection) -> AppResult<()> {
+        let storage = Arc::clone(&self.storage);
+        let pending_trust = Arc::clone(&self.pending_trust);
         tauri::async_runtime::block_on(async {
-            let session = connect_authenticated_session(&connection, None).await?;
+            let session = connect_authenticated_session(
+                &connection,
+                None,
+                storage,
+                app_handle,
+                pending_trust,
+            )
+            .await?;
             session
                 .disconnect(Disconnect::ByApplication, "", "en")
                 .await?;
@@ -220,10 +330,17 @@ impl SshService {
     /// Lists a remote directory through SFTP.
     pub async fn list_directory(
         &self,
+        app_handle: AppHandle,
         connection: SshConnection,
         remote_path: String,
     ) -> AppResult<Vec<SftpFileInfo>> {
-        let (sftp, session) = open_sftp_session(&connection).await?;
+        let (sftp, session) = open_sftp_session(
+            &connection,
+            Arc::clone(&self.storage),
+            app_handle,
+            Arc::clone(&self.pending_trust),
+        )
+        .await?;
         let entries = sftp.read_dir(remote_path.as_str()).await?;
         let mut files = Vec::new();
 
@@ -272,7 +389,13 @@ impl SshService {
         local_path: String,
         task_id: String,
     ) -> AppResult<()> {
-        let (sftp, session) = open_sftp_session(&connection).await?;
+        let (sftp, session) = open_sftp_session(
+            &connection,
+            Arc::clone(&self.storage),
+            app_handle.clone(),
+            Arc::clone(&self.pending_trust),
+        )
+        .await?;
         let mut remote_file = sftp.open(remote_path.as_str()).await?;
         let total = remote_file.metadata().await?.len();
         let mut local_file = tokio::fs::File::create(&local_path).await?;
@@ -333,7 +456,13 @@ impl SshService {
         remote_path: String,
         task_id: String,
     ) -> AppResult<()> {
-        let (sftp, session) = open_sftp_session(&connection).await?;
+        let (sftp, session) = open_sftp_session(
+            &connection,
+            Arc::clone(&self.storage),
+            app_handle.clone(),
+            Arc::clone(&self.pending_trust),
+        )
+        .await?;
         let filename = std::path::Path::new(&local_path)
             .file_name()
             .and_then(|value| value.to_str())
@@ -429,13 +558,19 @@ fn calculate_progress(transferred: u64, total: u64) -> u32 {
 
 impl Default for SshService {
     fn default() -> Self {
-        Self::new()
+        // Default only for tests; production wires storage via AppState.
+        let storage = Arc::new(
+            StorageService::new().unwrap_or_else(|_| panic!("failed to init default storage")),
+        );
+        Self::new(storage)
     }
 }
 
 async fn start_shell_task(
     app_handle: AppHandle,
     sessions: Arc<Mutex<HashMap<String, SshSession>>>,
+    storage: Arc<StorageService>,
+    pending_trust: PendingTrustMap,
     session_id: String,
     connection: SshConnection,
     cols: u32,
@@ -443,7 +578,14 @@ async fn start_shell_task(
     settings: Option<AppSettings>,
     mut control_rx: mpsc::UnboundedReceiver<SshControl>,
 ) -> AppResult<()> {
-    let session = connect_authenticated_session(&connection, settings.as_ref()).await?;
+    let session = connect_authenticated_session(
+        &connection,
+        settings.as_ref(),
+        storage,
+        app_handle.clone(),
+        pending_trust,
+    )
+    .await?;
     let mut channel = session.channel_open_session().await?;
     channel
         .request_pty(
@@ -546,6 +688,9 @@ async fn start_shell_task(
 async fn connect_authenticated_session(
     connection: &SshConnection,
     settings: Option<&AppSettings>,
+    storage: Arc<StorageService>,
+    app_handle: AppHandle,
+    pending_trust: PendingTrustMap,
 ) -> AppResult<Handle<SshHandler>> {
     let addrs = (connection.host.as_str(), connection.port)
         .to_socket_addrs()?
@@ -560,7 +705,14 @@ async fn connect_authenticated_session(
         }
     }
 
-    let mut session = client::connect(Arc::new(config), addrs, SshHandler).await?;
+    let handler = SshHandler {
+        host: connection.host.trim().to_ascii_lowercase(),
+        port: connection.port,
+        storage,
+        app_handle,
+        pending_trust,
+    };
+    let mut session = client::connect(Arc::new(config), addrs, handler).await?;
 
     if let Some(password) = connection
         .password
@@ -602,14 +754,70 @@ async fn connect_authenticated_session(
 
 async fn open_sftp_session(
     connection: &SshConnection,
+    storage: Arc<StorageService>,
+    app_handle: AppHandle,
+    pending_trust: PendingTrustMap,
 ) -> AppResult<(SftpSession, Handle<SshHandler>)> {
-    let session = connect_authenticated_session(connection, None).await?;
+    let session =
+        connect_authenticated_session(connection, None, storage, app_handle, pending_trust).await?;
     let channel = session.channel_open_session().await?;
     channel.request_subsystem(true, "sftp").await?;
     let mut config = SftpConfig::default();
     config.request_timeout_secs = SFTP_REQUEST_TIMEOUT_SECS;
     let sftp = SftpSession::new_with_config(channel.into_stream(), config).await?;
     Ok((sftp, session))
+}
+
+/// 向前端发出主机指纹确认事件，并阻塞等待 accept/reject（带超时）。
+async fn wait_for_host_trust_decision(
+    app_handle: &AppHandle,
+    pending_trust: &PendingTrustMap,
+    prompt: HostTrustPromptEvent,
+) -> Result<bool, russh::Error> {
+    let request_id = prompt.request_id.clone();
+    let (tx, rx) = oneshot::channel();
+
+    {
+        let mut pending = pending_trust.lock().map_err(|_| {
+            russh::Error::IO(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "主机信任状态锁已损坏",
+            ))
+        })?;
+        pending.insert(request_id.clone(), tx);
+    }
+
+    if app_handle.emit("ssh-host-trust-prompt", prompt).is_err() {
+        if let Ok(mut pending) = pending_trust.lock() {
+            pending.remove(&request_id);
+        }
+        return Err(russh::Error::IO(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "无法发送主机指纹确认请求",
+        )));
+    }
+
+    match tokio::time::timeout(
+        Duration::from_secs(HOST_TRUST_PROMPT_TIMEOUT_SECS),
+        rx,
+    )
+    .await
+    {
+        Ok(Ok(accepted)) => Ok(accepted),
+        Ok(Err(_)) => Err(russh::Error::IO(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "主机指纹确认通道已关闭",
+        ))),
+        Err(_) => {
+            if let Ok(mut pending) = pending_trust.lock() {
+                pending.remove(&request_id);
+            }
+            Err(russh::Error::IO(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "主机指纹确认超时",
+            )))
+        }
+    }
 }
 
 async fn ensure_uploaded_after_close_error(

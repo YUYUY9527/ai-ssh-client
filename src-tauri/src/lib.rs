@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 mod commands;
 mod error;
 mod models;
@@ -12,7 +14,7 @@ use services::storage_service::StorageService;
 
 /// Shared Tauri application state.
 pub struct AppState {
-    storage: StorageService,
+    storage: Arc<StorageService>,
     ssh: SshService,
     ai: AiService,
     agent: AgentService,
@@ -22,9 +24,10 @@ pub struct AppState {
 impl AppState {
     /// Creates application state with local services.
     pub fn new() -> Result<Self, String> {
+        let storage = Arc::new(StorageService::new().map_err(|err| err.to_string())?);
         Ok(Self {
-            storage: StorageService::new().map_err(|err| err.to_string())?,
-            ssh: SshService::new(),
+            storage: Arc::clone(&storage),
+            ssh: SshService::new(storage),
             ai: AiService::new(),
             agent: AgentService::new(),
             agent_history: AgentHistoryService::new().map_err(|err| err.to_string())?,
@@ -47,6 +50,11 @@ pub fn run() {
             ssh::ssh_test_connection,
             ssh::ssh_resize,
             ssh::ssh_get_host_trust_record,
+            ssh::ssh_list_host_trust_records,
+            ssh::ssh_upsert_host_trust_record,
+            ssh::ssh_delete_host_trust_record,
+            ssh::ssh_clear_host_trust_records,
+            ssh::ssh_respond_host_trust,
             ssh::sftp_list_directory,
             ssh::sftp_download_file,
             ssh::sftp_upload_file,

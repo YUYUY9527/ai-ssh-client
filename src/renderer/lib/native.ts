@@ -13,6 +13,7 @@ import type {
   Message,
   AgentTask,
   HostTrustRecord,
+  HostTrustPromptEvent,
 } from '../../shared/types';
 import type {
   AIChatResult,
@@ -51,9 +52,15 @@ type ElectronApiLike = {
   sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
   sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
   sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
+  sshListHostTrustRecords: () => Promise<IPCResult<{ records: HostTrustRecord[] }>>;
+  sshUpsertHostTrustRecord: (record: HostTrustRecord) => Promise<IPCResult>;
+  sshDeleteHostTrustRecord: (host: string, port: number) => Promise<IPCResult>;
+  sshClearHostTrustRecords: () => Promise<IPCResult>;
+  sshRespondHostTrust: (requestId: string, accepted: boolean) => Promise<IPCResult>;
   onSshData: (callback: (data: { connectionId: string; data: string; type?: string; state?: SSHSessionState }) => void) => ListenerCleanup;
   onSshError: (callback: (data: { connectionId: string; error: string }) => void) => ListenerCleanup;
   onSshClose: (callback: (connectionId: string) => void) => ListenerCleanup;
+  onSshHostTrustPrompt: (callback: (data: HostTrustPromptEvent) => void) => ListenerCleanup;
   aiChat: (providerId: string, messages: Message[], options?: { requestId?: string }) => Promise<IPCResult<AIChatResult>>;
   aiChatStream: (providerId: string, messages: Message[], options: AIChatStreamOptions) => Promise<IPCResult<AIChatResult>>;
   cancelAIChat: (requestId: string) => Promise<IPCResult>;
@@ -209,9 +216,15 @@ const nativeApi: ElectronApiLike = {
   sshResize: (connectionId, cols, rows) => tauriInvoke<void>('ssh_resize', { connectionId, cols, rows }),
   sshTestConnection: (connection) => tauriInvoke<void>('ssh_test_connection', { connection }),
   sshGetHostTrustRecord: (host, port) => tauriInvoke<{ record: HostTrustRecord | null }>('ssh_get_host_trust_record', { host, port }),
+  sshListHostTrustRecords: () => tauriInvoke<{ records: HostTrustRecord[] }>('ssh_list_host_trust_records'),
+  sshUpsertHostTrustRecord: (record) => tauriInvoke<void>('ssh_upsert_host_trust_record', { record }),
+  sshDeleteHostTrustRecord: (host, port) => tauriInvoke<void>('ssh_delete_host_trust_record', { host, port }),
+  sshClearHostTrustRecords: () => tauriInvoke<void>('ssh_clear_host_trust_records'),
+  sshRespondHostTrust: (requestId, accepted) => tauriInvoke<void>('ssh_respond_host_trust', { requestId, accepted }),
   onSshData: (callback) => createTauriListener('ssh-data', callback),
   onSshError: (callback) => createTauriListener('ssh-error', callback),
   onSshClose: (callback) => createTauriListener('ssh-close', callback),
+  onSshHostTrustPrompt: (callback) => createTauriListener('ssh-host-trust-prompt', callback),
   aiChat: (providerId, messages, options) => tauriInvoke<AIChatResult>('ai_chat', { providerId, messages, options }),
   aiChatStream: streamNativeChat,
   cancelAIChat: (requestId) => tauriInvoke<void>('ai_cancel_chat', { requestId }),

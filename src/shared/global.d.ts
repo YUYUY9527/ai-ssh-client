@@ -11,6 +11,7 @@ import type {
   AgentTask,
   SSHSessionState,
   HostTrustRecord,
+  HostTrustPromptEvent,
 } from './types';
 import type {
   IPCResult,
@@ -48,10 +49,16 @@ declare global {
       sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
       sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
+      sshListHostTrustRecords: () => Promise<IPCResult<{ records: HostTrustRecord[] }>>;
+      sshUpsertHostTrustRecord: (record: HostTrustRecord) => Promise<IPCResult>;
+      sshDeleteHostTrustRecord: (host: string, port: number) => Promise<IPCResult>;
+      sshClearHostTrustRecords: () => Promise<IPCResult>;
+      sshRespondHostTrust: (requestId: string, accepted: boolean) => Promise<IPCResult>;
 
       onSshData: (callback: (data: { connectionId: string; data: string; type?: string; state?: SSHSessionState }) => void) => () => void;
       onSshError: (callback: (data: { connectionId: string; error: string }) => void) => () => void;
       onSshClose: (callback: (connectionId: string) => void) => () => void;
+      onSshHostTrustPrompt: (callback: (data: HostTrustPromptEvent) => void) => () => void;
 
       aiChat: (providerId: string, messages: Message[], options?: { requestId?: string }) => Promise<IPCResult<AIChatResult>>;
       aiChatStream: (providerId: string, messages: Message[], options: AIChatStreamOptions) => Promise<IPCResult<AIChatResult>>;

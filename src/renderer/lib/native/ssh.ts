@@ -1,4 +1,10 @@
-import type { AppSettings, HostTrustRecord, SSHConnection, SSHSessionState } from '../../../shared/types';
+import type {
+  AppSettings,
+  HostTrustPromptEvent,
+  HostTrustRecord,
+  SSHConnection,
+  SSHSessionState,
+} from '../../../shared/types';
 import type { IPCResult, SSHConnectResult, SSessionsResult } from '../../../shared/ipc-types';
 import { tauriInvoke, type ListenerCleanup } from '../native';
 
@@ -35,6 +41,21 @@ export const nativeSsh = {
   ): Promise<IPCResult<{ record: HostTrustRecord | null }>> => (
     tauriInvoke<{ record: HostTrustRecord | null }>('ssh_get_host_trust_record', { host, port })
   ),
+  listHostTrustRecords: (): Promise<IPCResult<{ records: HostTrustRecord[] }>> => (
+    tauriInvoke<{ records: HostTrustRecord[] }>('ssh_list_host_trust_records')
+  ),
+  upsertHostTrustRecord: (record: HostTrustRecord): Promise<IPCResult> => (
+    tauriInvoke<void>('ssh_upsert_host_trust_record', { record })
+  ),
+  deleteHostTrustRecord: (host: string, port: number): Promise<IPCResult> => (
+    tauriInvoke<void>('ssh_delete_host_trust_record', { host, port })
+  ),
+  clearHostTrustRecords: (): Promise<IPCResult> => (
+    tauriInvoke<void>('ssh_clear_host_trust_records')
+  ),
+  respondHostTrust: (requestId: string, accepted: boolean): Promise<IPCResult> => (
+    tauriInvoke<void>('ssh_respond_host_trust', { requestId, accepted })
+  ),
 };
 
 export type SshDataListener = (data: {
@@ -43,5 +64,7 @@ export type SshDataListener = (data: {
   type?: string;
   state?: SSHSessionState;
 }) => void;
+
+export type HostTrustPromptListener = (data: HostTrustPromptEvent) => void;
 
 export type SshListenerCleanup = ListenerCleanup;

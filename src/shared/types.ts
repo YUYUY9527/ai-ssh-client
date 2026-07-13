@@ -18,6 +18,19 @@ export interface HostTrustRecord {
   trustedAt: number;
 }
 
+export type HostTrustPromptKind = 'firstConnect' | 'keyChanged';
+
+export interface HostTrustPromptEvent {
+  requestId: string;
+  host: string;
+  port: number;
+  algorithm: string;
+  fingerprint: string;
+  kind: HostTrustPromptKind;
+  previousAlgorithm?: string;
+  previousFingerprint?: string;
+}
+
 export type AIProviderType = 'openai' | 'openai-compatible' | 'anthropic' | 'gemini' | 'ollama';
 
 // AI 供应商配置

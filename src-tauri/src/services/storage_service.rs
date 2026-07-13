@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{app_error, AppResult};
 use crate::models::ai::AiProviderConfig;
 use crate::models::settings::{AppSettings, CommandHistoryItem, QuickCommand, QuickCommandGroup};
-use crate::models::ssh::SshConnection;
+use crate::models::ssh::{HostTrustRecord, SshConnection};
 
 const KEYRING_SERVICE: &str = "ai-ssh-client";
 
@@ -31,6 +31,9 @@ struct StoreData {
     command_history: Vec<CommandHistoryItem>,
     quick_commands: Vec<QuickCommand>,
     quick_command_groups: Vec<QuickCommandGroup>,
+    /// Trusted SSH host fingerprints (TOFU / future interactive verify).
+    #[serde(default)]
+    host_trust_records: Vec<HostTrustRecord>,
     #[serde(default)]
     legacy_ssh_secrets_migrated: bool,
     #[serde(default)]
@@ -46,6 +49,7 @@ impl Default for StoreData {
             command_history: Vec::new(),
             quick_commands: Vec::new(),
             quick_command_groups: Vec::new(),
+            host_trust_records: Vec::new(),
             legacy_ssh_secrets_migrated: false,
             legacy_ai_secrets_migrated: false,
         }
@@ -562,6 +566,75 @@ impl StorageService {
     /// Clears command history.
     pub fn clear_command_history(&self) -> AppResult<()> {
         self.update(|data| data.command_history.clear())
+    }
+
+    /// Returns all trusted host fingerprint records.
+    pub fn list_host_trust_records(&self) -> AppResult<Vec<HostTrustRecord>> {
+        self.with_data(|data| {
+            let mut records = data.host_trust_records.clone();
+            records.sort_by(|left, right| {
+                right
+                    .trusted_at
+                    .cmp(&left.trusted_at)
+                    .then(left.host.cmp(&right.host))
+                    .then(left.port.cmp(&right.port))
+            });
+            records
+        })
+    }
+
+    /// Looks up a trusted host fingerprint by host + port.
+    pub fn get_host_trust_record(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> AppResult<Option<HostTrustRecord>> {
+        let normalized_host = host.trim().to_ascii_lowercase();
+        self.with_data(|data| {
+            data.host_trust_records
+                .iter()
+                .find(|record| {
+                    record.host.trim().eq_ignore_ascii_case(&normalized_host)
+                        && record.port == port
+                })
+                .cloned()
+        })
+    }
+
+    /// Inserts or updates a trusted host fingerprint record.
+    pub fn upsert_host_trust_record(&self, record: HostTrustRecord) -> AppResult<()> {
+        self.update(|data| {
+            let normalized_host = record.host.trim().to_ascii_lowercase();
+            if let Some(existing) = data.host_trust_records.iter_mut().find(|item| {
+                item.host.trim().eq_ignore_ascii_case(&normalized_host) && item.port == record.port
+            }) {
+                *existing = HostTrustRecord {
+                    host: normalized_host,
+                    ..record
+                };
+            } else {
+                data.host_trust_records.push(HostTrustRecord {
+                    host: normalized_host,
+                    ..record
+                });
+            }
+        })
+    }
+
+    /// Deletes a trusted host fingerprint record.
+    pub fn delete_host_trust_record(&self, host: &str, port: u16) -> AppResult<()> {
+        let normalized_host = host.trim().to_ascii_lowercase();
+        self.update(|data| {
+            data.host_trust_records.retain(|record| {
+                !(record.host.trim().eq_ignore_ascii_case(&normalized_host)
+                    && record.port == port)
+            });
+        })
+    }
+
+    /// Clears all trusted host fingerprint records.
+    pub fn clear_host_trust_records(&self) -> AppResult<()> {
+        self.update(|data| data.host_trust_records.clear())
     }
 
     /// Returns quick commands.

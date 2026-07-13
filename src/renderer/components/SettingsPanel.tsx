@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Check, X, Terminal, Wifi, Bot, KeyRound, Globe } from 'lucide-react';
+import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
 import { useI18n, useI18nStore, localeNames } from '../i18n';
 import type { Locale } from '../i18n';
-import type { AppSettings } from '../../shared/types';
+import type { AppSettings, HostTrustRecord } from '../../shared/types';
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -44,6 +44,7 @@ function ToggleButton({ enabled, label, onChange }: ToggleButtonProps) {
 }
 
 export function SettingsPanel({ settings, onSave, onClose, initialTab = 'terminal' }: SettingsPanelProps) {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [localSettings, setLocalSettings] = useState<AppSettings>({
     ...settings,
@@ -51,6 +52,9 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     approveMediumRisk: settings.approveMediumRisk ?? true,
     rememberChoice: settings.rememberChoice ?? true,
   });
+  const [hostTrustRecords, setHostTrustRecords] = useState<HostTrustRecord[]>([]);
+  const [hostTrustLoading, setHostTrustLoading] = useState(false);
+  const [hostTrustError, setHostTrustError] = useState<string | null>(null);
 
   const handleSave = () => {
     onSave({
@@ -67,7 +71,58 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     setActiveTab(initialTab);
   }, [initialTab]);
 
-  const { t } = useI18n();
+  const loadHostTrustRecords = async () => {
+    if (!window.electronAPI?.sshListHostTrustRecords) {
+      setHostTrustRecords([]);
+      return;
+    }
+    setHostTrustLoading(true);
+    setHostTrustError(null);
+    try {
+      const result = await window.electronAPI.sshListHostTrustRecords();
+      if (result.success) {
+        setHostTrustRecords(Array.isArray(result.data?.records) ? result.data.records : []);
+      } else {
+        setHostTrustError(result.error || t('settings.ssh.trustLoadFailed'));
+      }
+    } catch (error) {
+      setHostTrustError((error as Error).message);
+    } finally {
+      setHostTrustLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'ssh') {
+      void loadHostTrustRecords();
+    }
+  }, [activeTab]);
+
+  const handleDeleteHostTrust = async (record: HostTrustRecord) => {
+    if (!window.electronAPI?.sshDeleteHostTrustRecord) {
+      return;
+    }
+    const result = await window.electronAPI.sshDeleteHostTrustRecord(record.host, record.port);
+    if (result.success) {
+      setHostTrustRecords((prev) => prev.filter((item) => !(
+        item.host === record.host && item.port === record.port
+      )));
+    } else {
+      setHostTrustError(result.error || t('settings.ssh.trustDeleteFailed'));
+    }
+  };
+
+  const handleClearHostTrust = async () => {
+    if (!window.electronAPI?.sshClearHostTrustRecords) {
+      return;
+    }
+    const result = await window.electronAPI.sshClearHostTrustRecords();
+    if (result.success) {
+      setHostTrustRecords([]);
+    } else {
+      setHostTrustError(result.error || t('settings.ssh.trustClearFailed'));
+    }
+  };
 
   const tabs = [
     { id: 'terminal', label: t('settings.tabs.terminal'), icon: Terminal },
@@ -218,6 +273,72 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     />
                   </div>
                 )}
+
+                <div className="border-t border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pt-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="flex items-center gap-1.5 text-sm font-medium text-slate-900 dark:text-white">
+                        <Shield className="h-4 w-4 text-teal-500" />
+                        {t('settings.ssh.trustedHosts')}
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {t('settings.ssh.trustedHostsDesc')}
+                      </p>
+                    </div>
+                    {hostTrustRecords.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => void handleClearHostTrust()}
+                        className="industrial-button-secondary px-2.5 py-1.5 text-xs"
+                      >
+                        {t('settings.ssh.clearTrustedHosts')}
+                      </button>
+                    )}
+                  </div>
+
+                  {hostTrustLoading ? (
+                    <div className="py-4 text-center text-sm text-slate-500">
+                      {t('common.loading')}
+                    </div>
+                  ) : hostTrustError ? (
+                    <div className="rounded-sm border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+                      {hostTrustError}
+                    </div>
+                  ) : hostTrustRecords.length === 0 ? (
+                    <div className="rounded-sm border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-4 text-center text-sm text-slate-500">
+                      {t('settings.ssh.noTrustedHosts')}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {hostTrustRecords.map((record) => (
+                        <div
+                          key={`${record.host}:${record.port}:${record.fingerprint}`}
+                          className="industrial-card flex items-start justify-between gap-3 p-3"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                              {record.host}:{record.port}
+                            </div>
+                            <div className="mt-1 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                              {record.algorithm} · {record.fingerprint}
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-400">
+                              {t('settings.ssh.trustedAt')}: {new Date(record.trustedAt).toLocaleString()}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteHostTrust(record)}
+                            className="icon-button h-7 w-7 text-red-500"
+                            title={t('common.delete')}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

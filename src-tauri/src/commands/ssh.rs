@@ -107,11 +107,16 @@ pub fn ssh_get_sessions(state: State<'_, AppState>) -> IpcResult<serde_json::Val
 /// 尝试连接到远程服务器以验证连接配置是否正确
 ///
 /// # 参数
+/// * `app_handle` - Tauri 应用句柄（用于主机指纹确认弹窗）
 /// * `state` - 应用状态
 /// * `connection` - SSH 连接配置
 #[tauri::command]
-pub fn ssh_test_connection(state: State<'_, AppState>, connection: SshConnection) -> IpcResult<()> {
-    match state.ssh.test_connection(connection) {
+pub fn ssh_test_connection(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    connection: SshConnection,
+) -> IpcResult<()> {
+    match state.ssh.test_connection(app_handle, connection) {
         Ok(()) => empty_success(),
         Err(err) => error(err.to_string()),
     }
@@ -139,19 +144,77 @@ pub fn ssh_resize(
     }
 }
 
-/// Reserved host trust lookup for future SSH fingerprint verification flows.
+/// Looks up a trusted host fingerprint record.
 #[tauri::command]
 pub fn ssh_get_host_trust_record(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     host: String,
     port: u16,
 ) -> IpcResult<serde_json::Value> {
-    let record: Option<HostTrustRecord> = None;
-    success(json!({
-        "host": host,
-        "port": port,
-        "record": record,
-    }))
+    match state.storage.get_host_trust_record(&host, port) {
+        Ok(record) => success(json!({
+            "host": host,
+            "port": port,
+            "record": record,
+        })),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Lists all trusted host fingerprint records.
+#[tauri::command]
+pub fn ssh_list_host_trust_records(state: State<'_, AppState>) -> IpcResult<serde_json::Value> {
+    match state.storage.list_host_trust_records() {
+        Ok(records) => success(json!({ "records": records })),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Upserts a trusted host fingerprint record.
+#[tauri::command]
+pub fn ssh_upsert_host_trust_record(
+    state: State<'_, AppState>,
+    record: HostTrustRecord,
+) -> IpcResult<()> {
+    match state.storage.upsert_host_trust_record(record) {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Deletes a trusted host fingerprint record.
+#[tauri::command]
+pub fn ssh_delete_host_trust_record(
+    state: State<'_, AppState>,
+    host: String,
+    port: u16,
+) -> IpcResult<()> {
+    match state.storage.delete_host_trust_record(&host, port) {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Clears all trusted host fingerprint records.
+#[tauri::command]
+pub fn ssh_clear_host_trust_records(state: State<'_, AppState>) -> IpcResult<()> {
+    match state.storage.clear_host_trust_records() {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// 响应主机指纹确认弹窗（接受 / 拒绝）。
+#[tauri::command]
+pub fn ssh_respond_host_trust(
+    state: State<'_, AppState>,
+    request_id: String,
+    accepted: bool,
+) -> IpcResult<()> {
+    match state.ssh.respond_host_trust(&request_id, accepted) {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
 }
 
 /// 通过 SFTP 列出远程目录内容
@@ -165,6 +228,7 @@ pub fn ssh_get_host_trust_record(
 /// 返回目录中的文件和子目录列表
 #[tauri::command]
 pub async fn sftp_list_directory(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     connection_id: String,
     remote_path: String,
@@ -179,6 +243,7 @@ pub async fn sftp_list_directory(
         match state
             .ssh
             .list_directory(
+                app_handle,
                 connection,
                 if remote_path.trim().is_empty() {
                     "/".to_string()

@@ -4,6 +4,8 @@ import type { AIChatResponse } from '../../shared/ipc-types';
 import { extractCommand, riskAnalysisToSuggestion } from '../ai';
 import { useSessionStore } from '../session/useSessionStore';
 import { loadSessionScrollbackSnapshots } from '../session/session-scrollback';
+import { useCommandHistoryStore } from '../history/useCommandHistoryStore';
+import { useConnectionStore } from './useConnectionStore';
 import { t } from '../i18n';
 
 export type ContextStrategy = 'keep-all' | 'keep-recent' | 'keep-summary';
@@ -78,26 +80,44 @@ function stripAnsiSequences(text: string): string {
 // 采集当前活动会话的终端上下文（当前目录 + 最近输出），供 AI 感知会话状态
 function collectTerminalContext(): string {
   try {
-    const sessionId = useSessionStore.getState().activeSessionId;
+    const sessionState = useSessionStore.getState();
+    const sessionId = sessionState.activeSessionId;
     if (!sessionId) {
       return '';
     }
+
+    const session = sessionState.sessions[sessionId];
+    const liveOutput = sessionState.outputs[sessionId] || '';
     const snapshot = loadSessionScrollbackSnapshots().find(
       (item) => item.sessionId === sessionId,
     );
-    if (!snapshot) {
-      return '';
-    }
-    const cleaned = stripAnsiSequences(snapshot.content || '')
+    const rawOutput = liveOutput || snapshot?.content || '';
+    const cleaned = stripAnsiSequences(rawOutput)
       .replace(/\r/g, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     const tail = cleaned.slice(-TERMINAL_CONTEXT_MAX_CHARS);
-    const cwdLine = snapshot.cwd ? `当前目录：${snapshot.cwd}\n` : '';
-    if (!tail && !cwdLine) {
+    const cwd = session?.cwd || snapshot?.cwd;
+    const cwdLine = cwd ? `当前目录：${cwd}\n` : '';
+
+    // 分层历史建议：优先当前 host/user/cwd 的近期命令
+    const connection = useConnectionStore.getState().connections.find(
+      (item) => item.id === (session?.connectionId || sessionId),
+    );
+    const historySuggestions = useCommandHistoryStore.getState().getSuggestions({
+      host: connection?.host,
+      username: connection?.username,
+      cwd: cwd || undefined,
+      connectionId: session?.connectionId || sessionId,
+    }, 8);
+    const historyLine = historySuggestions.length > 0
+      ? `当前上下文近期命令（host/user/cwd 分层，仅供参考）：\n${historySuggestions.map((command) => `- ${command}`).join('\n')}\n`
+      : '';
+
+    if (!tail && !cwdLine && !historyLine) {
       return '';
     }
-    return `${cwdLine}${tail ? `最近终端输出：\n${tail}` : ''}`.trim();
+    return `${cwdLine}${historyLine}${tail ? `最近终端输出：\n${tail}` : ''}`.trim();
   } catch {
     return '';
   }

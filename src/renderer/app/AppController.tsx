@@ -17,7 +17,7 @@ import { useAgentStore } from '../store/useAgentStore';
 import { useSftpTransferStore } from '../store/useSftpTransferStore';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../i18n';
-import type { CommandSuggestion, SSHSessionState, SSHConnection, Session } from '../../shared/types';
+import type { CommandSuggestion, HostTrustPromptEvent, SSHSessionState, SSHConnection, Session } from '../../shared/types';
 import type { AppSettings } from '../../shared/types';
 import { useSessionBridge } from '../session/useSessionBridge';
 import { useSessionRecovery } from '../session/useSessionRecovery';
@@ -72,6 +72,7 @@ export function AppController() {
   const [agentInput, setAgentInput] = useState('');
   const [agentInputFocusToken, setAgentInputFocusToken] = useState(0);
   const [pendingCommand, setPendingCommand] = useState<CommandSuggestion | null>(null);
+  const [pendingHostTrust, setPendingHostTrust] = useState<HostTrustPromptEvent | null>(null);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showConnectionDropdown, setShowConnectionDropdown] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SSHConnection | null>(null);
@@ -288,6 +289,34 @@ export function AppController() {
   const handleRejectCommand = () => {
     setPendingCommand(null);
   };
+
+  // 响应主机指纹确认：接受后落盘并继续握手
+  const respondHostTrust = useCallback(async (accepted: boolean) => {
+    const requestId = pendingHostTrust?.requestId;
+    setPendingHostTrust(null);
+    if (!requestId || !window.electronAPI?.sshRespondHostTrust) {
+      return;
+    }
+    await window.electronAPI.sshRespondHostTrust(requestId, accepted);
+  }, [pendingHostTrust]);
+
+  const handleAcceptHostTrust = useCallback(() => {
+    void respondHostTrust(true);
+  }, [respondHostTrust]);
+
+  const handleRejectHostTrust = useCallback(() => {
+    void respondHostTrust(false);
+  }, [respondHostTrust]);
+
+  // 监听后端主机指纹确认请求
+  useEffect(() => {
+    if (!window.electronAPI?.onSshHostTrustPrompt) {
+      return undefined;
+    }
+    return window.electronAPI.onSshHostTrustPrompt((prompt) => {
+      setPendingHostTrust(prompt);
+    });
+  }, []);
 
   const dismissToast = useCallback((toastId: string) => {
     const timer = toastTimersRef.current.get(toastId);
@@ -818,6 +847,7 @@ export function AppController() {
         editingConnection={editingConnection}
         isSettingsOpen={showSettings}
         pendingCommand={pendingCommand}
+        pendingHostTrust={pendingHostTrust}
         settings={settings}
         settingsInitialTab={settingsInitialTab}
         testingConnection={testingConnection}
@@ -827,6 +857,8 @@ export function AppController() {
         onCloseSettings={() => setShowSettings(false)}
         onDeleteConnection={handleDeleteConnection}
         onRejectCommand={handleRejectCommand}
+        onAcceptHostTrust={handleAcceptHostTrust}
+        onRejectHostTrust={handleRejectHostTrust}
         onSaveConnection={handleSaveConnection}
         onSaveSettings={handleSaveSettings}
         onSetConnectionTestResult={setConnectionTestResult}

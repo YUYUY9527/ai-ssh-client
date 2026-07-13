@@ -1,13 +1,18 @@
 import { lazy, Suspense, type Dispatch, type SetStateAction } from 'react';
 import { AlertCircle, CheckCircle2, FolderOpen, KeyRound, Loader2, Wifi } from 'lucide-react';
 
-import type { AppSettings, CommandSuggestion, SSHConnection } from '../../shared/types';
+import type { AppSettings, CommandSuggestion, HostTrustPromptEvent, SSHConnection } from '../../shared/types';
 import { Modal } from '../shared-ui/Modal';
 import { ConfirmDialog } from '../shared-ui/ConfirmDialog';
 
 const CommandApproval = lazy(async () => {
   const module = await import('../components/CommandApproval');
   return { default: module.CommandApproval };
+});
+
+const HostTrustPrompt = lazy(async () => {
+  const module = await import('../components/HostTrustPrompt');
+  return { default: module.HostTrustPrompt };
 });
 
 const SettingsPanel = lazy(async () => {
@@ -26,6 +31,7 @@ interface ModalHostProps {
   editingConnection: SSHConnection | null;
   isSettingsOpen: boolean;
   pendingCommand: CommandSuggestion | null;
+  pendingHostTrust: HostTrustPromptEvent | null;
   settings: AppSettings;
   settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'agent';
   testingConnection: boolean;
@@ -35,6 +41,8 @@ interface ModalHostProps {
   onCloseSettings: () => void;
   onDeleteConnection: () => void;
   onRejectCommand: () => void;
+  onAcceptHostTrust: () => void;
+  onRejectHostTrust: () => void;
   onSaveConnection: () => void;
   onSaveSettings: (settings: AppSettings) => Promise<void>;
   onSetConnectionTestResult: Dispatch<SetStateAction<ConnectionTestResult | null>>;
@@ -60,6 +68,7 @@ export function ModalHost({
   editingConnection,
   isSettingsOpen,
   pendingCommand,
+  pendingHostTrust,
   settings,
   settingsInitialTab,
   testingConnection,
@@ -69,6 +78,8 @@ export function ModalHost({
   onCloseSettings,
   onDeleteConnection,
   onRejectCommand,
+  onAcceptHostTrust,
+  onRejectHostTrust,
   onSaveConnection,
   onSaveSettings,
   onSetConnectionTestResult,
@@ -333,6 +344,16 @@ export function ModalHost({
             command={pendingCommand}
             onApprove={onApproveCommand}
             onReject={onRejectCommand}
+          />
+        </Suspense>
+      )}
+
+      {pendingHostTrust && (
+        <Suspense fallback={<LazyModalFallback translate={translate} />}>
+          <HostTrustPrompt
+            prompt={pendingHostTrust}
+            onAccept={onAcceptHostTrust}
+            onReject={onRejectHostTrust}
           />
         </Suspense>
       )}

@@ -10,6 +10,7 @@ import type {
   Message,
   AgentTask,
   HostTrustRecord,
+  HostTrustPromptEvent,
 } from '../../shared/types';
 import type {
   AIChatResult,
@@ -43,6 +44,7 @@ type EventMap = {
   'ssh-data': { connectionId: string; data: string; type?: string; state?: SSHSessionState };
   'ssh-error': { connectionId: string; error: string };
   'ssh-close': string;
+  'ssh-host-trust-prompt': HostTrustPromptEvent;
   'sftp-upload-progress': { connectionId: string; taskId?: string; filename: string; progress: number };
   'sftp-download-progress': { connectionId: string; taskId?: string; filename: string; progress: number };
   'sftp-transfer-complete': SftpTransferCompleteEvent;
@@ -293,9 +295,18 @@ const webApi: Window['electronAPI'] = {
     success: true,
     data: { record: null as HostTrustRecord | null },
   }),
+  sshListHostTrustRecords: () => Promise.resolve({
+    success: true,
+    data: { records: [] as HostTrustRecord[] },
+  }),
+  sshUpsertHostTrustRecord: async () => ({ success: true }),
+  sshDeleteHostTrustRecord: async () => ({ success: true }),
+  sshClearHostTrustRecords: async () => ({ success: true }),
+  sshRespondHostTrust: async () => ({ success: true }),
   onSshData: (callback) => on('ssh-data', callback),
   onSshError: (callback) => on('ssh-error', callback),
   onSshClose: (callback) => on('ssh-close', callback),
+  onSshHostTrustPrompt: (callback) => on('ssh-host-trust-prompt', callback),
 
   aiChat: (providerId, messages, options) => request<AIChatResult>('/api/ai/chat', {
     method: 'POST',

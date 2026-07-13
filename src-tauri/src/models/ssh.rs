@@ -17,7 +17,7 @@ pub struct SshConnection {
     pub passphrase: Option<String>,
 }
 
-/// Reserved trust model for future host fingerprint verification flows.
+/// Trusted host fingerprint record (TOFU after user confirmation).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostTrustRecord {
@@ -26,6 +26,30 @@ pub struct HostTrustRecord {
     pub algorithm: String,
     pub fingerprint: String,
     pub trusted_at: u64,
+}
+
+/// Why the frontend is being asked to confirm a host key.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HostTrustPromptKind {
+    FirstConnect,
+    KeyChanged,
+}
+
+/// Event payload for interactive host key confirmation.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostTrustPromptEvent {
+    pub request_id: String,
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub kind: HostTrustPromptKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_algorithm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_fingerprint: Option<String>,
 }
 
 /// Serializable SSH state used by terminal listeners.
