@@ -564,10 +564,10 @@ const webApi: Window['electronAPI'] = {
 
     const filename = file.name || localPath.split(/[/\\]/).pop() || 'upload';
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file, filename);
     formData.append('remoteDir', remoteDir);
     if (taskId) {
-      formData.append('taskId', taskId);
+      formData.append('taskId', String(taskId));
     }
 
     try {
@@ -575,6 +575,7 @@ const webApi: Window['electronAPI'] = {
       const result = await new Promise<IPCResult<FileUploadResult>>((resolve) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `/api/sftp/${connectionId}/upload`);
+        xhr.responseType = 'text';
         xhr.upload.onprogress = (event) => {
           if (!event.lengthComputable || event.total <= 0) {
             return;
@@ -582,7 +583,7 @@ const webApi: Window['electronAPI'] = {
           const progress = Math.min(50, Math.round((event.loaded / event.total) * 50));
           emit('sftp-upload-progress', {
             connectionId,
-            taskId,
+            taskId: taskId ? String(taskId) : undefined,
             filename,
             progress,
           });
@@ -590,12 +591,24 @@ const webApi: Window['electronAPI'] = {
         xhr.onload = () => {
           try {
             const payload = JSON.parse(xhr.responseText || '{}') as IPCResult<FileUploadResult>;
+            // 兼容服务端只回 data、或 success 字段缺失
             if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(payload);
+              if (payload && typeof payload === 'object' && 'success' in payload) {
+                resolve(payload);
+                return;
+              }
+              resolve({
+                success: true,
+                data: (payload as { data?: FileUploadResult })?.data
+                  || (payload as FileUploadResult),
+              });
               return;
             }
             resolve(makeError<FileUploadResult>(
-              (!payload.success && payload.error) || `Upload failed (${xhr.status})`,
+              (payload && typeof payload === 'object' && 'error' in payload && !payload.success
+                ? payload.error
+                : undefined)
+                || `Upload failed (${xhr.status})`,
             ));
           } catch (error) {
             resolve(makeError<FileUploadResult>(
@@ -606,14 +619,23 @@ const webApi: Window['electronAPI'] = {
         xhr.onerror = () => {
           resolve(makeError<FileUploadResult>('Network request failed'));
         };
+        xhr.onabort = () => {
+          resolve(makeError<FileUploadResult>('Cancelled'));
+        };
         xhr.send(formData);
       });
 
       const remotePath = `${remoteDir.replace(/\/$/, '')}/${filename}`;
       // HTTP 返回时服务端已写完远端；本地强制完成，避免 WS 丢事件卡在 99%
+      emit('sftp-upload-progress', {
+        connectionId,
+        taskId: taskId ? String(taskId) : undefined,
+        filename,
+        progress: result.success ? 100 : 99,
+      });
       emit('sftp-transfer-complete', {
         connectionId,
-        taskId,
+        taskId: taskId ? String(taskId) : undefined,
         filename,
         transferType: 'upload',
         success: result.success,

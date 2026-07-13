@@ -854,7 +854,7 @@ app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) =>
   const remotePath = remoteDir === '/'
     ? `/${filename}`
     : posixPath.join(remoteDir, filename);
-  const taskId = request.body.taskId;
+  const taskId = request.body.taskId != null ? String(request.body.taskId) : undefined;
   const connectionId = request.params.id;
   const total = Number(request.file.size || request.file.buffer?.length || 0);
 

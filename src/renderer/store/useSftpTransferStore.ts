@@ -48,6 +48,12 @@ interface SftpTransferState {
   markTransferring: (taskId: string) => void;
   updateProgress: (type: SftpTransferType, event: SftpTransferProgressEvent) => void;
   completeTask: (event: SftpTransferCompleteEvent) => void;
+  finishTask: (
+    taskId: string,
+    patch?: Partial<Pick<SftpTransferTask, 'error' | 'localPath' | 'remotePath' | 'progress'>> & {
+      success?: boolean;
+    },
+  ) => void;
   removeTask: (taskId: string) => void;
   clearCompletedTasks: (connectionId?: string) => void;
   getBrowserState: (connectionId: string, preferredPath?: string) => SftpBrowserSessionState;
@@ -67,10 +73,28 @@ const findTaskIndex = (
   tasks: SftpTransferTask[],
   type: SftpTransferType,
   event: Pick<SftpTransferProgressEvent, 'taskId' | 'filename' | 'connectionId'>,
-) => tasks.findIndex((task) => {
-  const isSameTask = event.taskId ? task.id === event.taskId : task.name === event.filename;
-  return isSameTask && task.type === type && task.connectionId === event.connectionId;
-});
+) => {
+  const taskId = event.taskId ? String(event.taskId) : '';
+  // 优先 taskId；对不上时再按文件名兜底，避免 complete 丢匹配卡在 99%
+  const byId = taskId
+    ? tasks.findIndex((task) => (
+      task.id === taskId
+      && task.type === type
+      && task.connectionId === event.connectionId
+    ))
+    : -1;
+  if (byId >= 0) {
+    return byId;
+  }
+  if (!event.filename) {
+    return -1;
+  }
+  return tasks.findIndex((task) => (
+    task.name === event.filename
+    && task.type === type
+    && task.connectionId === event.connectionId
+  ));
+};
 
 function ensureBrowserState(
   browserByConnection: Record<string, SftpBrowserSessionState>,
@@ -116,7 +140,10 @@ export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
   updateProgress: (type, event) => {
     set((state) => ({
       tasks: state.tasks.map((task) => {
-        const isSameTask = event.taskId ? task.id === event.taskId : task.name === event.filename;
+        const taskId = event.taskId ? String(event.taskId) : '';
+        const isSameTask = taskId
+          ? task.id === taskId
+          : task.name === event.filename;
         // 进度只增不减，避免客户端/服务端两段进度互相回退
         if (
           isSameTask
@@ -149,17 +176,9 @@ export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
 
       const tasks = [...state.tasks];
       const task = tasks[taskIndex];
-      // 已终态且成功完成时忽略重复失败/进度回写
-      if (task.status === 'completed' && event.success) {
-        return state;
-      }
+      // 已终态忽略重复 complete
       if (task.status === 'completed' || task.status === 'error') {
-        if (!event.success && task.status === 'error') {
-          return state;
-        }
-        if (task.status === 'completed') {
-          return state;
-        }
+        return state;
       }
 
       tasks[taskIndex] = {
@@ -174,6 +193,30 @@ export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
 
       return { tasks };
     });
+  },
+
+  // 按 taskId 强制结束，不依赖事件字段匹配
+  finishTask: (taskId, patch = {}) => {
+    const success = patch.success !== false;
+    set((state) => ({
+      tasks: state.tasks.map((task) => {
+        if (task.id !== taskId) {
+          return task;
+        }
+        if (task.status === 'completed' || task.status === 'error') {
+          return task;
+        }
+        return {
+          ...task,
+          progress: success ? 100 : (patch.progress ?? task.progress),
+          status: success ? 'completed' : 'error',
+          error: success ? undefined : (patch.error ?? task.error),
+          localPath: patch.localPath ?? task.localPath,
+          remotePath: patch.remotePath ?? task.remotePath,
+          updatedAt: Date.now(),
+        };
+      }),
+    }));
   },
 
   removeTask: (taskId) => {
