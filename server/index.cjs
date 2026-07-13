@@ -253,6 +253,86 @@ async function chatWithProvider(provider, messages, requestId) {
   }
 }
 
+async function streamChatWithProvider(provider, messages, requestId, sendEvent) {
+  if (!provider) throw new Error('Provider not found or not active');
+  const apiKey = provider.apiKey?.trim() || '';
+  if (provider.type !== 'ollama' && !apiKey) throw new Error('缺少 API Key');
+  if (!requestId) throw new Error('Missing AI request ID');
+  if (activeAiRequests.has(requestId)) throw new Error('AI request ID is already active');
+
+  const controller = new AbortController();
+  activeAiRequests.set(requestId, controller);
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    const response = await fetch(`${defaultBaseUrl(provider)}/chat/completions`, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: defaultModel(provider),
+        temperature: 0.7,
+        stream: true,
+        messages: messages.map((message) => ({
+          role: ['system', 'assistant', 'user'].includes(message.role) ? message.role : 'user',
+          content: message.content,
+        })),
+      }),
+    });
+    if (!response.ok || !response.body) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`AI service error ${response.status}: ${body.slice(0, 500)}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let model = defaultModel(provider);
+    let finishReason;
+    let usage;
+    let providerDone = false;
+    while (!providerDone) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const records = buffer.split(/\r?\n\r?\n/);
+      buffer = records.pop() || '';
+      for (const record of records) {
+        const data = record.split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n');
+        if (!data) continue;
+        if (data === '[DONE]') {
+          providerDone = true;
+          break;
+        }
+        const chunk = JSON.parse(data);
+        model = chunk.model || model;
+        const choice = chunk.choices?.[0];
+        if (typeof choice?.delta?.content === 'string' && choice.delta.content) {
+          sendEvent({ type: 'delta', requestId, delta: choice.delta.content });
+        }
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        if (chunk.usage) {
+          usage = {
+            promptTokens: chunk.usage.prompt_tokens,
+            completionTokens: chunk.usage.completion_tokens,
+            totalTokens: chunk.usage.total_tokens,
+          };
+        }
+      }
+      if (done) break;
+    }
+    if (!providerDone) throw new Error('AI stream disconnected before completion');
+    sendEvent({ type: 'done', requestId, model, finishReason, usage });
+  } catch (error) {
+    if (controller.signal.aborted) sendEvent({ type: 'canceled', requestId });
+    else sendEvent({ type: 'error', requestId, error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    activeAiRequests.delete(requestId);
+  }
+}
+
 function runSshCommand(connectionId, command, options = {}) {
   const session = getSession(connectionId);
   const stream = session.stream;
@@ -801,6 +881,41 @@ app.get('/api/ai/providers/:id/secret-status', route((request) => {
     maskedApiKey: maskSecret(apiKey),
   });
 }));
+app.post('/api/ai/chat/stream', async (request, response) => {
+  const { providerId, messages, options } = request.body;
+  const requestId = options?.requestId;
+  if (!requestId) {
+    response.status(400).send('Missing AI request ID');
+    return;
+  }
+  response.status(200);
+  response.set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  response.flushHeaders?.();
+  let closed = false;
+  response.on('close', () => {
+    if (response.writableEnded) return;
+    closed = true;
+    activeAiRequests.get(requestId)?.abort();
+  });
+  const sendEvent = (event) => {
+    if (!closed && !response.writableEnded) response.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+  try {
+    await streamChatWithProvider(getProvider(providerId), messages || [], requestId, sendEvent);
+  } catch (error) {
+    sendEvent({
+      type: 'error',
+      requestId: requestId || '',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (!closed && !response.writableEnded) response.end();
+});
 app.post('/api/ai/chat', route(async (request) => {
   const { providerId, messages, options } = request.body;
   const provider = getProvider(providerId);

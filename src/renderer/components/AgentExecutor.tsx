@@ -67,6 +67,16 @@ export function AgentExecutor() {
       }
       return window.electronAPI.aiChat(providerId, messages, options);
     },
+    aiChatStream: (
+      providerId: string,
+      messages: Parameters<NonNullable<typeof window.electronAPI>['aiChatStream']>[1],
+      options: Parameters<NonNullable<typeof window.electronAPI>['aiChatStream']>[2],
+    ) => {
+      if (!window.electronAPI) {
+        throw new Error('Electron API unavailable');
+      }
+      return window.electronAPI.aiChatStream(providerId, messages, options);
+    },
     cancelAIChat: (requestId: string) => window.electronAPI?.cancelAIChat(requestId),
     agentStartTask: window.electronAPI?.agentStartTask,
     agentStopTask: window.electronAPI?.agentStopTask,

@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use serde_json::json;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::models::ai::{AiProviderConfig, Message};
 use crate::models::ipc::{empty_success, error, success, IpcResult};
@@ -40,6 +40,30 @@ pub async fn ai_chat(
             Err(err) => error(err.to_string()),
         },
     )
+}
+
+/// 启动流式 AI 请求，并通过 ai-chat-stream 事件返回增量内容。
+#[tauri::command]
+pub fn ai_chat_stream(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider_id: String,
+    messages: Vec<Message>,
+    options: AiChatOptions,
+) -> IpcResult<serde_json::Value> {
+    let Some(request_id) = options.request_id else {
+        return error("Missing AI request ID");
+    };
+    match state.ai.stream_chat(
+        app,
+        &state.storage,
+        provider_id,
+        messages,
+        request_id.clone(),
+    ) {
+        Ok(()) => success(json!({ "requestId": request_id })),
+        Err(err) => error(err.to_string()),
+    }
 }
 
 /// 取消正在进行的 AI 请求

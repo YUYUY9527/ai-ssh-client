@@ -58,6 +58,17 @@ export interface AIChatResponse {
 
 export interface AIChatResult extends AIChatResponse {}
 
+export type AIChatStreamEvent =
+  | { type: 'delta'; requestId: string; delta: string }
+  | { type: 'done'; requestId: string; model?: string; finishReason?: string; usage?: AIUsage }
+  | { type: 'error'; requestId: string; error: string; code?: string }
+  | { type: 'canceled'; requestId: string };
+
+export interface AIChatStreamOptions {
+  requestId: string;
+  onEvent: (event: AIChatStreamEvent) => void;
+}
+
 export interface AIProvidersResult<T = any> {
   providers: T[];
 }

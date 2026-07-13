@@ -71,3 +71,32 @@ pub struct AiChatResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<AiUsage>,
 }
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum AiChatStreamEvent {
+    Delta {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        delta: String,
+    },
+    Done {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(rename = "finishReason", skip_serializing_if = "Option::is_none")]
+        finish_reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        usage: Option<AiUsage>,
+    },
+    Error {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        error: String,
+    },
+    Canceled {
+        #[serde(rename = "requestId")]
+        request_id: String,
+    },
+}

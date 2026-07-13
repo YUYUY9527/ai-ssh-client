@@ -13,6 +13,8 @@ import type {
 } from '../../shared/types';
 import type {
   AIChatResult,
+  AIChatStreamEvent,
+  AIChatStreamOptions,
   AIProviderSecretStatusResult,
   AIProvidersResult,
   AgentExecAwaitResult,
@@ -71,6 +73,77 @@ async function request<T>(
     return await response.json();
   } catch (error) {
     return makeError<T>(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function streamWebChat(
+  providerId: string,
+  messages: Message[],
+  options: AIChatStreamOptions,
+): Promise<IPCResult<AIChatResult>> {
+  try {
+    const response = await fetch('/api/ai/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ providerId, messages, options: { requestId: options.requestId } }),
+    });
+    if (!response.ok || !response.body) {
+      return makeError(await response.text() || `AI stream failed (${response.status})`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    let terminal: AIChatStreamEvent | null = null;
+
+    while (!terminal) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const records = buffer.split(/\r?\n\r?\n/);
+      buffer = records.pop() || '';
+      for (const record of records) {
+        const data = record.split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n');
+        if (!data) continue;
+        const event = JSON.parse(data) as AIChatStreamEvent;
+        if (event.requestId !== options.requestId) continue;
+        options.onEvent(event);
+        if (event.type === 'delta') {
+          content += event.delta;
+        } else {
+          terminal = event;
+          break;
+        }
+      }
+      if (done) break;
+    }
+    if (!terminal) {
+      reader.releaseLock();
+      return makeError('AI stream disconnected before completion');
+    }
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+    if (terminal.type === 'done') {
+      return {
+        success: true,
+        data: {
+          content,
+          requestId: terminal.requestId,
+          model: terminal.model,
+          finishReason: terminal.finishReason,
+          usage: terminal.usage,
+        },
+      };
+    }
+    if (terminal.type === 'canceled') {
+      return { success: false, error: 'AI request canceled', code: 'canceled' };
+    }
+    return { success: false, error: terminal.error, code: terminal.code };
+  } catch (error) {
+    return makeError(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -228,6 +301,7 @@ const webApi: Window['electronAPI'] = {
     method: 'POST',
     body: JSON.stringify({ providerId, messages, options }),
   }),
+  aiChatStream: streamWebChat,
   cancelAIChat: (requestId) => request<void>(`/api/ai/cancel/${requestId}`, {
     method: 'POST',
     body: '{}',

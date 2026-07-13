@@ -56,6 +56,7 @@ pub fn run() {
             connections::export_all_data,
             connections::import_data,
             ai::ai_chat,
+            ai::ai_chat_stream,
             ai::ai_cancel_chat,
             ai::ai_get_providers,
             ai::ai_save_provider,

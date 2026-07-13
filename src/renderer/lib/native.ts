@@ -16,6 +16,8 @@ import type {
 } from '../../shared/types';
 import type {
   AIChatResult,
+  AIChatStreamEvent,
+  AIChatStreamOptions,
   AIProviderSecretStatusResult,
   AIProvidersResult,
   AgentExecAwaitResult,
@@ -53,6 +55,7 @@ type ElectronApiLike = {
   onSshError: (callback: (data: { connectionId: string; error: string }) => void) => ListenerCleanup;
   onSshClose: (callback: (connectionId: string) => void) => ListenerCleanup;
   aiChat: (providerId: string, messages: Message[], options?: { requestId?: string }) => Promise<IPCResult<AIChatResult>>;
+  aiChatStream: (providerId: string, messages: Message[], options: AIChatStreamOptions) => Promise<IPCResult<AIChatResult>>;
   cancelAIChat: (requestId: string) => Promise<IPCResult>;
   getAIProviders: () => Promise<IPCResult<AIProvidersResult<AIProviderSummary>>>;
   saveAIProvider: (provider: AIProviderConfig) => Promise<IPCResult>;
@@ -139,6 +142,62 @@ export async function tauriInvoke<T>(
   }
 }
 
+async function streamNativeChat(
+  providerId: string,
+  messages: Message[],
+  options: AIChatStreamOptions,
+): Promise<IPCResult<AIChatResult>> {
+  let content = '';
+  let settled = false;
+  let resolveStream: (result: IPCResult<AIChatResult>) => void = () => {};
+  const resultPromise = new Promise<IPCResult<AIChatResult>>((resolve) => {
+    resolveStream = resolve;
+  });
+  let unlisten: ListenerCleanup = () => {};
+  unlisten = await listen<AIChatStreamEvent>('ai-chat-stream', (event) => {
+    const payload = event.payload;
+    if (settled || payload.requestId !== options.requestId) return;
+
+    options.onEvent(payload);
+    if (payload.type === 'delta') {
+      content += payload.delta;
+      return;
+    }
+
+    settled = true;
+    unlisten();
+    if (payload.type === 'done') {
+      resolveStream({
+        success: true,
+        data: {
+          content,
+          requestId: payload.requestId,
+          model: payload.model,
+          finishReason: payload.finishReason,
+          usage: payload.usage,
+        },
+      });
+    } else if (payload.type === 'canceled') {
+      resolveStream({ success: false, error: 'AI request canceled', code: 'canceled' });
+    } else {
+      resolveStream({ success: false, error: payload.error, code: payload.code });
+    }
+  });
+
+  const started = await tauriInvoke<{ requestId: string }>('ai_chat_stream', {
+    providerId,
+    messages,
+    options: { requestId: options.requestId },
+  });
+  if (!started.success) {
+    settled = true;
+    unlisten();
+    return started;
+  }
+
+  return resultPromise;
+}
+
 const nativeApi: ElectronApiLike = {
   sshConnect: (connection, cols, rows, settings) => tauriInvoke<SSHConnectResult>('ssh_connect', { connection, cols, rows, settings }),
   sshDisconnect: (connectionId) => tauriInvoke<void>('ssh_disconnect', { connectionId }),
@@ -154,6 +213,7 @@ const nativeApi: ElectronApiLike = {
   onSshError: (callback) => createTauriListener('ssh-error', callback),
   onSshClose: (callback) => createTauriListener('ssh-close', callback),
   aiChat: (providerId, messages, options) => tauriInvoke<AIChatResult>('ai_chat', { providerId, messages, options }),
+  aiChatStream: streamNativeChat,
   cancelAIChat: (requestId) => tauriInvoke<void>('ai_cancel_chat', { requestId }),
   getAIProviders: () => tauriInvoke<AIProvidersResult<AIProviderSummary>>('ai_get_providers'),
   saveAIProvider: (provider) => tauriInvoke<void>('ai_save_provider', { provider }),

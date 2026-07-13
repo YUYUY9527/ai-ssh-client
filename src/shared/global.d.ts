@@ -17,6 +17,7 @@ import type {
   SSHConnectResult,
   SSessionsResult,
   AIChatResult,
+  AIChatStreamOptions,
   AIProvidersResult,
   ConnectionsResult,
   CommandHistoryResult,
@@ -53,6 +54,7 @@ declare global {
       onSshClose: (callback: (connectionId: string) => void) => () => void;
 
       aiChat: (providerId: string, messages: Message[], options?: { requestId?: string }) => Promise<IPCResult<AIChatResult>>;
+      aiChatStream: (providerId: string, messages: Message[], options: AIChatStreamOptions) => Promise<IPCResult<AIChatResult>>;
       cancelAIChat: (requestId: string) => Promise<IPCResult>;
       getAIProviders: () => Promise<IPCResult<AIProvidersResult<AIProviderSummary>>>;
       saveAIProvider: (provider: AIProviderConfig) => Promise<IPCResult>;

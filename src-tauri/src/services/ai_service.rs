@@ -2,15 +2,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 
 use crate::error::{app_error, AppResult};
-use crate::models::ai::{AiChatResponse, AiProviderConfig, AiProviderSummary, AiUsage, Message};
+use crate::models::ai::{
+    AiChatResponse, AiChatStreamEvent, AiProviderConfig, AiProviderSummary, AiUsage, Message,
+};
 use crate::services::storage_service::StorageService;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+const STREAM_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_RETRIES: usize = 1;
 
 /// AI provider transport and cancellation registry.
@@ -107,6 +112,42 @@ impl AiService {
         .await
     }
 
+    /// Starts a streaming chat request and emits incremental events.
+    pub fn stream_chat(
+        &self,
+        app: AppHandle,
+        storage: &StorageService,
+        provider_id: String,
+        messages: Vec<Message>,
+        request_id: String,
+    ) -> AppResult<()> {
+        let provider = storage
+            .get_ai_providers()?
+            .into_iter()
+            .find(|provider| provider.id == provider_id && provider.is_active)
+            .ok_or_else(|| app_error(format!("Provider {provider_id} not found or not active")))?;
+        validate_provider(&provider)?;
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        self.register_request(request_id.clone(), cancel_tx)?;
+        let client = self.client.clone();
+        let active_requests = Arc::clone(&self.active_requests);
+        tauri::async_runtime::spawn(async move {
+            stream_openai_compatible_request(
+                client,
+                app.clone(),
+                provider,
+                messages,
+                request_id.clone(),
+                cancel_rx,
+            )
+            .await;
+            if let Ok(mut requests) = active_requests.lock() {
+                requests.remove(&request_id);
+            }
+        });
+        Ok(())
+    }
+
     /// Cancels an active request by request id.
     pub fn cancel_chat(&self, request_id: &str) -> AppResult<bool> {
         let mut active_requests = self
@@ -170,6 +211,9 @@ impl AiService {
             .active_requests
             .lock()
             .map_err(|_| app_error("AI 请求状态锁已损坏"))?;
+        if active_requests.contains_key(&request_id) {
+            return Err(app_error("AI request ID is already active"));
+        }
         active_requests.insert(request_id, cancel_tx);
         Ok(())
     }
@@ -204,6 +248,7 @@ impl AiService {
                     })
                     .collect(),
                 temperature: 0.7,
+                stream: None,
             });
 
         if !api_key.is_empty() {
@@ -261,6 +306,8 @@ struct OpenAiChatRequest {
     model: String,
     messages: Vec<OpenAiChatMessage>,
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -292,6 +339,144 @@ struct OpenAiUsage {
     prompt_tokens: Option<u64>,
     completion_tokens: Option<u64>,
     total_tokens: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiStreamChunk {
+    model: Option<String>,
+    choices: Vec<OpenAiStreamChoice>,
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiStreamChoice {
+    delta: OpenAiStreamDelta,
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiStreamDelta {
+    content: Option<String>,
+}
+
+async fn stream_openai_compatible_request(
+    client: reqwest::Client,
+    app: AppHandle,
+    provider: AiProviderConfig,
+    messages: Vec<Message>,
+    request_id: String,
+    mut cancel_rx: oneshot::Receiver<()>,
+) {
+    let result: AppResult<()> = async {
+        let base_url = default_base_url(&provider.provider_type, provider.base_url.as_deref())?;
+        let model = default_model(&provider.provider_type, provider.model.as_deref())?;
+        let api_key = provider.api_key.as_deref().map(str::trim).unwrap_or("");
+        let mut request = client
+            .post(format!("{base_url}/chat/completions"))
+            .timeout(STREAM_TIMEOUT)
+            .json(&OpenAiChatRequest {
+                model: model.clone(),
+                messages: messages
+                    .iter()
+                    .map(|message| OpenAiChatMessage {
+                        role: normalize_role(&message.role),
+                        content: message.content.clone(),
+                    })
+                    .collect(),
+                temperature: 0.7,
+                stream: Some(true),
+            });
+        if !api_key.is_empty() {
+            request = request.bearer_auth(api_key);
+        }
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            return Err(http_error(response.status()));
+        }
+
+        let mut bytes = response.bytes_stream();
+        let mut buffer = Vec::new();
+        let mut current_model = Some(model);
+        let mut finish_reason = None;
+        let mut usage = None;
+        let mut provider_done = false;
+        loop {
+            let next = tokio::select! {
+                chunk = bytes.next() => chunk,
+                _ = &mut cancel_rx => {
+                    let _ = app.emit("ai-chat-stream", AiChatStreamEvent::Canceled { request_id: request_id.clone() });
+                    return Ok(());
+                }
+            };
+            let Some(chunk) = next else { break };
+            buffer.extend_from_slice(&chunk?);
+            while let Some((index, separator_len)) = find_sse_separator(&buffer) {
+                let record = String::from_utf8(buffer[..index].to_vec())
+                    .map_err(|error| app_error(error.to_string()))?;
+                buffer.drain(..index + separator_len);
+                let data = record
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("data:").map(str::trim_start))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if data.is_empty() { continue; }
+                if data == "[DONE]" {
+                    provider_done = true;
+                    break;
+                }
+                let chunk: OpenAiStreamChunk = serde_json::from_str(&data)?;
+                if chunk.model.is_some() { current_model = chunk.model; }
+                if let Some(choice) = chunk.choices.into_iter().next() {
+                    if let Some(delta) = choice.delta.content.filter(|value| !value.is_empty()) {
+                        app.emit("ai-chat-stream", AiChatStreamEvent::Delta {
+                            request_id: request_id.clone(),
+                            delta,
+                        }).map_err(|error| app_error(error.to_string()))?;
+                    }
+                    if choice.finish_reason.is_some() { finish_reason = choice.finish_reason; }
+                }
+                usage = chunk.usage.map(|value| AiUsage {
+                    prompt_tokens: value.prompt_tokens,
+                    completion_tokens: value.completion_tokens,
+                    total_tokens: value.total_tokens,
+                }).or(usage);
+            }
+            if provider_done { break; }
+        }
+        if !provider_done {
+            return Err(app_error("AI stream disconnected before completion"));
+        }
+        app.emit("ai-chat-stream", AiChatStreamEvent::Done {
+            request_id: request_id.clone(),
+            model: current_model,
+            finish_reason,
+            usage,
+        }).map_err(|error| app_error(error.to_string()))?;
+        Ok(())
+    }.await;
+
+    if let Err(error) = result {
+        let _ = app.emit(
+            "ai-chat-stream",
+            AiChatStreamEvent::Error {
+                request_id,
+                error: error.to_string(),
+            },
+        );
+    }
+}
+
+fn find_sse_separator(buffer: &[u8]) -> Option<(usize, usize)> {
+    buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|index| (index, 4))
+        .or_else(|| {
+            buffer
+                .windows(2)
+                .position(|window| window == b"\n\n")
+                .map(|index| (index, 2))
+        })
 }
 
 fn provider_to_summary(provider: AiProviderConfig) -> AiProviderSummary {

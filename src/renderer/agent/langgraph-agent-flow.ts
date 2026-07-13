@@ -9,7 +9,12 @@ import {
 } from '@langchain/core/messages';
 
 import type { AgentResponse, Message } from '../../shared/types';
-import type { AIChatResult, IPCResult } from '../../shared/ipc-types';
+import type {
+  AIChatResult,
+  AIChatStreamEvent,
+  AIChatStreamOptions,
+  IPCResult,
+} from '../../shared/ipc-types';
 
 const AGENT_CONTEXT_TOKEN_BUDGET = 12000;
 
@@ -111,7 +116,8 @@ const RoundGraphAnnotation = Annotation.Root({
   preparedMessages: Annotation<Message[]>(),
   requestId: Annotation<string>(),
   parseRetryAvailable: Annotation<boolean>(),
-  aiChat: Annotation<AiChatService>(),
+  aiChatStream: Annotation<AiChatStreamService>(),
+  onStreamEvent: Annotation<((event: AIChatStreamEvent) => void) | undefined>(),
   parseResponse: Annotation<ParseAgentResponse>(),
   analyzeCommand: Annotation<AnalyzeCommand>(),
   shouldBlockRepeatedCommand: Annotation<ShouldBlockRepeatedCommand>(),
@@ -128,10 +134,10 @@ const RoundGraphAnnotation = Annotation.Root({
   error: Annotation<string | undefined>(),
 });
 
-type AiChatService = (
+type AiChatStreamService = (
   providerId: string,
   messages: Message[],
-  options?: { requestId?: string },
+  options: AIChatStreamOptions,
 ) => Promise<IPCResult<AIChatResult>>;
 
 interface RunAgentRoundGraphInput {
@@ -139,7 +145,8 @@ interface RunAgentRoundGraphInput {
   messages: Message[];
   requestId: string;
   parseRetryAvailable: boolean;
-  aiChat: AiChatService;
+  aiChatStream: AiChatStreamService;
+  onStreamEvent?: (event: AIChatStreamEvent) => void;
   parseResponse: ParseAgentResponse;
   analyzeCommand: AnalyzeCommand;
   shouldBlockRepeatedCommand: ShouldBlockRepeatedCommand;
@@ -342,15 +349,13 @@ function getRoundGraph(): AnyCompiledGraph {
       preparedMessages: await prepareAgentContext(state.messages),
     }))
     .addNode('callModel', async (state) => {
-      const result = await state.aiChat(state.providerId, state.preparedMessages, {
+      const result = await state.aiChatStream(state.providerId, state.preparedMessages, {
         requestId: state.requestId,
+        onEvent: (event) => state.onStreamEvent?.(event),
       });
 
       if (!result.success || !result.data) {
-        return {
-          error: result.success ? 'AI response is empty' : result.error,
-          response: null,
-        };
+        throw new Error(result.success ? 'AI response is empty' : result.error);
       }
 
       return {

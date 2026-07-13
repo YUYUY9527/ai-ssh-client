@@ -14,7 +14,13 @@ import type {
   PendingApproval,
   ThinkingStep,
 } from '../../shared/types';
-import type { IPCResult, AIChatResult, AgentExecAwaitResult } from '../../shared/ipc-types';
+import type {
+  IPCResult,
+  AIChatResult,
+  AIChatStreamEvent,
+  AIChatStreamOptions,
+  AgentExecAwaitResult,
+} from '../../shared/ipc-types';
 
 // ==========================================================================
 // Types
@@ -54,6 +60,11 @@ export interface AgentRuntimeServices {
     providerId: string,
     messages: Message[],
     options?: { requestId?: string },
+  ) => Promise<IPCResult<AIChatResult>>;
+  aiChatStream: (
+    providerId: string,
+    messages: Message[],
+    options: AIChatStreamOptions,
   ) => Promise<IPCResult<AIChatResult>>;
   cancelAIChat?: (requestId: string) => Promise<IPCResult> | void;
   agentStartTask?: (taskId: string, connectionId: string) => Promise<IPCResult>;
@@ -474,6 +485,142 @@ const appendTail = (current: string, chunk: string, maxSize: number): string => 
   return next.slice(-Math.floor(maxSize * 0.75));
 };
 
+type JsonObjectContext = {
+  path: string[];
+  key: string | null;
+  mode: 'key' | 'colon' | 'value' | 'comma';
+};
+
+function decodePartialJsonString(source: string, start: number): {
+  value: string;
+  end: number;
+  complete: boolean;
+} {
+  let value = '';
+  let index = start + 1;
+
+  while (index < source.length) {
+    const char = source[index];
+    if (char === '"') {
+      return { value, end: index + 1, complete: true };
+    }
+    if (char !== '\\') {
+      value += char;
+      index += 1;
+      continue;
+    }
+
+    const escaped = source[index + 1];
+    if (escaped === undefined) break;
+    const escapes: Record<string, string> = {
+      '"': '"',
+      '\\': '\\',
+      '/': '/',
+      b: '\b',
+      f: '\f',
+      n: '\n',
+      r: '\r',
+      t: '\t',
+    };
+    if (escaped === 'u') {
+      const digits = source.slice(index + 2, index + 6);
+      if (digits.length < 4 || !/^[0-9a-fA-F]{4}$/.test(digits)) break;
+      value += String.fromCharCode(Number.parseInt(digits, 16));
+      index += 6;
+      continue;
+    }
+    value += escapes[escaped] ?? escaped;
+    index += 2;
+  }
+
+  return { value, end: source.length, complete: false };
+}
+
+function formatAgentResponseProjection(response: AgentResponse): string {
+  return [
+    response.thought.reasoning,
+    response.thought.observation
+      ? `观察：${response.thought.observation}`
+      : '',
+    response.finishReason
+      ? `结论：${response.finishReason}`
+      : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+export function extractAgentStreamProjection(source: string): string {
+  const firstObject = source.indexOf('{');
+  if (firstObject < 0) return '';
+
+  const stack: JsonObjectContext[] = [];
+  const values = new Map<string, string>();
+  let index = firstObject;
+
+  while (index < source.length) {
+    const context = stack[stack.length - 1];
+    const char = source[index];
+
+    if (char === '{') {
+      const path = context?.mode === 'value' && context.key
+        ? [...context.path, context.key]
+        : [];
+      if (context?.mode === 'value') context.mode = 'comma';
+      stack.push({ path, key: null, mode: 'key' });
+      index += 1;
+      continue;
+    }
+    if (char === '}') {
+      stack.pop();
+      index += 1;
+      continue;
+    }
+    if (!context) {
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      const token = decodePartialJsonString(source, index);
+      if (context.mode === 'key') {
+        if (token.complete) {
+          context.key = token.value;
+          context.mode = 'colon';
+        }
+      } else if (context.mode === 'value' && context.key) {
+        const fieldPath = [...context.path, context.key].join('.');
+        if (
+          fieldPath === 'thought.reasoning'
+          || fieldPath === 'thought.observation'
+          || fieldPath === 'finishReason'
+        ) {
+          values.set(fieldPath, token.value);
+        }
+        if (token.complete) context.mode = 'comma';
+      }
+      index = token.end;
+      continue;
+    }
+    if (char === ':' && context.mode === 'colon') {
+      context.mode = 'value';
+    } else if (char === ',' && context.mode === 'comma') {
+      context.key = null;
+      context.mode = 'key';
+    } else if (context.mode === 'value' && !/\s/.test(char)) {
+      context.mode = 'comma';
+    }
+    index += 1;
+  }
+
+  return [
+    values.get('thought.reasoning'),
+    values.get('thought.observation')
+      ? `观察：${values.get('thought.observation')}`
+      : '',
+    values.get('finishReason')
+      ? `结论：${values.get('finishReason')}`
+      : '',
+  ].filter(Boolean).join('\n\n');
+}
+
 // ==========================================================================
 // Cancellable sleep helper
 // ==========================================================================
@@ -504,6 +651,15 @@ class AbortedByRuntimeError extends Error {
   }
 }
 
+type ActiveStreamDisplay = {
+  requestId: string;
+  taskVersion: number;
+  stepId: string;
+  content: string;
+  projectedContent: string;
+  frameId: number | null;
+};
+
 // ==========================================================================
 // Runtime
 // ==========================================================================
@@ -530,6 +686,7 @@ export class AgentRuntime {
 
   // In-flight async work
   private currentAiRequestId: string | null = null;
+  private activeStreamDisplay: ActiveStreamDisplay | null = null;
   private currentCancelToken: CancelToken | null = null;
   private processScheduled = false;
   private isProcessingStep = false;
@@ -723,6 +880,7 @@ export class AgentRuntime {
         task.userInput,
         this.lastCommandOutput,
         capturedVersion,
+        thinkStepId,
         executionHooks,
       );
     } catch (error) {
@@ -773,7 +931,9 @@ export class AgentRuntime {
       this.lastParseRetried = false;
       this.actions.updateThinkingStep(thinkStepId, {
         status: graphResult.response ? 'completed' : 'failed',
-        content: graphResult.response?.thought.reasoning || graphResult.nextAction.reason,
+        content: graphResult.response
+          ? formatAgentResponseProjection(graphResult.response)
+          : graphResult.nextAction.reason,
       });
       this.finishTask(false, graphResult.nextAction.reason);
       return;
@@ -782,7 +942,9 @@ export class AgentRuntime {
     this.lastParseRetried = false;
     this.actions.updateThinkingStep(thinkStepId, {
       status: 'completed',
-      content: graphResult.response?.thought.reasoning || '',
+      content: graphResult.response
+        ? formatAgentResponseProjection(graphResult.response)
+        : '',
     });
 
     if (graphResult.execution) {
@@ -1002,7 +1164,7 @@ export class AgentRuntime {
         this.actions.setAgentState('executing');
         this.actions.updateThinkingStep(input.thinkStepId, {
           status: 'completed',
-          content: action.response.thought.reasoning || '',
+          content: formatAgentResponseProjection(action.response),
         });
         const execStepId = this.generateStepId();
         activeExecStepId = execStepId;
@@ -1033,15 +1195,23 @@ export class AgentRuntime {
     userInput: string,
     lastOutput: string,
     capturedVersion: number,
+    thinkStepId: string,
     executionHooks: AgentRoundExecutionHooks,
   ): Promise<AgentRoundGraphResult> {
-    return this.callAgentAI(userInput, lastOutput, capturedVersion, executionHooks);
+    return this.callAgentAI(
+      userInput,
+      lastOutput,
+      capturedVersion,
+      thinkStepId,
+      executionHooks,
+    );
   }
 
   private async callAgentAI(
     userInput: string,
     lastOutput: string,
     capturedVersion: number,
+    thinkStepId: string,
     executionHooks: AgentRoundExecutionHooks,
   ): Promise<AgentRoundGraphResult> {
     const { activeProviderId, providers, config, taskHistory, activeConversationId } = this.snapshot;
@@ -1114,6 +1284,14 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
 
     const requestId = `agent-${activeProviderId}-${this.taskVersion}-${Date.now()}`;
     this.currentAiRequestId = requestId;
+    this.activeStreamDisplay = {
+      requestId,
+      taskVersion: capturedVersion,
+      stepId: thinkStepId,
+      content: '',
+      projectedContent: '',
+      frameId: null,
+    };
 
     try {
       const graphInput = {
@@ -1121,7 +1299,10 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
         messages,
         requestId,
         parseRetryAvailable: !this.lastParseRetried,
-        aiChat: this.services.aiChat,
+        aiChatStream: this.services.aiChatStream,
+        onStreamEvent: (event: AIChatStreamEvent) => {
+          this.handleAgentStreamEvent(event, requestId, capturedVersion);
+        },
         parseResponse: parseAgentResponse,
         analyzeCommand: this.services.analyzeCommand,
         shouldBlockRepeatedCommand: (command: string) => this.shouldBlockRepeatedCommand(command),
@@ -1158,11 +1339,73 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
       }
 
       return result;
+    } catch (error) {
+      if (
+        this.currentAiRequestId !== requestId
+        || this.taskVersion !== capturedVersion
+        || this.status === 'paused'
+        || this.status === 'completed'
+        || this.status === 'failed'
+      ) {
+        throw new AbortedByRuntimeError('AI stream canceled');
+      }
+      throw error;
     } finally {
+      this.releaseStreamDisplay(requestId);
       if (this.currentAiRequestId === requestId) {
         this.currentAiRequestId = null;
       }
     }
+  }
+
+  private handleAgentStreamEvent(
+    event: AIChatStreamEvent,
+    requestId: string,
+    capturedVersion: number,
+  ) {
+    const display = this.activeStreamDisplay;
+    if (
+      !display
+      || event.requestId !== requestId
+      || display.requestId !== requestId
+      || display.taskVersion !== capturedVersion
+      || this.currentAiRequestId !== requestId
+      || !this.isCurrent(capturedVersion)
+    ) {
+      return;
+    }
+
+    if (event.type === 'delta') {
+      display.content += event.delta;
+      if (display.frameId === null) {
+        display.frameId = window.requestAnimationFrame(() => {
+          if (this.activeStreamDisplay !== display) return;
+          display.frameId = null;
+          display.projectedContent = extractAgentStreamProjection(display.content);
+          if (!display.projectedContent) return;
+          this.actions.updateThinkingStep(display.stepId, {
+            content: display.projectedContent,
+          });
+        });
+      }
+      return;
+    }
+
+    if (event.type === 'canceled') {
+      this.actions.updateThinkingStep(display.stepId, {
+        status: 'failed',
+        content: 'AI 请求已取消',
+      });
+    }
+  }
+
+  private releaseStreamDisplay(requestId: string) {
+    const display = this.activeStreamDisplay;
+    if (!display || display.requestId !== requestId) return;
+    if (display.frameId !== null) {
+      window.cancelAnimationFrame(display.frameId);
+    }
+    this.activeStreamDisplay = null;
   }
 
   // --------------------------------------------------------------------
@@ -1385,7 +1628,16 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
 
   private abortActiveWork(reason: string) {
     if (this.currentAiRequestId) {
-      try { this.services.cancelAIChat?.(this.currentAiRequestId); } catch { /* ignore */ }
+      const requestId = this.currentAiRequestId;
+      const display = this.activeStreamDisplay;
+      if (display?.requestId === requestId && reason !== 'completed') {
+        this.actions.updateThinkingStep(display.stepId, {
+          status: 'failed',
+          content: reason === 'paused' ? 'AI 请求已暂停' : 'AI 请求已取消',
+        });
+      }
+      try { this.services.cancelAIChat?.(requestId); } catch { /* ignore */ }
+      this.releaseStreamDisplay(requestId);
       this.currentAiRequestId = null;
     }
     if (this.currentCancelToken) {
