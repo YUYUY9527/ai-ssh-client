@@ -19,7 +19,7 @@ export interface SftpBrowserSessionState {
 }
 
 /** Default remote path when no session memory or cwd is available. */
-export const DEFAULT_REMOTE_PATH = '/home';
+export const DEFAULT_REMOTE_PATH = '~';
 
 /** Default sidebar width in pixels. */
 export const DEFAULT_SFTP_SIDEBAR_WIDTH = 480;

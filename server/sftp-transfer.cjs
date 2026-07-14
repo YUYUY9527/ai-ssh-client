@@ -1,5 +1,6 @@
 const posixPath = require('node:path').posix;
 const { randomUUID } = require('node:crypto');
+const { sftpProtocolPath } = require('./sftp-items.cjs');
 
 const CHUNK_SIZE = 64 * 1024;
 const CHECKPOINT_BYTES = 4 * 1024 * 1024;
@@ -269,7 +270,8 @@ function createSftpTransferService({ getSftp, emitEvent }) {
         finish(task, 'canceled');
         return snapshot;
       }
-      const exists = await pathExists(sftp, remotePath);
+      const protocolRemotePath = sftpProtocolPath(remotePath);
+      const exists = await pathExists(sftp, protocolRemotePath);
       if (exists) {
         if (snapshot.conflictPolicy === 'ask') {
           update(task, (current) => {
@@ -291,7 +293,8 @@ function createSftpTransferService({ getSftp, emitEvent }) {
       }
 
       const destination = snapshot.remotePath;
-      const temporaryPath = temporaryRemotePath(destination, snapshot.taskId);
+      const protocolDestination = sftpProtocolPath(destination);
+      const temporaryPath = temporaryRemotePath(protocolDestination, snapshot.taskId);
       const sourceSize = Number(
         request.headers?.['x-sftp-source-size']
         || request.headers?.['content-length']
@@ -384,7 +387,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
         }
         await callSftp(sftp, 'close', handle);
         update(task, (current) => { current.status = 'committing'; });
-        await callSftp(sftp, 'rename', temporaryPath, destination);
+        await callSftp(sftp, 'rename', temporaryPath, protocolDestination);
         await removeRemoteQuiet(sftp, checkpointRemotePath(temporaryPath));
         return finish(task, 'completed', undefined, exists ? 'best-effort-replace' : 'atomic-create');
       } catch (error) {

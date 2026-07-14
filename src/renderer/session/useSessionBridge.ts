@@ -74,10 +74,19 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
     }
 
     const session = useSessionStore.getState().sessions[sessionId];
-    const connection = connections.find((item) => item.id === sessionId);
-    if (!session || !connection) {
+    if (!session) {
       return;
     }
+    // 优先用 session.connectionId 匹配已保存配置；多会话克隆则带上会话 id
+    const baseConnection = connections.find((item) => (
+      item.id === session.connectionId || item.id === sessionId
+    ));
+    if (!baseConnection) {
+      return;
+    }
+    const connection = baseConnection.id === sessionId
+      ? baseConnection
+      : { ...baseConnection, id: sessionId };
 
     const maxReconnectAttempts = settings.maxReconnectAttempts || 0;
     const reconnectAttempts = session.reconnectAttempts;

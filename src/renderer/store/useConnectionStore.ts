@@ -59,9 +59,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   reconnect: async (connectionId: string) => {
     if (!window.electronAPI) return false;
     const { connections } = get();
-    const connection = connections.find(c => c.id === connectionId);
-    if (!connection) return false;
-
-    return get().connect(connection);
+    const exact = connections.find((item) => item.id === connectionId);
+    if (exact) {
+      return get().connect(exact);
+    }
+    // 多会话克隆：id 为 `${baseId}-session-...`，用基础配置 + 会话 id 重连
+    const base = connections.find((item) => connectionId.startsWith(`${item.id}-session-`));
+    if (!base) return false;
+    return get().connect({ ...base, id: connectionId });
   },
 }));

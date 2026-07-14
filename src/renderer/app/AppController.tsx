@@ -120,7 +120,7 @@ export function AppController() {
   const setSftpSidebarOpen = useWorkspaceStore((state) => state.setSftpSidebarOpen);
   const toggleSftpSidebar = useWorkspaceStore((state) => state.toggleSftpSidebar);
 
-  useSessionRecovery(connections);
+  useSessionRecovery(connections, settings);
 
   // 打开的标签页
   const [openTabs, setOpenTabs] = useState<Tab[]>([]);

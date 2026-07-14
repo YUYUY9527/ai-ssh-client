@@ -394,6 +394,53 @@ function sendSocket(type: string, payload: Record<string, unknown>): void {
   }
 }
 
+/** 按 sessionId 找回连接配置；多会话克隆 id 回退到 connectionId 前缀匹配。 */
+async function resolveConnectionConfig(connectionId: string): Promise<SSHConnection | null> {
+  const connectionsResult = await request<ConnectionsResult<SSHConnection>>('/api/connections');
+  if (!connectionsResult.success) {
+    return null;
+  }
+  const exact = connectionsResult.data.connections.find((item) => item.id === connectionId);
+  if (exact) {
+    return exact;
+  }
+  // 形如 `${baseId}-session-${timestamp}` 的克隆会话
+  const base = connectionsResult.data.connections.find((item) => (
+    connectionId.startsWith(`${item.id}-session-`)
+  ));
+  return base ? { ...base, id: connectionId } : null;
+}
+
+/** 会话丢失时按配置重连，供终端写入与 SFTP 共用。 */
+async function ensureSshSession(connectionId: string): Promise<IPCResult> {
+  const sessionsResult = await request<SSessionsResult>('/api/ssh/sessions');
+  if (sessionsResult.success) {
+    const live = sessionsResult.data.sessions.some((session) => (
+      session.connectionId === connectionId && session.isConnected
+    ));
+    if (live) {
+      return { success: true };
+    }
+  }
+
+  const connection = await resolveConnectionConfig(connectionId);
+  if (!connection) {
+    return makeError('SSH session is not connected');
+  }
+
+  const settingsResult = await request<SettingsResult<AppSettings>>('/api/settings');
+  const settings = settingsResult.success ? settingsResult.data.settings : undefined;
+  return request<SSHConnectResult>('/api/ssh/connect', {
+    method: 'POST',
+    body: JSON.stringify({
+      connection,
+      cols: 120,
+      rows: 32,
+      settings,
+    }),
+  });
+}
+
 async function writeSshInput(connectionId: string, command: string): Promise<IPCResult> {
   const result = await request<void>(`/api/ssh/${connectionId}/write`, {
     method: 'POST',
@@ -404,26 +451,7 @@ async function writeSshInput(connectionId: string, command: string): Promise<IPC
     return result;
   }
 
-  const connectionsResult = await request<ConnectionsResult<SSHConnection>>('/api/connections');
-  if (!connectionsResult.success) {
-    return result;
-  }
-  const connection = connectionsResult.data.connections.find((item) => item.id === connectionId);
-  if (!connection) {
-    return result;
-  }
-
-  const settingsResult = await request<SettingsResult<AppSettings>>('/api/settings');
-  const settings = settingsResult.success ? settingsResult.data.settings : undefined;
-  const connectResult = await request<SSHConnectResult>('/api/ssh/connect', {
-    method: 'POST',
-    body: JSON.stringify({
-      connection,
-      cols: 120,
-      rows: 32,
-      settings,
-    }),
-  });
+  const connectResult = await ensureSshSession(connectionId);
   if (!connectResult.success) {
     return connectResult;
   }
@@ -432,6 +460,23 @@ async function writeSshInput(connectionId: string, command: string): Promise<IPC
     method: 'POST',
     body: JSON.stringify({ command }),
   });
+}
+
+/** SFTP HTTP 请求：会话掉线时自动重连一次。 */
+async function sftpApiRequest<T>(
+  connectionId: string,
+  path: string,
+  options: RequestInit = {},
+): Promise<IPCResult<T>> {
+  const result = await sftpRequest<T>(path, options);
+  if (result.success || !result.error?.includes('SSH session is not connected')) {
+    return result;
+  }
+  const connectResult = await ensureSshSession(connectionId);
+  if (!connectResult.success) {
+    return connectResult as IPCResult<T>;
+  }
+  return sftpRequest<T>(path, options);
 }
 
 function chooseFile(options?: {
@@ -617,7 +662,8 @@ const webApi: Window['electronAPI'] = {
   selectFile: (options) => chooseFile(options),
   readPrivateKeyFile: (filePath) => readSelectedFile(filePath),
 
-  listDirectory: (connectionId, remotePath) => request<DirectoryListResult>(
+  listDirectory: (connectionId, remotePath) => sftpApiRequest<DirectoryListResult>(
+    connectionId,
     `/api/sftp/${connectionId}/list?path=${encodeURIComponent(remotePath)}`,
   ),
   selectSftpFiles: () => new Promise((resolve) => {
@@ -695,15 +741,19 @@ const webApi: Window['electronAPI'] = {
     }
     return { success: true, data: { canceled: false, files: prepared } };
   },
-  createSftpDirectory: (connectionId, remotePath) => request<void>(
+  createSftpDirectory: (connectionId, remotePath) => sftpApiRequest<void>(
+    connectionId,
     `/api/sftp/${connectionId}/directory`,
     { method: 'POST', body: JSON.stringify({ remotePath }) },
   ),
-  deleteSftpItems: (connectionId, remotePaths) => request<SftpBatchDeleteResult>(
+  deleteSftpItems: (connectionId, remotePaths) => sftpApiRequest<SftpBatchDeleteResult>(
+    connectionId,
     `/api/sftp/${connectionId}/items`,
     { method: 'DELETE', body: JSON.stringify({ remotePaths }) },
   ),
   startSftpUpload: async (request: SftpStartUploadRequest) => {
+    const ensured = await ensureSshSession(request.connectionId);
+    if (!ensured.success) return ensured as IPCResult<SftpStartTransferResult>;
     const created = await sftpRequest<SftpStartTransferResult>('/api/sftp/transfers/upload', {
       method: 'POST',
       body: JSON.stringify(request),
@@ -718,6 +768,12 @@ const webApi: Window['electronAPI'] = {
     return created;
   },
   startSftpDownload: async (request: SftpStartDownloadRequest) => {
+    const ensured = await ensureSshSession(request.connectionId);
+    if (!ensured.success) {
+      return ensured as IPCResult<SftpStartTransferResult & {
+        tasks: Array<SftpTransferTaskSnapshot & { downloadUrl?: string }>;
+      }>;
+    }
     const result = await sftpRequest<SftpStartTransferResult & {
       tasks: Array<SftpTransferTaskSnapshot & { downloadUrl?: string }>;
     }>(
@@ -798,14 +854,16 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/transfers${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ''}`,
   ),
   onSftpTransferEvent: (callback) => on('sftp-transfer-event', callback),
-  renameItem: (connectionId, remotePath, newName) => request<void>(
+  renameItem: (connectionId, remotePath, newName) => sftpApiRequest<void>(
+    connectionId,
     `/api/sftp/${connectionId}/rename`,
     {
       method: 'POST',
       body: JSON.stringify({ remotePath, newName }),
     },
   ),
-  deleteItem: (connectionId, remotePath) => request<void>(
+  deleteItem: (connectionId, remotePath) => sftpApiRequest<void>(
+    connectionId,
     `/api/sftp/${connectionId}/item`,
     {
       method: 'DELETE',

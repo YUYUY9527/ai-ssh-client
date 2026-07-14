@@ -3,6 +3,21 @@ const posixPath = require('node:path').posix;
 const NO_SUCH_FILE = 2;
 const PROTECTED_PATHS = new Set(['', '/', '.', '~', '~/']);
 
+/** 将 shell 家目录记法转换为 SFTP 协议路径。 */
+function sftpProtocolPath(remotePath) {
+  const value = String(remotePath || '').trim();
+  if (!value || value === '~') {
+    return '.';
+  }
+  if (value.startsWith('~/')) {
+    return `./${value.slice(2)}`;
+  }
+  if (value === '/home') {
+    return '.';
+  }
+  return value;
+}
+
 function validateItemName(name) {
   if (typeof name !== 'string' || !name.trim() || name === '.' || name === '..' || name.includes('/') || name.includes('\0')) {
     throw new Error('Invalid SFTP item name');
@@ -10,9 +25,11 @@ function validateItemName(name) {
 }
 
 function validateItemPath(remotePath) {
+  const normalized = posixPath.normalize(sftpProtocolPath(remotePath).trim());
   if (
     typeof remotePath !== 'string'
-    || PROTECTED_PATHS.has(posixPath.normalize(remotePath.trim()))
+    || PROTECTED_PATHS.has(normalized)
+    || PROTECTED_PATHS.has(String(remotePath || '').trim())
   ) {
     throw new Error('Protected SFTP path');
   }
@@ -21,7 +38,14 @@ function validateItemPath(remotePath) {
 function siblingPath(remotePath, newName) {
   validateItemPath(remotePath);
   validateItemName(newName);
-  return posixPath.join(posixPath.dirname(remotePath.replace(/\/+$/, '')), newName);
+  const display = String(remotePath).replace(/\/+$/, '');
+  // 保留 ~/ 展示路径，避免把家目录相对路径归一成 new.txt
+  if (display === '~' || display.startsWith('~/')) {
+    const parent = posixPath.dirname(display);
+    return parent === '.' ? `~/${newName}` : posixPath.join(parent, newName);
+  }
+  const protocolPath = sftpProtocolPath(remotePath).replace(/\/+$/, '');
+  return posixPath.join(posixPath.dirname(protocolPath), newName);
 }
 
 function callSftp(sftp, method, ...args) {
@@ -49,17 +73,19 @@ async function pathExists(sftp, remotePath) {
 }
 
 async function renameSftpItem(sftp, remotePath, newName) {
-  const destination = siblingPath(remotePath, newName);
+  const source = sftpProtocolPath(remotePath);
+  const displayDestination = siblingPath(remotePath, newName);
+  const destination = sftpProtocolPath(displayDestination);
   if (await pathExists(sftp, destination)) {
     throw new Error('Destination already exists');
   }
-  await callSftp(sftp, 'rename', remotePath, destination);
-  return destination;
+  await callSftp(sftp, 'rename', source, destination);
+  return displayDestination;
 }
 
 async function deleteSftpItem(sftp, remotePath) {
   validateItemPath(remotePath);
-  const stack = [{ remotePath, visited: false }];
+  const stack = [{ remotePath: sftpProtocolPath(remotePath), visited: false }];
 
   while (stack.length > 0) {
     const item = stack.pop();
@@ -89,8 +115,7 @@ async function deleteSftpItem(sftp, remotePath) {
 /** 创建单层远程目录；已存在时报 ALREADY_EXISTS。 */
 async function createSftpDirectory(sftp, remotePath) {
   validateItemPath(remotePath);
-  const normalized = posixPath.normalize(String(remotePath || '').replace(/\/+$/, '') || '/');
-  validateItemPath(normalized);
+  const normalized = posixPath.normalize(sftpProtocolPath(remotePath).replace(/\/+$/, '') || '.');
   validateItemName(posixPath.basename(normalized));
   if (await pathExists(sftp, normalized)) {
     const error = new Error('Destination already exists');
@@ -144,6 +169,7 @@ module.exports = {
   deleteSftpItems,
   renameSftpItem,
   siblingPath,
+  sftpProtocolPath,
   validateItemName,
   validateItemPath,
 };

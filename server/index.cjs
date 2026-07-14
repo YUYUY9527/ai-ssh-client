@@ -19,6 +19,7 @@ const {
   deleteSftpItem,
   deleteSftpItems,
   renameSftpItem,
+  sftpProtocolPath,
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
 
@@ -554,6 +555,18 @@ function getSession(connectionId) {
   return session;
 }
 
+/** 拼接远端展示路径，保持 ~ 前缀语义。 */
+function joinRemoteDisplayPath(parent, name) {
+  const base = String(parent || '').replace(/\/+$/, '') || '/';
+  if (base === '~' || base === '.' || base === './' || base === '/home') {
+    return `~/${name}`;
+  }
+  if (base === '/') {
+    return `/${name}`;
+  }
+  return posixPath.join(base, name);
+}
+
 function getSftp(connectionId) {
   const session = getSession(connectionId);
   if (session.sftp) {
@@ -799,11 +812,12 @@ app.post('/api/ssh/test', route((request) => new Promise((resolve) => {
 })));
 
 app.get('/api/sftp/:id/list', route(async (request) => {
-  const remotePath = String(request.query.path || '/');
+  const displayPath = String(request.query.path || '~');
+  const protocolPath = sftpProtocolPath(displayPath);
   const sftp = await getSftp(request.params.id);
 
   return new Promise((resolve, reject) => {
-    sftp.readdir(remotePath, (error, list) => {
+    sftp.readdir(protocolPath, (error, list) => {
       if (error) {
         reject(error);
         return;
@@ -811,7 +825,7 @@ app.get('/api/sftp/:id/list', route(async (request) => {
 
       const files = list.map((item) => ({
         name: item.filename,
-        path: posixPath.join(remotePath, item.filename),
+        path: joinRemoteDisplayPath(displayPath === '/home' ? '~' : displayPath, item.filename),
         size: item.attrs.size,
         isDirectory: item.attrs.isDirectory(),
         isSymbolicLink: item.attrs.isSymbolicLink(),
@@ -858,8 +872,8 @@ app.delete('/api/sftp/:id/items', route(async (request) => {
 
 app.get('/api/sftp/:id/download', async (request, response) => {
   try {
-    const remotePath = String(request.query.path || '');
-    const filename = posixPath.basename(remotePath);
+    const remotePath = sftpProtocolPath(String(request.query.path || ''));
+    const filename = posixPath.basename(String(request.query.path || remotePath));
     const sftp = await getSftp(request.params.id);
     // 尽量带上 content-length，并支持 Range 续传下载。
     let size = 0;

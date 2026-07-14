@@ -202,12 +202,16 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   // 会话切换时恢复该会话上次路径；首次进入优先用终端 cwd
   useEffect(() => {
     const existing = useSftpTransferStore.getState().browserByConnection[connectionId];
-    const preferredPath = existing?.remotePath
+    // 迁移历史默认路径 /home（多数主机不存在）到 ~
+    const rawPreferred = existing?.remotePath
       || useSessionStore.getState().sessions[connectionId]?.cwd
       || DEFAULT_REMOTE_PATH;
+    const preferredPath = rawPreferred === '/home' ? DEFAULT_REMOTE_PATH : rawPreferred;
 
     if (!existing) {
       getBrowserState(connectionId, preferredPath);
+    } else if (existing.remotePath === '/home') {
+      setBrowserPath(connectionId, DEFAULT_REMOTE_PATH);
     }
 
     setFiles([]);
@@ -216,7 +220,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     setPathInput(preferredPath);
     handledNavigationVersionRef.current = existing?.navigationVersion ?? 0;
     void loadDirectory(preferredPath);
-  }, [connectionId, getBrowserState, isLive, loadDirectory]);
+  }, [connectionId, getBrowserState, isLive, loadDirectory, setBrowserPath]);
 
   useEffect(() => {
     if (isLive && handledNavigationVersionRef.current !== navigationVersion) {
