@@ -781,19 +781,24 @@ app.get('/api/sftp/:id/list', route(async (request) => {
         return;
       }
 
-      resolve(success({
-        files: list.map((item) => ({
-          name: item.filename,
-          path: posixPath.join(remotePath, item.filename),
-          size: item.attrs.size,
-          isDirectory: item.attrs.isDirectory(),
-          isSymbolicLink: item.attrs.isSymbolicLink(),
-          mode: String(item.attrs.mode),
-          mtime: item.attrs.mtime * 1000,
-          atime: item.attrs.atime * 1000,
-          fileType: item.attrs.isDirectory() ? 'directory' : 'file',
-        })),
-      }));
+      const files = list.map((item) => ({
+        name: item.filename,
+        path: posixPath.join(remotePath, item.filename),
+        size: item.attrs.size,
+        isDirectory: item.attrs.isDirectory(),
+        isSymbolicLink: item.attrs.isSymbolicLink(),
+        mode: String(item.attrs.mode),
+        mtime: item.attrs.mtime * 1000,
+        atime: item.attrs.atime * 1000,
+        fileType: item.attrs.isDirectory() ? 'directory' : 'file',
+      })).sort((left, right) => {
+        if (left.isDirectory !== right.isDirectory) {
+          return left.isDirectory ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name);
+      });
+
+      resolve(success({ files }));
     });
   });
 }));

@@ -71,7 +71,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const transferTasks = useSftpTransferStore((state) => state.tasks);
   const addTransferTask = useSftpTransferStore((state) => state.addTask);
   const markTransferTaskTransferring = useSftpTransferStore((state) => state.markTransferring);
-  const completeTransferTask = useSftpTransferStore((state) => state.completeTask);
   const finishTransferTask = useSftpTransferStore((state) => state.finishTask);
   const removeTransferTask = useSftpTransferStore((state) => state.removeTask);
   const clearCompletedTasks = useSftpTransferStore((state) => state.clearCompletedTasks);
@@ -312,11 +311,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
 
       const result = await window.electronAPI.downloadFile(connectionId, file.path, task.id);
       if (result.success) {
-        finishTransferTask(task.id, {
-          success: true,
-          localPath: result.data?.localPath,
-          remotePath: file.path,
-        });
         return;
       }
 
@@ -461,12 +455,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         task.id,
       );
       if (result.success) {
-        // 不依赖事件匹配，HTTP 成功即强制完成
-        finishTransferTask(task.id, {
-          success: true,
-          localPath: selectedLocalPath,
-          remotePath: result.data?.remotePath || remotePath,
-        });
         return;
       }
 

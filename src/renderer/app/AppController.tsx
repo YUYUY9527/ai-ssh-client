@@ -78,6 +78,7 @@ export function AppController() {
   const [showConnectionDropdown, setShowConnectionDropdown] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SSHConnection | null>(null);
   const [deletingConnection, setDeletingConnection] = useState<string | null>(null);
+  const setBrowserView = useSftpTransferStore((state) => state.setBrowserView);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [toasts, setToasts] = useState<AppToast[]>([]);
@@ -841,7 +842,12 @@ export function AppController() {
           status={status}
           commandStatus={commandStatus}
           transferSummary={activeTransferSummary}
-          onOpenTransfers={() => setSftpSidebarOpen(true)}
+          onOpenTransfers={() => {
+            setSftpSidebarOpen(true);
+            if (activeTabId) {
+              setBrowserView(activeTabId, 'tasks');
+            }
+          }}
           translate={t}
         />
       )}
