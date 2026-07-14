@@ -11,6 +11,7 @@ interface ConfirmDialogProps {
   cancelText?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  isConfirming?: boolean;
   type?: 'warning' | 'info';
 }
 
@@ -23,6 +24,7 @@ export function ConfirmDialog({
   cancelText,
   onConfirm,
   onCancel,
+  isConfirming = false,
   type = 'warning',
 }: ConfirmDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
@@ -36,7 +38,7 @@ export function ConfirmDialog({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onCancel}
+      onClose={isConfirming ? () => undefined : onCancel}
       size="md"
       showClose={false}
       initialFocusRef={confirmButtonRef}
@@ -66,7 +68,8 @@ export function ConfirmDialog({
         <button
           type="button"
           onClick={onCancel}
-          className="industrial-button-secondary"
+          disabled={isConfirming}
+          className="industrial-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
         >
           {resolvedCancelText}
         </button>
@@ -74,7 +77,8 @@ export function ConfirmDialog({
           type="button"
           ref={confirmButtonRef}
           onClick={onConfirm}
-          className={type === 'warning' ? 'industrial-button-danger' : 'industrial-button-primary'}
+          disabled={isConfirming}
+          className={`${type === 'warning' ? 'industrial-button-danger' : 'industrial-button-primary'} disabled:cursor-not-allowed disabled:opacity-50`}
         >
           {resolvedConfirmText}
         </button>

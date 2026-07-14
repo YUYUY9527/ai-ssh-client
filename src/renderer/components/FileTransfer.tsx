@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Archive,
@@ -47,8 +47,8 @@ function createTaskId(): string {
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
 }
 
@@ -97,11 +97,13 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     y: number;
     item: RemoteFileItem;
   } | null>(null);
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [renameTarget, setRenameTarget] = useState<RemoteFileItem | null>(null);
   const [renameName, setRenameName] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RemoteFileItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -215,6 +217,18 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     };
   }, [contextMenu]);
 
+  useLayoutEffect(() => {
+    if (!contextMenuRef.current || !contextMenu) {
+      return;
+    }
+
+    const menuRect = contextMenuRef.current.getBoundingClientRect();
+    setContextMenuPosition({
+      x: Math.max(8, Math.min(contextMenu.x, window.innerWidth - menuRect.width - 8)),
+      y: Math.max(8, Math.min(contextMenu.y, window.innerHeight - menuRect.height - 8)),
+    });
+  }, [contextMenu]);
+
   useEffect(() => {
     if (!renameTarget) {
       return;
@@ -256,7 +270,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const getFileType = (file: RemoteFileItem): string => {
     if (file.isDirectory) return t('fileTransfer.fileTypes.directory');
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    if (['', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico'].includes(ext)) return t('fileTransfer.fileTypes.image');
+    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico'].includes(ext)) return t('fileTransfer.fileTypes.image');
     if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2', 'xz'].includes(ext)) return t('fileTransfer.fileTypes.archive');
     if (['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'conf', 'log', 'ini', 'cfg'].includes(ext)) return t('fileTransfer.fileTypes.text');
     if (['js', 'ts', 'tsx', 'jsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'rb', 'php', 'sh', 'bash', 'zsh'].includes(ext)) return t('fileTransfer.fileTypes.code');
@@ -365,37 +379,54 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
 
     setIsRenaming(true);
     setRenameError(null);
-    const result = await window.electronAPI.renameItem(
-      connectionId,
-      renameTarget.path,
-      renameName,
-    );
-    setIsRenaming(false);
-    if (!result.success) {
-      setRenameError(result.error || t('fileTransfer.renameFailed'));
-      return;
-    }
+    try {
+      const result = await window.electronAPI.renameItem(
+        connectionId,
+        renameTarget.path,
+        renameName,
+      );
+      if (!result.success) {
+        setRenameError(result.error || t('fileTransfer.renameFailed'));
+        return;
+      }
 
-    setRenameTarget(null);
-    await loadDirectory(currentPath);
+      setRenameTarget(null);
+      await loadDirectory(currentPath);
+    } catch (err) {
+      setRenameError((err as Error).message || t('fileTransfer.renameFailed'));
+    } finally {
+      setIsRenaming(false);
+    }
   };
 
   const handleDelete = async () => {
     const target = deleteTarget;
-    if (!target) {
+    if (!target || isDeleting) {
       return;
     }
-    setDeleteTarget(null);
+    setIsDeleting(true);
     setActionError(null);
     if (!window.electronAPI) {
       setActionError(t('fileTransfer.deleteFailed'));
+      setIsDeleting(false);
       return;
     }
 
-    const result = await window.electronAPI.deleteItem(connectionId, target.path);
-    await loadDirectory(currentPath);
-    if (!result.success) {
-      setActionError(result.error || t('fileTransfer.deleteFailed'));
+    try {
+      const result = await window.electronAPI.deleteItem(connectionId, target.path);
+      if (!result.success) {
+        setDeleteTarget(null);
+        setActionError(result.error || t('fileTransfer.deleteFailed'));
+        return;
+      }
+
+      setDeleteTarget(null);
+      await loadDirectory(currentPath);
+    } catch (err) {
+      setDeleteTarget(null);
+      setActionError((err as Error).message || t('fileTransfer.deleteFailed'));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -749,13 +780,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                   return (
                     <div
                       key={file.path}
-                      onClick={() => {
-                        if (file.isDirectory) {
-                          navigateTo(file.path);
-                          return;
-                        }
-                        setBrowserSelection(connectionId, file.path);
-                      }}
+                      onClick={() => setBrowserSelection(connectionId, file.path)}
                       onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
                       onContextMenu={(event) => {
                         event.preventDefault();
@@ -801,8 +826,8 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                 ref={contextMenuRef}
                 className="app-popover fixed top-auto z-50 mt-0 min-w-[168px] py-1"
                 style={{
-                  left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 184)),
-                  top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 148)),
+                  left: contextMenuPosition.x,
+                  top: contextMenuPosition.y,
                 }}
               >
                 {contextMenu.item.isDirectory ? (
@@ -933,9 +958,14 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         message={deleteTarget?.isDirectory
           ? t('fileTransfer.deleteDirectoryMessage', { name: deleteTarget.name })
           : t('fileTransfer.deleteFileMessage', { name: deleteTarget?.name || '' })}
-        confirmText={t('common.delete')}
+        confirmText={isDeleting ? t('common.loading') : t('common.delete')}
+        isConfirming={isDeleting}
         onConfirm={() => void handleDelete()}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => {
+          if (!isDeleting) {
+            setDeleteTarget(null);
+          }
+        }}
       />
     </div>
   );

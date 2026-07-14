@@ -123,7 +123,7 @@ const enUS: DeepStringify<typeof zhCN> = {
     parentDir: 'Parent',
     pathPlaceholder: 'Enter path and press Enter...',
     emptyDir: 'Empty directory',
-    dragHint: 'Drag files here to upload',
+    dragHint: 'Drag files here to open the file picker',
     dropHint: 'Release to open file picker',
     upload: 'Upload',
     download: 'Download',
