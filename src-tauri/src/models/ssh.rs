@@ -89,10 +89,12 @@ pub struct SshEvent {
 pub struct SftpFileInfo {
     pub name: String,
     pub path: String,
+    pub kind: String,
     pub size: u64,
     pub is_directory: bool,
     pub is_symbolic_link: bool,
     pub mode: String,
     pub mtime: i64,
     pub atime: i64,
+    pub file_type: String,
 }

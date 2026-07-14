@@ -105,6 +105,59 @@ pub fn select_file(
     }
 }
 
+/// Opens a multi-file picker dedicated to SFTP uploads.
+#[tauri::command]
+pub fn sftp_select_files(app_handle: AppHandle) -> IpcResult<serde_json::Value> {
+    let files = app_handle
+        .dialog()
+        .file()
+        .set_title("选择要上传的文件")
+        .blocking_pick_files()
+        .unwrap_or_default();
+    let files = files
+        .into_iter()
+        .filter_map(file_path_to_path_buf)
+        .filter_map(|path| {
+            let metadata = std::fs::metadata(&path).ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            Some(json!({
+                "name": path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+                "path": path.to_string_lossy(),
+                "size": metadata.len(),
+                "lastModified": metadata.modified().ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|time| time.as_millis() as u64),
+            }))
+        })
+        .collect::<Vec<_>>();
+    success(json!({ "canceled": files.is_empty(), "files": files }))
+}
+
+/// Opens a directory picker dedicated to SFTP downloads.
+#[tauri::command]
+pub fn sftp_select_download_destination(app_handle: AppHandle) -> IpcResult<serde_json::Value> {
+    match app_handle
+        .dialog()
+        .file()
+        .set_title("选择下载目录")
+        .blocking_pick_folder()
+    {
+        Some(path) => match file_path_to_path_buf(path) {
+            Some(path) => success(json!({
+                "canceled": false,
+                "destination": {
+                    "path": path.to_string_lossy(),
+                    "name": path.file_name().and_then(|name| name.to_str()),
+                },
+            })),
+            None => error("无法读取选择的下载目录"),
+        },
+        None => success(json!({ "canceled": true })),
+    }
+}
+
 /// Reads a private key file selected by the file picker.
 #[tauri::command]
 pub fn read_private_key_file(file_path: String) -> IpcResult<serde_json::Value> {

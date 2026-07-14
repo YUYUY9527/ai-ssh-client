@@ -9,6 +9,7 @@ use commands::{agent, ai, connections, files, settings, ssh};
 use services::agent_history_service::AgentHistoryService;
 use services::agent_service::AgentService;
 use services::ai_service::AiService;
+use services::sftp_service::SftpService;
 use services::ssh_service::SshService;
 use services::storage_service::StorageService;
 
@@ -16,6 +17,7 @@ use services::storage_service::StorageService;
 pub struct AppState {
     storage: Arc<StorageService>,
     ssh: SshService,
+    sftp: SftpService,
     ai: AiService,
     agent: AgentService,
     agent_history: AgentHistoryService,
@@ -25,9 +27,11 @@ impl AppState {
     /// Creates application state with local services.
     pub fn new() -> Result<Self, String> {
         let storage = Arc::new(StorageService::new().map_err(|err| err.to_string())?);
+        let ssh = SshService::new(storage.clone());
         Ok(Self {
             storage: Arc::clone(&storage),
-            ssh: SshService::new(storage),
+            sftp: SftpService::new(ssh.clone()),
+            ssh,
             ai: AiService::new(),
             agent: AgentService::new(),
             agent_history: AgentHistoryService::new().map_err(|err| err.to_string())?,
@@ -58,8 +62,15 @@ pub fn run() {
             ssh::sftp_list_directory,
             ssh::sftp_rename_item,
             ssh::sftp_delete_item,
-            ssh::sftp_download_file,
-            ssh::sftp_upload_file,
+            ssh::sftp_create_directory,
+            ssh::sftp_delete_items,
+            ssh::sftp_start_upload,
+            ssh::sftp_start_download,
+            ssh::sftp_resolve_conflict,
+            ssh::sftp_cancel_transfer,
+            ssh::sftp_retry_transfer,
+            ssh::sftp_discard_transfer,
+            ssh::sftp_list_transfers,
             connections::get_connections,
             connections::save_connection,
             connections::delete_connection,
@@ -86,6 +97,8 @@ pub fn run() {
             settings::save_quick_command_group,
             settings::delete_quick_command_group,
             files::select_file,
+            files::sftp_select_files,
+            files::sftp_select_download_destination,
             files::read_private_key_file,
             agent::agent_start_task,
             agent::agent_stop_task,

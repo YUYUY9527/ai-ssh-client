@@ -168,31 +168,44 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
       scheduleReconnect(connectionId);
     });
 
-    const cleanupSftpUploadProgress = window.electronAPI.onSftpUploadProgress?.((data) => {
-      useSftpTransferStore.getState().updateProgress('upload', data);
-    });
+    // 统一任务协议：事件进 store，终态弹出 toast。
+    const cleanupSftpTransferEvent = window.electronAPI.onSftpTransferEvent?.((event) => {
+      useSftpTransferStore.getState().applyTransferEvent(event);
+      if (event.type !== 'terminal' && event.type !== 'snapshot') return;
+      // snapshot 终态与 terminal 都通知，避免 Web FSA 只发 snapshot 时无 toast。
+      const status = event.type === 'terminal'
+        ? event.status
+        : event.snapshot.status;
+      if (!['completed', 'handed-off', 'skipped', 'failed', 'canceled', 'interrupted'].includes(status)) {
+        return;
+      }
+      // 仅 terminal 或 snapshot 进入终态时提示，防止中间 snapshot 刷屏。
+      if (event.type === 'snapshot' && !['completed', 'handed-off', 'skipped', 'failed', 'canceled', 'interrupted'].includes(event.snapshot.status)) {
+        return;
+      }
 
-    const cleanupSftpDownloadProgress = window.electronAPI.onSftpDownloadProgress?.((data) => {
-      useSftpTransferStore.getState().updateProgress('download', data);
-    });
-
-    const cleanupSftpTransferComplete = window.electronAPI.onSftpTransferComplete?.((data) => {
-      useSftpTransferStore.getState().completeTask(data);
-
-      const transferLabel = data.transferType === 'upload'
+      const task = event.type === 'snapshot'
+        ? event.snapshot
+        : useSftpTransferStore.getState().tasks.find((item) => item.taskId === event.taskId);
+      const transferLabel = (task?.direction || 'upload') === 'upload'
         ? translate('fileTransfer.upload')
         : translate('fileTransfer.download');
-      const title = data.success
+      const success = status === 'completed' || status === 'handed-off' || status === 'skipped';
+      const title = success
         ? translate('fileTransfer.transferCompleted', { type: transferLabel })
         : translate('fileTransfer.transferFailed', { type: transferLabel });
-      const body = data.success
-        ? data.filename
-        : `${data.filename}: ${data.error || translate('common.error')}`;
+      const body = success
+        ? (task?.name || event.taskId)
+        : `${task?.name || event.taskId}: ${
+          event.type === 'terminal'
+            ? (event.error?.message || translate('common.error'))
+            : (event.snapshot.error?.message || translate('common.error'))
+        }`;
 
       onTransferToast?.({
         title,
         body,
-        type: data.success ? 'success' : 'error',
+        type: success ? 'success' : 'error',
       });
     });
 
@@ -236,9 +249,7 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
       cleanupSshData();
       cleanupSshError?.();
       cleanupSshClose?.();
-      cleanupSftpUploadProgress?.();
-      cleanupSftpDownloadProgress?.();
-      cleanupSftpTransferComplete?.();
+      cleanupSftpTransferEvent?.();
       cleanupSystemResume?.();
     };
   }, [

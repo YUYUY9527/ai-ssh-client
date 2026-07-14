@@ -8,6 +8,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  FolderPlus,
   Home,
   Image,
   ListChecks,
@@ -26,9 +27,10 @@ import { useSessionStore } from '../session/useSessionStore';
 import { Modal } from '../shared-ui/Modal';
 import {
   useSftpTransferStore,
-  type SftpTransferTask,
 } from '../store/useSftpTransferStore';
+import { SftpConflictDialog } from '../transfer/SftpConflictDialog';
 import { TransferTaskList } from '../transfer/TransferTaskList';
+import { useSftpTransferController } from '../transfer/useSftpTransferController';
 import {
   DEFAULT_REMOTE_PATH,
   type RemoteFileItem,
@@ -40,8 +42,10 @@ interface FileTransferProps {
   onClose?: () => void;
 }
 
-function createTaskId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+/** 拼接单层子路径。 */
+function joinRemoteChild(parent: string, name: string): string {
+  if (!parent || parent === '/') return `/${name}`;
+  return `${parent.replace(/\/+$/, '')}/${name}`;
 }
 
 function formatSize(bytes: number): string {
@@ -68,22 +72,29 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const setBrowserPath = useSftpTransferStore((state) => state.setBrowserPath);
   const setBrowserView = useSftpTransferStore((state) => state.setBrowserView);
   const setBrowserSelection = useSftpTransferStore((state) => state.setBrowserSelection);
+  const setBrowserSelectedPaths = useSftpTransferStore((state) => state.setBrowserSelectedPaths);
+  const toggleBrowserSelection = useSftpTransferStore((state) => state.toggleBrowserSelection);
+  const extendBrowserSelection = useSftpTransferStore((state) => state.extendBrowserSelection);
+  const clearBrowserSelection = useSftpTransferStore((state) => state.clearBrowserSelection);
   const transferTasks = useSftpTransferStore((state) => state.tasks);
-  const addTransferTask = useSftpTransferStore((state) => state.addTask);
-  const markTransferTaskTransferring = useSftpTransferStore((state) => state.markTransferring);
-  const finishTransferTask = useSftpTransferStore((state) => state.finishTask);
   const removeTransferTask = useSftpTransferStore((state) => state.removeTask);
   const clearCompletedTasks = useSftpTransferStore((state) => state.clearCompletedTasks);
 
   const resolvedBrowser = browserState ?? {
     remotePath: sessionCwd || DEFAULT_REMOTE_PATH,
     activeView: 'files' as const,
-    selectedPath: null,
+    selectedPaths: [],
+    selectionAnchorPath: null,
     navigationVersion: 0,
   };
   const currentPath = resolvedBrowser.remotePath || DEFAULT_REMOTE_PATH;
+  const transferController = useSftpTransferController(
+    connectionId,
+    currentPath,
+    () => setBrowserView(connectionId, 'tasks'),
+  );
   const activeView = resolvedBrowser.activeView;
-  const selectedPath = resolvedBrowser.selectedPath;
+  const selectedPaths = resolvedBrowser.selectedPaths;
   const navigationVersion = resolvedBrowser.navigationVersion ?? 0;
 
   const [pathInput, setPathInput] = useState(currentPath);
@@ -102,11 +113,17 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const [renameName, setRenameName] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<RemoteFileItem | null>(null);
+  const [deleteTargets, setDeleteTargets] = useState<RemoteFileItem[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [mkdirOpen, setMkdirOpen] = useState(false);
+  const [mkdirName, setMkdirName] = useState('');
+  const [mkdirError, setMkdirError] = useState<string | null>(null);
+  const [isCreatingDir, setIsCreatingDir] = useState(false);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const mkdirInputRef = useRef<HTMLInputElement>(null);
   const refreshedUploadTasksRef = useRef<Set<string>>(new Set());
   const loadRequestRef = useRef(0);
   const handledNavigationVersionRef = useRef(navigationVersion);
@@ -118,10 +135,20 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     [connectionId, transferTasks],
   );
   const activeTaskCount = visibleTransferTasks.filter(
-    (task) => task.status === 'pending' || task.status === 'transferring',
+    (task) => !['completed', 'skipped', 'canceled', 'interrupted', 'failed', 'handed-off'].includes(task.status),
   ).length;
   const hasTransferTasks = visibleTransferTasks.length > 0;
-  const selectedFile = files.find((file) => file.path === selectedPath) ?? null;
+  const selectedFiles = useMemo(
+    () => files.filter((file) => selectedPaths.includes(file.path)),
+    [files, selectedPaths],
+  );
+  const orderedPaths = useMemo(() => files.map((file) => file.path), [files]);
+  const allSelected = files.length > 0 && files.every((file) => selectedPaths.includes(file.path));
+  const selectedHasDirectory = selectedFiles.some((file) => file.isDirectory);
+  const conflictTask = useMemo(
+    () => visibleTransferTasks.find((task) => task.status === 'waiting-conflict') ?? null,
+    [visibleTransferTasks],
+  );
 
   const loadDirectory = useCallback(async (path: string) => {
     if (!isLive) {
@@ -145,9 +172,18 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
       }
 
       if (result.success) {
-        setFiles(result.data.files);
+        const nextFiles = result.data.files;
+        setFiles(nextFiles);
         setBrowserPath(connectionId, path);
         setPathInput(path);
+        // 刷新时剔除已不存在的选中路径。
+        const existing = new Set(nextFiles.map((file) => file.path));
+        const currentSelected = useSftpTransferStore.getState()
+          .browserByConnection[connectionId]?.selectedPaths || [];
+        const retained = currentSelected.filter((item) => existing.has(item));
+        if (retained.length !== currentSelected.length) {
+          setBrowserSelectedPaths(connectionId, retained);
+        }
       } else {
         setError(result.error || t('fileTransfer.loadFailed'));
       }
@@ -161,7 +197,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         setLoading(false);
       }
     }
-  }, [connectionId, isLive, setBrowserPath, t]);
+  }, [connectionId, isLive, setBrowserPath, setBrowserSelectedPaths, t]);
 
   // 会话切换时恢复该会话上次路径；首次进入优先用终端 cwd
   useEffect(() => {
@@ -174,7 +210,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
       getBrowserState(connectionId, preferredPath);
     }
 
-    // 切换会话时先清空旧列表，避免短暂显示上一会话内容
     setFiles([]);
     setError(null);
     setActionError(null);
@@ -238,17 +273,25 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   }, [renameTarget]);
 
   useEffect(() => {
+    if (!mkdirOpen) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => mkdirInputRef.current?.select());
+    return () => cancelAnimationFrame(frame);
+  }, [mkdirOpen]);
+
+  useEffect(() => {
     const completedUpload = visibleTransferTasks.find((task) => (
-      task.type === 'upload'
+      task.direction === 'upload'
       && task.status === 'completed'
-      && !refreshedUploadTasksRef.current.has(task.id)
+      && !refreshedUploadTasksRef.current.has(task.taskId)
     ));
 
     if (!completedUpload || !isLive) {
       return;
     }
 
-    refreshedUploadTasksRef.current.add(completedUpload.id);
+    refreshedUploadTasksRef.current.add(completedUpload.taskId);
     void loadDirectory(currentPath);
   }, [currentPath, isLive, loadDirectory, visibleTransferTasks]);
 
@@ -284,6 +327,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   };
 
   const navigateTo = (path: string) => {
+    clearBrowserSelection(connectionId);
     void loadDirectory(path);
   };
 
@@ -298,53 +342,40 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     navigateTo(sessionCwd || DEFAULT_REMOTE_PATH);
   };
 
-  const handleDownload = async (file: RemoteFileItem) => {
-    if (!isLive) {
+  const handleItemClick = (event: React.MouseEvent, file: RemoteFileItem) => {
+    if (event.shiftKey) {
+      extendBrowserSelection(connectionId, orderedPaths, file.path);
       return;
     }
-
-    const task: SftpTransferTask = {
-      id: createTaskId(),
-      connectionId,
-      name: file.name,
-      type: 'download',
-      progress: 0,
-      status: 'pending',
-      remotePath: file.path,
-      updatedAt: Date.now(),
-    };
-
-    addTransferTask(task);
-    setBrowserView(connectionId, 'tasks');
-
-    try {
-      markTransferTaskTransferring(task.id);
-      if (!window.electronAPI) {
-        throw new Error(t('fileTransfer.loadFailed'));
-      }
-
-      const result = await window.electronAPI.downloadFile(connectionId, file.path, task.id);
-      if (result.success) {
-        return;
-      }
-
-      if (result.error !== 'Cancelled') {
-        finishTransferTask(task.id, {
-          success: false,
-          error: result.error,
-          remotePath: file.path,
-        });
-        return;
-      }
-
-      removeTransferTask(task.id);
-    } catch (err) {
-      finishTransferTask(task.id, {
-        success: false,
-        error: (err as Error).message,
-        remotePath: file.path,
-      });
+    if (event.ctrlKey || event.metaKey) {
+      toggleBrowserSelection(connectionId, file.path);
+      return;
     }
+    setBrowserSelection(connectionId, file.path);
+  };
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      clearBrowserSelection(connectionId);
+      return;
+    }
+    setBrowserSelectedPaths(connectionId, orderedPaths, orderedPaths[0] ?? null);
+  };
+
+  const handleDownload = async (file: RemoteFileItem) => {
+    if (!isLive || file.isDirectory) return;
+    const errorMessage = await transferController.download([file.path]);
+    if (errorMessage) setActionError(errorMessage);
+  };
+
+  const handleBatchDownload = async () => {
+    if (!isLive || selectedFiles.length === 0) return;
+    if (selectedHasDirectory) {
+      setActionError(t('fileTransfer.batchDownloadDirectoriesUnsupported'));
+      return;
+    }
+    const errorMessage = await transferController.download(selectedFiles.map((file) => file.path));
+    if (errorMessage) setActionError(errorMessage);
   };
 
   const openRenameDialog = (item: RemoteFileItem) => {
@@ -400,8 +431,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   };
 
   const handleDelete = async () => {
-    const target = deleteTarget;
-    if (!target || isDeleting) {
+    if (deleteTargets.length === 0 || isDeleting) {
       return;
     }
     setIsDeleting(true);
@@ -413,100 +443,87 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     }
 
     try {
-      const result = await window.electronAPI.deleteItem(connectionId, target.path);
+      const paths = deleteTargets.map((item) => item.path);
+      const result = await window.electronAPI.deleteSftpItems(connectionId, paths);
       if (!result.success) {
-        setDeleteTarget(null);
+        setDeleteTargets([]);
         setActionError(result.error || t('fileTransfer.deleteFailed'));
         return;
       }
 
-      setDeleteTarget(null);
+      const failed = result.data.items.filter((item) => !item.success);
+      if (failed.length > 0) {
+        setBrowserSelectedPaths(connectionId, failed.map((item) => item.path));
+        setActionError(t('fileTransfer.batchDeletePartial', {
+          deleted: result.data.deletedCount,
+          failed: result.data.failedCount,
+        }));
+      } else {
+        clearBrowserSelection(connectionId);
+      }
+      setDeleteTargets([]);
       await loadDirectory(currentPath);
     } catch (err) {
-      setDeleteTarget(null);
+      setDeleteTargets([]);
       setActionError((err as Error).message || t('fileTransfer.deleteFailed'));
     } finally {
       setIsDeleting(false);
     }
   };
 
-  const handleUpload = async (localPath?: string) => {
-    if (!isLive) {
+  const handleMkdir = async () => {
+    if (isCreatingDir) return;
+    const name = mkdirName.trim();
+    if (!name || name === '.' || name === '..' || name.includes('/') || name.includes('\0')) {
+      setMkdirError(t('fileTransfer.invalidName'));
       return;
     }
-
-    let selectedLocalPath = localPath;
-    let selectedFileName: string | undefined;
-    if (!selectedLocalPath && window.electronAPI) {
-      const result = await window.electronAPI.selectFile({
-        title: t('common.upload'),
-        properties: ['openFile'],
-      });
-      if (!result.success || result.data?.canceled || !result.data?.filePath) {
-        return;
-      }
-      selectedLocalPath = result.data.filePath;
-      selectedFileName = result.data.fileName || undefined;
-    }
-
-    if (!selectedLocalPath) {
+    if (!window.electronAPI) {
+      setMkdirError(t('fileTransfer.mkdirFailed'));
       return;
     }
-
-    // web 端 filePath 是 web-file:id，文件名需单独取 fileName
-    const filename = selectedFileName
-      || selectedLocalPath.split(/[/\\]/).pop()
-      || 'unknown';
-    const remotePath = `${currentPath.replace(/\/$/, '')}/${filename}`;
-    const task: SftpTransferTask = {
-      id: createTaskId(),
-      connectionId,
-      name: filename,
-      type: 'upload',
-      progress: 0,
-      status: 'pending',
-      localPath: selectedLocalPath,
-      remotePath,
-      updatedAt: Date.now(),
-    };
-
-    addTransferTask(task);
-    setBrowserView(connectionId, 'tasks');
-
+    setIsCreatingDir(true);
+    setMkdirError(null);
     try {
-      markTransferTaskTransferring(task.id);
-      if (!window.electronAPI) {
-        throw new Error(t('fileTransfer.loadFailed'));
-      }
-
-      const result = await window.electronAPI.uploadFile(
-        connectionId,
-        selectedLocalPath,
-        currentPath,
-        task.id,
-      );
-      if (result.success) {
+      const remotePath = joinRemoteChild(currentPath, name);
+      const result = await window.electronAPI.createSftpDirectory(connectionId, remotePath);
+      if (!result.success) {
+        setMkdirError(result.error || t('fileTransfer.mkdirFailed'));
         return;
       }
-
-      if (result.error !== 'Cancelled') {
-        finishTransferTask(task.id, {
-          success: false,
-          error: result.error,
-          localPath: selectedLocalPath,
-          remotePath,
-        });
-        return;
-      }
-
-      removeTransferTask(task.id);
+      setMkdirOpen(false);
+      setMkdirName('');
+      await loadDirectory(currentPath);
     } catch (err) {
-      finishTransferTask(task.id, {
-        success: false,
-        error: (err as Error).message,
-        localPath: selectedLocalPath,
-        remotePath,
-      });
+      setMkdirError((err as Error).message || t('fileTransfer.mkdirFailed'));
+    } finally {
+      setIsCreatingDir(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!isLive) return;
+    const errorMessage = await transferController.upload();
+    if (errorMessage) setActionError(errorMessage);
+  };
+
+  const handleTaskAction = async (
+    action: 'cancel' | 'retry' | 'discard' | 'remove',
+    taskId: string,
+  ) => {
+    if (action === 'remove') {
+      removeTransferTask(taskId);
+      return;
+    }
+    const runner = action === 'cancel'
+      ? transferController.cancel
+      : action === 'retry'
+        ? transferController.retry
+        : transferController.discard;
+    const errorMessage = await runner(taskId);
+    if (errorMessage) setActionError(errorMessage);
+    if (action === 'discard') {
+      removeTransferTask(taskId);
     }
   };
 
@@ -517,13 +534,18 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setIsDragOver(true);
+      if (e.dataTransfer?.types?.includes('Files')) {
+        setIsDragOver(true);
+      }
     };
 
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setIsDragOver(true);
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.dataTransfer.dropEffect = 'copy';
+        setIsDragOver(true);
+      }
     };
 
     const handleDragLeave = (e: DragEvent) => {
@@ -538,7 +560,18 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
       e.preventDefault();
       e.stopPropagation();
       setIsDragOver(false);
-      await handleUpload();
+      // 仅响应文件拖放，避免与工作区 tab 的 text/plain 冲突。
+      if (!e.dataTransfer?.types?.includes('Files')) {
+        return;
+      }
+      const dropped = Array.from(e.dataTransfer.files || []);
+      if (dropped.length === 0) {
+        const errorMessage = await transferController.upload();
+        if (errorMessage) setActionError(errorMessage);
+        return;
+      }
+      const errorMessage = await transferController.uploadDroppedFiles(dropped);
+      if (errorMessage) setActionError(errorMessage);
     };
 
     dropZone.addEventListener('dragenter', handleDragEnter);
@@ -552,13 +585,21 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
       dropZone.removeEventListener('dragleave', handleDragLeave);
       dropZone.removeEventListener('drop', handleDrop);
     };
-  }, [connectionId, currentPath, isLive]);
+  }, [connectionId, currentPath, isLive, transferController]);
 
   const isHomePath = currentPath === '~' || currentPath.startsWith('~/');
   const pathParts = (isHomePath ? currentPath.replace(/^~\/?/, '') : currentPath)
     .split('/')
     .filter(Boolean);
   const pathRoot = isHomePath ? '~' : '/';
+  const deleteMessage = deleteTargets.length === 1
+    ? (deleteTargets[0].isDirectory
+      ? t('fileTransfer.deleteDirectoryMessage', { name: deleteTargets[0].name })
+      : t('fileTransfer.deleteFileMessage', { name: deleteTargets[0].name }))
+    : t('fileTransfer.batchDeleteMessage', {
+      files: deleteTargets.filter((item) => !item.isDirectory).length,
+      directories: deleteTargets.filter((item) => item.isDirectory).length,
+    });
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[color-mix(in_srgb,var(--bg-primary)_76%,var(--bg-secondary))]">
@@ -662,19 +703,54 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
           <button
             onClick={() => clearCompletedTasks(connectionId)}
             className="industrial-button-secondary px-2.5 py-1.5"
-            disabled={!visibleTransferTasks.some((task) => task.status === 'completed' || task.status === 'error')}
+            disabled={!visibleTransferTasks.some((task) => ['completed', 'skipped', 'canceled', 'interrupted', 'failed', 'handed-off'].includes(task.status))}
           >
             {t('fileTransfer.clearFinished')}
           </button>
         ) : (
-          <button
-            onClick={() => void handleUpload()}
-            className="industrial-button-primary px-2.5 py-1.5"
-            disabled={!isLive}
-          >
-            <Upload className="h-4 w-4" />
-            {t('common.upload')}
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={() => {
+                setMkdirOpen(true);
+                setMkdirName('');
+                setMkdirError(null);
+              }}
+              className="industrial-button-secondary px-2.5 py-1.5"
+              disabled={!isLive}
+              title={t('fileTransfer.mkdir')}
+            >
+              <FolderPlus className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => void handleBatchDownload()}
+              className="industrial-button-secondary px-2.5 py-1.5"
+              disabled={!isLive || selectedFiles.length === 0 || selectedHasDirectory}
+              title={selectedHasDirectory
+                ? t('fileTransfer.batchDownloadDirectoriesUnsupported')
+                : t('common.download')}
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => {
+                if (selectedFiles.length === 0) return;
+                setDeleteTargets(selectedFiles);
+              }}
+              className="industrial-button-secondary px-2.5 py-1.5"
+              disabled={!isLive || selectedFiles.length === 0}
+              title={t('common.delete')}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => void handleUpload()}
+              className="industrial-button-primary px-2.5 py-1.5"
+              disabled={!isLive}
+            >
+              <Upload className="h-4 w-4" />
+              {t('common.upload')}
+            </button>
+          </div>
         )}
       </div>
 
@@ -708,7 +784,10 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         {activeView === 'tasks' ? (
           <TransferTaskList
             tasks={visibleTransferTasks}
-            onRemoveTask={removeTransferTask}
+            onCancelTask={(taskId) => void handleTaskAction('cancel', taskId)}
+            onRetryTask={(taskId) => void handleTaskAction('retry', taskId)}
+            onDiscardTask={(taskId) => void handleTaskAction('discard', taskId)}
+            onRemoveTask={(taskId) => void handleTaskAction('remove', taskId)}
             translate={t}
           />
         ) : (
@@ -769,31 +848,51 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
               </div>
             ) : (
               <div className="space-y-1">
-                <div className="industrial-table-head grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3">
+                <div className="industrial-table-head grid grid-cols-[1.5rem_minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3">
+                  <div className="flex items-center justify-center">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAll}
+                      title={t('fileTransfer.selectAll')}
+                    />
+                  </div>
                   <div>{t('fileTransfer.tableHeaders.name')}</div>
                   <div>{t('fileTransfer.tableHeaders.type')}</div>
                   <div className="text-right">{t('fileTransfer.tableHeaders.size')}</div>
                   <div className="text-right">{t('fileTransfer.tableHeaders.modified')}</div>
                 </div>
                 {files.map((file) => {
-                  const isSelected = selectedFile?.path === file.path;
+                  const isSelected = selectedPaths.includes(file.path);
                   return (
                     <div
                       key={file.path}
-                      onClick={() => setBrowserSelection(connectionId, file.path)}
+                      onClick={(event) => handleItemClick(event, file)}
                       onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        setBrowserSelection(connectionId, file.path);
+                        // 右键未选项先单选；已选项保留整组。
+                        if (!selectedPaths.includes(file.path)) {
+                          setBrowserSelection(connectionId, file.path);
+                        }
                         setContextMenu({ x: event.clientX, y: event.clientY, item: file });
                       }}
-                      className={`grid cursor-pointer grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3 rounded-sm px-3 py-2 transition-colors group ${
+                      className={`grid cursor-pointer grid-cols-[1.5rem_minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3 rounded-sm px-3 py-2 transition-colors group ${
                         isSelected
                           ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)]'
                           : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
                       }`}
                     >
+                      <div
+                        className="flex items-center justify-center"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleBrowserSelection(connectionId, file.path);
+                        }}
+                      >
+                        <input type="checkbox" checked={isSelected} readOnly />
+                      </div>
                       <div className="flex min-w-0 items-center gap-2">
                         {getFileIcon(file)}
                         <span className="truncate text-sm text-slate-900 dark:text-white" title={file.name}>
@@ -869,7 +968,10 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                 <button
                   type="button"
                   onClick={() => {
-                    setDeleteTarget(contextMenu.item);
+                    const targets = selectedPaths.includes(contextMenu.item.path) && selectedFiles.length > 1
+                      ? selectedFiles
+                      : [contextMenu.item];
+                    setDeleteTargets(targets);
                     setContextMenu(null);
                   }}
                   className="app-popover-row text-sm text-red-600 dark:text-red-400"
@@ -887,7 +989,11 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         {activeView === 'tasks' ? (
           <span>{t('fileTransfer.taskCount', { count: visibleTransferTasks.length })}</span>
         ) : (
-          <span>{t('fileTransfer.itemCount', { count: files.length })}</span>
+          <span>
+            {selectedPaths.length > 0
+              ? t('fileTransfer.selectedCount', { count: selectedPaths.length })
+              : t('fileTransfer.itemCount', { count: files.length })}
+          </span>
         )}
         <span className="tabular-nums">
           {activeTaskCount > 0
@@ -952,19 +1058,99 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         </form>
       </Modal>
 
+      <Modal
+        isOpen={mkdirOpen}
+        onClose={() => {
+          if (!isCreatingDir) {
+            setMkdirOpen(false);
+            setMkdirError(null);
+          }
+        }}
+        title={t('fileTransfer.mkdirTitle')}
+        size="sm"
+        closeLabel={t('common.close')}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleMkdir();
+          }}
+        >
+          <div className="space-y-2 p-4">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              {t('fileTransfer.mkdirLabel')}
+            </label>
+            <input
+              ref={mkdirInputRef}
+              value={mkdirName}
+              onChange={(event) => {
+                setMkdirName(event.target.value);
+                setMkdirError(null);
+              }}
+              className="industrial-input w-full"
+              disabled={isCreatingDir}
+            />
+            {mkdirError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{mkdirError}</p>
+            )}
+          </div>
+          <div className="industrial-modal-footer">
+            <button
+              type="button"
+              onClick={() => setMkdirOpen(false)}
+              className="industrial-button-secondary"
+              disabled={isCreatingDir}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="submit"
+              className="industrial-button-primary"
+              disabled={isCreatingDir}
+            >
+              {isCreatingDir ? t('common.loading') : t('common.confirm')}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <ConfirmDialog
-        isOpen={deleteTarget != null}
+        isOpen={deleteTargets.length > 0}
         title={t('fileTransfer.deleteTitle')}
-        message={deleteTarget?.isDirectory
-          ? t('fileTransfer.deleteDirectoryMessage', { name: deleteTarget.name })
-          : t('fileTransfer.deleteFileMessage', { name: deleteTarget?.name || '' })}
+        message={deleteMessage}
         confirmText={isDeleting ? t('common.loading') : t('common.delete')}
         isConfirming={isDeleting}
         onConfirm={() => void handleDelete()}
         onCancel={() => {
           if (!isDeleting) {
-            setDeleteTarget(null);
+            setDeleteTargets([]);
           }
+        }}
+      />
+
+      <SftpConflictDialog
+        isOpen={conflictTask != null}
+        isSubmitting={isResolvingConflict}
+        task={conflictTask}
+        translate={t}
+        onCancel={() => {
+          if (!conflictTask || isResolvingConflict) return;
+          void handleTaskAction('cancel', conflictTask.taskId);
+        }}
+        onResolve={(input) => {
+          if (!conflictTask) return;
+          setIsResolvingConflict(true);
+          void transferController.resolveConflict({
+            taskId: conflictTask.taskId,
+            attempt: conflictTask.attempt,
+            policy: input.policy,
+            renamedPath: input.renamedPath,
+            applyToBatch: input.applyToBatch,
+          }).then((errorMessage) => {
+            if (errorMessage) setActionError(errorMessage);
+          }).finally(() => {
+            setIsResolvingConflict(false);
+          });
         }}
       />
     </div>

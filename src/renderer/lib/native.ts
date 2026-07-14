@@ -27,19 +27,29 @@ import type {
   ConnectionsResult,
   DirectoryListResult,
   ExportDataResult,
-  FileDownloadResult,
   FileSelectResult,
-  FileUploadResult,
   ImportDataResult,
   IPCResult,
   PrivateKeyFileResult,
   QuickCommandGroupsResult,
   QuickCommandsResult,
   SettingsResult,
-  SftpTransferCompleteEvent,
+  SftpBatchDeleteResult,
+  SftpDownloadDestinationSelectionResult,
+  SftpFilesSelectionResult,
+  SftpListTransfersResult,
+  SftpResolveConflictRequest,
+  SftpStartDownloadRequest,
+  SftpStartTransferResult,
+  SftpStartUploadRequest,
+  SftpTransferEvent,
+  SftpTransferTaskRequest,
+  SftpTransferTaskSnapshot,
   SSessionsResult,
   SSHConnectResult,
 } from '../../shared/ipc-types';
+
+import { createNativeSftpApi } from './native/sftp';
 
 export type ListenerCleanup = () => void;
 
@@ -88,14 +98,22 @@ type ElectronApiLike = {
   importData: (data: unknown, options?: { merge?: boolean }) => Promise<IPCResult<ImportDataResult>>;
   selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<IPCResult<FileSelectResult>>;
   readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;
-  listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult<any>>>;
+  listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult>>;
+  selectSftpFiles: () => Promise<IPCResult<SftpFilesSelectionResult>>;
+  selectSftpDownloadDestination: () => Promise<IPCResult<SftpDownloadDestinationSelectionResult>>;
+  prepareSftpLocalFiles?: (files: File[]) => IPCResult<SftpFilesSelectionResult>;
+  createSftpDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult>;
+  deleteSftpItems: (connectionId: string, remotePaths: string[]) => Promise<IPCResult<SftpBatchDeleteResult>>;
+  startSftpUpload: (request: SftpStartUploadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
+  startSftpDownload: (request: SftpStartDownloadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
+  resolveSftpConflict: (request: SftpResolveConflictRequest) => Promise<IPCResult>;
+  cancelSftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult>;
+  retrySftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult<SftpTransferTaskSnapshot>>;
+  discardSftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult>;
+  listSftpTransfers: (connectionId?: string) => Promise<IPCResult<SftpListTransfersResult>>;
+  onSftpTransferEvent: (callback: (event: SftpTransferEvent) => void) => ListenerCleanup;
   renameItem: (connectionId: string, remotePath: string, newName: string) => Promise<IPCResult>;
   deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
-  downloadFile: (connectionId: string, remotePath: string, taskId?: string) => Promise<IPCResult<FileDownloadResult>>;
-  uploadFile: (connectionId: string, localPath: string, remoteDir: string, taskId?: string) => Promise<IPCResult<FileUploadResult>>;
-  onSftpUploadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => ListenerCleanup;
-  onSftpDownloadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => ListenerCleanup;
-  onSftpTransferComplete: (callback: (data: SftpTransferCompleteEvent) => void) => ListenerCleanup;
   agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
   agentStopTask: (connectionId: string) => Promise<IPCResult>;
   agentPauseTask: () => Promise<IPCResult>;
@@ -254,14 +272,7 @@ const nativeApi: ElectronApiLike = {
   importData: (data, options) => tauriInvoke<ImportDataResult>('import_data', { data, options }),
   selectFile: (options) => tauriInvoke<FileSelectResult>('select_file', { options }),
   readPrivateKeyFile: (filePath) => tauriInvoke<PrivateKeyFileResult>('read_private_key_file', { filePath }),
-  listDirectory: (connectionId, remotePath) => tauriInvoke<DirectoryListResult<any>>('sftp_list_directory', { connectionId, remotePath }),
-  renameItem: (connectionId, remotePath, newName) => tauriInvoke<void>('sftp_rename_item', { connectionId, remotePath, newName }),
-  deleteItem: (connectionId, remotePath) => tauriInvoke<void>('sftp_delete_item', { connectionId, remotePath }),
-  downloadFile: (connectionId, remotePath, taskId) => tauriInvoke<FileDownloadResult>('sftp_download_file', { connectionId, remotePath, taskId }),
-  uploadFile: (connectionId, localPath, remoteDir, taskId) => tauriInvoke<FileUploadResult>('sftp_upload_file', { connectionId, localPath, remoteDir, taskId }),
-  onSftpUploadProgress: (callback) => createTauriListener('sftp-upload-progress', callback),
-  onSftpDownloadProgress: (callback) => createTauriListener('sftp-download-progress', callback),
-  onSftpTransferComplete: (callback) => createTauriListener('sftp-transfer-complete', callback),
+  ...createNativeSftpApi(tauriInvoke, createTauriListener),
   agentStartTask: (taskId, connectionId) => tauriInvoke<void>('agent_start_task', { taskId, connectionId }),
   agentStopTask: (connectionId) => tauriInvoke<void>('agent_stop_task', { connectionId }),
   agentPauseTask: () => tauriInvoke<void>('agent_pause_task'),

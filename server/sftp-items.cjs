@@ -86,8 +86,62 @@ async function deleteSftpItem(sftp, remotePath) {
   }
 }
 
+/** 创建单层远程目录；已存在时报 ALREADY_EXISTS。 */
+async function createSftpDirectory(sftp, remotePath) {
+  validateItemPath(remotePath);
+  const normalized = posixPath.normalize(String(remotePath || '').replace(/\/+$/, '') || '/');
+  validateItemPath(normalized);
+  validateItemName(posixPath.basename(normalized));
+  if (await pathExists(sftp, normalized)) {
+    const error = new Error('Destination already exists');
+    error.code = 'already-exists';
+    throw error;
+  }
+  await callSftp(sftp, 'mkdir', normalized);
+  return normalized;
+}
+
+/** 选中父目录时去掉其后代，避免重复递归删除。 */
+function collapseDescendants(paths) {
+  const unique = [...new Set((paths || []).map((item) => String(item || '')).filter(Boolean))]
+    .sort((left, right) => left.length - right.length);
+  const roots = [];
+  for (const path of unique) {
+    const covered = roots.some((root) => path === root || path.startsWith(`${root}/`));
+    if (!covered) roots.push(path);
+  }
+  return roots;
+}
+
+/** 批量删除：逐项执行并汇总成功/失败。 */
+async function deleteSftpItems(sftp, remotePaths) {
+  const roots = collapseDescendants(remotePaths);
+  const items = [];
+  let deletedCount = 0;
+  let failedCount = 0;
+  for (const remotePath of roots) {
+    try {
+      await deleteSftpItem(sftp, remotePath);
+      items.push({ path: remotePath, success: true });
+      deletedCount += 1;
+    } catch (error) {
+      items.push({
+        path: remotePath,
+        success: false,
+        error: error?.message || String(error),
+        code: error?.code === 'already-exists' ? 'already-exists' : 'io-error',
+      });
+      failedCount += 1;
+    }
+  }
+  return { items, deletedCount, failedCount };
+}
+
 module.exports = {
+  collapseDescendants,
+  createSftpDirectory,
   deleteSftpItem,
+  deleteSftpItems,
   renameSftpItem,
   siblingPath,
   validateItemName,

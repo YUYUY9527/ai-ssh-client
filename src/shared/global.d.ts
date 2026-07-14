@@ -28,14 +28,22 @@ import type {
   FileSelectResult,
   PrivateKeyFileResult,
   DirectoryListResult,
-  FileDownloadResult,
-  FileUploadResult,
+  SftpBatchDeleteResult,
+  SftpDownloadDestinationSelectionResult,
+  SftpFilesSelectionResult,
+  SftpListTransfersResult,
+  SftpResolveConflictRequest,
+  SftpStartDownloadRequest,
+  SftpStartTransferResult,
+  SftpStartUploadRequest,
+  SftpTransferEvent,
+  SftpTransferTaskRequest,
+  SftpTransferTaskSnapshot,
   ExportDataResult,
   ImportDataResult,
   AIProviderSecretStatusResult,
   AgentExecAwaitResult,
   AgentTaskHistoryResult,
-  SftpTransferCompleteEvent,
 } from './ipc-types';
 
 declare global {
@@ -95,14 +103,24 @@ declare global {
       selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<IPCResult<FileSelectResult>>;
       readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;
 
-      listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult<any>>>;
+      listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult>>;
+      selectSftpFiles: () => Promise<IPCResult<SftpFilesSelectionResult>>;
+      selectSftpDownloadDestination: () => Promise<IPCResult<SftpDownloadDestinationSelectionResult>>;
+      /** 将浏览器/拖放 File 注册为上传引用；桌面端优先提取 path。 */
+      prepareSftpLocalFiles?: (files: File[]) => IPCResult<SftpFilesSelectionResult>;
+      createSftpDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult>;
+      deleteSftpItems: (connectionId: string, remotePaths: string[]) => Promise<IPCResult<SftpBatchDeleteResult>>;
+      startSftpUpload: (request: SftpStartUploadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
+      startSftpDownload: (request: SftpStartDownloadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
+      resolveSftpConflict: (request: SftpResolveConflictRequest) => Promise<IPCResult>;
+      cancelSftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult>;
+      retrySftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult<SftpTransferTaskSnapshot>>;
+      discardSftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult>;
+      listSftpTransfers: (connectionId?: string) => Promise<IPCResult<SftpListTransfersResult>>;
+      onSftpTransferEvent: (callback: (event: SftpTransferEvent) => void) => () => void;
+
       renameItem: (connectionId: string, remotePath: string, newName: string) => Promise<IPCResult>;
       deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
-      downloadFile: (connectionId: string, remotePath: string, taskId?: string) => Promise<IPCResult<FileDownloadResult>>;
-      uploadFile: (connectionId: string, localPath: string, remoteDir: string, taskId?: string) => Promise<IPCResult<FileUploadResult>>;
-      onSftpUploadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => () => void;
-      onSftpDownloadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => () => void;
-      onSftpTransferComplete: (callback: (data: SftpTransferCompleteEvent) => void) => () => void;
 
       agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
       agentStopTask: (connectionId: string) => Promise<IPCResult>;

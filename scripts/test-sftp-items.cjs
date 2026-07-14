@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
 
 const {
+  collapseDescendants,
+  createSftpDirectory,
   deleteSftpItem,
+  deleteSftpItems,
   renameSftpItem,
   siblingPath,
   validateItemName,
@@ -86,6 +89,60 @@ async function main() {
     'unlink:/root/link',
     'rmdir:/root',
   ]);
+
+  assert.deepEqual(
+    collapseDescendants(['/a/b', '/a', '/a/b/c', '/z']),
+    ['/a', '/z'],
+  );
+
+  let createdPath;
+  await createSftpDirectory({
+    lstat(_remotePath, callback) {
+      callback(missing());
+    },
+    mkdir(remotePath, callback) {
+      createdPath = remotePath;
+      callback(null);
+    },
+  }, '/tmp/new-dir');
+  assert.equal(createdPath, '/tmp/new-dir');
+
+  await assert.rejects(createSftpDirectory({
+    lstat(_remotePath, callback) {
+      callback(null, attrs(true));
+    },
+    mkdir(_remotePath, callback) {
+      callback(null);
+    },
+  }, '/tmp/exists'), /Destination already exists/);
+
+  const batchNodes = new Map([
+    ['/batch/file.txt', attrs(false)],
+    ['/batch/dir', attrs(true)],
+  ]);
+  const batchResult = await deleteSftpItems({
+    lstat(remotePath, callback) {
+      if (!batchNodes.has(remotePath)) {
+        callback(missing());
+        return;
+      }
+      callback(null, batchNodes.get(remotePath));
+    },
+    readdir(remotePath, callback) {
+      callback(null, remotePath === '/batch/dir' ? [] : undefined);
+    },
+    unlink(remotePath, callback) {
+      batchNodes.delete(remotePath);
+      callback(null);
+    },
+    rmdir(remotePath, callback) {
+      batchNodes.delete(remotePath);
+      callback(null);
+    },
+  }, ['/batch/file.txt', '/batch/dir', '/batch/file.txt', '/batch/missing']);
+  assert.equal(batchResult.deletedCount, 2);
+  assert.equal(batchResult.failedCount, 1);
+  assert.equal(batchResult.items.length, 3);
 
   console.log('sftp item tests passed');
 }

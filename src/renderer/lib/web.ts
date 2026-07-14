@@ -24,16 +24,24 @@ import type {
   ConnectionsResult,
   DirectoryListResult,
   ExportDataResult,
-  FileDownloadResult,
   FileSelectResult,
-  FileUploadResult,
   ImportDataResult,
   IPCResult,
   PrivateKeyFileResult,
   QuickCommandGroupsResult,
   QuickCommandsResult,
   SettingsResult,
-  SftpTransferCompleteEvent,
+  SftpBatchDeleteResult,
+  SftpDownloadDestinationSelectionResult,
+  SftpFilesSelectionResult,
+  SftpListTransfersResult,
+  SftpResolveConflictRequest,
+  SftpStartDownloadRequest,
+  SftpStartTransferResult,
+  SftpStartUploadRequest,
+  SftpTransferEvent,
+  SftpTransferTaskRequest,
+  SftpTransferTaskSnapshot,
   SSessionsResult,
   SSHConnectResult,
 } from '../../shared/ipc-types';
@@ -45,20 +53,29 @@ type EventMap = {
   'ssh-error': { connectionId: string; error: string };
   'ssh-close': string;
   'ssh-host-trust-prompt': HostTrustPromptEvent;
-  'sftp-upload-progress': { connectionId: string; taskId?: string; filename: string; progress: number };
-  'sftp-download-progress': { connectionId: string; taskId?: string; filename: string; progress: number };
-  'sftp-transfer-complete': SftpTransferCompleteEvent;
+  'sftp-transfer-event': SftpTransferEvent;
   'agent-terminal-output': { connectionId: string; data: string };
   'system-resume': { timestamp: number };
 };
 
 const selectedFiles = new Map<string, File>();
+const selectedDirs = new Map<string, FileSystemDirectoryHandle>();
+const webSftpTaskSources = new Map<string, string>();
+const downloadAbortControllers = new Map<string, AbortController>();
 const listeners = new Map<keyof EventMap, Set<(payload: any) => void>>();
+const sftpClientId = (() => {
+  const key = 'ai-ssh-client.sftp-client-id';
+  const existing = window.sessionStorage.getItem(key);
+  if (existing) return existing;
+  const created = createWebId('web-client');
+  window.sessionStorage.setItem(key, created);
+  return created;
+})();
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-function makeError<T = void>(message: string): IPCResult<T> {
-  return { success: false, error: message };
+function makeError<T = void>(message: string, code?: string): IPCResult<T> {
+  return { success: false, error: message, code };
 }
 
 // 非 secure context 下 crypto.randomUUID 可能不可用
@@ -67,22 +84,6 @@ function createWebId(prefix: string): string {
     return `${prefix}:${crypto.randomUUID()}`;
   }
   return `${prefix}:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function getFilenameFromDisposition(header: string | null, fallback: string): string {
-  if (!header) {
-    return fallback;
-  }
-  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(header);
-  if (utf8Match?.[1]) {
-    try {
-      return decodeURIComponent(utf8Match[1]);
-    } catch {
-      return utf8Match[1];
-    }
-  }
-  const plainMatch = /filename="?([^";]+)"?/i.exec(header);
-  return plainMatch?.[1] || fallback;
 }
 
 async function request<T>(
@@ -99,6 +100,175 @@ async function request<T>(
     return await response.json();
   } catch (error) {
     return makeError<T>(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function sftpRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<IPCResult<T>> {
+  return request<T>(path, {
+    ...options,
+    headers: { 'x-sftp-client-id': sftpClientId, ...options.headers },
+  });
+}
+
+function toHex(buffer: ArrayBuffer): string {
+  return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** 计算源文件首尾最多 64KiB 的 SHA-256，用于续传指纹。 */
+async function hashFileEdges(file: File): Promise<{ head: string; tail: string }> {
+  const edge = 64 * 1024;
+  const headSize = Math.min(edge, file.size);
+  const tailStart = Math.max(0, file.size - edge);
+  const [head, tail] = await Promise.all([
+    crypto.subtle.digest('SHA-256', await file.slice(0, headSize).arrayBuffer()),
+    crypto.subtle.digest('SHA-256', await file.slice(tailStart).arrayBuffer()),
+  ]);
+  return { head: toHex(head), tail: toHex(tail) };
+}
+
+function emitTransferSnapshot(snapshot: SftpTransferTaskSnapshot): void {
+  emit('sftp-transfer-event', {
+    type: 'snapshot',
+    taskId: snapshot.taskId,
+    connectionId: snapshot.connectionId,
+    attempt: snapshot.attempt,
+    sequence: snapshot.sequence,
+    timestamp: snapshot.updatedAt,
+    snapshot,
+  });
+}
+
+/** 流式上传：支持从 checkpoint offset 续传（file.slice）。 */
+async function streamSftpUpload(
+  taskId: string,
+  resumeOffset = 0,
+): Promise<IPCResult<{ task: SftpTransferTaskSnapshot }>> {
+  const source = webSftpTaskSources.get(taskId);
+  const file = source ? selectedFiles.get(source) : undefined;
+  if (!file) {
+    return makeError('Selected file is no longer available', 'not-found');
+  }
+  const offset = Math.max(0, Math.min(resumeOffset, file.size));
+  try {
+    const edges = await hashFileEdges(file);
+    const response = await fetch(`/api/sftp/transfers/${encodeURIComponent(taskId)}/content`, {
+      method: 'PUT',
+      headers: {
+        'x-sftp-client-id': sftpClientId,
+        'content-type': 'application/octet-stream',
+        'x-sftp-source-size': String(file.size),
+        'x-sftp-source-mtime': String(file.lastModified),
+        'x-sftp-source-head': edges.head,
+        'x-sftp-source-tail': edges.tail,
+        'x-sftp-resume-offset': String(offset),
+      },
+      body: offset > 0 ? file.slice(offset) : file,
+    });
+    return await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
+  } catch (error) {
+    return makeError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** FSA 目录流式下载：边下边写，支持 Range 续传与 AbortController 取消。 */
+async function streamWebDownload(
+  task: SftpTransferTaskSnapshot & { downloadUrl?: string },
+  dirHandle: FileSystemDirectoryHandle,
+): Promise<void> {
+  if (!task.downloadUrl) return;
+  const controller = new AbortController();
+  downloadAbortControllers.set(task.taskId, controller);
+  let sequence = task.sequence;
+  let snapshot: SftpTransferTaskSnapshot = {
+    ...task,
+    status: 'transferring',
+    updatedAt: Date.now(),
+  };
+  const push = (patch: Partial<SftpTransferTaskSnapshot>) => {
+    sequence += 1;
+    snapshot = {
+      ...snapshot,
+      ...patch,
+      sequence,
+      updatedAt: Date.now(),
+    };
+    emitTransferSnapshot(snapshot);
+  };
+
+  try {
+    push({ status: 'transferring', progress: 0 });
+    const fileHandle = await dirHandle.getFileHandle(task.name, { create: true });
+    const existing = await fileHandle.getFile().catch(() => null);
+    let offset = 0;
+    // 简单续传：若本地已有 partial 且小于远端，则 Range 续写。
+    if (existing && existing.size > 0) {
+      offset = existing.size;
+    }
+    const writable = await fileHandle.createWritable({ keepExistingData: offset > 0 });
+    if (offset > 0) {
+      await writable.seek(offset);
+    }
+
+    const response = await fetch(task.downloadUrl, {
+      signal: controller.signal,
+      headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined,
+    });
+    if (!response.ok && response.status !== 206) {
+      throw new Error(await response.text() || `Download failed (${response.status})`);
+    }
+    const totalHeader = Number(response.headers.get('content-length') || 0);
+    const total = offset > 0 && totalHeader > 0 ? offset + totalHeader : totalHeader || undefined;
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Download stream unavailable');
+    }
+
+    let transferred = offset;
+    push({
+      resumedFrom: offset,
+      transferredBytes: transferred,
+      totalBytes: total,
+      progress: total ? Math.min(99, Math.round((transferred / total) * 100)) : 0,
+    });
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      await writable.write(value);
+      transferred += value.byteLength;
+      push({
+        transferredBytes: transferred,
+        totalBytes: total,
+        progress: total ? Math.min(99, Math.round((transferred / total) * 100)) : 0,
+      });
+    }
+    await writable.close();
+    push({
+      status: 'completed',
+      progress: 100,
+      transferredBytes: transferred,
+      totalBytes: total || transferred,
+      commitGuarantee: 'browser-managed',
+      completedAt: Date.now(),
+    });
+  } catch (error) {
+    const canceled = controller.signal.aborted
+      || (error instanceof DOMException && error.name === 'AbortError');
+    push({
+      status: canceled ? 'canceled' : 'failed',
+      error: {
+        code: canceled ? 'canceled' : 'io-error',
+        message: error instanceof Error ? error.message : String(error),
+        retryable: !canceled,
+      },
+      completedAt: Date.now(),
+    });
+  } finally {
+    downloadAbortControllers.delete(task.taskId);
   }
 }
 
@@ -198,6 +368,9 @@ function connectEvents(): void {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   socket = new WebSocket(`${protocol}//${window.location.host}/api/events`);
 
+  socket.onopen = () => {
+    sendSocket('sftp-identify', { clientId: sftpClientId });
+  };
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data) as { type: keyof EventMap; payload: unknown };
     emit(message.type, message.payload as never);
@@ -230,19 +403,23 @@ async function writeSshInput(connectionId: string, command: string): Promise<IPC
   }
 
   const connectionsResult = await request<ConnectionsResult<SSHConnection>>('/api/connections');
-  const connection = connectionsResult.data?.connections.find((item) => item.id === connectionId);
+  if (!connectionsResult.success) {
+    return result;
+  }
+  const connection = connectionsResult.data.connections.find((item) => item.id === connectionId);
   if (!connection) {
     return result;
   }
 
   const settingsResult = await request<SettingsResult<AppSettings>>('/api/settings');
+  const settings = settingsResult.success ? settingsResult.data.settings : undefined;
   const connectResult = await request<SSHConnectResult>('/api/ssh/connect', {
     method: 'POST',
     body: JSON.stringify({
       connection,
       cols: 120,
       rows: 32,
-      settings: settingsResult.data?.settings,
+      settings,
     }),
   });
   if (!connectResult.success) {
@@ -438,9 +615,187 @@ const webApi: Window['electronAPI'] = {
   selectFile: (options) => chooseFile(options),
   readPrivateKeyFile: (filePath) => readSelectedFile(filePath),
 
-  listDirectory: (connectionId, remotePath) => request<DirectoryListResult<any>>(
+  listDirectory: (connectionId, remotePath) => request<DirectoryListResult>(
     `/api/sftp/${connectionId}/list?path=${encodeURIComponent(remotePath)}`,
   ),
+  selectSftpFiles: () => new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.style.display = 'none';
+    let settled = false;
+    const settle = (result: IPCResult<SftpFilesSelectionResult>) => {
+      if (settled) return;
+      settled = true;
+      input.remove();
+      resolve(result);
+    };
+    input.onchange = () => {
+      const files = Array.from(input.files || []);
+      const refs = files.map((file) => {
+        const ref = createWebId('web-file');
+        selectedFiles.set(ref, file);
+        return {
+          name: file.name,
+          ref,
+          size: file.size,
+          lastModified: file.lastModified,
+        };
+      });
+      settle({ success: true, data: { canceled: refs.length === 0, files: refs } });
+    };
+    input.oncancel = () => settle({ success: true, data: { canceled: true, files: [] } });
+    document.body.appendChild(input);
+    input.click();
+  }),
+  // 优先 FSA 选目录做流式落盘；不支持时回退浏览器下载管理器。
+  selectSftpDownloadDestination: async () => {
+    const picker = (window as Window & {
+      showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
+    }).showDirectoryPicker;
+    if (typeof picker === 'function') {
+      try {
+        const dir = await picker({ mode: 'readwrite' });
+        const ref = createWebId('web-dir');
+        selectedDirs.set(ref, dir);
+        return {
+          success: true as const,
+          data: { canceled: false, destination: { ref, name: dir.name } },
+        };
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return { success: true as const, data: { canceled: true } };
+        }
+        // 权限/策略失败时继续回退。
+      }
+    }
+    return {
+      success: true as const,
+      data: { canceled: false, destination: { name: 'browser-download' } },
+    };
+  },
+  /** 注册拖放/粘贴的浏览器 File，供后续流式上传复用。 */
+  prepareSftpLocalFiles: (files: File[]) => {
+    const prepared = files
+      .filter((file) => file && file.name && !file.name.includes('/') && !file.name.includes('\\'))
+      .map((file) => {
+        const ref = createWebId('web-file');
+        selectedFiles.set(ref, file);
+        return {
+          name: file.name,
+          ref,
+          size: file.size,
+          lastModified: file.lastModified,
+        };
+      });
+    if (prepared.length === 0) {
+      return makeError<SftpFilesSelectionResult>('No uploadable files in drop payload', 'invalid-path');
+    }
+    return { success: true, data: { canceled: false, files: prepared } };
+  },
+  createSftpDirectory: (connectionId, remotePath) => request<void>(
+    `/api/sftp/${connectionId}/directory`,
+    { method: 'POST', body: JSON.stringify({ remotePath }) },
+  ),
+  deleteSftpItems: (connectionId, remotePaths) => request<SftpBatchDeleteResult>(
+    `/api/sftp/${connectionId}/items`,
+    { method: 'DELETE', body: JSON.stringify({ remotePaths }) },
+  ),
+  startSftpUpload: async (request: SftpStartUploadRequest) => {
+    const created = await sftpRequest<SftpStartTransferResult>('/api/sftp/transfers/upload', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    if (!created.success) return created;
+    created.data.tasks.forEach((task) => {
+      const source = request.files.find((file) => file.name === task.name)?.ref;
+      if (!source) return;
+      webSftpTaskSources.set(task.taskId, source);
+      void streamSftpUpload(task.taskId);
+    });
+    return created;
+  },
+  startSftpDownload: async (request: SftpStartDownloadRequest) => {
+    const result = await sftpRequest<SftpStartTransferResult & {
+      tasks: Array<SftpTransferTaskSnapshot & { downloadUrl?: string }>;
+    }>(
+      '/api/sftp/transfers/download',
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+    if (!result.success) return result;
+    const dirRef = request.destination?.ref;
+    const dirHandle = dirRef ? selectedDirs.get(dirRef) : undefined;
+    if (dirHandle) {
+      // FSA：并行启动流式下载（各任务独立 AbortController）。
+      result.data.tasks.forEach((task) => {
+        void streamWebDownload(task, dirHandle);
+      });
+      return result;
+    }
+    // handed-off：串行触发浏览器原生下载。
+    for (const task of result.data.tasks) {
+      if (!task.downloadUrl) continue;
+      const anchor = document.createElement('a');
+      anchor.href = task.downloadUrl;
+      anchor.download = task.name;
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    }
+    return result;
+  },
+  resolveSftpConflict: async (request: SftpResolveConflictRequest) => {
+    const result = await sftpRequest<void>(
+      `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/conflict`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+    if (result.success) {
+      // 当前任务及批次同伴在策略确定后重新推送内容流。
+      const taskIds = request.applyToBatch
+        ? [...webSftpTaskSources.keys()]
+        : [request.taskId];
+      taskIds.forEach((taskId) => {
+        if (webSftpTaskSources.has(taskId)) {
+          void streamSftpUpload(taskId);
+        }
+      });
+    }
+    return result;
+  },
+  cancelSftpTransfer: async (request: SftpTransferTaskRequest) => {
+    downloadAbortControllers.get(request.taskId)?.abort();
+    return sftpRequest<void>(
+      `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/cancel`,
+      { method: 'POST', body: '{}' },
+    );
+  },
+  retrySftpTransfer: async (request: SftpTransferTaskRequest) => {
+    const result = await sftpRequest<SftpTransferTaskSnapshot>(
+      `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/retry`,
+      { method: 'POST', body: '{}' },
+    );
+    if (result.success && result.data.direction === 'upload') {
+      void streamSftpUpload(request.taskId, result.data.resumedFrom || 0);
+    }
+    return result;
+  },
+  discardSftpTransfer: async (request: SftpTransferTaskRequest) => {
+    const result = await sftpRequest<void>(
+      `/api/sftp/transfers/${encodeURIComponent(request.taskId)}`,
+      { method: 'DELETE' },
+    );
+    if (result.success) {
+      const source = webSftpTaskSources.get(request.taskId);
+      if (source) selectedFiles.delete(source);
+      webSftpTaskSources.delete(request.taskId);
+    }
+    return result;
+  },
+  listSftpTransfers: (connectionId?: string) => sftpRequest<SftpListTransfersResult>(
+    `/api/sftp/transfers${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ''}`,
+  ),
+  onSftpTransferEvent: (callback) => on('sftp-transfer-event', callback),
   renameItem: (connectionId, remotePath, newName) => request<void>(
     `/api/sftp/${connectionId}/rename`,
     {
@@ -455,221 +810,6 @@ const webApi: Window['electronAPI'] = {
       body: JSON.stringify({ remotePath }),
     },
   ),
-  downloadFile: async (connectionId, remotePath, taskId) => {
-    const filename = remotePath.split('/').pop() || 'download';
-    try {
-      const response = await fetch(
-        `/api/sftp/${connectionId}/download?path=${encodeURIComponent(remotePath)}`,
-      );
-      if (!response.ok) {
-        const errorText = await response.text();
-        emit('sftp-transfer-complete', {
-          connectionId,
-          taskId,
-          filename,
-          transferType: 'download',
-          success: false,
-          error: errorText || `Download failed (${response.status})`,
-          remotePath,
-        });
-        return makeError<FileDownloadResult>(errorText || `Download failed (${response.status})`);
-      }
-
-      // 按流读取响应，边下边推进度
-      const total = Number(response.headers.get('content-length') || 0);
-      const resolvedName = getFilenameFromDisposition(
-        response.headers.get('content-disposition'),
-        filename,
-      );
-      const reader = response.body?.getReader();
-      if (!reader) {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = resolvedName;
-        link.click();
-        URL.revokeObjectURL(url);
-        emit('sftp-download-progress', {
-          connectionId,
-          taskId,
-          filename: resolvedName,
-          progress: 100,
-        });
-        emit('sftp-transfer-complete', {
-          connectionId,
-          taskId,
-          filename: resolvedName,
-          transferType: 'download',
-          success: true,
-          remotePath,
-        });
-        return { success: true, data: { localPath: resolvedName } };
-      }
-
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-      let lastProgress = -1;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-        if (!value) {
-          continue;
-        }
-        chunks.push(value);
-        received += value.byteLength;
-        const progress = total > 0
-          ? Math.min(99, Math.round((received / total) * 100))
-          : Math.min(99, Math.max(1, Math.round(Math.log10(received + 10) * 20)));
-        if (progress !== lastProgress) {
-          lastProgress = progress;
-          emit('sftp-download-progress', {
-            connectionId,
-            taskId,
-            filename: resolvedName,
-            progress,
-          });
-        }
-      }
-
-      const blob = new Blob(chunks as BlobPart[]);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = resolvedName;
-      link.click();
-      URL.revokeObjectURL(url);
-      emit('sftp-download-progress', {
-        connectionId,
-        taskId,
-        filename: resolvedName,
-        progress: 100,
-      });
-      emit('sftp-transfer-complete', {
-        connectionId,
-        taskId,
-        filename: resolvedName,
-        transferType: 'download',
-        success: true,
-        remotePath,
-      });
-      return { success: true, data: { localPath: resolvedName } };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      emit('sftp-transfer-complete', {
-        connectionId,
-        taskId,
-        filename,
-        transferType: 'download',
-        success: false,
-        error: message,
-        remotePath,
-      });
-      return makeError<FileDownloadResult>(message);
-    }
-  },
-  uploadFile: async (connectionId, localPath, remoteDir, taskId) => {
-    const file = selectedFiles.get(localPath);
-    if (!file) {
-      return makeError<FileUploadResult>('Selected file is no longer available');
-    }
-
-    const filename = file.name || localPath.split(/[/\\]/).pop() || 'upload';
-    const formData = new FormData();
-    formData.append('file', file, filename);
-    formData.append('remoteDir', remoteDir);
-    if (taskId) {
-      formData.append('taskId', String(taskId));
-    }
-
-    try {
-      // 两段进度：浏览器到服务端 0-50%，服务端确认写入远端 50-99%
-      const result = await new Promise<IPCResult<FileUploadResult>>((resolve) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `/api/sftp/${connectionId}/upload`);
-        xhr.responseType = 'text';
-        xhr.upload.onprogress = (event) => {
-          if (!event.lengthComputable || event.total <= 0) {
-            return;
-          }
-          const progress = Math.min(50, Math.round((event.loaded / event.total) * 50));
-          emit('sftp-upload-progress', {
-            connectionId,
-            taskId: taskId ? String(taskId) : undefined,
-            filename,
-            progress,
-          });
-        };
-        xhr.onload = () => {
-          try {
-            const payload = JSON.parse(xhr.responseText || '{}') as IPCResult<FileUploadResult>;
-            // 兼容服务端只回 data、或 success 字段缺失
-            if (xhr.status >= 200 && xhr.status < 300) {
-              if (payload && typeof payload === 'object' && 'success' in payload) {
-                resolve(payload);
-                return;
-              }
-              resolve({
-                success: true,
-                data: (payload as { data?: FileUploadResult })?.data
-                  || (payload as FileUploadResult),
-              });
-              return;
-            }
-            resolve(makeError<FileUploadResult>(
-              (payload && typeof payload === 'object' && 'error' in payload && !payload.success
-                ? payload.error
-                : undefined)
-                || `Upload failed (${xhr.status})`,
-            ));
-          } catch (error) {
-            resolve(makeError<FileUploadResult>(
-              error instanceof Error ? error.message : String(error),
-            ));
-          }
-        };
-        xhr.onerror = () => {
-          resolve(makeError<FileUploadResult>('Network request failed'));
-        };
-        xhr.onabort = () => {
-          resolve(makeError<FileUploadResult>('Cancelled'));
-        };
-        xhr.send(formData);
-      });
-
-      const remotePath = `${remoteDir.replace(/\/$/, '')}/${filename}`;
-      // HTTP 返回时服务端已写完远端；本地强制完成，避免 WS 丢事件卡在 99%
-      if (result.success) {
-        emit('sftp-upload-progress', {
-          connectionId,
-          taskId: taskId ? String(taskId) : undefined,
-          filename,
-          progress: 100,
-        });
-      }
-      emit('sftp-transfer-complete', {
-        connectionId,
-        taskId: taskId ? String(taskId) : undefined,
-        filename,
-        transferType: 'upload',
-        success: result.success,
-        error: result.success ? undefined : result.error,
-        localPath,
-        remotePath: result.success
-          ? (result.data?.remotePath || remotePath)
-          : remotePath,
-      });
-      return result;
-    } finally {
-      selectedFiles.delete(localPath);
-    }
-  },
-  onSftpUploadProgress: (callback) => on('sftp-upload-progress', callback),
-  onSftpDownloadProgress: (callback) => on('sftp-download-progress', callback),
-  onSftpTransferComplete: (callback) => on('sftp-transfer-complete', callback),
-
   agentStartTask: (_taskId, connectionId) => request<void>(`/api/agent/${connectionId}/start`, {
     method: 'POST',
     body: '{}',

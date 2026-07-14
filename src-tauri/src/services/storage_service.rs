@@ -594,8 +594,7 @@ impl StorageService {
             data.host_trust_records
                 .iter()
                 .find(|record| {
-                    record.host.trim().eq_ignore_ascii_case(&normalized_host)
-                        && record.port == port
+                    record.host.trim().eq_ignore_ascii_case(&normalized_host) && record.port == port
                 })
                 .cloned()
         })
@@ -626,8 +625,7 @@ impl StorageService {
         let normalized_host = host.trim().to_ascii_lowercase();
         self.update(|data| {
             data.host_trust_records.retain(|record| {
-                !(record.host.trim().eq_ignore_ascii_case(&normalized_host)
-                    && record.port == port)
+                !(record.host.trim().eq_ignore_ascii_case(&normalized_host) && record.port == port)
             });
         })
     }

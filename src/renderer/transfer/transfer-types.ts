@@ -1,24 +1,20 @@
+import type { SftpItem } from '../../shared/ipc-types';
+
 /** SFTP transfer direction used by the transfer domain. */
 export type TransferDirection = 'upload' | 'download';
 
-/** Transfer task lifecycle states. */
+/** 旧界面任务生命周期状态，正式任务使用共享 SftpTransferStatus。 */
 export type TransferTaskStatus = 'pending' | 'transferring' | 'completed' | 'error';
 
-/** Remote file entry returned by directory listing. */
-export interface RemoteFileItem {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  size: number;
-  mtime: number;
-  fileType: string;
-}
+/** 远端文件条目直接复用共享 SFTP 契约。 */
+export type RemoteFileItem = SftpItem;
 
 /** Per-session SFTP browser UI state. */
 export interface SftpBrowserSessionState {
   remotePath: string;
   activeView: 'files' | 'tasks';
-  selectedPath: string | null;
+  selectedPaths: string[];
+  selectionAnchorPath: string | null;
   navigationVersion: number;
 }
 

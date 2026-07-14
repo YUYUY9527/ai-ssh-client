@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -22,13 +22,13 @@ interface XtermInstanceOptions {
   liveConnectionId: string | null;
   onInstanceVersionChange: () => void;
   resetInputTracking: () => void;
-  searchAddonRef: RefObject<SearchAddon | null>;
+  searchAddonRef: MutableRefObject<SearchAddon | null>;
   sessionId: string | null;
   settings?: AppSettings;
   syncAlternateScreenState: () => boolean | undefined;
-  terminalRef: RefObject<HTMLDivElement | null>;
+  terminalRef: MutableRefObject<HTMLDivElement | null>;
   terminalTheme: string;
-  xtermRef: RefObject<XTerm | null>;
+  xtermRef: MutableRefObject<XTerm | null>;
 }
 
 /** Owns xterm lifecycle, sizing, write target registration and option synchronization. */

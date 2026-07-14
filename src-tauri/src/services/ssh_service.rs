@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -8,14 +7,12 @@ use russh::client::{self, AuthResult, Handle};
 use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect, Pty};
 use russh_sftp::client::{error::Error as SftpError, Config as SftpConfig, SftpSession};
-use russh_sftp::protocol::{OpenFlags, StatusCode};
-use serde::{Deserialize, Serialize};
+use russh_sftp::protocol::StatusCode;
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::error::{app_error, AppError, AppResult};
+use crate::error::{app_error, AppResult};
 use crate::models::settings::AppSettings;
 use crate::models::ssh::{
     HostTrustPromptEvent, HostTrustPromptKind, HostTrustRecord, SftpFileInfo, SshConnection,
@@ -42,32 +39,10 @@ struct SshSession {
     output_subscribers: Vec<mpsc::UnboundedSender<String>>,
 }
 
-/// Direction for an SFTP background transfer.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SftpTransferType {
-    Upload,
-    Download,
-}
-
-/// Completion payload emitted after an SFTP transfer finishes.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SftpTransferCompleteEvent {
-    pub connection_id: String,
-    pub task_id: String,
-    pub filename: String,
-    pub transfer_type: SftpTransferType,
-    pub success: bool,
-    pub error: Option<String>,
-    pub local_path: Option<String>,
-    pub remote_path: Option<String>,
-}
-
-type PendingTrustMap = Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>;
+pub(crate) type PendingTrustMap = Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>;
 
 #[derive(Clone)]
-struct SshHandler {
+pub(crate) struct SshHandler {
     host: String,
     port: u16,
     storage: Arc<StorageService>,
@@ -337,6 +312,14 @@ impl SshService {
             .map(|session| session.connection.clone()))
     }
 
+    pub(crate) fn storage(&self) -> Arc<StorageService> {
+        Arc::clone(&self.storage)
+    }
+
+    pub(crate) fn pending_trust(&self) -> PendingTrustMap {
+        Arc::clone(&self.pending_trust)
+    }
+
     /// Lists a remote directory through SFTP.
     pub async fn list_directory(
         &self,
@@ -366,6 +349,13 @@ impl SshService {
             files.push(SftpFileInfo {
                 name: filename,
                 path,
+                kind: if metadata.is_symlink() {
+                    "symlink".to_string()
+                } else if metadata.is_dir() {
+                    "directory".to_string()
+                } else {
+                    "file".to_string()
+                },
                 size: metadata.len(),
                 is_directory: metadata.is_dir(),
                 is_symbolic_link: metadata.is_symlink(),
@@ -375,6 +365,11 @@ impl SshService {
                     .unwrap_or_default(),
                 mtime: metadata.mtime.map(|value| value as i64 * 1000).unwrap_or(0),
                 atime: metadata.atime.map(|value| value as i64 * 1000).unwrap_or(0),
+                file_type: if metadata.is_dir() {
+                    "directory".to_string()
+                } else {
+                    "file".to_string()
+                },
             });
         }
 
@@ -391,151 +386,6 @@ impl SshService {
         Ok(files)
     }
 
-    /// Downloads a remote file through SFTP.
-    pub async fn download_file(
-        &self,
-        app_handle: AppHandle,
-        connection: SshConnection,
-        remote_path: String,
-        local_path: String,
-        task_id: String,
-    ) -> AppResult<()> {
-        let (sftp, session) = open_sftp_session(
-            &connection,
-            Arc::clone(&self.storage),
-            app_handle.clone(),
-            Arc::clone(&self.pending_trust),
-        )
-        .await?;
-        let protocol_path = sftp_protocol_path(&remote_path);
-        let mut remote_file = sftp.open(protocol_path.as_str()).await?;
-        let total = remote_file.metadata().await?.len();
-        let mut local_file = tokio::fs::File::create(&local_path).await?;
-        let filename = Path::new(&remote_path)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("download")
-            .to_string();
-        let mut transferred = 0_u64;
-        let mut buffer = vec![0_u8; 64 * 1024];
-
-        loop {
-            let read = remote_file.read(&mut buffer).await?;
-            if read == 0 {
-                break;
-            }
-            local_file.write_all(&buffer[..read]).await?;
-            transferred += read as u64;
-
-            let progress = calculate_progress(transferred, total);
-            let _ = app_handle.emit(
-                "sftp-download-progress",
-                json!({
-                    "connectionId": connection.id,
-                    "taskId": task_id,
-                    "filename": filename,
-                    "progress": progress,
-                }),
-            );
-        }
-
-        local_file.flush().await?;
-        let _ = session
-            .disconnect(Disconnect::ByApplication, "", "en")
-            .await;
-        emit_sftp_transfer_complete(
-            &app_handle,
-            SftpTransferCompleteEvent {
-                connection_id: connection.id,
-                task_id,
-                filename,
-                transfer_type: SftpTransferType::Download,
-                success: true,
-                error: None,
-                local_path: Some(local_path),
-                remote_path: Some(remote_path),
-            },
-        );
-        Ok(())
-    }
-
-    /// Uploads a local file through SFTP and emits progress updates.
-    pub async fn upload_file(
-        &self,
-        app_handle: AppHandle,
-        connection: SshConnection,
-        local_path: String,
-        remote_path: String,
-        task_id: String,
-    ) -> AppResult<()> {
-        let (sftp, session) = open_sftp_session(
-            &connection,
-            Arc::clone(&self.storage),
-            app_handle.clone(),
-            Arc::clone(&self.pending_trust),
-        )
-        .await?;
-        let filename = std::path::Path::new(&local_path)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("upload")
-            .to_string();
-        let total = tokio::fs::metadata(&local_path).await?.len();
-        let mut local_file = tokio::fs::File::open(&local_path).await?;
-        let protocol_path = sftp_protocol_path(&remote_path);
-        let mut remote_file = sftp
-            .open_with_flags(
-                protocol_path.as_str(),
-                OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
-            )
-            .await?;
-        let mut transferred = 0_u64;
-        let mut buffer = vec![0_u8; 64 * 1024];
-
-        loop {
-            let read = local_file.read(&mut buffer).await?;
-            if read == 0 {
-                break;
-            }
-            remote_file.write_all(&buffer[..read]).await?;
-            transferred += read as u64;
-
-            let progress = calculate_progress(transferred, total);
-            let _ = app_handle.emit(
-                "sftp-upload-progress",
-                json!({
-                    "connectionId": connection.id,
-                    "taskId": task_id,
-                    "filename": filename,
-                    "progress": progress,
-                }),
-            );
-        }
-
-        if let Err(err) = remote_file.flush().await {
-            ensure_uploaded_after_close_error(&sftp, &protocol_path, total, err).await?;
-        }
-        if let Err(err) = remote_file.shutdown().await {
-            ensure_uploaded_after_close_error(&sftp, &protocol_path, total, err).await?;
-        }
-        let _ = session
-            .disconnect(Disconnect::ByApplication, "", "en")
-            .await;
-        emit_sftp_transfer_complete(
-            &app_handle,
-            SftpTransferCompleteEvent {
-                connection_id: connection.id,
-                task_id,
-                filename,
-                transfer_type: SftpTransferType::Upload,
-                success: true,
-                error: None,
-                local_path: Some(local_path),
-                remote_path: Some(remote_path),
-            },
-        );
-        Ok(())
-    }
 
     /// Renames a remote item without replacing an existing sibling.
     pub async fn rename_item(
@@ -641,15 +491,6 @@ impl SshService {
     }
 }
 
-fn calculate_progress(transferred: u64, total: u64) -> u32 {
-    if total == 0 {
-        return 100;
-    }
-
-    ((transferred as f64 / total as f64) * 100.0)
-        .round()
-        .min(100.0) as u32
-}
 
 fn sftp_protocol_path(path: &str) -> String {
     if path == "~" {
@@ -907,7 +748,7 @@ async fn connect_authenticated_session(
     Err(app_error("缺少 SSH 密码或私钥"))
 }
 
-async fn open_sftp_session(
+pub(crate) async fn open_sftp_session(
     connection: &SshConnection,
     storage: Arc<StorageService>,
     app_handle: AppHandle,
@@ -970,23 +811,6 @@ async fn wait_for_host_trust_decision(
     }
 }
 
-async fn ensure_uploaded_after_close_error(
-    sftp: &SftpSession,
-    remote_path: &str,
-    expected_size: u64,
-    error: std::io::Error,
-) -> AppResult<()> {
-    if !error.to_string().eq_ignore_ascii_case("timeout") {
-        return Err(error.into());
-    }
-
-    let metadata = sftp.metadata(remote_path).await?;
-    if metadata.len() == expected_size {
-        return Ok(());
-    }
-
-    Err(AppError::Io(error))
-}
 
 fn ensure_auth_success(auth: AuthResult) -> AppResult<()> {
     if auth.success() {
@@ -1055,10 +879,6 @@ fn emit_ssh_error(app_handle: &AppHandle, connection_id: &str, error: &str) {
     let _ = app_handle.emit("ssh-error", payload);
 }
 
-/// Emits a terminal SFTP transfer event for foreground and background UI listeners.
-pub fn emit_sftp_transfer_complete(app_handle: &AppHandle, event: SftpTransferCompleteEvent) {
-    let _ = app_handle.emit("sftp-transfer-complete", event);
-}
 
 #[cfg(test)]
 mod tests {

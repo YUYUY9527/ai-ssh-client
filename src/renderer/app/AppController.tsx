@@ -17,7 +17,7 @@ import { useAgentStore } from '../store/useAgentStore';
 import { useSftpTransferStore } from '../store/useSftpTransferStore';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../i18n';
-import type { CommandSuggestion, HostTrustPromptEvent, SSHSessionState, SSHConnection, Session } from '../../shared/types';
+import type { CommandSuggestion, HostTrustPromptEvent, SSHConnection, Session } from '../../shared/types';
 import type { AppSettings } from '../../shared/types';
 import { useSessionBridge } from '../session/useSessionBridge';
 import { useSessionRecovery } from '../session/useSessionRecovery';
@@ -132,7 +132,10 @@ export function AppController() {
     useAgentStore.getState().syncFromSettings(settings);
   }, [settings]);
 
-  const updateTabState = (connectionId: string, state: SSHSessionState) => {
+  const updateTabState = (
+    connectionId: string,
+    state: { isConnected: boolean; isConnecting: boolean },
+  ) => {
     setOpenTabs(prev => prev.map(tab =>
       tab.id === connectionId
         ? { ...tab, isConnected: state.isConnected, isConnecting: state.isConnecting }
@@ -441,7 +444,7 @@ export function AppController() {
       ? transferTasks.filter((task) => task.connectionId === activeTabId)
       : transferTasks;
     const activeTasks = scopeTasks.filter(
-      (task) => task.status === 'pending' || task.status === 'transferring',
+      (task) => !['completed', 'skipped', 'canceled', 'interrupted', 'failed', 'handed-off'].includes(task.status),
     );
     if (activeTasks.length === 0) {
       return null;

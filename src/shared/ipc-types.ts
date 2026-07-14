@@ -93,18 +93,226 @@ export interface SettingsResult<T = any> {
   settings: T;
 }
 
-export interface DirectoryListResult<T = any> {
+export type SftpItemKind = 'file' | 'directory' | 'symlink' | 'other';
+
+/** 桌面端与 Web 端共享的远端目录条目。 */
+export interface SftpItem {
+  name: string;
+  path: string;
+  kind?: SftpItemKind;
+  isDirectory: boolean;
+  isSymbolicLink?: boolean;
+  size: number;
+  mtime: number;
+  atime?: number;
+  mode?: string;
+  /** @deprecated 迁移期兼容旧目录列表。 */
+  fileType: string;
+}
+
+export interface DirectoryListResult<T = SftpItem> {
   files: T[];
 }
 
+/** 本地上传文件引用，ref 用于 Web 端引用暂存文件。 */
+export interface SftpLocalFileRef {
+  name: string;
+  path?: string;
+  ref?: string;
+  size?: number;
+  lastModified?: number;
+}
+
+/** 本地下载目录引用，ref 用于 Web 端引用已授权目录。 */
+export interface SftpLocalDestinationRef {
+  path?: string;
+  ref?: string;
+  name?: string;
+}
+
+export interface SftpFilesSelectionResult {
+  canceled: boolean;
+  files: SftpLocalFileRef[];
+}
+
+export interface SftpDownloadDestinationSelectionResult {
+  canceled: boolean;
+  destination?: SftpLocalDestinationRef;
+}
+
+export type SftpConflictPolicy = 'ask' | 'overwrite' | 'skip' | 'rename';
+
+export type SftpErrorCode =
+  | 'connection-unavailable'
+  | 'permission-denied'
+  | 'not-found'
+  | 'already-exists'
+  | 'invalid-path'
+  | 'io-error'
+  | 'conflict'
+  | 'canceled'
+  | 'source-changed'
+  | 'commit-in-progress'
+  | 'unsupported'
+  | 'unknown';
+
+export type SftpTransferDirection = 'upload' | 'download';
+
+export type SftpTransferStatus =
+  | 'queued'
+  | 'checking'
+  | 'waiting-conflict'
+  | 'transferring'
+  | 'canceling'
+  | 'committing'
+  | 'completed'
+  | 'skipped'
+  | 'canceled'
+  | 'interrupted'
+  | 'failed'
+  | 'handed-off';
+
+export type SftpCommitGuarantee =
+  | 'atomic-create'
+  | 'atomic-replace'
+  | 'best-effort-replace'
+  | 'browser-managed'
+  | 'none';
+
+export interface SftpTransferError {
+  code: SftpErrorCode;
+  message: string;
+  retryable: boolean;
+}
+
+export interface SftpTransferConflict {
+  sourcePath: string;
+  destinationPath: string;
+  existingSize?: number;
+  incomingSize?: number;
+  suggestedName?: string;
+}
+
+/** 跨桌面与 Web 后端共享的传输任务快照。 */
+export interface SftpTransferTaskSnapshot {
+  taskId: string;
+  batchId?: string;
+  connectionId: string;
+  attempt: number;
+  sequence: number;
+  direction: SftpTransferDirection;
+  status: SftpTransferStatus;
+  name: string;
+  localPath?: string;
+  remotePath?: string;
+  totalBytes?: number;
+  transferredBytes: number;
+  resumedFrom: number;
+  progress: number;
+  conflictPolicy: SftpConflictPolicy;
+  conflict?: SftpTransferConflict;
+  error?: SftpTransferError;
+  commitGuarantee: SftpCommitGuarantee;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+interface SftpTransferEventBase {
+  taskId: string;
+  connectionId: string;
+  attempt: number;
+  sequence: number;
+  timestamp: number;
+}
+
+/** 后端推送的有序任务事件。 */
+export type SftpTransferEvent =
+  | (SftpTransferEventBase & {
+      type: 'snapshot';
+      snapshot: SftpTransferTaskSnapshot;
+    })
+  | (SftpTransferEventBase & {
+      type: 'progress';
+      transferredBytes: number;
+      totalBytes?: number;
+      progress: number;
+    })
+  | (SftpTransferEventBase & {
+      type: 'conflict';
+      conflict: SftpTransferConflict;
+    })
+  | (SftpTransferEventBase & {
+      type: 'terminal';
+      status: Extract<SftpTransferStatus, 'completed' | 'skipped' | 'canceled' | 'interrupted' | 'failed' | 'handed-off'>;
+      transferredBytes?: number;
+      totalBytes?: number;
+      progress?: number;
+      localPath?: string;
+      remotePath?: string;
+      error?: SftpTransferError;
+      commitGuarantee?: SftpCommitGuarantee;
+    });
+
+export interface SftpDeleteItemResult {
+  path: string;
+  success: boolean;
+  error?: string;
+  code?: SftpErrorCode;
+}
+
+export interface SftpBatchDeleteResult {
+  items: SftpDeleteItemResult[];
+  deletedCount: number;
+  failedCount: number;
+}
+
+export interface SftpStartUploadRequest {
+  connectionId: string;
+  files: SftpLocalFileRef[];
+  remoteDirectory: string;
+  conflictPolicy?: SftpConflictPolicy;
+}
+
+export interface SftpStartDownloadRequest {
+  connectionId: string;
+  remotePaths: string[];
+  destination: SftpLocalDestinationRef;
+  conflictPolicy?: SftpConflictPolicy;
+}
+
+export interface SftpStartTransferResult {
+  tasks: SftpTransferTaskSnapshot[];
+}
+
+export interface SftpResolveConflictRequest {
+  taskId: string;
+  attempt: number;
+  policy: Exclude<SftpConflictPolicy, 'ask'>;
+  renamedPath?: string;
+  /** 将策略应用到同批次尚未提交的剩余任务。 */
+  applyToBatch?: boolean;
+}
+
+export interface SftpTransferTaskRequest {
+  taskId: string;
+}
+
+export interface SftpListTransfersResult {
+  tasks: SftpTransferTaskSnapshot[];
+}
+
+/** @deprecated 旧单文件下载结果，保留至现有界面迁移完成。 */
 export interface FileDownloadResult {
   localPath: string;
 }
 
+/** @deprecated 旧单文件上传结果，保留至现有界面迁移完成。 */
 export interface FileUploadResult {
   remotePath: string;
 }
 
+/** @deprecated 旧完成事件，保留至现有桥接迁移完成。 */
 export interface SftpTransferCompleteEvent {
   connectionId: string;
   taskId?: string;
@@ -143,6 +351,8 @@ export interface importDataResult {
   };
   skipped: importIssue[];
 }
+
+export interface ImportDataResult extends importDataResult {}
 
 export interface AIProviderSecretStatusResult {
   providerId: string;

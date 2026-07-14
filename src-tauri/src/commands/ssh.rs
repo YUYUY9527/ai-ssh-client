@@ -1,15 +1,14 @@
 use serde_json::json;
-use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, State};
-use tauri_plugin_dialog::DialogExt;
 
 use crate::models::ipc::{empty_success, error, success, IpcResult};
 use crate::models::settings::AppSettings;
-use crate::models::ssh::{HostTrustRecord, SshConnectResult, SshConnection};
-use crate::services::ssh_service::{
-    emit_sftp_transfer_complete, SftpTransferCompleteEvent, SftpTransferType,
+use crate::models::sftp::{
+    SftpResolveConflictRequest, SftpStartDownloadRequest, SftpStartUploadRequest,
+    SftpTransferTaskRequest,
 };
+use crate::models::ssh::{HostTrustRecord, SshConnectResult, SshConnection};
 use crate::AppState;
 
 /// 启动 SSH 会话
@@ -328,178 +327,137 @@ pub async fn sftp_delete_item(
     )
 }
 
-/// 通过 SFTP 下载远程文件
-///
-/// 弹出文件保存对话框，然后在后台下载文件，并发送进度更新
-///
-/// # 参数
-/// * `app_handle` - Tauri 应用句柄
-/// * `state` - 应用状态
-/// * `connection_id` - SSH 连接 ID
-/// * `remote_path` - 远程文件路径
-/// * `task_id` - 可选的任务 ID（用于跟踪下载进度）
-///
-/// # 返回
-/// 返回本地保存路径
+/// Creates one remote SFTP directory.
 #[tauri::command]
-pub async fn sftp_download_file(
+pub async fn sftp_create_directory(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     connection_id: String,
     remote_path: String,
-    task_id: Option<String>,
-) -> Result<IpcResult<serde_json::Value>, String> {
+) -> Result<IpcResult<()>, String> {
     let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
         Ok(Some(connection)) => connection,
         Ok(None) => return Ok(error("Connection not found")),
         Err(err) => return Ok(error(err.to_string())),
     };
-    let filename = Path::new(&remote_path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("download");
-    let selected_path = app_handle
-        .dialog()
-        .file()
-        .set_file_name(filename)
-        .blocking_save_file();
-
-    let Some(selected_path) = selected_path else {
-        return Ok(error("Cancelled"));
-    };
-    let local_path_string = PathBuf::try_from(selected_path)
-        .map_err(|err| err.to_string())?
-        .to_string_lossy()
-        .to_string();
-    let task_id = task_id.unwrap_or_default();
-    let service = state.ssh.clone();
-    let background_app_handle = app_handle.clone();
-    let background_connection = connection.clone();
-    let background_remote_path = remote_path.clone();
-    let background_local_path = local_path_string.clone();
-    let background_task_id = task_id.clone();
-    let background_filename = filename.to_string();
-
-    tauri::async_runtime::spawn(async move {
-        if let Err(err) = service
-            .download_file(
-                background_app_handle.clone(),
-                background_connection.clone(),
-                background_remote_path.clone(),
-                background_local_path.clone(),
-                background_task_id.clone(),
-            )
+    Ok(
+        match state
+            .sftp
+            .create_directory(app_handle, connection, remote_path)
             .await
         {
-            emit_sftp_transfer_complete(
-                &background_app_handle,
-                SftpTransferCompleteEvent {
-                    connection_id: background_connection.id,
-                    task_id: background_task_id,
-                    filename: background_filename,
-                    transfer_type: SftpTransferType::Download,
-                    success: false,
-                    error: Some(err.to_string()),
-                    local_path: Some(background_local_path),
-                    remote_path: Some(background_remote_path),
-                },
-            );
-        }
-    });
-
-    Ok(success(json!({ "localPath": local_path_string })))
+            Ok(()) => empty_success(),
+            Err(err) => error(err.to_string()),
+        },
+    )
 }
 
-/// 通过 SFTP 上传本地文件
-///
-/// 如果未提供本地路径，会弹出文件选择对话框
-/// 然后在后台上传文件，并发送进度更新
-///
-/// # 参数
-/// * `app_handle` - Tauri 应用句柄
-/// * `state` - 应用状态
-/// * `connection_id` - SSH 连接 ID
-/// * `local_path` - 本地文件路径（如果为空则弹出选择对话框）
-/// * `remote_dir` - 远程目标目录
-/// * `task_id` - 可选的任务 ID（用于跟踪上传进度）
-///
-/// # 返回
-/// 返回远程文件路径
+/// Deletes a group of remote SFTP items and returns every item result.
 #[tauri::command]
-pub async fn sftp_upload_file(
+pub async fn sftp_delete_items(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     connection_id: String,
-    mut local_path: String,
-    remote_dir: String,
-    task_id: Option<String>,
-) -> Result<IpcResult<serde_json::Value>, String> {
-    if local_path.trim().is_empty() {
-        let selected_path = app_handle
-            .dialog()
-            .file()
-            .set_title("选择上传文件")
-            .blocking_pick_file();
-
-        let Some(selected_path) = selected_path else {
-            return Ok(error("Cancelled"));
-        };
-        local_path = PathBuf::try_from(selected_path)
-            .map_err(|err| err.to_string())?
-            .to_string_lossy()
-            .to_string();
-    }
-
+    remote_paths: Vec<String>,
+) -> Result<IpcResult<crate::models::sftp::SftpBatchDeleteResult>, String> {
     let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
         Ok(Some(connection)) => connection,
         Ok(None) => return Ok(error("Connection not found")),
         Err(err) => return Ok(error(err.to_string())),
     };
-    let filename = Path::new(&local_path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("upload");
-    let remote_path = if remote_dir == "/" {
-        format!("/{filename}")
-    } else {
-        format!("{}/{}", remote_dir.trim_end_matches('/'), filename)
-    };
+    Ok(success(
+        state
+            .sftp
+            .delete_items(app_handle, connection, remote_paths)
+            .await,
+    ))
+}
 
-    let task_id = task_id.unwrap_or_default();
-    let service = state.ssh.clone();
-    let background_app_handle = app_handle.clone();
-    let background_connection = connection.clone();
-    let background_local_path = local_path.clone();
-    let background_remote_path = remote_path.clone();
-    let background_task_id = task_id.clone();
-    let background_filename = filename.to_string();
+/// Registers and starts desktop upload tasks.
+#[tauri::command]
+pub fn sftp_start_upload(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    request: SftpStartUploadRequest,
+) -> IpcResult<crate::models::sftp::SftpStartTransferResult> {
+    match state.sftp.start_upload(app_handle, request) {
+        Ok(result) => success(result),
+        Err(err) => error(err.to_string()),
+    }
+}
 
-    tauri::async_runtime::spawn(async move {
-        if let Err(err) = service
-            .upload_file(
-                background_app_handle.clone(),
-                background_connection.clone(),
-                background_local_path.clone(),
-                background_remote_path.clone(),
-                background_task_id.clone(),
-            )
-            .await
-        {
-            emit_sftp_transfer_complete(
-                &background_app_handle,
-                SftpTransferCompleteEvent {
-                    connection_id: background_connection.id,
-                    task_id: background_task_id,
-                    filename: background_filename,
-                    transfer_type: SftpTransferType::Upload,
-                    success: false,
-                    error: Some(err.to_string()),
-                    local_path: Some(background_local_path),
-                    remote_path: Some(background_remote_path),
-                },
-            );
-        }
-    });
+/// Registers and starts desktop download tasks.
+#[tauri::command]
+pub fn sftp_start_download(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    request: SftpStartDownloadRequest,
+) -> IpcResult<crate::models::sftp::SftpStartTransferResult> {
+    match state.sftp.start_download(app_handle, request) {
+        Ok(result) => success(result),
+        Err(err) => error(err.to_string()),
+    }
+}
 
-    Ok(success(json!({ "remotePath": remote_path })))
+/// Applies a selected conflict policy to a waiting task.
+#[tauri::command]
+pub fn sftp_resolve_conflict(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    request: SftpResolveConflictRequest,
+) -> IpcResult<()> {
+    match state.sftp.resolve_conflict(app_handle, request) {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Requests cancellation for a desktop SFTP task.
+#[tauri::command]
+pub fn sftp_cancel_transfer(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    request: SftpTransferTaskRequest,
+) -> IpcResult<()> {
+    match state.sftp.cancel(&app_handle, request) {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Requeues a terminal desktop SFTP task.
+#[tauri::command]
+pub fn sftp_retry_transfer(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    request: SftpTransferTaskRequest,
+) -> IpcResult<crate::models::sftp::SftpTransferTaskSnapshot> {
+    match state.sftp.retry(app_handle, request) {
+        Ok(snapshot) => success(snapshot),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Removes a terminal desktop SFTP task record.
+#[tauri::command]
+pub fn sftp_discard_transfer(
+    state: State<'_, AppState>,
+    request: SftpTransferTaskRequest,
+) -> IpcResult<()> {
+    match state.sftp.discard(request) {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
+}
+
+/// Lists desktop SFTP tasks, optionally scoped to one connection.
+#[tauri::command]
+pub fn sftp_list_transfers(
+    state: State<'_, AppState>,
+    connection_id: Option<String>,
+) -> IpcResult<crate::models::sftp::SftpListTransfersResult> {
+    match state.sftp.list(connection_id.as_deref()) {
+        Ok(result) => success(result),
+        Err(err) => error(err.to_string()),
+    }
 }

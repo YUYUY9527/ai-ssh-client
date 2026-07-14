@@ -4,7 +4,6 @@ const path = require('node:path');
 const posixPath = require('node:path').posix;
 
 const express = require('express');
-const multer = require('multer');
 const { Client } = require('ssh2');
 const { WebSocketServer } = require('ws');
 const {
@@ -15,17 +14,18 @@ const {
   stripVisibleAgentArtifacts,
   wrapCommandWithSentinel,
 } = require('./sentinel.cjs');
-const { deleteSftpItem, renameSftpItem } = require('./sftp-items.cjs');
-const { writeSftpFile } = require('./sftp-upload.cjs');
+const {
+  createSftpDirectory,
+  deleteSftpItem,
+  deleteSftpItems,
+  renameSftpItem,
+} = require('./sftp-items.cjs');
+const { createSftpTransferService } = require('./sftp-transfer.cjs');
 
 const PORT = Number(process.env.WEB_PORT || 5080);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'config.json');
 const STATIC_DIR = path.join(__dirname, '..', 'dist', 'renderer');
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: Number(process.env.SFTP_UPLOAD_LIMIT || 200 * 1024 * 1024) },
-});
 
 const defaultSettings = {
   language: 'zh-CN',
@@ -409,6 +409,20 @@ function broadcast(type, payload) {
   });
 }
 
+function emitToClient(clientId, type, payload) {
+  const data = JSON.stringify({ type, payload });
+  sockets.forEach((socket) => {
+    if (socket.clientId === clientId && socket.readyState === socket.OPEN) {
+      socket.send(data);
+    }
+  });
+}
+
+const sftpTransfers = createSftpTransferService({
+  getSftp,
+  emitEvent: emitToClient,
+});
+
 function stateFor(connectionId, patch = {}) {
   const session = sessions.get(connectionId);
 
@@ -428,6 +442,7 @@ function closeSession(connectionId) {
   }
 
   sessions.delete(connectionId);
+  session.sftp?.end?.();
   session.stream?.end();
   session.client.end();
   broadcast('ssh-close', connectionId);
@@ -444,7 +459,7 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
     closeSession(connection.id);
 
     const client = new Client();
-    const session = { client, stream: null, sftp: null, ready: false };
+    const session = { client, stream: null, sftp: null, sftpPromise: null, ready: false };
     sessions.set(connection.id, session);
     broadcast('ssh-data', {
       connectionId: connection.id,
@@ -544,17 +559,30 @@ function getSftp(connectionId) {
   if (session.sftp) {
     return Promise.resolve(session.sftp);
   }
+  if (session.sftpPromise) {
+    return session.sftpPromise;
+  }
 
-  return new Promise((resolve, reject) => {
+  session.sftpPromise = new Promise((resolve, reject) => {
     session.client.sftp((error, sftp) => {
+      session.sftpPromise = null;
       if (error) {
         reject(error);
         return;
       }
+      const invalidate = () => {
+        if (session.sftp === sftp) {
+          session.sftp = null;
+        }
+      };
+      sftp.on?.('close', invalidate);
+      sftp.on?.('end', invalidate);
+      sftp.on?.('error', invalidate);
       session.sftp = sftp;
       resolve(sftp);
     });
   });
+  return session.sftpPromise;
 }
 
 function route(handler) {
@@ -815,12 +843,25 @@ app.delete('/api/sftp/:id/item', route(async (request) => {
   return success();
 }));
 
+// 创建单层远程目录
+app.post('/api/sftp/:id/directory', route(async (request) => {
+  const sftp = await getSftp(request.params.id);
+  await createSftpDirectory(sftp, request.body.remotePath);
+  return success();
+}));
+
+// 批量删除文件/目录，返回逐项结果
+app.delete('/api/sftp/:id/items', route(async (request) => {
+  const sftp = await getSftp(request.params.id);
+  return success(await deleteSftpItems(sftp, request.body.remotePaths || []));
+}));
+
 app.get('/api/sftp/:id/download', async (request, response) => {
   try {
     const remotePath = String(request.query.path || '');
     const filename = posixPath.basename(remotePath);
     const sftp = await getSftp(request.params.id);
-    // 尽量带上 content-length，方便前端显示下载进度
+    // 尽量带上 content-length，并支持 Range 续传下载。
     let size = 0;
     try {
       const stats = await new Promise((resolve, reject) => {
@@ -837,16 +878,42 @@ app.get('/api/sftp/:id/download', async (request, response) => {
       size = 0;
     }
 
+    let start = 0;
+    let end = size > 0 ? size - 1 : undefined;
+    const rangeHeader = String(request.headers.range || '');
+    const rangeMatch = /^bytes=(\d+)-(\d+)?$/i.exec(rangeHeader);
+    if (rangeMatch && size > 0) {
+      start = Number(rangeMatch[1]);
+      end = rangeMatch[2] != null ? Number(rangeMatch[2]) : size - 1;
+      if (Number.isNaN(start) || start < 0 || start >= size) {
+        response.status(416).setHeader('Content-Range', `bytes */${size}`).end();
+        return;
+      }
+      end = Math.min(end, size - 1);
+      response.status(206);
+      response.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+      response.setHeader('Content-Length', String(end - start + 1));
+    } else if (size > 0) {
+      response.setHeader('Content-Length', String(size));
+    }
+
     response.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
     );
     response.setHeader('Content-Type', 'application/octet-stream');
-    if (size > 0) {
-      response.setHeader('Content-Length', String(size));
-    }
+    response.setHeader('Accept-Ranges', 'bytes');
 
-    const readStream = sftp.createReadStream(remotePath);
+    const streamOptions = start > 0 || (end != null && size > 0 && end < size - 1)
+      ? { start, end }
+      : undefined;
+    const readStream = sftp.createReadStream(remotePath, streamOptions);
+    // 客户端断开时销毁 SFTP 读流，避免空转占用会话。
+    request.on('close', () => {
+      if (!response.writableEnded) {
+        readStream.destroy();
+      }
+    });
     readStream.on('error', (error) => {
       if (!response.headersSent) {
         response.status(500).json(failure(error));
@@ -862,46 +929,61 @@ app.get('/api/sftp/:id/download', async (request, response) => {
   }
 });
 
-app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) => {
-  if (!request.file) {
-    throw new Error('No file uploaded');
+function requireClientId(request) {
+  const clientId = request.get('x-sftp-client-id');
+  if (!clientId || clientId.length > 200) {
+    throw new Error('Missing SFTP client identity');
   }
+  return clientId;
+}
 
-  const sftp = await getSftp(request.params.id);
-  const filename = request.file.originalname;
-  const remoteDir = request.body.remoteDir || '/';
-  const remotePath = remoteDir === '/'
-    ? `/${filename}`
-    : posixPath.join(remoteDir, filename);
-  const taskId = request.body.taskId != null ? String(request.body.taskId) : undefined;
-  const connectionId = request.params.id;
-
-  let lastProgress = 50;
-  await writeSftpFile(sftp, remotePath, request.file.buffer, (written, total) => {
-    const progress = total > 0
-      ? Math.min(99, 50 + Math.round((written / total) * 49))
-      : 99;
-    if (progress <= lastProgress) {
-      return;
-    }
-    lastProgress = progress;
-    broadcast('sftp-upload-progress', {
-      connectionId,
-      taskId,
-      filename,
-      progress,
-    });
-  });
-
-  broadcast('sftp-upload-progress', {
-    connectionId,
-    taskId,
-    filename,
-    progress: 100,
-  });
-
-  return success({ remotePath });
+app.post('/api/sftp/transfers/upload', route((request) => {
+  const clientId = requireClientId(request);
+  return success(sftpTransfers.startUpload(clientId, request.body));
 }));
+
+app.post('/api/sftp/transfers/download', route((request) => {
+  const clientId = requireClientId(request);
+  return success(sftpTransfers.startDownload(clientId, request.body, '/api/sftp'));
+}));
+
+app.get('/api/sftp/transfers', route((request) => {
+  const clientId = requireClientId(request);
+  return success(sftpTransfers.list(clientId, request.query.connectionId));
+}));
+
+app.post('/api/sftp/transfers/:taskId/conflict', route((request) => {
+  const clientId = requireClientId(request);
+  sftpTransfers.resolveConflict(clientId, { ...request.body, taskId: request.params.taskId });
+  return success();
+}));
+
+app.post('/api/sftp/transfers/:taskId/cancel', route((request) => {
+  const clientId = requireClientId(request);
+  sftpTransfers.cancel(clientId, { taskId: request.params.taskId });
+  return success();
+}));
+
+app.post('/api/sftp/transfers/:taskId/retry', route(async (request) => {
+  const clientId = requireClientId(request);
+  return success(await sftpTransfers.retry(clientId, { taskId: request.params.taskId }));
+}));
+
+app.delete('/api/sftp/transfers/:taskId', route(async (request) => {
+  const clientId = requireClientId(request);
+  await sftpTransfers.discard(clientId, { taskId: request.params.taskId });
+  return success();
+}));
+
+app.put('/api/sftp/transfers/:taskId/content', async (request, response) => {
+  try {
+    const clientId = requireClientId(request);
+    const snapshot = await sftpTransfers.upload(clientId, request.params.taskId, request);
+    response.json(success({ task: snapshot }));
+  } catch (error) {
+    response.status(error?.code === 'not-found' ? 404 : 400).json(failure(error));
+  }
+});
 
 app.get('/api/ai/providers', route(() => success({
   providers: readStore().aiProviders.map(providerToSummary),
@@ -1057,7 +1139,12 @@ wss.on('connection', (socket) => {
   socket.on('message', (raw) => {
     try {
       const message = JSON.parse(raw.toString());
-      if (message.type === 'ssh-write') {
+      if (message.type === 'sftp-identify') {
+        if (typeof message.clientId !== 'string' || !message.clientId || message.clientId.length > 200) {
+          throw new Error('Invalid SFTP client identity');
+        }
+        socket.clientId = message.clientId;
+      } else if (message.type === 'ssh-write') {
         getSession(message.connectionId).stream.write(message.data || '');
       }
     } catch (error) {
