@@ -48,6 +48,27 @@ function joinRemoteChild(parent: string, name: string): string {
   return `${parent.replace(/\/+$/, '')}/${name}`;
 }
 
+/** 规范化地址栏路径：去空白、折叠重复斜杠，空输入回落家目录。 */
+function normalizeRemoteBrowsePath(rawPath: string): string {
+  const trimmed = rawPath.trim().replace(/\\/g, '/');
+  if (!trimmed || trimmed === '/home') {
+    return DEFAULT_REMOTE_PATH;
+  }
+  // 家目录记法：~、~/、~/a//b
+  if (trimmed === '~' || trimmed === '~/') {
+    return DEFAULT_REMOTE_PATH;
+  }
+  if (trimmed.startsWith('~/')) {
+    return normalizeHistoryPath(trimmed);
+  }
+  // 绝对路径
+  if (trimmed.startsWith('/')) {
+    return normalizeHistoryPath(trimmed);
+  }
+  // 相对路径按家目录子路径处理，避免 SFTP 相对当前目录语义含糊
+  return normalizeHistoryPath(`~/${trimmed}`);
+}
+
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -150,32 +171,34 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     [visibleTransferTasks],
   );
 
-  const loadDirectory = useCallback(async (path: string) => {
+  const loadDirectory = useCallback(async (path: string): Promise<boolean> => {
+    const targetPath = normalizeRemoteBrowsePath(path);
     if (!isLive) {
       setError(t('fileTransfer.connectionOffline'));
       setLoading(false);
-      return;
+      return false;
     }
 
     const requestId = ++loadRequestRef.current;
     setLoading(true);
     setError(null);
+    // 先写入目标路径，避免失败后刷新/重试仍落回旧的 ~
+    setPathInput(targetPath);
+    setBrowserPath(connectionId, targetPath);
 
     try {
       if (!window.electronAPI) {
         throw new Error(t('fileTransfer.loadFailed'));
       }
 
-      const result = await window.electronAPI.listDirectory(connectionId, path);
+      const result = await window.electronAPI.listDirectory(connectionId, targetPath);
       if (requestId !== loadRequestRef.current) {
-        return;
+        return false;
       }
 
       if (result.success) {
         const nextFiles = result.data.files;
         setFiles(nextFiles);
-        setBrowserPath(connectionId, path);
-        setPathInput(path);
         // 刷新时剔除已不存在的选中路径。
         const existing = new Set(nextFiles.map((file) => file.path));
         const currentSelected = useSftpTransferStore.getState()
@@ -184,14 +207,16 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         if (retained.length !== currentSelected.length) {
           setBrowserSelectedPaths(connectionId, retained);
         }
-      } else {
-        setError(result.error || t('fileTransfer.loadFailed'));
+        return true;
       }
+      setError(result.error || t('fileTransfer.loadFailed'));
+      return false;
     } catch (err) {
       if (requestId !== loadRequestRef.current) {
-        return;
+        return false;
       }
       setError((err as Error).message);
+      return false;
     } finally {
       if (requestId === loadRequestRef.current) {
         setLoading(false);
@@ -199,14 +224,20 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     }
   }, [connectionId, isLive, setBrowserPath, setBrowserSelectedPaths, t]);
 
-  // 会话切换时恢复该会话上次路径；首次进入优先用终端 cwd
+  // 用 ref 持有最新 loadDirectory，避免 bootstrap 因回调换引用反复重置路径
+  const loadDirectoryRef = useRef(loadDirectory);
+  loadDirectoryRef.current = loadDirectory;
+
+  // 会话切换 / 连线状态变化时恢复路径；不依赖 loadDirectory 引用
   useEffect(() => {
     const existing = useSftpTransferStore.getState().browserByConnection[connectionId];
     // 迁移历史默认路径 /home（多数主机不存在）到 ~
     const rawPreferred = existing?.remotePath
       || useSessionStore.getState().sessions[connectionId]?.cwd
       || DEFAULT_REMOTE_PATH;
-    const preferredPath = rawPreferred === '/home' ? DEFAULT_REMOTE_PATH : rawPreferred;
+    const preferredPath = normalizeRemoteBrowsePath(
+      rawPreferred === '/home' ? DEFAULT_REMOTE_PATH : rawPreferred,
+    );
 
     if (!existing) {
       getBrowserState(connectionId, preferredPath);
@@ -219,15 +250,22 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     setActionError(null);
     setPathInput(preferredPath);
     handledNavigationVersionRef.current = existing?.navigationVersion ?? 0;
-    void loadDirectory(preferredPath);
-  }, [connectionId, getBrowserState, isLive, loadDirectory, setBrowserPath]);
+    void loadDirectoryRef.current(preferredPath);
+  }, [connectionId, getBrowserState, isLive, setBrowserPath]);
 
+  // 响应 requestBrowserPath：即使侧栏已打开也强制按新路径刷新
   useEffect(() => {
-    if (isLive && handledNavigationVersionRef.current !== navigationVersion) {
-      handledNavigationVersionRef.current = navigationVersion;
-      void loadDirectory(currentPath);
+    if (!isLive) {
+      return;
     }
-  }, [currentPath, isLive, loadDirectory, navigationVersion]);
+    if (handledNavigationVersionRef.current === navigationVersion) {
+      return;
+    }
+    handledNavigationVersionRef.current = navigationVersion;
+    setPathInput(currentPath);
+    setBrowserView(connectionId, 'files');
+    void loadDirectoryRef.current(currentPath);
+  }, [connectionId, currentPath, isLive, navigationVersion, setBrowserView]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -335,15 +373,33 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     void loadDirectory(path);
   };
 
-  const goUp = () => {
-    if (currentPath === '/') {
+  /** 提交地址栏路径（回车 / 失焦确认）。 */
+  const commitPathInput = useCallback(() => {
+    const nextPath = normalizeRemoteBrowsePath(pathInput);
+    if (nextPath === normalizeRemoteBrowsePath(currentPath) && files.length > 0 && !error) {
+      setPathInput(nextPath);
       return;
     }
-    navigateTo(normalizeHistoryPath(`${currentPath.replace(/\/$/, '')}/..`));
+    clearBrowserSelection(connectionId);
+    void loadDirectory(nextPath);
+  }, [clearBrowserSelection, connectionId, currentPath, error, files.length, loadDirectory, pathInput]);
+
+  const goUp = () => {
+    const base = normalizeRemoteBrowsePath(currentPath);
+    if (base === '/') {
+      return;
+    }
+    // 家目录根的上一级用 ~/..，由 SFTP 协议路径 ./.. 解析
+    if (base === '~') {
+      navigateTo('~/..');
+      return;
+    }
+    navigateTo(normalizeHistoryPath(`${base.replace(/\/$/, '')}/..`));
   };
 
   const goHome = () => {
-    navigateTo(sessionCwd || DEFAULT_REMOTE_PATH);
+    // 主页按钮固定回家目录，避免被未解析的终端 cwd 绑死
+    navigateTo(DEFAULT_REMOTE_PATH);
   };
 
   const handleItemClick = (event: React.MouseEvent, file: RemoteFileItem) => {
@@ -676,7 +732,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
               <ChevronRight className="h-4 w-4 rotate-180" />
             </button>
             <button
-              onClick={() => void loadDirectory(currentPath)}
+              onClick={() => void loadDirectory(pathInput || currentPath)}
               className="icon-button h-8 w-8"
               title={t('common.refresh')}
               disabled={!isLive}
@@ -689,12 +745,15 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
               onChange={(e) => setPathInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  void loadDirectory(pathInput);
+                  e.preventDefault();
+                  commitPathInput();
                 }
               }}
               className="industrial-input min-w-0 flex-1 py-1"
               placeholder={t('fileTransfer.pathPlaceholder')}
               disabled={!isLive}
+              spellCheck={false}
+              autoComplete="off"
             />
           </>
         )}
@@ -837,7 +896,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                   {error}
                 </div>
                 <button
-                  onClick={() => void loadDirectory(currentPath)}
+                  onClick={() => void loadDirectory(pathInput || currentPath)}
                   className="industrial-button-secondary px-3 py-1.5"
                 >
                   <RefreshCw className="h-4 w-4" />

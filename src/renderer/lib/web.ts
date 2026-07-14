@@ -36,6 +36,7 @@ import type {
   SftpFilesSelectionResult,
   SftpListTransfersResult,
   SftpResolveConflictRequest,
+  SftpErrorCode,
   SftpStartDownloadRequest,
   SftpStartTransferResult,
   SftpStartUploadRequest,
@@ -119,16 +120,23 @@ function toHex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-/** 计算源文件首尾最多 64KiB 的 SHA-256，用于续传指纹。 */
+/** 计算源文件首尾最多 64KiB 的 SHA-256；非安全上下文无 subtle 时退回空指纹。 */
 async function hashFileEdges(file: File): Promise<{ head: string; tail: string }> {
-  const edge = 64 * 1024;
-  const headSize = Math.min(edge, file.size);
-  const tailStart = Math.max(0, file.size - edge);
-  const [head, tail] = await Promise.all([
-    crypto.subtle.digest('SHA-256', await file.slice(0, headSize).arrayBuffer()),
-    crypto.subtle.digest('SHA-256', await file.slice(tailStart).arrayBuffer()),
-  ]);
-  return { head: toHex(head), tail: toHex(tail) };
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    return { head: '', tail: '' };
+  }
+  try {
+    const edge = 64 * 1024;
+    const headSize = Math.min(edge, file.size);
+    const tailStart = Math.max(0, file.size - edge);
+    const [head, tail] = await Promise.all([
+      crypto.subtle.digest('SHA-256', await file.slice(0, headSize).arrayBuffer()),
+      crypto.subtle.digest('SHA-256', await file.slice(tailStart).arrayBuffer()),
+    ]);
+    return { head: toHex(head), tail: toHex(tail) };
+  } catch {
+    return { head: '', tail: '' };
+  }
 }
 
 function emitTransferSnapshot(snapshot: SftpTransferTaskSnapshot): void {
@@ -143,18 +151,46 @@ function emitTransferSnapshot(snapshot: SftpTransferTaskSnapshot): void {
   });
 }
 
+/** 将 HTTP 返回/本地失败的任务快照推入事件总线，避免只依赖 WebSocket。 */
+function publishTaskSnapshot(snapshot: SftpTransferTaskSnapshot): void {
+  emitTransferSnapshot(snapshot);
+}
+
 /** 流式上传：支持从 checkpoint offset 续传（file.slice）。 */
 async function streamSftpUpload(
   taskId: string,
   resumeOffset = 0,
+  baselinetask?: SftpTransferTaskSnapshot,
 ): Promise<IPCResult<{ task: SftpTransferTaskSnapshot }>> {
   const source = webSftpTaskSources.get(taskId);
   const file = source ? selectedFiles.get(source) : undefined;
   if (!file) {
+    const failed: SftpTransferTaskSnapshot | null = baselinetask
+      ? {
+        ...baselinetask,
+        status: 'failed',
+        error: { code: 'not-found' as SftpErrorCode, message: 'Selected file is no longer available', retryable: false },
+        sequence: baselinetask.sequence + 1,
+        updatedAt: Date.now(),
+        completedAt: Date.now(),
+      }
+      : null;
+    if (failed) publishTaskSnapshot(failed);
     return makeError('Selected file is no longer available', 'not-found');
   }
   const offset = Math.max(0, Math.min(resumeOffset, file.size));
   try {
+    // 进入传输中：立即更新 UI，避免长期停在 queued/等待中
+    if (baselinetask) {
+      publishTaskSnapshot({
+        ...baselinetask,
+        status: 'transferring',
+        resumedFrom: offset,
+        transferredBytes: offset,
+        sequence: baselinetask.sequence + 1,
+        updatedAt: Date.now(),
+      });
+    }
     const edges = await hashFileEdges(file);
     const response = await fetch(`/api/sftp/transfers/${encodeURIComponent(taskId)}/content`, {
       method: 'PUT',
@@ -169,9 +205,38 @@ async function streamSftpUpload(
       },
       body: offset > 0 ? file.slice(offset) : file,
     });
-    return await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
+    const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
+    // HTTP 响应里带最终快照时同步到 store（WebSocket 丢失时也能结束任务）
+    if (result.success && result.data?.task) {
+      publishTaskSnapshot(result.data.task);
+    } else if (!result.success && baselinetask) {
+      publishTaskSnapshot({
+        ...baselinetask,
+        status: 'failed',
+        error: {
+          code: (result.code as SftpErrorCode | undefined) || 'io-error',
+          message: result.error || 'Upload failed',
+          retryable: true,
+        },
+        sequence: baselinetask.sequence + 1,
+        updatedAt: Date.now(),
+        completedAt: Date.now(),
+      });
+    }
+    return result;
   } catch (error) {
-    return makeError(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    if (baselinetask) {
+      publishTaskSnapshot({
+        ...baselinetask,
+        status: 'failed',
+        error: { code: 'io-error', message, retryable: true },
+        sequence: baselinetask.sequence + 1,
+        updatedAt: Date.now(),
+        completedAt: Date.now(),
+      });
+    }
+    return makeError(message);
   }
 }
 
@@ -754,16 +819,34 @@ const webApi: Window['electronAPI'] = {
   startSftpUpload: async (request: SftpStartUploadRequest) => {
     const ensured = await ensureSshSession(request.connectionId);
     if (!ensured.success) return ensured as IPCResult<SftpStartTransferResult>;
+    // 上传前确保事件通道已建立，便于服务端进度推送
+    connectEvents();
     const created = await sftpRequest<SftpStartTransferResult>('/api/sftp/transfers/upload', {
       method: 'POST',
       body: JSON.stringify(request),
     });
     if (!created.success) return created;
-    created.data.tasks.forEach((task) => {
-      const source = request.files.find((file) => file.name === task.name)?.ref;
-      if (!source) return;
+    created.data.tasks.forEach((task, index) => {
+      // 优先按下标绑定，避免同名文件匹配错位导致永不推流
+      const source = request.files[index]?.ref
+        || request.files.find((file) => file.name === task.name)?.ref;
+      if (!source) {
+        publishTaskSnapshot({
+          ...task,
+          status: 'failed',
+          error: {
+            code: 'not-found',
+            message: 'Upload source file is missing',
+            retryable: false,
+          },
+          sequence: task.sequence + 1,
+          updatedAt: Date.now(),
+          completedAt: Date.now(),
+        });
+        return;
+      }
       webSftpTaskSources.set(task.taskId, source);
-      void streamSftpUpload(task.taskId);
+      void streamSftpUpload(task.taskId, 0, task);
     });
     return created;
   },
@@ -815,7 +898,7 @@ const webApi: Window['electronAPI'] = {
         : [request.taskId];
       taskIds.forEach((taskId) => {
         if (webSftpTaskSources.has(taskId)) {
-          void streamSftpUpload(taskId);
+          void streamSftpUpload(taskId, 0);
         }
       });
     }
@@ -834,7 +917,7 @@ const webApi: Window['electronAPI'] = {
       { method: 'POST', body: '{}' },
     );
     if (result.success && result.data.direction === 'upload') {
-      void streamSftpUpload(request.taskId, result.data.resumedFrom || 0);
+      void streamSftpUpload(request.taskId, result.data.resumedFrom || 0, result.data);
     }
     return result;
   },

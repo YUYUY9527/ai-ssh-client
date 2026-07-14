@@ -148,8 +148,12 @@ export function TerminalView({ liveConnectionId, onPasteToAI, sessionId, theme: 
     if (!liveConnectionId) {
       return;
     }
-    const cwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd || DEFAULT_REMOTE_PATH;
-    useSftpTransferStore.getState().requestBrowserPath(liveConnectionId, cwd);
+    // 优先终端已解析的 cwd；否则保留当前 SFTP 浏览路径，最后才回落 ~
+    const sessionCwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd?.trim();
+    const browserPath = useSftpTransferStore.getState()
+      .browserByConnection[liveConnectionId]?.remotePath;
+    const targetPath = sessionCwd || browserPath || DEFAULT_REMOTE_PATH;
+    useSftpTransferStore.getState().requestBrowserPath(liveConnectionId, targetPath);
     useWorkspaceStore.getState().setSftpSidebarOpen(true);
     closeContextMenu();
   }, [closeContextMenu, liveConnectionId]);

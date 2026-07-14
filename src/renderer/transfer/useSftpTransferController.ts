@@ -57,10 +57,13 @@ export function useSftpTransferController(
       if (selection.data.canceled) return undefined;
       selected = selection.data.files;
     }
+    // 以 store 中当前浏览路径为准，避免闭包拿到过期的 remoteDirectory
+    const latestPath = useSftpTransferStore.getState()
+      .browserByConnection[connectionId]?.remotePath || remoteDirectory;
     const result = await window.electronAPI.startSftpUpload({
       connectionId,
       files: selected,
-      remoteDirectory,
+      remoteDirectory: latestPath,
       conflictPolicy: 'ask',
     });
     if (result.success) {
