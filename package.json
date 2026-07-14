@@ -12,6 +12,7 @@
     "test:sentinel": "node scripts/test-sentinel-stripper.cjs",
     "test:history": "node scripts/test-command-history-index.cjs",
     "test:sftp-upload": "node scripts/test-sftp-upload.cjs",
+    "test:sftp-items": "node scripts/test-sftp-items.cjs",
     "web": "node server/index.cjs",
     "tauri": "tauri",
     "preview": "vite preview",

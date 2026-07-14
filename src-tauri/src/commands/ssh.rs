@@ -277,6 +277,57 @@ pub async fn sftp_list_directory(
     )
 }
 
+#[tauri::command]
+pub async fn sftp_rename_item(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: String,
+    remote_path: String,
+    new_name: String,
+) -> Result<IpcResult<()>, String> {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
+        Ok(Some(connection)) => connection,
+        Ok(None) => return Ok(error("Connection not found")),
+        Err(err) => return Ok(error(err.to_string())),
+    };
+
+    Ok(
+        match state
+            .ssh
+            .rename_item(app_handle, connection, remote_path, new_name)
+            .await
+        {
+            Ok(()) => empty_success(),
+            Err(err) => error(err.to_string()),
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn sftp_delete_item(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: String,
+    remote_path: String,
+) -> Result<IpcResult<()>, String> {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
+        Ok(Some(connection)) => connection,
+        Ok(None) => return Ok(error("Connection not found")),
+        Err(err) => return Ok(error(err.to_string())),
+    };
+
+    Ok(
+        match state
+            .ssh
+            .delete_item(app_handle, connection, remote_path)
+            .await
+        {
+            Ok(()) => empty_success(),
+            Err(err) => error(err.to_string()),
+        },
+    )
+}
+
 /// 通过 SFTP 下载远程文件
 ///
 /// 弹出文件保存对话框，然后在后台下载文件，并发送进度更新

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Clipboard, Copy, Edit3 } from 'lucide-react';
+import { Clipboard, Copy, Edit3, FolderOpen } from 'lucide-react';
 
 interface TerminalContextMenuProps {
   x: number;
@@ -8,8 +8,10 @@ interface TerminalContextMenuProps {
   onPaste: () => void;
   onPasteToInput: () => void;
   onPasteToAI: () => void;
+  onOpenFileTransfer: () => void;
   onClose: () => void;
   canPasteToTerminal: boolean;
+  canOpenFileTransfer: boolean;
   translate: (key: string, params?: Record<string, string | number>) => string;
 }
 
@@ -21,8 +23,10 @@ export function TerminalContextMenu({
   onPaste,
   onPasteToInput,
   onPasteToAI,
+  onOpenFileTransfer,
   onClose,
   canPasteToTerminal,
+  canOpenFileTransfer,
   translate,
 }: TerminalContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -94,6 +98,15 @@ export function TerminalContextMenu({
       >
         <Edit3 className="w-4 h-4" />
         {translate('terminal.pasteToAI')}
+      </button>
+      <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
+      <button
+        onClick={(event) => { event.stopPropagation(); onOpenFileTransfer(); }}
+        disabled={!canOpenFileTransfer}
+        className="app-popover-row text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-300"
+      >
+        <FolderOpen className="h-4 w-4" />
+        {translate('terminal.fileTransfer')}
       </button>
     </div>
   );

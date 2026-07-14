@@ -15,6 +15,7 @@ const {
   stripVisibleAgentArtifacts,
   wrapCommandWithSentinel,
 } = require('./sentinel.cjs');
+const { deleteSftpItem, renameSftpItem } = require('./sftp-items.cjs');
 const { writeSftpFile } = require('./sftp-upload.cjs');
 
 const PORT = Number(process.env.WEB_PORT || 5080);
@@ -795,6 +796,18 @@ app.get('/api/sftp/:id/list', route(async (request) => {
       }));
     });
   });
+}));
+
+app.post('/api/sftp/:id/rename', route(async (request) => {
+  const sftp = await getSftp(request.params.id);
+  await renameSftpItem(sftp, request.body.remotePath, request.body.newName);
+  return success();
+}));
+
+app.delete('/api/sftp/:id/item', route(async (request) => {
+  const sftp = await getSftp(request.params.id);
+  await deleteSftpItem(sftp, request.body.remotePath);
+  return success();
 }));
 
 app.get('/api/sftp/:id/download', async (request, response) => {

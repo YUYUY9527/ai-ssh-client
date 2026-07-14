@@ -19,6 +19,7 @@ export interface SftpBrowserSessionState {
   remotePath: string;
   activeView: 'files' | 'tasks';
   selectedPath: string | null;
+  navigationVersion: number;
 }
 
 /** Default remote path when no session memory or cwd is available. */

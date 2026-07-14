@@ -441,6 +441,20 @@ const webApi: Window['electronAPI'] = {
   listDirectory: (connectionId, remotePath) => request<DirectoryListResult<any>>(
     `/api/sftp/${connectionId}/list?path=${encodeURIComponent(remotePath)}`,
   ),
+  renameItem: (connectionId, remotePath, newName) => request<void>(
+    `/api/sftp/${connectionId}/rename`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ remotePath, newName }),
+    },
+  ),
+  deleteItem: (connectionId, remotePath) => request<void>(
+    `/api/sftp/${connectionId}/item`,
+    {
+      method: 'DELETE',
+      body: JSON.stringify({ remotePath }),
+    },
+  ),
   downloadFile: async (connectionId, remotePath, taskId) => {
     const filename = remotePath.split('/').pop() || 'download';
     try {

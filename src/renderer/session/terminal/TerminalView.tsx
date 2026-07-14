@@ -5,6 +5,9 @@ import { AlertCircle, Clock3, Search, Terminal as TerminalIcon, WifiOff } from '
 import { useSessionStore } from '../useSessionStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useI18n } from '../../i18n';
+import { useSftpTransferStore } from '../../store/useSftpTransferStore';
+import { DEFAULT_REMOTE_PATH } from '../../transfer/transfer-types';
+import { useWorkspaceStore } from '../../workspace/useWorkspaceStore';
 import type { AppSettings } from '../../../shared/types';
 import { TerminalContextMenu } from './TerminalContextMenu';
 import { TerminalToolbar } from './TerminalToolbar';
@@ -140,6 +143,16 @@ export function TerminalView({ liveConnectionId, onPasteToAI, sessionId, theme: 
   const handleTerminalPointerDown = () => {
     xtermRef.current?.focus();
   };
+
+  const handleOpenFileTransfer = useCallback(() => {
+    if (!liveConnectionId) {
+      return;
+    }
+    const cwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd || DEFAULT_REMOTE_PATH;
+    useSftpTransferStore.getState().requestBrowserPath(liveConnectionId, cwd);
+    useWorkspaceStore.getState().setSftpSidebarOpen(true);
+    closeContextMenu();
+  }, [closeContextMenu, liveConnectionId]);
 
   // 当 settings 中的 terminalTheme 变化时同步本地状态（处理异步加载）
   useEffect(() => {
@@ -343,8 +356,10 @@ export function TerminalView({ liveConnectionId, onPasteToAI, sessionId, theme: 
             onPaste={handlePaste}
             onPasteToInput={handlePasteToInput}
             onPasteToAI={handlePasteToAI}
+            onOpenFileTransfer={handleOpenFileTransfer}
             onClose={closeContextMenu}
             canPasteToTerminal={isLive}
+            canOpenFileTransfer={isLive}
             translate={t}
           />
         )}

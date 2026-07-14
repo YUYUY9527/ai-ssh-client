@@ -7,18 +7,23 @@ import {
   File,
   FileText,
   Folder,
+  FolderOpen,
   Home,
   Image,
   ListChecks,
   Loader2,
+  Pencil,
   RefreshCw,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react';
 
+import { ConfirmDialog } from './ConfirmDialog';
 import { useI18n } from '../i18n';
 import { normalizeHistoryPath } from '../history/command-history-index';
 import { useSessionStore } from '../session/useSessionStore';
+import { Modal } from '../shared-ui/Modal';
 import {
   useSftpTransferStore,
   type SftpTransferTask,
@@ -75,19 +80,35 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     remotePath: sessionCwd || DEFAULT_REMOTE_PATH,
     activeView: 'files' as const,
     selectedPath: null,
+    navigationVersion: 0,
   };
   const currentPath = resolvedBrowser.remotePath || DEFAULT_REMOTE_PATH;
   const activeView = resolvedBrowser.activeView;
   const selectedPath = resolvedBrowser.selectedPath;
+  const navigationVersion = resolvedBrowser.navigationVersion ?? 0;
 
   const [pathInput, setPathInput] = useState(currentPath);
   const [files, setFiles] = useState<RemoteFileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: RemoteFileItem;
+  } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RemoteFileItem | null>(null);
+  const [renameName, setRenameName] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<RemoteFileItem | null>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const refreshedUploadTasksRef = useRef<Set<string>>(new Set());
   const loadRequestRef = useRef(0);
+  const handledNavigationVersionRef = useRef(navigationVersion);
 
   const visibleTransferTasks = useMemo(
     () => transferTasks
@@ -155,9 +176,53 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     // 切换会话时先清空旧列表，避免短暂显示上一会话内容
     setFiles([]);
     setError(null);
+    setActionError(null);
     setPathInput(preferredPath);
+    handledNavigationVersionRef.current = existing?.navigationVersion ?? 0;
     void loadDirectory(preferredPath);
   }, [connectionId, getBrowserState, isLive, loadDirectory]);
+
+  useEffect(() => {
+    if (isLive && handledNavigationVersionRef.current !== navigationVersion) {
+      handledNavigationVersionRef.current = navigationVersion;
+      void loadDirectory(currentPath);
+    }
+  }, [currentPath, isLive, loadDirectory, navigationVersion]);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    const close = () => setContextMenu(null);
+    const handleClick = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        close();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        close();
+      }
+    };
+
+    document.addEventListener('click', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!renameTarget) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => renameInputRef.current?.select());
+    return () => cancelAnimationFrame(frame);
+  }, [renameTarget]);
 
   useEffect(() => {
     const completedUpload = visibleTransferTasks.find((task) => (
@@ -271,6 +336,72 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         error: (err as Error).message,
         remotePath: file.path,
       });
+    }
+  };
+
+  const openRenameDialog = (item: RemoteFileItem) => {
+    setContextMenu(null);
+    setRenameTarget(item);
+    setRenameName(item.name);
+    setRenameError(null);
+  };
+
+  const handleRename = async () => {
+    if (!renameTarget || isRenaming) {
+      return;
+    }
+    if (renameName === renameTarget.name) {
+      setRenameTarget(null);
+      return;
+    }
+    if (
+      !renameName.trim()
+      || renameName === '.'
+      || renameName === '..'
+      || renameName.includes('/')
+      || renameName.includes('\0')
+    ) {
+      setRenameError(t('fileTransfer.invalidName'));
+      return;
+    }
+    if (!window.electronAPI) {
+      setRenameError(t('fileTransfer.renameFailed'));
+      return;
+    }
+
+    setIsRenaming(true);
+    setRenameError(null);
+    const result = await window.electronAPI.renameItem(
+      connectionId,
+      renameTarget.path,
+      renameName,
+    );
+    setIsRenaming(false);
+    if (!result.success) {
+      setRenameError(result.error || t('fileTransfer.renameFailed'));
+      return;
+    }
+
+    setRenameTarget(null);
+    await loadDirectory(currentPath);
+  };
+
+  const handleDelete = async () => {
+    const target = deleteTarget;
+    if (!target) {
+      return;
+    }
+    setDeleteTarget(null);
+    setActionError(null);
+    if (!window.electronAPI) {
+      setActionError(t('fileTransfer.deleteFailed'));
+      return;
+    }
+
+    const result = await window.electronAPI.deleteItem(connectionId, target.path);
+    await loadDirectory(currentPath);
+    if (!result.success) {
+      setActionError(result.error || t('fileTransfer.deleteFailed'));
     }
   };
 
@@ -566,6 +697,20 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             ref={dropZoneRef}
             className={`file-transfer-scroll relative h-full overflow-y-auto p-2 ${isDragOver ? 'bg-teal-50 ring-2 ring-inset ring-teal-500 dark:bg-teal-900/20' : ''}`}
           >
+            {actionError && (
+              <div className="mb-2 flex items-center gap-2 rounded-sm border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 break-words">{actionError}</span>
+                <button
+                  type="button"
+                  onClick={() => setActionError(null)}
+                  className="icon-button h-6 w-6"
+                  title={t('common.close')}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             {!isLive ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-slate-500 dark:text-slate-400">
                 <AlertCircle className="h-6 w-6 text-amber-500" />
@@ -605,12 +750,11 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
               </div>
             ) : (
               <div className="space-y-1">
-                <div className="industrial-table-head grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3">
+                <div className="industrial-table-head grid grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3">
                   <div>{t('fileTransfer.tableHeaders.name')}</div>
                   <div>{t('fileTransfer.tableHeaders.type')}</div>
                   <div className="text-right">{t('fileTransfer.tableHeaders.size')}</div>
                   <div className="text-right">{t('fileTransfer.tableHeaders.modified')}</div>
-                  <div />
                 </div>
                 {files.map((file) => {
                   const isSelected = selectedFile?.path === file.path;
@@ -625,7 +769,13 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                         setBrowserSelection(connectionId, file.path);
                       }}
                       onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
-                      className={`grid cursor-pointer grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)_2rem] gap-3 rounded-sm px-3 py-2 transition-colors group ${
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setBrowserSelection(connectionId, file.path);
+                        setContextMenu({ x: event.clientX, y: event.clientY, item: file });
+                      }}
+                      className={`grid cursor-pointer grid-cols-[minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3 rounded-sm px-3 py-2 transition-colors group ${
                         isSelected
                           ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)]'
                           : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
@@ -646,20 +796,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                       <div className="whitespace-nowrap text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
                         {formatTime(file.mtime)}
                       </div>
-                      <div className="flex items-center justify-end opacity-0 transition-opacity group-hover:opacity-100">
-                        {!file.isDirectory && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleDownload(file);
-                            }}
-                            className="icon-button h-7 w-7 text-teal-500"
-                            title={t('common.download')}
-                          >
-                            <Download className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
                     </div>
                   );
                 })}
@@ -669,6 +805,65 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             {isDragOver && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-sm border-2 border-dashed border-teal-500 bg-teal-500/20">
                 <div className="font-medium text-teal-500">{t('fileTransfer.dropHint')}</div>
+              </div>
+            )}
+
+            {contextMenu && (
+              <div
+                ref={contextMenuRef}
+                className="app-popover fixed top-auto z-50 mt-0 min-w-[168px] py-1"
+                style={{
+                  left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 184)),
+                  top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 148)),
+                }}
+              >
+                {contextMenu.item.isDirectory ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const item = contextMenu.item;
+                      setContextMenu(null);
+                      navigateTo(item.path);
+                    }}
+                    className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    {t('fileTransfer.open')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const item = contextMenu.item;
+                      setContextMenu(null);
+                      void handleDownload(item);
+                    }}
+                    className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                  >
+                    <Download className="h-4 w-4" />
+                    {t('common.download')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => openRenameDialog(contextMenu.item)}
+                  className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t('fileTransfer.rename')}
+                </button>
+                <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteTarget(contextMenu.item);
+                    setContextMenu(null);
+                  }}
+                  className="app-popover-row text-sm text-red-600 dark:text-red-400"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t('common.delete')}
+                </button>
               </div>
             )}
           </div>
@@ -687,6 +882,73 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             : 'SFTP'}
         </span>
       </div>
+
+      <Modal
+        isOpen={renameTarget != null}
+        onClose={() => {
+          if (!isRenaming) {
+            setRenameTarget(null);
+            setRenameError(null);
+          }
+        }}
+        title={t('fileTransfer.renameTitle')}
+        size="sm"
+        closeLabel={t('common.close')}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleRename();
+          }}
+        >
+          <div className="space-y-2 p-4">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              {t('fileTransfer.renameLabel')}
+            </label>
+            <input
+              ref={renameInputRef}
+              value={renameName}
+              onChange={(event) => {
+                setRenameName(event.target.value);
+                setRenameError(null);
+              }}
+              className="industrial-input w-full"
+              disabled={isRenaming}
+            />
+            {renameError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{renameError}</p>
+            )}
+          </div>
+          <div className="industrial-modal-footer">
+            <button
+              type="button"
+              onClick={() => setRenameTarget(null)}
+              className="industrial-button-secondary"
+              disabled={isRenaming}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="submit"
+              className="industrial-button-primary"
+              disabled={isRenaming}
+            >
+              {isRenaming ? t('common.loading') : t('common.confirm')}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={deleteTarget != null}
+        title={t('fileTransfer.deleteTitle')}
+        message={deleteTarget?.isDirectory
+          ? t('fileTransfer.deleteDirectoryMessage', { name: deleteTarget.name })
+          : t('fileTransfer.deleteFileMessage', { name: deleteTarget?.name || '' })}
+        confirmText={t('common.delete')}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

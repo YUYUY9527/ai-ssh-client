@@ -96,6 +96,8 @@ declare global {
       readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;
 
       listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult<any>>>;
+      renameItem: (connectionId: string, remotePath: string, newName: string) => Promise<IPCResult>;
+      deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
       downloadFile: (connectionId: string, remotePath: string, taskId?: string) => Promise<IPCResult<FileDownloadResult>>;
       uploadFile: (connectionId: string, localPath: string, remoteDir: string, taskId?: string) => Promise<IPCResult<FileUploadResult>>;
       onSftpUploadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => () => void;

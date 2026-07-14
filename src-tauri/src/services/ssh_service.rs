@@ -7,8 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use russh::client::{self, AuthResult, Handle};
 use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect, Pty};
-use russh_sftp::client::{Config as SftpConfig, SftpSession};
-use russh_sftp::protocol::OpenFlags;
+use russh_sftp::client::{error::Error as SftpError, Config as SftpConfig, SftpSession};
+use russh_sftp::protocol::{OpenFlags, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
@@ -537,6 +537,86 @@ impl SshService {
         Ok(())
     }
 
+    /// Renames a remote item without replacing an existing sibling.
+    pub async fn rename_item(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+        new_name: String,
+    ) -> AppResult<()> {
+        let destination = sftp_sibling_path(&remote_path, &new_name)?;
+        let (sftp, session) = open_sftp_session(
+            &connection,
+            Arc::clone(&self.storage),
+            app_handle,
+            Arc::clone(&self.pending_trust),
+        )
+        .await?;
+        let source = sftp_protocol_path(&remote_path);
+        let destination = sftp_protocol_path(&destination);
+
+        match sftp.symlink_metadata(destination.as_str()).await {
+            Ok(_) => return Err(app_error("Destination already exists")),
+            Err(SftpError::Status(status)) if status.status_code == StatusCode::NoSuchFile => {}
+            Err(error) => return Err(error.into()),
+        }
+
+        sftp.rename(source, destination).await?;
+        let _ = session
+            .disconnect(Disconnect::ByApplication, "", "en")
+            .await;
+        Ok(())
+    }
+
+    /// Deletes a remote file, symlink, or directory tree without following symlinks.
+    pub async fn delete_item(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+    ) -> AppResult<()> {
+        validate_sftp_item_path(&remote_path)?;
+        let (sftp, session) = open_sftp_session(
+            &connection,
+            Arc::clone(&self.storage),
+            app_handle,
+            Arc::clone(&self.pending_trust),
+        )
+        .await?;
+        let mut stack = vec![(sftp_protocol_path(&remote_path), false)];
+
+        while let Some((path, visited)) = stack.pop() {
+            if visited {
+                sftp.remove_dir(path).await?;
+                continue;
+            }
+
+            let metadata = sftp.symlink_metadata(path.as_str()).await?;
+            if !metadata.is_dir() || metadata.is_symlink() {
+                sftp.remove_file(path).await?;
+                continue;
+            }
+
+            let entries = sftp.read_dir(path.as_str()).await?;
+            stack.push((path.clone(), true));
+            let mut children = entries
+                .into_iter()
+                .map(|entry| entry.file_name())
+                .filter(|name| name != "." && name != "..")
+                .collect::<Vec<_>>();
+            children.reverse();
+            for name in children {
+                stack.push((sftp_child_path(&path, &name), false));
+            }
+        }
+
+        let _ = session
+            .disconnect(Disconnect::ByApplication, "", "en")
+            .await;
+        Ok(())
+    }
+
     fn insert_session(
         &self,
         connection_id: String,
@@ -578,6 +658,56 @@ fn sftp_protocol_path(path: &str) -> String {
         format!("./{relative}")
     } else {
         path.to_string()
+    }
+}
+
+fn validate_sftp_item_name(name: &str) -> AppResult<()> {
+    if name.trim().is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\0')
+    {
+        return Err(app_error("Invalid SFTP item name"));
+    }
+    Ok(())
+}
+
+fn validate_sftp_item_path(path: &str) -> AppResult<()> {
+    let trimmed = path.trim();
+    let compact = trimmed.trim_end_matches('/');
+    let absolute_depth = trimmed.strip_prefix('/').map(|relative| {
+        relative.split('/').fold(0_usize, |depth, part| match part {
+            "" | "." => depth,
+            ".." => depth.saturating_sub(1),
+            _ => depth + 1,
+        })
+    });
+    if compact.is_empty()
+        || matches!(compact, "." | "~")
+        || absolute_depth.is_some_and(|depth| depth == 0)
+    {
+        return Err(app_error("Protected SFTP path"));
+    }
+    Ok(())
+}
+
+fn sftp_sibling_path(remote_path: &str, new_name: &str) -> AppResult<String> {
+    validate_sftp_item_path(remote_path)?;
+    validate_sftp_item_name(new_name)?;
+    let source = remote_path.trim_end_matches('/');
+    Ok(match source.rsplit_once('/') {
+        Some(("", _)) => format!("/{new_name}"),
+        Some((parent, _)) => format!("{parent}/{new_name}"),
+        None => new_name.to_string(),
+    })
+}
+
+fn sftp_child_path(parent: &str, name: &str) -> String {
+    if parent == "/" {
+        format!("/{name}")
+    } else {
+        format!("{}/{name}", parent.trim_end_matches('/'))
     }
 }
 
@@ -932,7 +1062,10 @@ pub fn emit_sftp_transfer_complete(app_handle: &AppHandle, event: SftpTransferCo
 
 #[cfg(test)]
 mod tests {
-    use super::sftp_protocol_path;
+    use super::{
+        sftp_child_path, sftp_protocol_path, sftp_sibling_path, validate_sftp_item_name,
+        validate_sftp_item_path,
+    };
 
     #[test]
     fn converts_shell_home_paths_for_sftp() {
@@ -942,5 +1075,32 @@ mod tests {
         assert_eq!(sftp_protocol_path("~/project"), "./project");
         assert_eq!(sftp_protocol_path("~/../shared"), "./../shared");
         assert_eq!(sftp_protocol_path("/var/log"), "/var/log");
+    }
+
+    #[test]
+    fn validates_sftp_item_names_and_paths() {
+        for name in ["", "  ", ".", "..", "a/b", "a\0b"] {
+            assert!(validate_sftp_item_name(name).is_err());
+        }
+        assert!(validate_sftp_item_name("report.txt").is_ok());
+
+        for path in ["", "/", "//", "/./", "/tmp/..", ".", "~", "~/"] {
+            assert!(validate_sftp_item_path(path).is_err());
+        }
+        assert!(validate_sftp_item_path("~/project").is_ok());
+    }
+
+    #[test]
+    fn builds_posix_sftp_item_paths() {
+        assert_eq!(
+            sftp_sibling_path("/tmp/old.txt", "new.txt").unwrap(),
+            "/tmp/new.txt"
+        );
+        assert_eq!(
+            sftp_sibling_path("~/old.txt", "new.txt").unwrap(),
+            "~/new.txt"
+        );
+        assert_eq!(sftp_child_path("/", "tmp"), "/tmp");
+        assert_eq!(sftp_child_path("./project", "src"), "./project/src");
     }
 }

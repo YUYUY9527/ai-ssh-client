@@ -58,6 +58,7 @@ interface SftpTransferState {
   clearCompletedTasks: (connectionId?: string) => void;
   getBrowserState: (connectionId: string, preferredPath?: string) => SftpBrowserSessionState;
   setBrowserPath: (connectionId: string, remotePath: string) => void;
+  requestBrowserPath: (connectionId: string, remotePath: string) => void;
   setBrowserView: (connectionId: string, activeView: SftpBrowserSessionState['activeView']) => void;
   setBrowserSelection: (connectionId: string, selectedPath: string | null) => void;
   clearBrowserState: (connectionId: string) => void;
@@ -67,6 +68,7 @@ const DEFAULT_BROWSER_STATE: SftpBrowserSessionState = {
   remotePath: DEFAULT_REMOTE_PATH,
   activeView: 'files',
   selectedPath: null,
+  navigationVersion: 0,
 };
 
 const findTaskIndex = (
@@ -262,6 +264,24 @@ export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
             ...current,
             remotePath,
             selectedPath: null,
+          },
+        },
+      };
+    });
+  },
+
+  requestBrowserPath: (connectionId, remotePath) => {
+    set((state) => {
+      const current = ensureBrowserState(state.browserByConnection, connectionId);
+      return {
+        browserByConnection: {
+          ...state.browserByConnection,
+          [connectionId]: {
+            ...current,
+            remotePath,
+            activeView: 'files',
+            selectedPath: null,
+            navigationVersion: (current.navigationVersion ?? 0) + 1,
           },
         },
       };

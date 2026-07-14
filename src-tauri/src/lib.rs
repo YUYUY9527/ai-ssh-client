@@ -56,6 +56,8 @@ pub fn run() {
             ssh::ssh_clear_host_trust_records,
             ssh::ssh_respond_host_trust,
             ssh::sftp_list_directory,
+            ssh::sftp_rename_item,
+            ssh::sftp_delete_item,
             ssh::sftp_download_file,
             ssh::sftp_upload_file,
             connections::get_connections,

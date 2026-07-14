@@ -89,6 +89,8 @@ type ElectronApiLike = {
   selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<IPCResult<FileSelectResult>>;
   readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;
   listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult<any>>>;
+  renameItem: (connectionId: string, remotePath: string, newName: string) => Promise<IPCResult>;
+  deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
   downloadFile: (connectionId: string, remotePath: string, taskId?: string) => Promise<IPCResult<FileDownloadResult>>;
   uploadFile: (connectionId: string, localPath: string, remoteDir: string, taskId?: string) => Promise<IPCResult<FileUploadResult>>;
   onSftpUploadProgress: (callback: (data: { connectionId: string; taskId?: string; filename: string; progress: number }) => void) => ListenerCleanup;
@@ -253,6 +255,8 @@ const nativeApi: ElectronApiLike = {
   selectFile: (options) => tauriInvoke<FileSelectResult>('select_file', { options }),
   readPrivateKeyFile: (filePath) => tauriInvoke<PrivateKeyFileResult>('read_private_key_file', { filePath }),
   listDirectory: (connectionId, remotePath) => tauriInvoke<DirectoryListResult<any>>('sftp_list_directory', { connectionId, remotePath }),
+  renameItem: (connectionId, remotePath, newName) => tauriInvoke<void>('sftp_rename_item', { connectionId, remotePath, newName }),
+  deleteItem: (connectionId, remotePath) => tauriInvoke<void>('sftp_delete_item', { connectionId, remotePath }),
   downloadFile: (connectionId, remotePath, taskId) => tauriInvoke<FileDownloadResult>('sftp_download_file', { connectionId, remotePath, taskId }),
   uploadFile: (connectionId, localPath, remoteDir, taskId) => tauriInvoke<FileUploadResult>('sftp_upload_file', { connectionId, localPath, remoteDir, taskId }),
   onSftpUploadProgress: (callback) => createTauriListener('sftp-upload-progress', callback),

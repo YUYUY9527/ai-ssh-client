@@ -13,6 +13,19 @@ export const nativeSftp = {
   ): Promise<IPCResult<DirectoryListResult<any>>> => (
     tauriInvoke<DirectoryListResult<any>>('sftp_list_directory', { connectionId, remotePath })
   ),
+  renameItem: (
+    connectionId: string,
+    remotePath: string,
+    newName: string,
+  ): Promise<IPCResult> => (
+    tauriInvoke<void>('sftp_rename_item', { connectionId, remotePath, newName })
+  ),
+  deleteItem: (
+    connectionId: string,
+    remotePath: string,
+  ): Promise<IPCResult> => (
+    tauriInvoke<void>('sftp_delete_item', { connectionId, remotePath })
+  ),
   downloadFile: (
     connectionId: string,
     remotePath: string,
