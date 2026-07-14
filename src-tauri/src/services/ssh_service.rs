@@ -6,8 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use russh::client::{self, AuthResult, Handle};
 use russh::keys::{decode_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect, Pty};
-use russh_sftp::client::{error::Error as SftpError, Config as SftpConfig, SftpSession};
-use russh_sftp::protocol::StatusCode;
+use russh_sftp::client::{Config as SftpConfig, SftpSession};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot};
@@ -15,8 +14,8 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::{app_error, AppResult};
 use crate::models::settings::AppSettings;
 use crate::models::ssh::{
-    HostTrustPromptEvent, HostTrustPromptKind, HostTrustRecord, SftpFileInfo, SshConnection,
-    SshEvent, SshSessionState,
+    HostTrustPromptEvent, HostTrustPromptKind, HostTrustRecord, SshConnection, SshEvent,
+    SshSessionState,
 };
 use crate::services::sentinel::SentinelStripper;
 use crate::services::storage_service::StorageService;
@@ -320,153 +319,6 @@ impl SshService {
         Arc::clone(&self.pending_trust)
     }
 
-    /// Lists a remote directory through SFTP.
-    pub async fn list_directory(
-        &self,
-        app_handle: AppHandle,
-        connection: SshConnection,
-        remote_path: String,
-    ) -> AppResult<Vec<SftpFileInfo>> {
-        let (sftp, session) = open_sftp_session(
-            &connection,
-            Arc::clone(&self.storage),
-            app_handle,
-            Arc::clone(&self.pending_trust),
-        )
-        .await?;
-        let protocol_path = sftp_protocol_path(&remote_path);
-        let entries = sftp.read_dir(protocol_path.as_str()).await?;
-        let mut files = Vec::new();
-
-        for entry in entries {
-            let filename = entry.file_name();
-            let path = if remote_path == "/" {
-                format!("/{filename}")
-            } else {
-                format!("{}/{}", remote_path.trim_end_matches('/'), filename)
-            };
-            let metadata = entry.metadata();
-            files.push(SftpFileInfo {
-                name: filename,
-                path,
-                kind: if metadata.is_symlink() {
-                    "symlink".to_string()
-                } else if metadata.is_dir() {
-                    "directory".to_string()
-                } else {
-                    "file".to_string()
-                },
-                size: metadata.len(),
-                is_directory: metadata.is_dir(),
-                is_symbolic_link: metadata.is_symlink(),
-                mode: metadata
-                    .permissions
-                    .map(|mode| format!("{mode:o}"))
-                    .unwrap_or_default(),
-                mtime: metadata.mtime.map(|value| value as i64 * 1000).unwrap_or(0),
-                atime: metadata.atime.map(|value| value as i64 * 1000).unwrap_or(0),
-                file_type: if metadata.is_dir() {
-                    "directory".to_string()
-                } else {
-                    "file".to_string()
-                },
-            });
-        }
-
-        files.sort_by(|left, right| {
-            right
-                .is_directory
-                .cmp(&left.is_directory)
-                .then_with(|| left.name.cmp(&right.name))
-        });
-
-        let _ = session
-            .disconnect(Disconnect::ByApplication, "", "en")
-            .await;
-        Ok(files)
-    }
-
-
-    /// Renames a remote item without replacing an existing sibling.
-    pub async fn rename_item(
-        &self,
-        app_handle: AppHandle,
-        connection: SshConnection,
-        remote_path: String,
-        new_name: String,
-    ) -> AppResult<()> {
-        let destination = sftp_sibling_path(&remote_path, &new_name)?;
-        let (sftp, session) = open_sftp_session(
-            &connection,
-            Arc::clone(&self.storage),
-            app_handle,
-            Arc::clone(&self.pending_trust),
-        )
-        .await?;
-        let source = sftp_protocol_path(&remote_path);
-        let destination = sftp_protocol_path(&destination);
-
-        match sftp.symlink_metadata(destination.as_str()).await {
-            Ok(_) => return Err(app_error("Destination already exists")),
-            Err(SftpError::Status(status)) if status.status_code == StatusCode::NoSuchFile => {}
-            Err(error) => return Err(error.into()),
-        }
-
-        sftp.rename(source, destination).await?;
-        let _ = session
-            .disconnect(Disconnect::ByApplication, "", "en")
-            .await;
-        Ok(())
-    }
-
-    /// Deletes a remote file, symlink, or directory tree without following symlinks.
-    pub async fn delete_item(
-        &self,
-        app_handle: AppHandle,
-        connection: SshConnection,
-        remote_path: String,
-    ) -> AppResult<()> {
-        validate_sftp_item_path(&remote_path)?;
-        let (sftp, session) = open_sftp_session(
-            &connection,
-            Arc::clone(&self.storage),
-            app_handle,
-            Arc::clone(&self.pending_trust),
-        )
-        .await?;
-        let mut stack = vec![(sftp_protocol_path(&remote_path), false)];
-
-        while let Some((path, visited)) = stack.pop() {
-            if visited {
-                sftp.remove_dir(path).await?;
-                continue;
-            }
-
-            let metadata = sftp.symlink_metadata(path.as_str()).await?;
-            if !metadata.is_dir() || metadata.is_symlink() {
-                sftp.remove_file(path).await?;
-                continue;
-            }
-
-            let entries = sftp.read_dir(path.as_str()).await?;
-            stack.push((path.clone(), true));
-            let mut children = entries
-                .into_iter()
-                .map(|entry| entry.file_name())
-                .filter(|name| name != "." && name != "..")
-                .collect::<Vec<_>>();
-            children.reverse();
-            for name in children {
-                stack.push((sftp_child_path(&path, &name), false));
-            }
-        }
-
-        let _ = session
-            .disconnect(Disconnect::ByApplication, "", "en")
-            .await;
-        Ok(())
-    }
-
     fn insert_session(
         &self,
         connection_id: String,
@@ -492,7 +344,7 @@ impl SshService {
 }
 
 
-fn sftp_protocol_path(path: &str) -> String {
+pub(crate) fn sftp_protocol_path(path: &str) -> String {
     if path == "~" {
         ".".to_string()
     } else if let Some(relative) = path.strip_prefix("~/") {
@@ -502,7 +354,7 @@ fn sftp_protocol_path(path: &str) -> String {
     }
 }
 
-fn validate_sftp_item_name(name: &str) -> AppResult<()> {
+pub(crate) fn validate_sftp_item_name(name: &str) -> AppResult<()> {
     if name.trim().is_empty()
         || name == "."
         || name == ".."
@@ -514,7 +366,7 @@ fn validate_sftp_item_name(name: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn validate_sftp_item_path(path: &str) -> AppResult<()> {
+pub(crate) fn validate_sftp_item_path(path: &str) -> AppResult<()> {
     let trimmed = path.trim();
     let compact = trimmed.trim_end_matches('/');
     let absolute_depth = trimmed.strip_prefix('/').map(|relative| {
@@ -533,7 +385,7 @@ fn validate_sftp_item_path(path: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn sftp_sibling_path(remote_path: &str, new_name: &str) -> AppResult<String> {
+pub(crate) fn sftp_sibling_path(remote_path: &str, new_name: &str) -> AppResult<String> {
     validate_sftp_item_path(remote_path)?;
     validate_sftp_item_name(new_name)?;
     let source = remote_path.trim_end_matches('/');
@@ -544,7 +396,7 @@ fn sftp_sibling_path(remote_path: &str, new_name: &str) -> AppResult<String> {
     })
 }
 
-fn sftp_child_path(parent: &str, name: &str) -> String {
+pub(crate) fn sftp_child_path(parent: &str, name: &str) -> String {
     if parent == "/" {
         format!("/{name}")
     } else {

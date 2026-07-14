@@ -3,6 +3,10 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { AppSettings, SSHConnection } from '../../shared/types';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { useSftpTransferStore } from '../store/useSftpTransferStore';
+import {
+  buildRuntimeConnection,
+  resolveSessionConnection,
+} from './resolve-session-connection';
 import { useSessionStore } from './useSessionStore';
 
 interface UseSessionBridgeOptions {
@@ -79,16 +83,20 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
     if (!session) {
       return;
     }
-    // 优先用 session.connectionId 匹配已保存配置；多会话克隆则带上会话 id
-    const baseConnection = connections.find((item) => (
-      item.id === session.connectionId || item.id === sessionId
-    ));
+    // 临时会话不在列表：用 connectionId / `-session-` 解析已保存配置
+    const baseConnection = resolveSessionConnection(
+      connections,
+      sessionId,
+      session.connectionId,
+    );
     if (!baseConnection) {
       return;
     }
-    const connection = baseConnection.id === sessionId
-      ? baseConnection
-      : { ...baseConnection, id: sessionId };
+    const connection = buildRuntimeConnection(
+      baseConnection,
+      sessionId,
+      session.title || baseConnection.name,
+    );
 
     const maxReconnectAttempts = settings.maxReconnectAttempts || 0;
     const reconnectAttempts = session.reconnectAttempts;

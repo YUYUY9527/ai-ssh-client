@@ -21,6 +21,10 @@ import type { CommandSuggestion, HostTrustPromptEvent, SSHConnection, Session } 
 import type { AppSettings } from '../../shared/types';
 import { useSessionBridge } from '../session/useSessionBridge';
 import { useSessionRecovery } from '../session/useSessionRecovery';
+import {
+  buildRuntimeConnection,
+  resolveSessionConnection,
+} from '../session/resolve-session-connection';
 import { useSessionStore } from '../session/useSessionStore';
 import { AppFooter } from './AppFooter';
 import { AppShell } from './AppShell';
@@ -472,19 +476,29 @@ export function AppController() {
     if (!tabContextMenu) return;
     const { tabId } = tabContextMenu;
     const conns = useConnectionStore.getState().connections;
-    const connection = conns.find(c => c.id === tabId);
-    if (connection && window.electronAPI) {
-      const newConnectionId = `${connection.id}-session-${Date.now()}`;
-      const newConnection: SSHConnection = {
-        ...connection,
-        id: newConnectionId,
-        name: `${connection.name} ${t('connection.copySuffix')}`,
-      };
-      // 不保存到连接列表，直接建立 SSH 连接
+    const sourceSession = useSessionStore.getState().sessions[tabId];
+    // 源可能是已保存连接，也可能是已复制的临时会话
+    const baseConnection = resolveSessionConnection(
+      conns,
+      tabId,
+      sourceSession?.connectionId,
+    );
+    if (baseConnection && window.electronAPI) {
+      const newConnectionId = `${baseConnection.id}-session-${Date.now()}`;
+      const newConnection = buildRuntimeConnection(
+        baseConnection,
+        newConnectionId,
+        `${baseConnection.name} ${t('connection.copySuffix')}`,
+      );
+      // 不保存到连接列表；session.connectionId 指向基础配置以便重连
       const newTab = { id: newConnectionId, name: newConnection.name, isConnected: false, isConnecting: true };
       setOpenTabs(prev => [...prev, newTab]);
       setActiveTabId(newConnectionId);
-      registerSession(newConnection, { state: 'connecting', lastActiveAt: Date.now() });
+      registerSession(newConnection, {
+        connectionId: baseConnection.id,
+        state: 'connecting',
+        lastActiveAt: Date.now(),
+      });
       setActiveSession(newConnectionId);
 
       const result = await window.electronAPI.sshConnect(newConnection, 200, 50, settings);

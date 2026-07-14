@@ -44,9 +44,10 @@ function buildSessionFromConnection(
   connection: SSHConnection,
   overrides?: Partial<Session>,
 ): Session {
+  // connectionId 可指向已保存连接；临时会话 id 与 connectionId 可不同
   return {
     id: overrides?.id ?? connection.id,
-    connectionId: connection.id,
+    connectionId: overrides?.connectionId ?? connection.id,
     title: overrides?.title ?? connection.name,
     state: overrides?.state ?? 'closed',
     isPinned: overrides?.isPinned,
@@ -57,6 +58,14 @@ function buildSessionFromConnection(
     cwd: overrides?.cwd,
     restoredFromScrollback: overrides?.restoredFromScrollback,
   };
+}
+
+/** 按字节上限裁剪终端输出，避免 Zustand 无限增长 */
+function boundSessionOutput(content: string, maxBytes: number): string {
+  if (!content || maxBytes <= 0 || content.length <= maxBytes) {
+    return content || '';
+  }
+  return content.slice(-maxBytes);
 }
 
 function shouldClearRestoredFlag(patch: Partial<Session>): boolean {
@@ -243,21 +252,28 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       return;
     }
 
-    set((state) => ({
-      outputs: {
-        ...state.outputs,
-        [sessionId]: `${state.outputs[sessionId] || ''}${data}`,
-      },
-    }));
+    set((state) => {
+      const maxBytes = state.persistenceSettings.maxScrollbackBytesPerSession;
+      const merged = `${state.outputs[sessionId] || ''}${data}`;
+      return {
+        outputs: {
+          ...state.outputs,
+          [sessionId]: boundSessionOutput(merged, maxBytes),
+        },
+      };
+    });
   },
 
   replaceOutput: (sessionId, data) => {
-    set((state) => ({
-      outputs: {
-        ...state.outputs,
-        [sessionId]: data,
-      },
-    }));
+    set((state) => {
+      const maxBytes = state.persistenceSettings.maxScrollbackBytesPerSession;
+      return {
+        outputs: {
+          ...state.outputs,
+          [sessionId]: boundSessionOutput(data || '', maxBytes),
+        },
+      };
+    });
   },
 
   setSessionCwd: (sessionId, cwd) => {

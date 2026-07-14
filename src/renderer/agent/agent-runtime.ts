@@ -7,6 +7,7 @@ import type {
 import { estimateAgentMessagesTokens } from './langgraph-agent-flow';
 import type {
   AgentConfig,
+  AgentExecution,
   AgentResponse,
   AgentState,
   AgentTask,
@@ -15,6 +16,7 @@ import type {
   PendingApproval,
   ThinkingStep,
 } from '../../shared/types';
+import { getRememberedRiskDecision } from '../assistant/risk-approval-memory';
 import type {
   IPCResult,
   AIChatResult,
@@ -46,6 +48,7 @@ export interface AgentRuntimeActions {
   setAgentState: (state: AgentState) => void;
   addThinkingStep: (step: ThinkingStep) => void;
   updateThinkingStep: (stepId: string, updates: Partial<ThinkingStep>) => void;
+  addExecution: (execution: AgentExecution) => void;
   completeTask: (success: boolean, error?: string, finishReason?: string) => void;
   setPendingApproval: (approval: PendingApproval | null, resetResult?: boolean) => void;
   setApprovalResult: (result: 'approved' | 'rejected' | null) => void;
@@ -958,6 +961,7 @@ export class AgentRuntime {
             status: 'failed',
             content: message,
           });
+          this.recordExecution(execStepId, graphResult.execution.command, message, false);
         }
         this.finishTask(false, message);
         return;
@@ -971,6 +975,13 @@ export class AgentRuntime {
           content: graphResult.execution.observation
             || `${graphResult.execution.command}\n\n${extractKeyOutput(graphResult.execution.output, 1500)}`,
         });
+        this.recordExecution(
+          execStepId,
+          graphResult.execution.command,
+          graphResult.execution.observation
+            || extractKeyOutput(graphResult.execution.output, 2000),
+          true,
+        );
       }
       this.status = 'idle';
       this.actions.setAgentState('thinking');
@@ -1000,6 +1011,17 @@ export class AgentRuntime {
     }
 
     if (nextAction.type === 'approval') {
+      // 会话级「记住选择」：同风险等级可直接批准/拒绝
+      const remembered = getRememberedRiskDecision(nextAction.riskLevel);
+      if (remembered === 'approved') {
+        await this.runCommand(nextAction.command, capturedVersion);
+        return;
+      }
+      if (remembered === 'rejected') {
+        this.finishTask(false, t('agent.finishReasons.userRejected'));
+        return;
+      }
+
       this.status = 'awaitingApproval';
       this.actions.setAgentState('observing');
       this.actions.setPendingApproval({
@@ -1036,6 +1058,7 @@ export class AgentRuntime {
 
     let output = '';
     let observation = '';
+    let success = false;
     try {
       const { runAgentExecutionGraph } = await import('./langgraph-agent-flow');
       const result = await runAgentExecutionGraph({
@@ -1056,6 +1079,7 @@ export class AgentRuntime {
       output = result.output;
       observation = result.observation;
       this.lastCommandOutput = result.nextDecisionContext || result.output;
+      success = true;
     } catch (error) {
       if (error instanceof AbortedByRuntimeError) {
         return;
@@ -1063,6 +1087,7 @@ export class AgentRuntime {
       if (!this.isCurrent(capturedVersion)) return;
       const msg = error instanceof Error ? error.message : t('agent.finishReasons.aiFailed');
       this.actions.updateThinkingStep(execStepId, { status: 'failed', content: msg });
+      this.recordExecution(execStepId, command, msg, false);
       this.finishTask(false, msg);
       return;
     }
@@ -1073,10 +1098,74 @@ export class AgentRuntime {
       status: 'completed',
       content: observation || `${command}\n\n${extractKeyOutput(output, 1500)}`,
     });
+    this.recordExecution(
+      execStepId,
+      command,
+      observation || extractKeyOutput(output, 2000),
+      success,
+    );
 
     this.status = 'idle';
     this.actions.setAgentState('thinking');
     this.scheduleProcess();
+  }
+
+  /** 写入 Agent executions + 统一命令历史（executedBy: ai） */
+  private recordExecution(
+    stepId: string,
+    command: string,
+    output: string,
+    success: boolean,
+  ) {
+    const execution: AgentExecution = {
+      id: `exec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      stepId,
+      command,
+      output,
+      timestamp: Date.now(),
+      success,
+    };
+    this.actions.addExecution(execution);
+
+    const connectionId = this.taskConnectionId || this.snapshot.activeConnectionId || '';
+    void this.persistAiCommandHistory(connectionId, command, success);
+  }
+
+  private async persistAiCommandHistory(
+    connectionId: string,
+    command: string,
+    approved: boolean,
+  ) {
+    try {
+      const { useCommandHistoryStore } = await import('../history/useCommandHistoryStore');
+      const { useConnectionStore } = await import('../store/useConnectionStore');
+      const { useSessionStore } = await import('../session/useSessionStore');
+      const { resolveSessionConnection } = await import('../session/resolve-session-connection');
+
+      const session = connectionId
+        ? useSessionStore.getState().sessions[connectionId]
+        : null;
+      const connection = resolveSessionConnection(
+        useConnectionStore.getState().connections,
+        connectionId,
+        session?.connectionId,
+      );
+
+      await useCommandHistoryStore.getState().addHistoryItem({
+        id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        command,
+        timestamp: Date.now(),
+        connectionId: connectionId || connection?.id || '',
+        connectionName: connection?.name || session?.title || 'Agent',
+        host: connection?.host,
+        username: connection?.username,
+        executedBy: 'ai',
+        approved,
+        cwd: session?.cwd,
+      });
+    } catch {
+      // 历史写入失败不影响 Agent 主流程
+    }
   }
 
   // --------------------------------------------------------------------

@@ -306,7 +306,7 @@ const enUS: DeepStringify<typeof zhCN> = {
   },
   aiProvider: {
     title: 'AI Providers',
-    description: 'Intelligent agent AI supplier configuration',
+    description: 'Supports OpenAI-compatible APIs with common provider presets (unified /chat/completions).',
     addProvider: 'Add Provider',
     noProviders: 'No AI providers configured.',
     activate: 'Activate',

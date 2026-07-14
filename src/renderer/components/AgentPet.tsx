@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Send, Settings, ShieldAlert, Terminal, Trash2, User, X, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Save, Send, Settings, ShieldAlert, Terminal, Trash2, User, X, XCircle } from 'lucide-react';
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useConnectionStore } from '../store/useConnectionStore';
+import { rememberRiskDecision } from '../assistant/risk-approval-memory';
 import { useSessionStore } from '../session/useSessionStore';
 import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
 import { useI18n, t } from '../i18n';
@@ -515,6 +516,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const [isCompletionViewed, setIsCompletionViewed] = useState(false);
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [rememberApprovalChoice, setRememberApprovalChoice] = useState(false);
   const { providers, activeProviderId } = useAIStore();
   const activeConnectionId = useSessionStore((state) => state.activeSessionId);
   const { t } = useI18n();
@@ -570,6 +572,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   };
 
   const handleApproval = (result: 'approved' | 'rejected') => {
+    // 会话级记住选择：后续同 riskLevel 自动决策
+    if (rememberApprovalChoice && pendingApproval) {
+      rememberRiskDecision(pendingApproval.riskLevel, result);
+    }
+    setRememberApprovalChoice(false);
     setApprovalResult(result);
   };
 
@@ -1049,6 +1056,21 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                 {getCommandDescription(pendingApproval.command) && (
                   <p className="mt-2 text-xs leading-5 text-slate-400">{getCommandDescription(pendingApproval.command)}</p>
                 )}
+                <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-slate-500">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={rememberApprovalChoice}
+                    onChange={(event) => setRememberApprovalChoice(event.target.checked)}
+                  />
+                  <span className="inline-flex flex-col gap-0.5">
+                    <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                      <Save className="h-3 w-3" />
+                      {t('commandApproval.rememberChoice')}
+                    </span>
+                    <span>{t('commandApproval.rememberChoiceDesc')}</span>
+                  </span>
+                </label>
                 <div className="mt-3 flex gap-2">
                   <button onClick={() => handleApproval('rejected')} className="industrial-button-secondary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.reject')}</button>
                   <button onClick={() => handleApproval('approved')} className="industrial-button-primary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.approve')}</button>

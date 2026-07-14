@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import type { AppSettings, SSHConnection } from '../../shared/types';
+import {
+  buildRuntimeConnection,
+  resolveSessionConnection,
+} from '../session/resolve-session-connection';
+import { useSessionStore } from '../session/useSessionStore';
 
 interface ConnectionState {
   connections: SSHConnection[];
@@ -83,13 +88,14 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   reconnect: async (connectionId: string) => {
     if (!window.electronAPI) return false;
     const { connections } = get();
-    const exact = connections.find((item) => item.id === connectionId);
-    if (exact) {
-      return get().connect(exact);
-    }
-    // 多会话克隆：id 为 `${baseId}-session-...`，用基础配置 + 会话 id 重连
-    const base = connections.find((item) => connectionId.startsWith(`${item.id}-session-`));
+    const session = useSessionStore.getState().sessions[connectionId];
+    // 临时会话不在连接列表：用 session.connectionId / `-session-` 前缀解析基础配置
+    const base = resolveSessionConnection(
+      connections,
+      connectionId,
+      session?.connectionId,
+    );
     if (!base) return false;
-    return get().connect({ ...base, id: connectionId });
+    return get().connect(buildRuntimeConnection(base, connectionId, session?.title || base.name));
   },
 }));

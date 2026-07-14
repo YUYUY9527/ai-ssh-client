@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
+import { clearRememberedRiskDecisions } from '../assistant/risk-approval-memory';
 import { useI18n, useI18nStore, localeNames } from '../i18n';
 import type { Locale } from '../i18n';
 import type { AppSettings, HostTrustRecord } from '../../shared/types';
@@ -427,7 +428,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       <ToggleButton
                         enabled={localSettings.rememberChoice ?? true}
                         label={t('settings.security.rememberChoice')}
-                        onChange={(value) => setLocalSettings({ ...localSettings, rememberChoice: value })}
+                        onChange={(value) => {
+                          // 关闭后清空会话级记忆，避免残留自动批准
+                          if (!value) {
+                            clearRememberedRiskDecisions();
+                          }
+                          setLocalSettings({ ...localSettings, rememberChoice: value });
+                        }}
                       />
                     </div>
                   </div>

@@ -28,17 +28,18 @@ const EMPTY_PROVIDER_FORM: ProviderFormState = {
 };
 
 function getProviderTypeLabel(type: AIProviderType): string {
+  // 后端统一走 OpenAI-compatible /chat/completions；预设仅影响默认 URL/模型
   switch (type) {
     case 'openai':
       return 'OpenAI';
     case 'openai-compatible':
       return 'OpenAI Compatible';
     case 'anthropic':
-      return 'Anthropic';
+      return 'Anthropic (compatible)';
     case 'gemini':
-      return 'Gemini';
+      return 'Gemini (compatible)';
     case 'ollama':
-      return 'Ollama';
+      return 'Ollama (compatible)';
     default:
       return type;
   }
@@ -298,9 +299,9 @@ export function AIProviderSettings() {
               >
                 <option value="openai">OpenAI</option>
                 <option value="openai-compatible">OpenAI Compatible</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="gemini">Gemini</option>
-                <option value="ollama">Ollama</option>
+                <option value="anthropic">Anthropic (compatible endpoint)</option>
+                <option value="gemini">Gemini (compatible endpoint)</option>
+                <option value="ollama">Ollama (compatible endpoint)</option>
               </select>
             </div>
             <div className="sm:col-span-2">

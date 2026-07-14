@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use russh_sftp::protocol::OpenFlags;
+use russh_sftp::client::error::Error as SftpError;
+use russh_sftp::protocol::{OpenFlags, StatusCode};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
@@ -19,8 +20,11 @@ use crate::models::sftp::{
     SftpStartTransferResult, SftpStartUploadRequest, SftpTransferDirection, SftpTransferError,
     SftpTransferStatus, SftpTransferTaskRequest, SftpTransferTaskSnapshot,
 };
-use crate::models::ssh::SshConnection;
-use crate::services::ssh_service::{open_sftp_session, SshService};
+use crate::models::ssh::{SftpFileInfo, SshConnection};
+use crate::services::ssh_service::{
+    open_sftp_session, sftp_child_path, sftp_protocol_path, sftp_sibling_path,
+    validate_sftp_item_path, SshService,
+};
 
 const TRANSFER_BUFFER_BYTES: usize = 64 * 1024;
 const CHECKPOINT_BYTES: u64 = 4 * 1024 * 1024;
@@ -458,6 +462,136 @@ impl SftpService {
         Ok(SftpListTransfersResult { tasks: snapshots })
     }
 
+    /// Lists a remote directory using a reusable SFTP channel.
+    pub async fn list_directory(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+    ) -> AppResult<Vec<SftpFileInfo>> {
+        let protocol_path = sftp_protocol_path(&remote_path);
+        self.with_sftp(&app_handle, &connection, |sftp| {
+            let remote_path = remote_path.clone();
+            let protocol_path = protocol_path.clone();
+            async move {
+                let entries = sftp.read_dir(protocol_path.as_str()).await?;
+                let mut files = Vec::new();
+                for entry in entries {
+                    let filename = entry.file_name();
+                    let path = if remote_path == "/" {
+                        format!("/{filename}")
+                    } else {
+                        format!("{}/{}", remote_path.trim_end_matches('/'), filename)
+                    };
+                    let metadata = entry.metadata();
+                    files.push(SftpFileInfo {
+                        name: filename,
+                        path,
+                        kind: if metadata.is_symlink() {
+                            "symlink".to_string()
+                        } else if metadata.is_dir() {
+                            "directory".to_string()
+                        } else {
+                            "file".to_string()
+                        },
+                        size: metadata.len(),
+                        is_directory: metadata.is_dir(),
+                        is_symbolic_link: metadata.is_symlink(),
+                        mode: metadata
+                            .permissions
+                            .map(|mode| format!("{mode:o}"))
+                            .unwrap_or_default(),
+                        mtime: metadata.mtime.map(|value| value as i64 * 1000).unwrap_or(0),
+                        atime: metadata.atime.map(|value| value as i64 * 1000).unwrap_or(0),
+                        file_type: if metadata.is_dir() {
+                            "directory".to_string()
+                        } else {
+                            "file".to_string()
+                        },
+                    });
+                }
+                files.sort_by(|left, right| {
+                    right
+                        .is_directory
+                        .cmp(&left.is_directory)
+                        .then_with(|| left.name.cmp(&right.name))
+                });
+                Ok(files)
+            }
+        })
+        .await
+    }
+
+    /// Renames a remote item without replacing an existing sibling.
+    pub async fn rename_item(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+        new_name: String,
+    ) -> AppResult<()> {
+        let destination = sftp_sibling_path(&remote_path, &new_name)?;
+        let source = sftp_protocol_path(&remote_path);
+        let destination = sftp_protocol_path(&destination);
+        self.with_sftp(&app_handle, &connection, |sftp| {
+            let source = source.clone();
+            let destination = destination.clone();
+            async move {
+                match sftp.symlink_metadata(destination.as_str()).await {
+                    Ok(_) => return Err(app_error("Destination already exists")),
+                    Err(SftpError::Status(status))
+                        if status.status_code == StatusCode::NoSuchFile => {}
+                    Err(error) => return Err(error.into()),
+                }
+                sftp.rename(source, destination).await?;
+                Ok(())
+            }
+        })
+        .await
+    }
+
+    /// Deletes a remote file, symlink, or directory tree without following symlinks.
+    pub async fn delete_item(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+    ) -> AppResult<()> {
+        validate_sftp_item_path(&remote_path)?;
+        self.with_sftp(&app_handle, &connection, |sftp| {
+            let remote_path = remote_path.clone();
+            async move {
+                let mut stack = vec![(sftp_protocol_path(&remote_path), false)];
+                while let Some((path, visited)) = stack.pop() {
+                    if visited {
+                        sftp.remove_dir(path).await?;
+                        continue;
+                    }
+
+                    let metadata = sftp.symlink_metadata(path.as_str()).await?;
+                    if !metadata.is_dir() || metadata.is_symlink() {
+                        sftp.remove_file(path).await?;
+                        continue;
+                    }
+
+                    let entries = sftp.read_dir(path.as_str()).await?;
+                    stack.push((path.clone(), true));
+                    let mut children = entries
+                        .into_iter()
+                        .map(|entry| entry.file_name())
+                        .filter(|name| name != "." && name != "..")
+                        .collect::<Vec<_>>();
+                    children.reverse();
+                    for name in children {
+                        stack.push((sftp_child_path(&path, &name), false));
+                    }
+                }
+                Ok(())
+            }
+        })
+        .await
+    }
+
     /// Creates one remote directory after validating that it is a direct child path.
     pub async fn create_directory(
         &self,
@@ -466,9 +600,15 @@ impl SftpService {
         remote_path: String,
     ) -> AppResult<()> {
         validate_remote_path(&remote_path)?;
-        let sftp = self.session_for(&app_handle, &connection).await?;
-        sftp.sftp.create_dir(&remote_path).await?;
-        Ok(())
+        let protocol_path = sftp_protocol_path(&remote_path);
+        self.with_sftp(&app_handle, &connection, |sftp| {
+            let protocol_path = protocol_path.clone();
+            async move {
+                sftp.create_dir(protocol_path.as_str()).await?;
+                Ok(())
+            }
+        })
+        .await
     }
 
     /// Deletes all requested paths and reports individual outcomes without aborting the batch.
@@ -481,8 +621,8 @@ impl SftpService {
         let paths = collapse_descendants(remote_paths);
         let mut items = Vec::with_capacity(paths.len());
         for path in paths {
+            // 复用缓存会话，避免批量删除时反复建连
             let outcome = self
-                .ssh
                 .delete_item(app_handle.clone(), connection.clone(), path.clone())
                 .await;
             items.push(match outcome {
@@ -990,10 +1130,20 @@ impl SftpService {
         app_handle: &AppHandle,
         connection: &SshConnection,
     ) -> AppResult<Arc<CachedSftpSession>> {
-        let mut sessions = self.sessions.lock().await;
-        if let Some(session) = sessions.get(&connection.id) {
-            return Ok(session.clone());
+        {
+            let sessions = self.sessions.lock().await;
+            if let Some(session) = sessions.get(&connection.id) {
+                return Ok(session.clone());
+            }
         }
+        self.open_and_cache_session(app_handle, connection).await
+    }
+
+    async fn open_and_cache_session(
+        &self,
+        app_handle: &AppHandle,
+        connection: &SshConnection,
+    ) -> AppResult<Arc<CachedSftpSession>> {
         let (sftp, transport) = open_sftp_session(
             connection,
             self.ssh.storage(),
@@ -1005,8 +1155,41 @@ impl SftpService {
             sftp: Arc::new(sftp),
             _transport: transport,
         });
+        let mut sessions = self.sessions.lock().await;
         sessions.insert(connection.id.clone(), session.clone());
         Ok(session)
+    }
+
+    async fn drop_session(&self, connection_id: &str) {
+        let mut sessions = self.sessions.lock().await;
+        sessions.remove(connection_id);
+    }
+
+    /// Runs an SFTP op on a cached channel; on failure drop and retry once.
+    async fn with_sftp<T, F, Fut>(
+        &self,
+        app_handle: &AppHandle,
+        connection: &SshConnection,
+        op: F,
+    ) -> AppResult<T>
+    where
+        F: Fn(Arc<russh_sftp::client::SftpSession>) -> Fut + Send,
+        Fut: std::future::Future<Output = AppResult<T>> + Send,
+        T: Send,
+    {
+        let session = self.session_for(app_handle, connection).await?;
+        match op(Arc::clone(&session.sftp)).await {
+            Ok(value) => Ok(value),
+            Err(first_error) => {
+                // 通道可能已失效：丢弃缓存后重建再试一次
+                self.drop_session(&connection.id).await;
+                let session = self.open_and_cache_session(app_handle, connection).await?;
+                match op(Arc::clone(&session.sftp)).await {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(first_error),
+                }
+            }
+        }
     }
 
     fn transfer_permits_for(&self, connection_id: &str) -> AppResult<Arc<Semaphore>> {

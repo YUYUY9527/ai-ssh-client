@@ -258,7 +258,7 @@ pub async fn sftp_list_directory(
 
     Ok(
         match state
-            .ssh
+            .sftp
             .list_directory(
                 app_handle,
                 connection,
@@ -292,7 +292,7 @@ pub async fn sftp_rename_item(
 
     Ok(
         match state
-            .ssh
+            .sftp
             .rename_item(app_handle, connection, remote_path, new_name)
             .await
         {
@@ -317,7 +317,7 @@ pub async fn sftp_delete_item(
 
     Ok(
         match state
-            .ssh
+            .sftp
             .delete_item(app_handle, connection, remote_path)
             .await
         {

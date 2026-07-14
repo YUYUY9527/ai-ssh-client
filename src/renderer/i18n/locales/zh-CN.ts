@@ -300,7 +300,7 @@ const zhCN = {
   },
   aiProvider: {
     title: 'AI 供应商',
-    description: '智能体AI供应商配置',
+    description: '支持 OpenAI-compatible API，并提供常见服务预设（统一 /chat/completions 协议）。',
     addProvider: '添加供应商',
     noProviders: '还没有配置 AI 供应商。',
     activate: '激活',

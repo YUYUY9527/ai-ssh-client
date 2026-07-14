@@ -342,6 +342,7 @@ export function ModalHost({
         <Suspense fallback={<LazyModalFallback translate={translate} />}>
           <CommandApproval
             command={pendingCommand}
+            rememberEnabled={settings.rememberChoice !== false}
             onApprove={onApproveCommand}
             onReject={onRejectCommand}
           />
