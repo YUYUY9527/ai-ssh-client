@@ -1013,6 +1013,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         title={t('fileTransfer.renameTitle')}
         size="sm"
         closeLabel={t('common.close')}
+        initialFocusRef={renameInputRef}
       >
         <form
           onSubmit={(event) => {
@@ -1069,6 +1070,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         title={t('fileTransfer.mkdirTitle')}
         size="sm"
         closeLabel={t('common.close')}
+        initialFocusRef={mkdirInputRef}
       >
         <form
           onSubmit={(event) => {

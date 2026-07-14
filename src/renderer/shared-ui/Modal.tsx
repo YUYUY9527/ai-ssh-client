@@ -9,9 +9,13 @@ const SIZE_CLASS = {
   xl: 'max-w-xl',
 } as const;
 
-/** 可聚焦元素选择器，用于焦点陷阱与初始聚焦 */
+/** 可聚焦元素选择器，用于焦点陷阱 */
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** 表单字段优先于关闭按钮，避免打开时焦点落到标题栏 X 上 */
+const PREFERRED_FOCUS_SELECTOR =
+  'input:not([disabled]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea:not([disabled]), select:not([disabled])';
 
 interface ModalProps {
   isOpen: boolean;
@@ -53,37 +57,43 @@ export function Modal({
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // 用 ref 持有回调，避免父组件每次渲染新建 onClose 时重跑焦点副作用
+  const onCloseRef = useRef(onClose);
+  const closeOnEscRef = useRef(closeOnEsc);
+  const initialFocusRefHolder = useRef(initialFocusRef);
+  onCloseRef.current = onClose;
+  closeOnEscRef.current = closeOnEsc;
+  initialFocusRefHolder.current = initialFocusRef;
 
-  // 打开期间处理焦点管理、Esc 关闭、Tab 焦点陷阱与 body 滚动锁定
+  // 仅在 isOpen 变为 true 时初始化焦点/键盘陷阱；输入过程中的重渲染不得抢焦点
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
-    // 记录打开前的焦点元素，关闭后恢复
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    // 下一帧将焦点移入弹窗（优先指定元素，否则第一个可聚焦元素）
     const focusFrame = requestAnimationFrame(() => {
-      if (initialFocusRef?.current) {
-        initialFocusRef.current.focus();
+      const preferred = initialFocusRefHolder.current?.current;
+      if (preferred) {
+        preferred.focus();
         return;
       }
       const panel = panelRef.current;
       if (!panel) {
         return;
       }
+      const formField = panel.querySelector<HTMLElement>(PREFERRED_FOCUS_SELECTOR);
       const firstFocusable = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-      (firstFocusable ?? panel).focus();
+      (formField ?? firstFocusable ?? panel).focus();
     });
 
-    // 键盘处理：Esc 关闭、Tab 在弹窗内循环
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && closeOnEsc) {
+      if (event.key === 'Escape' && closeOnEscRef.current) {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') {
@@ -93,7 +103,6 @@ export function Modal({
       if (!panel) {
         return;
       }
-      // 收集当前可见的可聚焦元素
       const focusable = Array.from(
         panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
       ).filter((element) => element.offsetParent !== null);
@@ -104,7 +113,6 @@ export function Modal({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       const active = document.activeElement as HTMLElement | null;
-      // 到达边界时循环到另一端，保持焦点不逃出弹窗
       if (event.shiftKey && active === first) {
         event.preventDefault();
         last.focus();
@@ -121,7 +129,7 @@ export function Modal({
       document.body.style.overflow = originalOverflow;
       previouslyFocusedRef.current?.focus?.();
     };
-  }, [isOpen, closeOnEsc, onClose, initialFocusRef]);
+  }, [isOpen]);
 
   if (!isOpen) {
     return null;

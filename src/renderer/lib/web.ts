@@ -91,11 +91,13 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<IPCResult<T>> {
   try {
+    // headers 必须在 ...options 之后合并，否则自定义 headers 会丢掉 Content-Type，
+    // 导致 express.json 无法解析 body（SFTP 上传/下载表现为 No files selected）。
     const response = await fetch(path, {
+      ...options,
       headers: options.body instanceof FormData
         ? options.headers
         : { 'Content-Type': 'application/json', ...options.headers },
-      ...options,
     });
     return await response.json();
   } catch (error) {
