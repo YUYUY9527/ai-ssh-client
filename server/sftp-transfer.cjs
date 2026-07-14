@@ -349,16 +349,18 @@ function createSftpTransferService({ getSftp, emitEvent }) {
           for (let start = 0; start < chunk.length; start += CHUNK_SIZE) {
             if (task.canceled) throw new TransferError('Transfer canceled', 'canceled', true);
             const part = chunk.subarray(start, Math.min(start + CHUNK_SIZE, chunk.length));
-            const written = await new Promise((resolve, reject) => {
-              sftp.write(handle, part, 0, part.length, offset, (error, nextOffset) => {
+            // ssh2 WRITE 回调第二个参数是 bufferOffset+bytesWritten，不是文件绝对偏移。
+            // 这里 bufferOffset 固定为 0，因此成功时应等于 part.length。
+            const acknowledged = await new Promise((resolve, reject) => {
+              sftp.write(handle, part, 0, part.length, offset, (error, bytesEnd) => {
                 if (error) reject(error);
-                else resolve(nextOffset);
+                else resolve(bytesEnd);
               });
             });
-            if (!Number.isInteger(written) || written !== offset + part.length) {
-              throw new TransferError(`Invalid SFTP write result: ${written}`);
+            if (!Number.isInteger(acknowledged) || acknowledged !== part.length) {
+              throw new TransferError(`Invalid SFTP write result: ${acknowledged}`);
             }
-            offset = written;
+            offset += part.length;
             update(task, (current) => {
               current.transferredBytes = offset;
               current.totalBytes = sourceSize || current.totalBytes || undefined;

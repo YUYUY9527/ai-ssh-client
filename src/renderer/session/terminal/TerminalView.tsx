@@ -148,11 +148,16 @@ export function TerminalView({ liveConnectionId, onPasteToAI, sessionId, theme: 
     if (!liveConnectionId) {
       return;
     }
-    // 优先终端已解析的 cwd；否则保留当前 SFTP 浏览路径，最后才回落 ~
+    // 终端已解析到非默认 cwd 时跳转；cwd 仍是 ~ 或未解析时保留当前浏览路径，避免误重置
     const sessionCwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd?.trim();
     const browserPath = useSftpTransferStore.getState()
       .browserByConnection[liveConnectionId]?.remotePath;
-    const targetPath = sessionCwd || browserPath || DEFAULT_REMOTE_PATH;
+    const trackedAwayFromHome = Boolean(
+      sessionCwd && sessionCwd !== '~' && sessionCwd !== DEFAULT_REMOTE_PATH,
+    );
+    const targetPath = trackedAwayFromHome
+      ? sessionCwd!
+      : (browserPath || sessionCwd || DEFAULT_REMOTE_PATH);
     useSftpTransferStore.getState().requestBrowserPath(liveConnectionId, targetPath);
     useWorkspaceStore.getState().setSftpSidebarOpen(true);
     closeContextMenu();

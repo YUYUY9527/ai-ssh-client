@@ -224,11 +224,14 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     }
   }, [connectionId, isLive, setBrowserPath, setBrowserSelectedPaths, t]);
 
-  // 用 ref 持有最新 loadDirectory，避免 bootstrap 因回调换引用反复重置路径
+  // 用 ref 持有最新 loadDirectory，避免 effect 因回调换引用反复重置路径
   const loadDirectoryRef = useRef(loadDirectory);
   loadDirectoryRef.current = loadDirectory;
+  // 记录已完成初始化的 connectionId，避免 isLive 抖动把路径打回 ~
+  const bootstrappedConnectionRef = useRef<string | null>(null);
+  const wasLiveRef = useRef(isLive);
 
-  // 会话切换 / 连线状态变化时恢复路径；不依赖 loadDirectory 引用
+  // 仅在切换会话时初始化浏览路径；不把 isLive 放进依赖，防止连线抖动重置目录
   useEffect(() => {
     const existing = useSftpTransferStore.getState().browserByConnection[connectionId];
     // 迁移历史默认路径 /home（多数主机不存在）到 ~
@@ -250,8 +253,29 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     setActionError(null);
     setPathInput(preferredPath);
     handledNavigationVersionRef.current = existing?.navigationVersion ?? 0;
-    void loadDirectoryRef.current(preferredPath);
-  }, [connectionId, getBrowserState, isLive, setBrowserPath]);
+    bootstrappedConnectionRef.current = connectionId;
+    wasLiveRef.current = isLive;
+    if (isLive) {
+      void loadDirectoryRef.current(preferredPath);
+    }
+    // isLive 仅读取首帧，抖动恢复由下方 effect 处理
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟 connectionId
+  }, [connectionId, getBrowserState, setBrowserPath]);
+
+  // 从离线恢复在线时，按 store 当前路径刷新，绝不回落到会话默认 ~
+  useEffect(() => {
+    const wasLive = wasLiveRef.current;
+    wasLiveRef.current = isLive;
+    if (!isLive || wasLive) {
+      return;
+    }
+    if (bootstrappedConnectionRef.current !== connectionId) {
+      return;
+    }
+    const path = useSftpTransferStore.getState()
+      .browserByConnection[connectionId]?.remotePath || DEFAULT_REMOTE_PATH;
+    void loadDirectoryRef.current(path);
+  }, [connectionId, isLive]);
 
   // 响应 requestBrowserPath：即使侧栏已打开也强制按新路径刷新
   useEffect(() => {

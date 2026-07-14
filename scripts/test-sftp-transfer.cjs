@@ -45,7 +45,7 @@ function createSftp(files = new Map()) {
     write(handle, data, offset, length, position, callback) {
       const entry = handles.get(handle);
       assert.ok(entry);
-      assert.equal(offset, 0);
+      // 对齐 ssh2：回调返回 bufferOffset + writtenLength，而非文件 position。
       const chunk = data.subarray(offset, offset + length);
       if (position === entry.buffer.length) {
         entry.buffer = Buffer.concat([entry.buffer, chunk]);
@@ -60,7 +60,7 @@ function createSftp(files = new Map()) {
         chunk.copy(next, position);
         entry.buffer = next;
       }
-      callback(null, position + chunk.length);
+      callback(null, offset + length);
     },
     close(handle, callback) {
       const entry = handles.get(handle);
@@ -148,6 +148,26 @@ async function main() {
   assert.equal(completed.progress, 100);
   assert.equal(completed.commitGuarantee, 'atomic-create');
   assert.ok(events.every((event) => event.clientId === 'client-a'));
+
+  // 多块写入（>64KiB）：ssh2 回调返回 buffer 端偏移，不能当文件绝对偏移累加
+  const largeSize = 70 * 1024;
+  const largePayload = Buffer.alloc(largeSize, 7);
+  const largeCreated = service.startUpload('client-a', {
+    connectionId: 'connection-a',
+    remoteDirectory: '/uploads',
+    files: [{ name: 'large.bin', ref: 'web-file:large', size: largeSize }],
+  });
+  const largeTask = largeCreated.tasks[0];
+  await service.upload('client-a', largeTask.taskId, requestLike([largePayload], {
+    'content-length': String(largeSize),
+    'x-sftp-source-size': String(largeSize),
+    'x-sftp-source-mtime': '200',
+  }));
+  assert.equal(remoteFiles.get('/uploads/large.bin').length, largeSize);
+  assert.equal(
+    service.list('client-a').tasks.find((item) => item.taskId === largeTask.taskId).status,
+    'completed',
+  );
 
   remoteFiles.set('/uploads/existing.txt', Buffer.from('old'));
   const conflicted = service.startUpload('client-a', {
