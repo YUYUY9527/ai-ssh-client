@@ -881,14 +881,6 @@ app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) =>
     filename,
     progress: 100,
   });
-  broadcast('sftp-transfer-complete', {
-    connectionId,
-    taskId,
-    filename,
-    transferType: 'upload',
-    success: true,
-    remotePath,
-  });
 
   return success({ remotePath });
 }));
