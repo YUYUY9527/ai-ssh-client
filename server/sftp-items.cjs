@@ -3,7 +3,7 @@ const posixPath = require('node:path').posix;
 const NO_SUCH_FILE = 2;
 const PROTECTED_PATHS = new Set(['', '/', '.', '~', '~/']);
 
-/** 将 shell 家目录记法转换为 SFTP 协议路径。 */
+/** 将 shell 家目录记法转换为 SFTP 协议路径。/home 是真实目录，不得映射为家目录。 */
 function sftpProtocolPath(remotePath) {
   const value = String(remotePath || '').trim();
   if (!value || value === '~') {
@@ -11,9 +11,6 @@ function sftpProtocolPath(remotePath) {
   }
   if (value.startsWith('~/')) {
     return `./${value.slice(2)}`;
-  }
-  if (value === '/home') {
-    return '.';
   }
   return value;
 }

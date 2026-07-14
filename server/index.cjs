@@ -555,10 +555,10 @@ function getSession(connectionId) {
   return session;
 }
 
-/** 拼接远端展示路径，保持 ~ 前缀语义。 */
+/** 拼接远端展示路径，保持 ~ 前缀语义。/home 是真实目录，不按家目录处理。 */
 function joinRemoteDisplayPath(parent, name) {
   const base = String(parent || '').replace(/\/+$/, '') || '/';
-  if (base === '~' || base === '.' || base === './' || base === '/home') {
+  if (base === '~' || base === '.' || base === './') {
     return `~/${name}`;
   }
   if (base === '/') {
@@ -816,10 +816,10 @@ app.get('/api/sftp/:id/list', route(async (request) => {
   const protocolPath = sftpProtocolPath(requestedPath);
   const sftp = await getSftp(request.params.id);
 
-  // realpath 把 ~ / . / ~/foo 解析成绝对路径，前端地址栏与子目录跳转都走绝对路径
+  // realpath 把 ~ / . / ~/foo 解析成绝对路径；/home 保持为真实目录，不映射成家目录
   const resolvedPath = await new Promise((resolve) => {
     if (typeof sftp.realpath !== 'function') {
-      resolve(requestedPath === '/home' ? '~' : requestedPath);
+      resolve(requestedPath);
       return;
     }
     sftp.realpath(protocolPath, (error, absolute) => {
@@ -827,7 +827,7 @@ app.get('/api/sftp/:id/list', route(async (request) => {
         resolve(String(absolute));
         return;
       }
-      resolve(requestedPath === '/home' ? '~' : requestedPath);
+      resolve(requestedPath);
     });
   });
 
@@ -838,7 +838,7 @@ app.get('/api/sftp/:id/list', route(async (request) => {
         return;
       }
 
-      const displayPath = resolvedPath === '/home' ? '~' : resolvedPath;
+      const displayPath = resolvedPath;
       const files = list.map((item) => ({
         name: item.filename,
         path: joinRemoteDisplayPath(displayPath, item.filename),

@@ -48,10 +48,10 @@ function joinRemoteChild(parent: string, name: string): string {
   return `${parent.replace(/\/+$/, '')}/${name}`;
 }
 
-/** 规范化地址栏路径：去空白、折叠重复斜杠，空输入回落家目录。 */
+/** 规范化地址栏路径：去空白、折叠重复斜杠，空输入回落家目录。/home 是真实目录，不改写成 ~。 */
 function normalizeRemoteBrowsePath(rawPath: string): string {
   const trimmed = rawPath.trim().replace(/\\/g, '/');
-  if (!trimmed || trimmed === '/home') {
+  if (!trimmed) {
     return DEFAULT_REMOTE_PATH;
   }
   // 家目录记法：~、~/、~/a//b
@@ -61,7 +61,7 @@ function normalizeRemoteBrowsePath(rawPath: string): string {
   if (trimmed.startsWith('~/')) {
     return normalizeHistoryPath(trimmed);
   }
-  // 绝对路径
+  // 绝对路径（含 /home、/root 等）原样规范化
   if (trimmed.startsWith('/')) {
     return normalizeHistoryPath(trimmed);
   }
@@ -239,18 +239,15 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   useEffect(() => {
     const store = useSftpTransferStore.getState();
     const existing = store.browserByConnection[connectionId];
-    // 迁移历史默认路径 /home（多数主机不存在）到 ~
-    const rawPreferred = existing?.remotePath
-      || useSessionStore.getState().sessions[connectionId]?.cwd
-      || DEFAULT_REMOTE_PATH;
+    // /home 是真实目录，不再迁移成 ~；仅空路径回落默认
     const preferredPath = normalizeRemoteBrowsePath(
-      rawPreferred === '/home' ? DEFAULT_REMOTE_PATH : rawPreferred,
+      existing?.remotePath
+      || useSessionStore.getState().sessions[connectionId]?.cwd
+      || DEFAULT_REMOTE_PATH,
     );
 
     if (!existing) {
       store.getBrowserState(connectionId, preferredPath);
-    } else if (existing.remotePath === '/home') {
-      store.setBrowserPath(connectionId, DEFAULT_REMOTE_PATH);
     }
 
     setFiles([]);
