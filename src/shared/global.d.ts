@@ -98,8 +98,8 @@ declare global {
       saveQuickCommandGroup: (group: QuickCommandGroup) => Promise<IPCResult>;
       deleteQuickCommandGroup: (groupId: string) => Promise<IPCResult>;
 
-      exportAllData: () => Promise<IPCResult<ExportDataResult<any>>>;
-      importData: (data: any, options?: { merge?: boolean }) => Promise<IPCResult>;
+      exportAllData: (options?: { includeSecrets?: boolean }) => Promise<IPCResult<ExportDataResult<any>>>;
+      importData: (data: any, options?: { merge?: boolean }) => Promise<IPCResult<ImportDataResult>>;
 
       selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<IPCResult<FileSelectResult>>;
       readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;

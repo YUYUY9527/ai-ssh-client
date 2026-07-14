@@ -719,7 +719,9 @@ const webApi: Window['electronAPI'] = {
     method: 'DELETE',
   }),
 
-  exportAllData: () => request<ExportDataResult<any>>('/api/export'),
+  exportAllData: (options) => request<ExportDataResult<any>>(
+    `/api/export?includeSecrets=${options?.includeSecrets === false ? 'false' : 'true'}`,
+  ),
   importData: (data, options) => request<ImportDataResult>(
     `/api/import?merge=${options?.merge === false ? 'false' : 'true'}`,
     {

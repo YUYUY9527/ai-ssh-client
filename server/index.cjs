@@ -613,14 +613,31 @@ app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', (_request, response) => response.json(success({ ok: true })));
 
-app.get('/api/export', route(() => {
+app.get('/api/export', route((request) => {
   const store = readStore();
+  const includeSecrets = request.query.includeSecrets !== 'false';
+  const connections = includeSecrets
+    ? store.connections
+    : store.connections.map((item) => ({
+      ...item,
+      password: undefined,
+      privateKey: undefined,
+      passphrase: undefined,
+    }));
+  const aiProviders = includeSecrets
+    ? store.aiProviders
+    : store.aiProviders.map((item) => ({
+      ...item,
+      apiKey: undefined,
+    }));
 
   return success({
     data: {
-      version: 'web-gateway-1',
-      connections: store.connections,
-      aiProviders: store.aiProviders,
+      version: 'ai-ssh-client-1',
+      exportedAt: Date.now(),
+      includeSecrets,
+      connections,
+      aiProviders,
       settings: store.settings,
       commandHistory: store.commandHistory,
       quickCommands: store.quickCommands,

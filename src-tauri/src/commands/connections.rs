@@ -1,9 +1,24 @@
+use serde::Deserialize;
 use serde_json::json;
 use tauri::State;
 
 use crate::models::ipc::{empty_success, error, success, IpcResult};
 use crate::models::ssh::SshConnection;
 use crate::AppState;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportDataOptions {
+    /// When false, password/private key/api key are stripped.
+    pub include_secrets: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDataOptions {
+    /// When true (default), upsert by id; when false, replace related collections.
+    pub merge: Option<bool>,
+}
 
 /// Gets saved SSH connections.
 #[tauri::command]
@@ -44,33 +59,41 @@ pub fn reorder_connections(
     }
 }
 
-/// Exports all persisted user data. Full schema is added during storage migration.
+/// Exports persisted user data (connections, providers, settings, history...).
 #[tauri::command]
-pub fn export_all_data() -> IpcResult<serde_json::Value> {
-    success(json!({
-        "data": {
-            "version": "tauri-migration-0",
-            "connections": [],
-            "aiProviders": [],
-            "settings": {},
-            "commandHistory": [],
-            "quickCommands": [],
-            "quickCommandGroups": []
-        }
-    }))
+pub fn export_all_data(
+    state: State<'_, AppState>,
+    options: Option<ExportDataOptions>,
+) -> IpcResult<serde_json::Value> {
+    let include_secrets = options
+        .and_then(|value| value.include_secrets)
+        .unwrap_or(true);
+    match state.storage.export_all_data(include_secrets) {
+        Ok(data) => success(json!({ "data": data })),
+        Err(err) => error(err.to_string()),
+    }
 }
 
-/// Imports user data. Full schema validation is added during storage migration.
+/// Imports a backup payload; merge defaults to true.
 #[tauri::command]
-pub fn import_data() -> IpcResult<serde_json::Value> {
-    success(json!({
-        "imported": {
-            "connections": 0,
-            "aiProviders": 0,
-            "settings": 0,
-            "quickCommands": 0,
-            "quickCommandGroups": 0
-        },
-        "skipped": []
-    }))
+pub fn import_data(
+    state: State<'_, AppState>,
+    data: serde_json::Value,
+    options: Option<ImportDataOptions>,
+) -> IpcResult<serde_json::Value> {
+    let merge = options.and_then(|value| value.merge).unwrap_or(true);
+    match state.storage.import_all_data(data, merge) {
+        Ok(summary) => success(json!({
+            "imported": {
+                "connections": summary.connections,
+                "aiProviders": summary.ai_providers,
+                "settings": summary.settings,
+                "quickCommands": summary.quick_commands,
+                "quickCommandGroups": summary.quick_command_groups,
+                "commandHistory": summary.command_history,
+            },
+            "skipped": summary.skipped,
+        })),
+        Err(err) => error(err.to_string()),
+    }
 }

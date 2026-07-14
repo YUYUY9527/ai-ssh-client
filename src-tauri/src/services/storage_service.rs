@@ -711,6 +711,288 @@ impl StorageService {
                 .retain(|command| command.group_id.as_deref() != Some(group_id));
         })
     }
+
+    /// Exports persisted app data; secrets optional for safer shareable backups.
+    pub fn export_all_data(&self, include_secrets: bool) -> AppResult<serde_json::Value> {
+        let mut connections = self.get_connections()?;
+        let mut providers = self.get_ai_providers()?;
+        if !include_secrets {
+            for connection in &mut connections {
+                connection.password = None;
+                connection.private_key = None;
+                connection.passphrase = None;
+            }
+            for provider in &mut providers {
+                provider.api_key = None;
+            }
+        }
+
+        Ok(serde_json::json!({
+            "version": "ai-ssh-client-1",
+            "exportedAt": chrono_like_millis(),
+            "includeSecrets": include_secrets,
+            "connections": connections,
+            "aiProviders": providers,
+            "settings": self.get_settings()?,
+            "commandHistory": self.get_command_history()?,
+            "quickCommands": self.get_quick_commands()?,
+            "quickCommandGroups": self.get_quick_command_groups()?,
+            "hostTrustRecords": self.list_host_trust_records()?,
+        }))
+    }
+
+    /// Imports a backup payload with merge or replace semantics.
+    pub fn import_all_data(
+        &self,
+        payload: serde_json::Value,
+        merge: bool,
+    ) -> AppResult<ImportSummary> {
+        let data = if payload.get("data").is_some() {
+            payload.get("data").cloned().unwrap_or(payload)
+        } else {
+            payload
+        };
+
+        let connections = parse_connections(data.get("connections").or_else(|| data.get("sshConnections")));
+        let providers = parse_ai_providers(data.get("aiProviders").or_else(|| data.get("ai_providers")));
+        let settings = data
+            .get("settings")
+            .and_then(|value| serde_json::from_value::<AppSettings>(value.clone()).ok());
+        let history = parse_command_history(
+            data.get("commandHistory")
+                .or_else(|| data.get("command_history")),
+        );
+        let quick_commands = parse_quick_commands(
+            data.get("quickCommands")
+                .or_else(|| data.get("quick_commands")),
+        );
+        let quick_groups = parse_quick_groups(
+            data.get("quickCommandGroups")
+                .or_else(|| data.get("quick_command_groups")),
+        );
+        let host_trust = parse_host_trust(
+            data.get("hostTrustRecords")
+                .or_else(|| data.get("host_trust_records")),
+        );
+
+        let mut skipped = Vec::new();
+
+        if !merge {
+            // 覆盖模式：先清空相关集合再写入
+            let existing = self.get_connections()?;
+            for connection in existing {
+                let _ = self.delete_connection(&connection.id);
+            }
+            let existing_providers = self.get_ai_providers()?;
+            for provider in existing_providers {
+                let _ = self.delete_ai_provider(&provider.id);
+            }
+            let _ = self.clear_command_history();
+            self.update(|store| {
+                store.quick_commands.clear();
+                store.quick_command_groups.clear();
+                store.host_trust_records.clear();
+            })?;
+        }
+
+        let mut imported_connections = 0usize;
+        for connection in connections {
+            if connection.host.trim().is_empty() || connection.username.trim().is_empty() {
+                skipped.push(ImportIssue {
+                    scope: "connection".to_string(),
+                    id: Some(connection.id.clone()),
+                    reason: "missing host or username".to_string(),
+                });
+                continue;
+            }
+            self.save_connection(connection)?;
+            imported_connections += 1;
+        }
+
+        let mut imported_providers = 0usize;
+        for provider in providers {
+            if provider.name.trim().is_empty() {
+                skipped.push(ImportIssue {
+                    scope: "provider".to_string(),
+                    id: Some(provider.id.clone()),
+                    reason: "missing provider name".to_string(),
+                });
+                continue;
+            }
+            self.save_ai_provider(provider)?;
+            imported_providers += 1;
+        }
+
+        let mut imported_settings = 0usize;
+        if let Some(settings) = settings {
+            self.save_settings(settings)?;
+            imported_settings = 1;
+        }
+
+        let mut imported_history = 0usize;
+        if !history.is_empty() {
+            if merge {
+                for item in history.into_iter().rev() {
+                    self.add_command_history(item)?;
+                    imported_history += 1;
+                }
+            } else {
+                imported_history = history.len().min(500);
+                self.update(|store| {
+                    store.command_history = history;
+                    store.command_history.truncate(500);
+                })?;
+            }
+        }
+
+        let mut imported_quick = 0usize;
+        for command in quick_commands {
+            self.save_quick_command(command)?;
+            imported_quick += 1;
+        }
+
+        let mut imported_groups = 0usize;
+        for group in quick_groups {
+            self.save_quick_command_group(group)?;
+            imported_groups += 1;
+        }
+
+        for record in host_trust {
+            let _ = self.upsert_host_trust_record(record);
+        }
+
+        Ok(ImportSummary {
+            connections: imported_connections,
+            ai_providers: imported_providers,
+            settings: imported_settings,
+            quick_commands: imported_quick,
+            quick_command_groups: imported_groups,
+            command_history: imported_history,
+            skipped,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportIssue {
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSummary {
+    pub connections: usize,
+    pub ai_providers: usize,
+    pub settings: usize,
+    pub quick_commands: usize,
+    pub quick_command_groups: usize,
+    pub command_history: usize,
+    pub skipped: Vec<ImportIssue>,
+}
+
+fn chrono_like_millis() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn parse_connections(value: Option<&serde_json::Value>) -> Vec<SshConnection> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let Ok(items) = serde_json::from_value::<Vec<serde_json::Value>>(value.clone()) else {
+        return Vec::new();
+    };
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let id = item
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let host = item
+                .get("host")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let username = item
+                .get("username")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if host.trim().is_empty() || username.trim().is_empty() {
+                return None;
+            }
+            Some(SshConnection {
+                id,
+                name: item
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&host)
+                    .to_string(),
+                host,
+                port: item
+                    .get("port")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(22)
+                    .min(u16::MAX as u64) as u16,
+                username,
+                password: item
+                    .get("password")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .filter(|v| !v.is_empty()),
+                private_key: item
+                    .get("privateKey")
+                    .or_else(|| item.get("private_key"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .filter(|v| !v.is_empty()),
+                passphrase: item
+                    .get("passphrase")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .filter(|v| !v.is_empty()),
+            })
+        })
+        .collect()
+}
+
+fn parse_ai_providers(value: Option<&serde_json::Value>) -> Vec<AiProviderConfig> {
+    value
+        .and_then(|v| serde_json::from_value::<Vec<AiProviderConfig>>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+fn parse_command_history(value: Option<&serde_json::Value>) -> Vec<CommandHistoryItem> {
+    value
+        .and_then(|v| serde_json::from_value::<Vec<CommandHistoryItem>>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+fn parse_quick_commands(value: Option<&serde_json::Value>) -> Vec<QuickCommand> {
+    value
+        .and_then(|v| serde_json::from_value::<Vec<QuickCommand>>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+fn parse_quick_groups(value: Option<&serde_json::Value>) -> Vec<QuickCommandGroup> {
+    value
+        .and_then(|v| serde_json::from_value::<Vec<QuickCommandGroup>>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+fn parse_host_trust(value: Option<&serde_json::Value>) -> Vec<HostTrustRecord> {
+    value
+        .and_then(|v| serde_json::from_value::<Vec<HostTrustRecord>>(v.clone()).ok())
+        .unwrap_or_default()
 }
 
 fn decode_legacy_secret(raw_value: &str) -> Option<String> {

@@ -350,11 +350,38 @@ export interface importDataResult {
     settings: number;
     quickCommands: number;
     quickCommandGroups: number;
+    commandHistory?: number;
   };
   skipped: importIssue[];
 }
 
 export interface ImportDataResult extends importDataResult {}
+
+export interface ExportDataOptions {
+  includeSecrets?: boolean;
+}
+
+export interface ImportDataOptions {
+  merge?: boolean;
+}
+
+/** Full app backup payload (export/import). */
+export interface AppBackupData {
+  version?: string;
+  exportedAt?: number;
+  includeSecrets?: boolean;
+  encrypted?: boolean;
+  salt?: string;
+  iv?: string;
+  ciphertext?: string;
+  connections?: unknown[];
+  aiProviders?: unknown[];
+  settings?: unknown;
+  commandHistory?: unknown[];
+  quickCommands?: unknown[];
+  quickCommandGroups?: unknown[];
+  hostTrustRecords?: unknown[];
+}
 
 export interface AIProviderSecretStatusResult {
   providerId: string;

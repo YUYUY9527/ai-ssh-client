@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DragEvent, RefObject } from 'react';
 import {
+  Download,
   Edit3,
   FolderUp,
   GripVertical,
@@ -12,11 +13,14 @@ import {
   Settings,
   Sun,
   Trash2,
+  Upload,
 } from 'lucide-react';
 
 import { AppIcon } from '../components/AppIcon';
+import { ConnectionImportExportModal } from '../connection/ConnectionImportExportModal';
 import { CommandHistoryPanel } from '../history/CommandHistoryPanel';
 import { QuickCommandsPanel } from '../components/QuickCommandsPanel';
+import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
 import type { SSHConnection } from '../../shared/types';
 
@@ -61,9 +65,12 @@ export function WorkspaceHeader({
   onToggleSftpSidebar,
 }: WorkspaceHeaderProps) {
   const reorderConnections = useConnectionStore((state) => state.reorderConnections);
+  const loadConnections = useConnectionStore((state) => state.loadConnections);
+  const loadProviders = useAIStore((state) => state.loadProviders);
   const [connectionQuery, setConnectionQuery] = useState('');
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
   const [dragOverConnectionId, setDragOverConnectionId] = useState<string | null>(null);
+  const [importExportMode, setImportExportMode] = useState<'export' | 'import' | null>(null);
   const normalizedQuery = connectionQuery.trim().toLowerCase();
   // 按名称/主机/用户名过滤连接，便于在大量连接中快速定位
   const filteredConnections = normalizedQuery
@@ -266,9 +273,39 @@ export function WorkspaceHeader({
                   ))}
                 </>
               )}
+              {/* 连接下拉底部：导入 / 导出 */}
+              <div className="mt-1 flex gap-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-2">
+                <button
+                  type="button"
+                  className="industrial-button-secondary flex-1 justify-center px-2 py-1.5 text-xs"
+                  onClick={() => setImportExportMode('import')}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {translate('connection.importExport.import')}
+                </button>
+                <button
+                  type="button"
+                  className="industrial-button-secondary flex-1 justify-center px-2 py-1.5 text-xs"
+                  onClick={() => setImportExportMode('export')}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {translate('connection.importExport.export')}
+                </button>
+              </div>
             </div>
           )}
         </div>
+
+        <ConnectionImportExportModal
+          isOpen={importExportMode !== null}
+          mode={importExportMode || 'export'}
+          existingConnections={connections}
+          onClose={() => setImportExportMode(null)}
+          onImported={async () => {
+            // 导入后刷新连接列表与 AI 供应商
+            await Promise.all([loadConnections(), loadProviders()]);
+          }}
+        />
 
         {activeTabId && (
           <button
