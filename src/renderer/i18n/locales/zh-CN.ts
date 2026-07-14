@@ -44,6 +44,7 @@ const zhCN = {
     copySuffix: '(副本)',
     searchPlaceholder: '搜索连接...',
     noMatches: '未找到匹配的连接',
+    dragToReorder: '拖动可调整顺序',
     status: {
       disconnected: '未连接',
       connecting: '连接中...',

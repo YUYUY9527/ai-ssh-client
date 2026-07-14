@@ -32,6 +32,18 @@ pub fn delete_connection(state: State<'_, AppState>, connection_id: String) -> I
     }
 }
 
+/// Reorders saved SSH connections.
+#[tauri::command]
+pub fn reorder_connections(
+    state: State<'_, AppState>,
+    connection_ids: Vec<String>,
+) -> IpcResult<()> {
+    match state.storage.reorder_connections(connection_ids) {
+        Ok(()) => empty_success(),
+        Err(err) => error(err.to_string()),
+    }
+}
+
 /// Exports all persisted user data. Full schema is added during storage migration.
 #[tauri::command]
 pub fn export_all_data() -> IpcResult<serde_json::Value> {

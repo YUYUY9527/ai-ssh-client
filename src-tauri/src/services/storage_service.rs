@@ -463,6 +463,25 @@ impl StorageService {
         })
     }
 
+    /// Reorders SSH connections by the given id sequence and persists the order.
+    pub fn reorder_connections(&self, connection_ids: Vec<String>) -> AppResult<()> {
+        self.update(|data| {
+            let mut by_id: std::collections::HashMap<String, StoredSshConnection> = data
+                .ssh_connections
+                .drain(..)
+                .map(|connection| (connection.id.clone(), connection))
+                .collect();
+            let mut ordered = Vec::with_capacity(by_id.len());
+            for id in connection_ids {
+                if let Some(connection) = by_id.remove(&id) {
+                    ordered.push(connection);
+                }
+            }
+            ordered.extend(by_id.into_values());
+            data.ssh_connections = ordered;
+        })
+    }
+
     /// Returns AI provider configs.
     pub fn get_ai_providers(&self) -> AppResult<Vec<AiProviderConfig>> {
         self.migrate_legacy_ai_secrets_if_needed()?;

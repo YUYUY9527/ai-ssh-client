@@ -74,6 +74,7 @@ pub fn run() {
             connections::get_connections,
             connections::save_connection,
             connections::delete_connection,
+            connections::reorder_connections,
             connections::export_all_data,
             connections::import_data,
             ai::ai_chat,

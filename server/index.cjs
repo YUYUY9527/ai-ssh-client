@@ -700,10 +700,33 @@ app.get('/api/connections', route(() => success({ connections: readStore().conne
 app.post('/api/connections', route((request) => {
   updateStore((store) => {
     const next = request.body.connection;
-    store.connections = [
-      ...store.connections.filter((item) => item.id !== next.id),
-      next,
-    ];
+    const index = store.connections.findIndex((item) => item.id === next.id);
+    // 更新时保留原位置，避免编辑后跳到列表末尾
+    if (index >= 0) {
+      store.connections[index] = next;
+    } else {
+      store.connections.push(next);
+    }
+  });
+  return success();
+}));
+// 按 id 数组重排连接列表并持久化
+app.put('/api/connections/order', route((request) => {
+  const connectionIds = Array.isArray(request.body?.connectionIds)
+    ? request.body.connectionIds.map(String)
+    : [];
+  updateStore((store) => {
+    const byId = new Map(store.connections.map((item) => [item.id, item]));
+    const ordered = [];
+    connectionIds.forEach((id) => {
+      const item = byId.get(id);
+      if (item) {
+        ordered.push(item);
+        byId.delete(id);
+      }
+    });
+    byId.forEach((item) => ordered.push(item));
+    store.connections = ordered;
   });
   return success();
 }));

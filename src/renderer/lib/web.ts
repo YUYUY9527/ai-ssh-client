@@ -683,6 +683,10 @@ const webApi: Window['electronAPI'] = {
   deleteConnection: (connectionId) => request<void>(`/api/connections/${connectionId}`, {
     method: 'DELETE',
   }),
+  reorderConnections: (connectionIds) => request<void>('/api/connections/order', {
+    method: 'PUT',
+    body: JSON.stringify({ connectionIds }),
+  }),
 
   getSettings: () => request<SettingsResult<AppSettings>>('/api/settings'),
   saveSettings: (settings) => request<void>('/api/settings', {

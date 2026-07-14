@@ -50,6 +50,7 @@ const enUS: DeepStringify<typeof zhCN> = {
     copySuffix: '(Copy)',
     searchPlaceholder: 'Search connections...',
     noMatches: 'No matching connections',
+    dragToReorder: 'Drag to reorder',
     status: {
       disconnected: 'Disconnected',
       connecting: 'Connecting...',

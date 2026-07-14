@@ -81,6 +81,7 @@ declare global {
       getConnections: () => Promise<IPCResult<ConnectionsResult<SSHConnection>>>;
       saveConnection: (connection: SSHConnection) => Promise<IPCResult>;
       deleteConnection: (connectionId: string) => Promise<IPCResult>;
+      reorderConnections: (connectionIds: string[]) => Promise<IPCResult>;
 
       getSettings: () => Promise<IPCResult<SettingsResult<AppSettings>>>;
       saveSettings: (settings: AppSettings) => Promise<IPCResult>;
