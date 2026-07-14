@@ -571,7 +571,7 @@ const webApi: Window['electronAPI'] = {
     }
 
     try {
-      // 两段进度：浏览器→服务端 0-50%，服务端→远端 50-99%（由 server WS 上报）
+      // 两段进度：浏览器到服务端 0-50%，服务端确认写入远端 50-99%
       const result = await new Promise<IPCResult<FileUploadResult>>((resolve) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `/api/sftp/${connectionId}/upload`);
@@ -627,12 +627,14 @@ const webApi: Window['electronAPI'] = {
 
       const remotePath = `${remoteDir.replace(/\/$/, '')}/${filename}`;
       // HTTP 返回时服务端已写完远端；本地强制完成，避免 WS 丢事件卡在 99%
-      emit('sftp-upload-progress', {
-        connectionId,
-        taskId: taskId ? String(taskId) : undefined,
-        filename,
-        progress: result.success ? 100 : 99,
-      });
+      if (result.success) {
+        emit('sftp-upload-progress', {
+          connectionId,
+          taskId: taskId ? String(taskId) : undefined,
+          filename,
+          progress: 100,
+        });
+      }
       emit('sftp-transfer-complete', {
         connectionId,
         taskId: taskId ? String(taskId) : undefined,

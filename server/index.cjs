@@ -15,6 +15,7 @@ const {
   stripVisibleAgentArtifacts,
   wrapCommandWithSentinel,
 } = require('./sentinel.cjs');
+const { writeSftpFile } = require('./sftp-upload.cjs');
 
 const PORT = Number(process.env.WEB_PORT || 5080);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
@@ -856,44 +857,22 @@ app.post('/api/sftp/:id/upload', upload.single('file'), route(async (request) =>
     : posixPath.join(remoteDir, filename);
   const taskId = request.body.taskId != null ? String(request.body.taskId) : undefined;
   const connectionId = request.params.id;
-  const total = Number(request.file.size || request.file.buffer?.length || 0);
 
-  // 分块写远端；进度映射到 50-99%，接在浏览器上传 0-50% 之后
-  await new Promise((resolve, reject) => {
-    const writeStream = sftp.createWriteStream(remotePath);
-    const buffer = request.file.buffer;
-    const chunkSize = 64 * 1024;
-    let offset = 0;
-    let lastProgress = -1;
-
-    writeStream.on('error', reject);
-    writeStream.on('finish', resolve);
-
-    const writeNext = () => {
-      while (offset < buffer.length) {
-        const end = Math.min(offset + chunkSize, buffer.length);
-        const chunk = buffer.subarray(offset, end);
-        offset = end;
-        const ratio = total > 0 ? offset / total : 1;
-        const progress = Math.min(99, 50 + Math.round(ratio * 49));
-        if (progress !== lastProgress) {
-          lastProgress = progress;
-          broadcast('sftp-upload-progress', {
-            connectionId,
-            taskId,
-            filename,
-            progress,
-          });
-        }
-        if (!writeStream.write(chunk)) {
-          writeStream.once('drain', writeNext);
-          return;
-        }
-      }
-      writeStream.end();
-    };
-
-    writeNext();
+  let lastProgress = 50;
+  await writeSftpFile(sftp, remotePath, request.file.buffer, (written, total) => {
+    const progress = total > 0
+      ? Math.min(99, 50 + Math.round((written / total) * 49))
+      : 99;
+    if (progress <= lastProgress) {
+      return;
+    }
+    lastProgress = progress;
+    broadcast('sftp-upload-progress', {
+      connectionId,
+      taskId,
+      filename,
+      progress,
+    });
   });
 
   broadcast('sftp-upload-progress', {

@@ -11,6 +11,7 @@
     "build:tauri": "tauri build",
     "test:sentinel": "node scripts/test-sentinel-stripper.cjs",
     "test:history": "node scripts/test-command-history-index.cjs",
+    "test:sftp-upload": "node scripts/test-sftp-upload.cjs",
     "web": "node server/index.cjs",
     "tauri": "tauri",
     "preview": "vite preview",
