@@ -812,9 +812,24 @@ app.post('/api/ssh/test', route((request) => new Promise((resolve) => {
 })));
 
 app.get('/api/sftp/:id/list', route(async (request) => {
-  const displayPath = String(request.query.path || '~');
-  const protocolPath = sftpProtocolPath(displayPath);
+  const requestedPath = String(request.query.path || '~');
+  const protocolPath = sftpProtocolPath(requestedPath);
   const sftp = await getSftp(request.params.id);
+
+  // realpath 把 ~ / . / ~/foo 解析成绝对路径，前端地址栏与子目录跳转都走绝对路径
+  const resolvedPath = await new Promise((resolve) => {
+    if (typeof sftp.realpath !== 'function') {
+      resolve(requestedPath === '/home' ? '~' : requestedPath);
+      return;
+    }
+    sftp.realpath(protocolPath, (error, absolute) => {
+      if (!error && absolute) {
+        resolve(String(absolute));
+        return;
+      }
+      resolve(requestedPath === '/home' ? '~' : requestedPath);
+    });
+  });
 
   return new Promise((resolve, reject) => {
     sftp.readdir(protocolPath, (error, list) => {
@@ -823,16 +838,23 @@ app.get('/api/sftp/:id/list', route(async (request) => {
         return;
       }
 
+      const displayPath = resolvedPath === '/home' ? '~' : resolvedPath;
       const files = list.map((item) => ({
         name: item.filename,
-        path: joinRemoteDisplayPath(displayPath === '/home' ? '~' : displayPath, item.filename),
+        path: joinRemoteDisplayPath(displayPath, item.filename),
         size: item.attrs.size,
-        isDirectory: item.attrs.isDirectory(),
-        isSymbolicLink: item.attrs.isSymbolicLink(),
+        isDirectory: typeof item.attrs.isDirectory === 'function'
+          ? item.attrs.isDirectory()
+          : Boolean(item.attrs.isDirectory),
+        isSymbolicLink: typeof item.attrs.isSymbolicLink === 'function'
+          ? item.attrs.isSymbolicLink()
+          : Boolean(item.attrs.isSymbolicLink),
         mode: String(item.attrs.mode),
         mtime: item.attrs.mtime * 1000,
         atime: item.attrs.atime * 1000,
-        fileType: item.attrs.isDirectory() ? 'directory' : 'file',
+        fileType: (typeof item.attrs.isDirectory === 'function'
+          ? item.attrs.isDirectory()
+          : Boolean(item.attrs.isDirectory)) ? 'directory' : 'file',
       })).sort((left, right) => {
         if (left.isDirectory !== right.isDirectory) {
           return left.isDirectory ? -1 : 1;
@@ -840,7 +862,8 @@ app.get('/api/sftp/:id/list', route(async (request) => {
         return left.name.localeCompare(right.name);
       });
 
-      resolve(success({ files }));
+      // path 为规范化后的当前目录，供前端地址栏与 store 同步
+      resolve(success({ files, path: displayPath }));
     });
   });
 }));

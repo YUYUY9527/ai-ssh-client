@@ -89,8 +89,8 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const { t } = useI18n();
   const sessionCwd = useSessionStore((state) => state.sessions[connectionId]?.cwd);
   const browserState = useSftpTransferStore((state) => state.browserByConnection[connectionId]);
-  const getBrowserState = useSftpTransferStore((state) => state.getBrowserState);
   const setBrowserPath = useSftpTransferStore((state) => state.setBrowserPath);
+  const requestBrowserPath = useSftpTransferStore((state) => state.requestBrowserPath);
   const setBrowserView = useSftpTransferStore((state) => state.setBrowserView);
   const setBrowserSelection = useSftpTransferStore((state) => state.setBrowserSelection);
   const setBrowserSelectedPaths = useSftpTransferStore((state) => state.setBrowserSelectedPaths);
@@ -198,7 +198,11 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
 
       if (result.success) {
         const nextFiles = result.data.files;
+        // 服务端 realpath 后的规范路径（绝对路径），用于地址栏与后续导航
+        const resolvedPath = normalizeRemoteBrowsePath(result.data.path || targetPath);
         setFiles(nextFiles);
+        setPathInput(resolvedPath);
+        setBrowserPath(connectionId, resolvedPath);
         // 刷新时剔除已不存在的选中路径。
         const existing = new Set(nextFiles.map((file) => file.path));
         const currentSelected = useSftpTransferStore.getState()
@@ -231,9 +235,10 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const bootstrappedConnectionRef = useRef<string | null>(null);
   const wasLiveRef = useRef(isLive);
 
-  // 仅在切换会话时初始化浏览路径；不把 isLive 放进依赖，防止连线抖动重置目录
+  // 仅在切换会话时初始化；依赖只用 connectionId，防止回调引用变化重置目录
   useEffect(() => {
-    const existing = useSftpTransferStore.getState().browserByConnection[connectionId];
+    const store = useSftpTransferStore.getState();
+    const existing = store.browserByConnection[connectionId];
     // 迁移历史默认路径 /home（多数主机不存在）到 ~
     const rawPreferred = existing?.remotePath
       || useSessionStore.getState().sessions[connectionId]?.cwd
@@ -243,9 +248,9 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     );
 
     if (!existing) {
-      getBrowserState(connectionId, preferredPath);
+      store.getBrowserState(connectionId, preferredPath);
     } else if (existing.remotePath === '/home') {
-      setBrowserPath(connectionId, DEFAULT_REMOTE_PATH);
+      store.setBrowserPath(connectionId, DEFAULT_REMOTE_PATH);
     }
 
     setFiles([]);
@@ -258,9 +263,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     if (isLive) {
       void loadDirectoryRef.current(preferredPath);
     }
-    // isLive 仅读取首帧，抖动恢复由下方 effect 处理
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟 connectionId
-  }, [connectionId, getBrowserState, setBrowserPath]);
+  }, [connectionId]);
 
   // 从离线恢复在线时，按 store 当前路径刷新，绝不回落到会话默认 ~
   useEffect(() => {
@@ -277,7 +280,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     void loadDirectoryRef.current(path);
   }, [connectionId, isLive]);
 
-  // 响应 requestBrowserPath：即使侧栏已打开也强制按新路径刷新
+  // 响应 requestBrowserPath：统一导航入口（地址栏/双击/终端右键）
   useEffect(() => {
     if (!isLive) {
       return;
@@ -392,28 +395,28 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     return t('fileTransfer.fileTypes.file');
   };
 
-  const navigateTo = (path: string) => {
-    clearBrowserSelection(connectionId);
-    void loadDirectory(path);
-  };
+  /** 所有目录跳转走 requestBrowserPath，保证侧栏已打开时也会强制刷新 */
+  const navigateTo = useCallback((path: string) => {
+    const nextPath = normalizeRemoteBrowsePath(path);
+    requestBrowserPath(connectionId, nextPath);
+  }, [connectionId, requestBrowserPath]);
 
-  /** 提交地址栏路径（回车 / 失焦确认）。 */
+  /** 提交地址栏路径（回车确认）。 */
   const commitPathInput = useCallback(() => {
     const nextPath = normalizeRemoteBrowsePath(pathInput);
     if (nextPath === normalizeRemoteBrowsePath(currentPath) && files.length > 0 && !error) {
       setPathInput(nextPath);
       return;
     }
-    clearBrowserSelection(connectionId);
-    void loadDirectory(nextPath);
-  }, [clearBrowserSelection, connectionId, currentPath, error, files.length, loadDirectory, pathInput]);
+    navigateTo(nextPath);
+  }, [currentPath, error, files.length, navigateTo, pathInput]);
 
   const goUp = () => {
     const base = normalizeRemoteBrowsePath(currentPath);
     if (base === '/') {
       return;
     }
-    // 家目录根的上一级用 ~/..，由 SFTP 协议路径 ./.. 解析
+    // 家目录根：先按 ~ 的父级请求，服务端 realpath 会落到绝对路径
     if (base === '~') {
       navigateTo('~/..');
       return;
@@ -422,7 +425,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   };
 
   const goHome = () => {
-    // 主页按钮固定回家目录，避免被未解析的终端 cwd 绑死
     navigateTo(DEFAULT_REMOTE_PATH);
   };
 

@@ -35,6 +35,8 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
   const flushHandleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // 同一任务终态可能同时来自 WebSocket 与 HTTP 本地快照，避免重复弹 toast
+  const toastedTransferKeysRef = useRef<Set<string>>(new Set());
 
   const flushOutput = useCallback(() => {
     flushHandleRef.current = null;
@@ -188,14 +190,22 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
       if (!['completed', 'handed-off', 'skipped', 'failed', 'canceled', 'interrupted'].includes(status)) {
         return;
       }
-      // 仅 terminal 或 snapshot 进入终态时提示，防止中间 snapshot 刷屏。
-      if (event.type === 'snapshot' && !['completed', 'handed-off', 'skipped', 'failed', 'canceled', 'interrupted'].includes(event.snapshot.status)) {
-        return;
-      }
 
       const task = event.type === 'snapshot'
         ? event.snapshot
         : useSftpTransferStore.getState().tasks.find((item) => item.taskId === event.taskId);
+      const attempt = event.attempt ?? task?.attempt ?? 0;
+      const toastKey = `${event.taskId}:${attempt}:${status}`;
+      if (toastedTransferKeysRef.current.has(toastKey)) {
+        return;
+      }
+      toastedTransferKeysRef.current.add(toastKey);
+      // 防止集合无限增长：仅保留最近 200 条
+      if (toastedTransferKeysRef.current.size > 200) {
+        const first = toastedTransferKeysRef.current.values().next().value;
+        if (first) toastedTransferKeysRef.current.delete(first);
+      }
+
       const transferLabel = (task?.direction || 'upload') === 'upload'
         ? translate('fileTransfer.upload')
         : translate('fileTransfer.download');

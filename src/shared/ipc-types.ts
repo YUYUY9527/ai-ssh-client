@@ -112,6 +112,8 @@ export interface SftpItem {
 
 export interface DirectoryListResult<T = SftpItem> {
   files: T[];
+  /** 服务端 realpath 后的当前目录（优先绝对路径） */
+  path?: string;
 }
 
 /** 本地上传文件引用，ref 用于 Web 端引用暂存文件。 */
