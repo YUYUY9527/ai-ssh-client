@@ -817,6 +817,20 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/directory`,
     { method: 'POST', body: JSON.stringify({ remotePath }) },
   ),
+  setSftpPermissions: (connectionId, remotePath, mode) => sftpApiRequest<void>(
+    connectionId,
+    `/api/sftp/${connectionId}/permissions`,
+    { method: 'POST', body: JSON.stringify({ remotePath, mode }) },
+  ),
+  readSftpTextFile: (connectionId, remotePath) => sftpApiRequest<import('../../shared/ipc-types').SftpTextFileContent>(
+    connectionId,
+    `/api/sftp/${connectionId}/text?path=${encodeURIComponent(remotePath)}`,
+  ),
+  writeSftpTextFile: (connectionId, remotePath, content) => sftpApiRequest<void>(
+    connectionId,
+    `/api/sftp/${connectionId}/text`,
+    { method: 'PUT', body: JSON.stringify({ remotePath, content }) },
+  ),
   deleteSftpItems: (connectionId, remotePaths) => sftpApiRequest<SftpBatchDeleteResult>(
     connectionId,
     `/api/sftp/${connectionId}/items`,

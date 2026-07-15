@@ -110,6 +110,18 @@ export interface SftpItem {
   fileType: string;
 }
 
+/** 远端文本在线编辑读取结果。 */
+export interface SftpTextFileContent {
+  path: string;
+  content: string;
+  size: number;
+  encoding: string;
+  maxBytes: number;
+}
+
+/** 在线编辑允许的最大文件字节数（前后端一致）。 */
+export const MAX_SFTP_EDIT_BYTES = 2 * 1024 * 1024;
+
 export interface DirectoryListResult<T = SftpItem> {
   files: T[];
   /** 服务端 realpath 后的当前目录（优先绝对路径） */

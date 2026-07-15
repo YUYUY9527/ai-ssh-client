@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use russh_sftp::client::error::Error as SftpError;
-use russh_sftp::protocol::{OpenFlags, StatusCode};
+use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
@@ -29,6 +29,19 @@ use crate::services::ssh_service::{
 const TRANSFER_BUFFER_BYTES: usize = 64 * 1024;
 const CHECKPOINT_BYTES: u64 = 4 * 1024 * 1024;
 const CHECKPOINT_MS: u64 = 2000;
+/// 在线编辑文本文件的最大字节数（防止大文件读入内存卡死）。
+const MAX_SFTP_EDIT_BYTES: u64 = 2 * 1024 * 1024;
+
+/// 远端文本文件读取结果（供前端编辑器使用）。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpTextFileContent {
+    pub path: String,
+    pub content: String,
+    pub size: u64,
+    pub encoding: String,
+    pub max_bytes: u64,
+}
 
 /// 可信续传 sidecar（size+mtime+首尾 SHA-256 指纹）。
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -605,6 +618,122 @@ impl SftpService {
             let protocol_path = protocol_path.clone();
             async move {
                 sftp.create_dir(protocol_path.as_str()).await?;
+                Ok(())
+            }
+        })
+        .await
+    }
+
+    /// 修改远端文件/目录权限（chmod，仅 permission bits）。
+    pub async fn set_permissions(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+        mode: u32,
+    ) -> AppResult<()> {
+        validate_sftp_item_path(&remote_path)?;
+        // 仅允许 rwx 与 setuid/setgid/sticky（0o7777）
+        let mode = mode & 0o7777;
+        let protocol_path = sftp_protocol_path(&remote_path);
+        self.with_sftp(&app_handle, &connection, |sftp| {
+            let protocol_path = protocol_path.clone();
+            async move {
+                let mut attrs = FileAttributes::empty();
+                attrs.permissions = Some(mode);
+                sftp.set_metadata(protocol_path.as_str(), attrs).await?;
+                Ok(())
+            }
+        })
+        .await
+    }
+
+    /// 读取远端文本文件（有大小上限，避免大文件拖垮 UI）。
+    pub async fn read_text_file(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+    ) -> AppResult<SftpTextFileContent> {
+        validate_sftp_item_path(&remote_path)?;
+        let protocol_path = sftp_protocol_path(&remote_path);
+        let display_path = remote_path.clone();
+        self.with_sftp(&app_handle, &connection, |sftp| {
+            let protocol_path = protocol_path.clone();
+            let display_path = display_path.clone();
+            async move {
+                let mut file = sftp.open(protocol_path.as_str()).await?;
+                let metadata = file.metadata().await?;
+                if metadata.is_dir() {
+                    return Err(app_error("Cannot edit a directory"));
+                }
+                let size = metadata.len();
+                if size > MAX_SFTP_EDIT_BYTES {
+                    return Err(app_error(format!(
+                        "File too large to edit ({} bytes, max {} bytes)",
+                        size, MAX_SFTP_EDIT_BYTES
+                    )));
+                }
+                let mut bytes = Vec::new();
+                let mut buffer = vec![0_u8; 8 * 1024];
+                loop {
+                    let read = file.read(&mut buffer).await?;
+                    if read == 0 {
+                        break;
+                    }
+                    if bytes.len() as u64 + read as u64 > MAX_SFTP_EDIT_BYTES {
+                        return Err(app_error(format!(
+                            "File too large to edit (max {} bytes)",
+                            MAX_SFTP_EDIT_BYTES
+                        )));
+                    }
+                    bytes.extend_from_slice(&buffer[..read]);
+                }
+                let size = bytes.len() as u64;
+                let content = String::from_utf8(bytes).map_err(|_| {
+                    app_error("File is not valid UTF-8 text and cannot be edited in-app")
+                })?;
+                Ok(SftpTextFileContent {
+                    path: display_path,
+                    content,
+                    size,
+                    encoding: "utf-8".to_string(),
+                    max_bytes: MAX_SFTP_EDIT_BYTES,
+                })
+            }
+        })
+        .await
+    }
+
+    /// 覆盖写入远端文本文件（同样受大小上限约束）。
+    pub async fn write_text_file(
+        &self,
+        app_handle: AppHandle,
+        connection: SshConnection,
+        remote_path: String,
+        content: String,
+    ) -> AppResult<()> {
+        validate_sftp_item_path(&remote_path)?;
+        let bytes = content.into_bytes();
+        if bytes.len() as u64 > MAX_SFTP_EDIT_BYTES {
+            return Err(app_error(format!(
+                "Content too large to save (max {} bytes)",
+                MAX_SFTP_EDIT_BYTES
+            )));
+        }
+        let protocol_path = sftp_protocol_path(&remote_path);
+        self.with_sftp(&app_handle, &connection, |sftp| {
+            let protocol_path = protocol_path.clone();
+            let bytes = bytes.clone();
+            async move {
+                let mut file = sftp
+                    .open_with_flags(
+                        protocol_path.as_str(),
+                        OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+                    )
+                    .await?;
+                file.write_all(&bytes).await?;
+                file.flush().await.ok();
                 Ok(())
             }
         })

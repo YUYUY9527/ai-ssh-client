@@ -9,6 +9,7 @@ import type {
   SftpStartDownloadRequest,
   SftpStartTransferResult,
   SftpStartUploadRequest,
+  SftpTextFileContent,
   SftpTransferEvent,
   SftpTransferTaskRequest,
   SftpTransferTaskSnapshot,
@@ -58,6 +59,10 @@ export function createNativeSftpApi(invoke: SftpInvoker, listen: SftpListener) {
     createSftpDirectory: (connectionId: string, remotePath: string) => (
       invoke<void>('sftp_create_directory', { connectionId, remotePath })
     ),
+    /** 修改远端权限（mode 为 0–0o7777 的数字）。 */
+    setSftpPermissions: (connectionId: string, remotePath: string, mode: number) => (
+      invoke<void>('sftp_set_permissions', { connectionId, remotePath, mode })
+    ),
     deleteSftpItems: (connectionId: string, remotePaths: string[]) => (
       invoke<SftpBatchDeleteResult>('sftp_delete_items', { connectionId, remotePaths })
     ),
@@ -90,6 +95,12 @@ export function createNativeSftpApi(invoke: SftpInvoker, listen: SftpListener) {
     ),
     deleteItem: (connectionId: string, remotePath: string) => (
       invoke<void>('sftp_delete_item', { connectionId, remotePath })
+    ),
+    readSftpTextFile: (connectionId: string, remotePath: string) => (
+      invoke<SftpTextFileContent>('sftp_read_text_file', { connectionId, remotePath })
+    ),
+    writeSftpTextFile: (connectionId: string, remotePath: string, content: string) => (
+      invoke<void>('sftp_write_text_file', { connectionId, remotePath, content })
     ),
   };
 }

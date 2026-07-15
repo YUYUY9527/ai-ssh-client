@@ -990,7 +990,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
           <div className="agent-pet-status-strip">
             <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-              <PlugZap className="h-3.5 w-3.5 text-teal-500" />
+              <PlugZap className="h-3.5 w-3.5 text-accent" />
               {activeProvider ? activeProvider.name : t('aiProvider.noProviders')}
             </span>
             <div className="flex shrink-0 items-center gap-2">
@@ -1005,7 +1005,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                 <span>{conversationSummaries.length}</span>
               </button>
               <span className="inline-flex items-center gap-1.5">
-                <Terminal className="h-3.5 w-3.5 text-orange-500" />
+                <Terminal className="h-3.5 w-3.5 text-warning" />
                 {agentState === 'idle' ? t('agent.status.idle') : agentState === 'finished' ? t('agent.status.finished') : agentState === 'error' ? t('agent.status.error') : t('agent.status.running')}
               </span>
             </div>
@@ -1026,7 +1026,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                 <RobotFaceMini />
                 <div>
                   <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{t('agent.empty.title')}</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">{t('agent.empty.description')}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{t('agent.empty.description')}</p>
                 </div>
               </div>
             )}
@@ -1047,14 +1047,14 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
             {pendingApproval && (
               <div className="agent-pet-approval">
                 <div className="mb-2 flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-orange-400" />
+                  <ShieldAlert className="h-4 w-4 text-warning" />
                   <span className="text-sm font-semibold text-slate-900 dark:text-white">{t('agent.approval.title')}</span>
                 </div>
-                <code className="block break-all rounded-sm bg-black/20 px-2 py-2 font-mono text-xs text-orange-200">
+                <code className="agent-pet-approval-command">
                   {pendingApproval.command}
                 </code>
                 {getCommandDescription(pendingApproval.command) && (
-                  <p className="mt-2 text-xs leading-5 text-slate-400">{getCommandDescription(pendingApproval.command)}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">{getCommandDescription(pendingApproval.command)}</p>
                 )}
                 <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-slate-500">
                   <input
@@ -1064,7 +1064,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                     onChange={(event) => setRememberApprovalChoice(event.target.checked)}
                   />
                   <span className="inline-flex flex-col gap-0.5">
-                    <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                    <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300">
                       <Save className="h-3 w-3" />
                       {t('commandApproval.rememberChoice')}
                     </span>
@@ -1080,13 +1080,13 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
             {pendingQuestion && (
               <div className="agent-pet-question">
-                <MessageCircle className="h-4 w-4 text-teal-400" />
+                <MessageCircle className="h-4 w-4 text-accent" />
                 <p className="text-sm leading-6 text-slate-700 dark:text-slate-200">{pendingQuestion}</p>
               </div>
             )}
 
             {localError && (
-              <div className="rounded-sm border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              <div className="agent-pet-error">
                 {localError}
               </div>
             )}

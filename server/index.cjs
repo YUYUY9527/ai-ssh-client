@@ -18,8 +18,11 @@ const {
   createSftpDirectory,
   deleteSftpItem,
   deleteSftpItems,
+  readSftpTextFile,
   renameSftpItem,
+  setSftpPermissions,
   sftpProtocolPath,
+  writeSftpTextFile,
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
 
@@ -924,6 +927,30 @@ app.delete('/api/sftp/:id/item', route(async (request) => {
 app.post('/api/sftp/:id/directory', route(async (request) => {
   const sftp = await getSftp(request.params.id);
   await createSftpDirectory(sftp, request.body.remotePath);
+  return success();
+}));
+
+// 修改远端权限（chmod）
+app.post('/api/sftp/:id/permissions', route(async (request) => {
+  const sftp = await getSftp(request.params.id);
+  const remotePath = String(request.body?.remotePath || '');
+  const mode = request.body?.mode;
+  return success(await setSftpPermissions(sftp, remotePath, mode));
+}));
+
+// 读取远端文本（在线编辑，有大小上限）
+app.get('/api/sftp/:id/text', route(async (request) => {
+  const sftp = await getSftp(request.params.id);
+  const remotePath = String(request.query.path || '');
+  return success(await readSftpTextFile(sftp, remotePath));
+}));
+
+// 覆盖写入远端文本
+app.put('/api/sftp/:id/text', route(async (request) => {
+  const sftp = await getSftp(request.params.id);
+  const remotePath = String(request.body?.remotePath || '');
+  const content = String(request.body?.content ?? '');
+  await writeSftpTextFile(sftp, remotePath, content);
   return success();
 }));
 

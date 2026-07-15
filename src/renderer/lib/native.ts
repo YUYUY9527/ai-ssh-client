@@ -104,6 +104,7 @@ type ElectronApiLike = {
   selectSftpDownloadDestination: () => Promise<IPCResult<SftpDownloadDestinationSelectionResult>>;
   prepareSftpLocalFiles?: (files: File[]) => IPCResult<SftpFilesSelectionResult>;
   createSftpDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult>;
+  setSftpPermissions: (connectionId: string, remotePath: string, mode: number) => Promise<IPCResult>;
   deleteSftpItems: (connectionId: string, remotePaths: string[]) => Promise<IPCResult<SftpBatchDeleteResult>>;
   startSftpUpload: (request: SftpStartUploadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
   startSftpDownload: (request: SftpStartDownloadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
@@ -115,6 +116,8 @@ type ElectronApiLike = {
   onSftpTransferEvent: (callback: (event: SftpTransferEvent) => void) => ListenerCleanup;
   renameItem: (connectionId: string, remotePath: string, newName: string) => Promise<IPCResult>;
   deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
+  readSftpTextFile: (connectionId: string, remotePath: string) => Promise<IPCResult<import('../../shared/ipc-types').SftpTextFileContent>>;
+  writeSftpTextFile: (connectionId: string, remotePath: string, content: string) => Promise<IPCResult>;
   agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
   agentStopTask: (connectionId: string) => Promise<IPCResult>;
   agentPauseTask: () => Promise<IPCResult>;

@@ -5,7 +5,9 @@ const {
   createSftpDirectory,
   deleteSftpItem,
   deleteSftpItems,
+  parsePermissionMode,
   renameSftpItem,
+  setSftpPermissions,
   siblingPath,
   validateItemName,
   validateItemPath,
@@ -143,6 +145,22 @@ async function main() {
   assert.equal(batchResult.deletedCount, 2);
   assert.equal(batchResult.failedCount, 1);
   assert.equal(batchResult.items.length, 3);
+
+  assert.equal(parsePermissionMode('644'), 0o644);
+  assert.equal(parsePermissionMode('0755'), 0o755);
+  assert.equal(parsePermissionMode('0o600'), 0o600);
+  assert.equal(parsePermissionMode(0o755), 0o755);
+  assert.throws(() => parsePermissionMode('999'), /Invalid permission mode/);
+  assert.throws(() => parsePermissionMode(''), /Invalid permission mode/);
+
+  let chmodArgs;
+  await setSftpPermissions({
+    chmod(remotePath, mode, callback) {
+      chmodArgs = { remotePath, mode };
+      callback(null);
+    },
+  }, '/tmp/a.txt', '644');
+  assert.deepEqual(chmodArgs, { remotePath: '/tmp/a.txt', mode: 0o644 });
 
   console.log('sftp item tests passed');
 }

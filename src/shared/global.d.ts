@@ -110,6 +110,8 @@ declare global {
       /** 将浏览器/拖放 File 注册为上传引用；桌面端优先提取 path。 */
       prepareSftpLocalFiles?: (files: File[]) => IPCResult<SftpFilesSelectionResult>;
       createSftpDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult>;
+      /** 修改远端文件/目录权限（mode 为 0–0o7777）。 */
+      setSftpPermissions: (connectionId: string, remotePath: string, mode: number) => Promise<IPCResult>;
       deleteSftpItems: (connectionId: string, remotePaths: string[]) => Promise<IPCResult<SftpBatchDeleteResult>>;
       startSftpUpload: (request: SftpStartUploadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
       startSftpDownload: (request: SftpStartDownloadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
@@ -122,6 +124,10 @@ declare global {
 
       renameItem: (connectionId: string, remotePath: string, newName: string) => Promise<IPCResult>;
       deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
+      /** 读取远端文本文件（受 MAX_SFTP_EDIT_BYTES 限制）。 */
+      readSftpTextFile: (connectionId: string, remotePath: string) => Promise<IPCResult<import('./ipc-types').SftpTextFileContent>>;
+      /** 覆盖写入远端文本文件。 */
+      writeSftpTextFile: (connectionId: string, remotePath: string, content: string) => Promise<IPCResult>;
 
       agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
       agentStopTask: (connectionId: string) => Promise<IPCResult>;

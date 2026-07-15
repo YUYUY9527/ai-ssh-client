@@ -352,6 +352,86 @@ pub async fn sftp_create_directory(
     )
 }
 
+/// 修改远端文件/目录权限（chmod）。
+#[tauri::command]
+pub async fn sftp_set_permissions(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: String,
+    remote_path: String,
+    mode: u32,
+) -> Result<IpcResult<()>, String> {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
+        Ok(Some(connection)) => connection,
+        Ok(None) => return Ok(error("Connection not found")),
+        Err(err) => return Ok(error(err.to_string())),
+    };
+    Ok(
+        match state
+            .sftp
+            .set_permissions(app_handle, connection, remote_path, mode)
+            .await
+        {
+            Ok(()) => empty_success(),
+            Err(err) => error(err.to_string()),
+        },
+    )
+}
+
+/// 读取远端文本文件（带大小上限，供在线编辑）。
+#[tauri::command]
+pub async fn sftp_read_text_file(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: String,
+    remote_path: String,
+) -> Result<IpcResult<serde_json::Value>, String> {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
+        Ok(Some(connection)) => connection,
+        Ok(None) => return Ok(error("Connection not found")),
+        Err(err) => return Ok(error(err.to_string())),
+    };
+    Ok(
+        match state
+            .sftp
+            .read_text_file(app_handle, connection, remote_path)
+            .await
+        {
+            Ok(content) => match serde_json::to_value(content) {
+                Ok(value) => success(value),
+                Err(err) => error(err.to_string()),
+            },
+            Err(err) => error(err.to_string()),
+        },
+    )
+}
+
+/// 覆盖写入远端文本文件（带大小上限）。
+#[tauri::command]
+pub async fn sftp_write_text_file(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: String,
+    remote_path: String,
+    content: String,
+) -> Result<IpcResult<()>, String> {
+    let connection = match resolve_sftp_connection(state.inner(), &connection_id) {
+        Ok(Some(connection)) => connection,
+        Ok(None) => return Ok(error("Connection not found")),
+        Err(err) => return Ok(error(err.to_string())),
+    };
+    Ok(
+        match state
+            .sftp
+            .write_text_file(app_handle, connection, remote_path, content)
+            .await
+        {
+            Ok(()) => empty_success(),
+            Err(err) => error(err.to_string()),
+        },
+    )
+}
+
 /// Deletes a group of remote SFTP items and returns every item result.
 #[tauri::command]
 pub async fn sftp_delete_items(

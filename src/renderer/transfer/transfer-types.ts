@@ -21,9 +21,9 @@ export interface SftpBrowserSessionState {
 /** Default remote path when no session memory or cwd is available. */
 export const DEFAULT_REMOTE_PATH = '~';
 
-/** Default sidebar width in pixels. */
-export const DEFAULT_SFTP_SIDEBAR_WIDTH = 480;
-
 /** Sidebar width clamp. */
 export const SFTP_SIDEBAR_MIN_WIDTH = 320;
 export const SFTP_SIDEBAR_MAX_WIDTH = 860;
+
+/** Default sidebar width: open at max size. */
+export const DEFAULT_SFTP_SIDEBAR_WIDTH = SFTP_SIDEBAR_MAX_WIDTH;

@@ -45,6 +45,10 @@
     --duration-chrome: 180ms;
     --ease-chrome: cubic-bezier(0.16, 1, 0.3, 1);
     --focus-ring: color-mix(in srgb, var(--accent-primary) 70%, #ffffff);
+    /* Agent character face (dark shell) */
+    --agent-face-from: #1a2430;
+    --agent-face-to: #0d141b;
+    --agent-eye: #5eead4;
   }
 
   .light {
@@ -77,6 +81,10 @@
     --shadow-md: 0 14px 36px rgba(63, 54, 39, 0.12);
     --shadow-lg: 0 24px 56px rgba(63, 54, 39, 0.16);
     --surface-shadow: 0 16px 42px rgba(63, 54, 39, 0.13);
+    /* Light: softer teal face so it doesn't look like a dark-mode leftover */
+    --agent-face-from: #e8f5f3;
+    --agent-face-to: #d5ebe7;
+    --agent-eye: #0f766e;
   }
 
   html {
@@ -307,12 +315,12 @@
   .agent-pet-button-done,
   .agent-pet-button-done:hover {
     background:
-      linear-gradient(135deg, rgba(34, 197, 94, 0.28), transparent 58%),
-      color-mix(in srgb, var(--bg-secondary) 88%, #052e16);
-    border-color: color-mix(in srgb, #22c55e 76%, var(--border-color));
+      linear-gradient(135deg, color-mix(in srgb, var(--success) 28%, transparent), transparent 58%),
+      color-mix(in srgb, var(--bg-secondary) 88%, var(--success-muted));
+    border-color: color-mix(in srgb, var(--success) 76%, var(--border-color));
     box-shadow:
-      0 14px 32px rgba(0, 0, 0, 0.26),
-      0 0 0 2px rgba(34, 197, 94, 0.16),
+      0 14px 32px color-mix(in srgb, var(--shadow-md) 100%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--success) 16%, transparent),
       inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 
@@ -330,7 +338,7 @@
 
   .agent-pet-button-busy .agent-pet-eye {
     animation: agent-pet-busy-eye 1.4s ease-in-out infinite;
-    box-shadow: 0 0 10px rgba(45, 212, 191, 0.72);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--agent-eye) 65%, transparent);
   }
 
   .agent-pet-button-busy .agent-pet-mouth {
@@ -339,7 +347,7 @@
 
   .agent-pet-face {
     @apply relative h-9 w-10 rounded-sm border;
-    background: linear-gradient(180deg, #0f151b, #071014);
+    background: linear-gradient(180deg, var(--agent-face-from), var(--agent-face-to));
     border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--border-color));
     transition: transform 0.15s ease;
   }
@@ -386,8 +394,8 @@
     @apply absolute -top-2 h-0 w-0 pointer-events-none;
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
-    border-bottom: 6px solid color-mix(in srgb, var(--accent-primary) 70%, #0f151b);
-    filter: drop-shadow(0 0 2px rgba(45, 212, 191, 0.28));
+    border-bottom: 6px solid color-mix(in srgb, var(--accent-primary) 70%, var(--agent-face-to));
+    filter: drop-shadow(0 0 2px color-mix(in srgb, var(--accent-primary) 28%, transparent));
   }
 
   .agent-pet-ear-left {
@@ -429,8 +437,8 @@
 
   .agent-pet-eye {
     @apply absolute top-3 h-2 w-2 rounded-full;
-    background: #5eead4;
-    box-shadow: 0 0 8px rgba(45, 212, 191, 0.58);
+    background: var(--agent-eye);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--agent-eye) 50%, transparent);
     animation: agent-pet-blink 4s ease-in-out infinite;
     transition: transform 0.2s ease;
   }
@@ -447,7 +455,7 @@
 
   .agent-pet-button:hover .agent-pet-eye {
     animation: agent-pet-eye-look 2s ease-in-out infinite;
-    box-shadow: 0 0 10px rgba(45, 212, 191, 0.72);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--agent-eye) 65%, transparent);
   }
 
   .agent-pet-mouth {
@@ -496,9 +504,10 @@
   .agent-pet-panel {
     @apply fixed z-40 flex h-[min(620px,calc(100vh-9rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden border;
     border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
+    background: var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--border-color) 88%, var(--accent-primary));
     box-shadow: var(--shadow-lg);
+    color: var(--text-primary);
     animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
@@ -509,27 +518,27 @@
     left: var(--agent-pet-arrow-left, auto);
     top: var(--agent-pet-arrow-top, auto);
     background: var(--bg-secondary);
-    border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
+    border-color: color-mix(in srgb, var(--border-color) 88%, var(--accent-primary));
   }
 
   .agent-pet-panel-header {
     @apply flex items-center justify-between gap-3 border-b px-4 py-3;
-    background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 16%, transparent), transparent 55%),
-      color-mix(in srgb, var(--bg-primary) 34%, var(--bg-secondary));
+    background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
     border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
   .agent-pet-avatar-mini {
-    @apply flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-sm border;
-    background: color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 52%, var(--border-color));
+    @apply flex h-10 w-10 flex-shrink-0 items-center justify-center border;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 36%, var(--border-color));
   }
 
   /* Mini robot avatar drawn in CSS. */
   .robot-face-mini {
-    @apply relative inline-flex h-7 w-7 items-center justify-center rounded-sm;
-    background: linear-gradient(180deg, #0f151b, #071014);
+    @apply relative inline-flex h-7 w-7 items-center justify-center;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, var(--agent-face-from), var(--agent-face-to));
     border: 1px solid color-mix(in srgb, var(--accent-primary) 50%, var(--border-color));
   }
 
@@ -557,7 +566,7 @@
     top: -3px;
     border-left: 3px solid transparent;
     border-right: 3px solid transparent;
-    border-bottom: 4px solid color-mix(in srgb, var(--accent-primary) 65%, #0f151b);
+    border-bottom: 4px solid color-mix(in srgb, var(--accent-primary) 65%, var(--agent-face-to));
   }
 
   .robot-face-mini-ear-left {
@@ -582,8 +591,8 @@
     top: 35%;
     width: 4px;
     height: 4px;
-    background: #5eead4;
-    box-shadow: 0 0 5px rgba(45, 212, 191, 0.7);
+    background: var(--agent-eye);
+    box-shadow: 0 0 5px color-mix(in srgb, var(--agent-eye) 55%, transparent);
   }
 
   .robot-face-mini-eye-left {
@@ -654,28 +663,45 @@
   }
 
   .agent-pet-empty {
-    @apply flex items-start gap-3 rounded-sm border p-4;
-    background:
-      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 9%, transparent), transparent 46%),
-      color-mix(in srgb, var(--bg-primary) 64%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+    @apply flex items-start gap-3 border p-4;
+    border-radius: var(--radius-md);
+    background: var(--bg-tertiary);
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
   .agent-pet-approval {
-    @apply rounded-sm border p-3;
-    background: color-mix(in srgb, #431407 38%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-strong) 52%, var(--border-color));
+    @apply border p-3;
+    border-radius: var(--radius-md);
+    background: var(--warning-muted);
+    border-color: color-mix(in srgb, var(--warning) 42%, var(--border-color));
+  }
+
+  .agent-pet-approval-command {
+    @apply block break-all border px-2 py-2 font-mono text-xs;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--warning) 30%, var(--border-color));
+    color: var(--warning-fg);
   }
 
   .agent-pet-question {
-    @apply flex items-start gap-2 rounded-sm border p-3;
-    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+    @apply flex items-start gap-2 border p-3;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
+  }
+
+  .agent-pet-error {
+    @apply border px-3 py-2 text-xs;
+    border-radius: var(--radius-sm);
+    background: var(--danger-muted);
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-color));
+    color: var(--danger-fg);
   }
 
   .agent-pet-input {
     @apply flex gap-2 border-t p-3;
-    background: color-mix(in srgb, var(--bg-primary) 60%, var(--bg-secondary));
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
     border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
@@ -720,35 +746,35 @@
   }
 
   .agent-chat-avatar-user {
-    background: linear-gradient(180deg, #0f766e, #115e59);
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
     border-color: color-mix(in srgb, var(--accent-primary) 70%, var(--border-color));
     color: white;
   }
 
   .agent-chat-avatar-bot {
-    background: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
-    color: #5eead4;
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 36%, var(--border-color));
+    color: var(--accent-primary);
   }
 
   .agent-chat-bubble {
-    @apply max-w-[84%] rounded-sm border px-3 py-2.5 text-sm;
+    @apply max-w-[84%] border px-3 py-2.5 text-sm;
+    border-radius: var(--radius-md);
     overflow-wrap: break-word;
     word-break: break-word;
     min-width: 0;
   }
 
   .agent-chat-bubble-user {
-    @apply text-white;
-    background: linear-gradient(180deg, #0f766e, #115e59);
-    border-color: color-mix(in srgb, var(--accent-primary) 78%, #083f3b);
+    color: #ffffff;
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
+    border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
   }
 
   .agent-chat-bubble-bot {
-    background:
-      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 42%),
-      color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    background: var(--bg-tertiary);
+    border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
+    color: var(--text-primary);
   }
 
   .agent-chat-status {
@@ -756,21 +782,21 @@
   }
 
   .agent-chat-status-running {
-    @apply text-teal-600 dark:text-teal-300;
+    color: var(--accent-primary);
     background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
   }
 
   .agent-chat-status-success {
-    @apply text-green-600 dark:text-green-300;
-    background: color-mix(in srgb, #22c55e 12%, transparent);
-    border-color: color-mix(in srgb, #22c55e 42%, var(--border-color));
+    color: var(--success-fg);
+    background: var(--success-muted);
+    border-color: color-mix(in srgb, var(--success) 42%, var(--border-color));
   }
 
   .agent-chat-status-error {
-    @apply text-red-600 dark:text-red-300;
-    background: color-mix(in srgb, #ef4444 12%, transparent);
-    border-color: color-mix(in srgb, #ef4444 42%, var(--border-color));
+    color: var(--danger-fg);
+    background: var(--danger-muted);
+    border-color: color-mix(in srgb, var(--danger) 42%, var(--border-color));
   }
 
   .agent-chat-status-idle {
@@ -811,9 +837,11 @@
   }
 
   .agent-chat-command {
-    @apply block rounded-sm border px-2 py-1.5 font-mono text-xs text-teal-700 dark:text-teal-200;
-    background: color-mix(in srgb, #020617 38%, var(--bg-primary));
-    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+    @apply block border px-2 py-1.5 font-mono text-xs;
+    border-radius: var(--radius-sm);
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--bg-primary) 78%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
     word-break: break-all;
     overflow-wrap: break-word;
     white-space: pre-wrap;
@@ -843,7 +871,9 @@
   }
 
   .agent-chat-step-detail-button {
-    @apply mt-2 inline-flex cursor-pointer items-center rounded-sm border px-2 py-1 text-[11px] font-medium text-teal-700 transition-colors hover:text-teal-900 dark:text-teal-300 dark:hover:text-teal-100;
+    @apply mt-2 inline-flex cursor-pointer items-center border px-2 py-1 text-[11px] font-medium transition-colors;
+    border-radius: var(--radius-sm);
+    color: var(--accent-primary);
     background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
   }
@@ -1246,9 +1276,34 @@
   }
 
   .sftp-sidebar {
-    @apply relative flex h-full min-w-0 flex-col border-l;
+    @apply relative flex h-full min-w-0 flex-col overflow-visible border-r;
     border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
     background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-secondary));
+  }
+
+  .sftp-sidebar-left {
+    @apply shrink-0;
+    border-right-width: 1px;
+    border-left-width: 0;
+  }
+
+  /* 分界线把手：中心落在右缘外一点（偏终端侧），不压住 SFTP 列表 */
+  .sftp-sidebar-resizer {
+    @apply absolute inset-y-0 z-20 w-2.5 cursor-col-resize;
+    right: -6px;
+    background: transparent;
+  }
+
+  .sftp-sidebar-resizer::after {
+    content: "";
+    @apply absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors;
+    background: color-mix(in srgb, var(--border-color) 55%, transparent);
+  }
+
+  .sftp-sidebar-resizer:hover::after,
+  .sftp-sidebar-resizer-active::after {
+    background: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    width: 3px;
   }
 
   .modal-backdrop {
@@ -1303,21 +1358,37 @@
   }
 
   .agent-result-card {
-    @apply rounded-sm border p-4;
-    background: color-mix(in srgb, #052e25 34%, var(--bg-secondary));
-    border-color: color-mix(in srgb, #22c55e 54%, var(--border-color));
+    @apply border p-4;
+    border-radius: var(--radius-md);
+    background: var(--success-muted);
+    border-color: color-mix(in srgb, var(--success) 42%, var(--border-color));
   }
 
   .agent-pet-panel {
     border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 82%, var(--accent-primary));
-    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    background: var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--border-color) 88%, var(--accent-primary));
+    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     backdrop-filter: blur(18px);
   }
 
   .agent-pet-panel::after {
-    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    background: var(--bg-secondary);
+  }
+
+  /* Light: keep agent chrome clean paper surfaces (avoid muddy teal wash) */
+  .light .agent-pet-panel-body {
+    background: color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary));
+  }
+
+  .light .agent-chat-bubble-bot,
+  .light .agent-pet-empty {
+    background: #f7f5ef;
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  }
+
+  .light .agent-pet-input .industrial-input {
+    background: #ffffff;
   }
 
   /* Thin scrollbar */
@@ -1354,18 +1425,60 @@
     display: none;
   }
 
-  /* Dark scrollbar */
-  .dark {
+  /* Scrollbar tokens: also on :root so nested popovers always resolve */
+  :root, .dark {
     --scrollbar-thumb: rgba(100, 116, 139, 0.72);
     --scrollbar-thumb-hover: rgba(148, 163, 184, 0.95);
     --scrollbar-track: rgba(15, 23, 42, 0.35);
   }
 
-  /* Light scrollbar */
   .light {
     --scrollbar-thumb: rgba(148, 163, 184, 0.75);
     --scrollbar-thumb-hover: rgba(100, 116, 139, 0.95);
     --scrollbar-track: rgba(226, 232, 240, 0.65);
+  }
+
+  /* Compact popover lists (path suggest, menus) */
+  .app-popover.scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .app-popover.scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+
+  .app-popover.scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* 文本编辑区 textarea 滚动条与全站 thin 样式一致 */
+  textarea.scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  textarea.scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  textarea.scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  textarea.scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+
+  textarea.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  textarea.scrollbar-thin::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+    display: none;
   }
 
   /* Modern scrollbar */

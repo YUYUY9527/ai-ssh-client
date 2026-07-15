@@ -29,8 +29,9 @@ export function SftpSidebar({ connectionId, isLive, onClose }: SftpSidebarProps)
       return;
     }
 
+    // 侧栏在左侧：向右拖加宽，向左拖收窄
     const handleMouseMove = (event: MouseEvent) => {
-      const delta = startXRef.current - event.clientX;
+      const delta = event.clientX - startXRef.current;
       setSftpSidebarWidth(startWidthRef.current + delta);
     };
 
@@ -53,15 +54,12 @@ export function SftpSidebar({ connectionId, isLive, onClose }: SftpSidebarProps)
 
   return (
     <aside
-      className="sftp-sidebar"
+      className="sftp-sidebar sftp-sidebar-left"
       style={{ width }}
     >
+      {/* 把手贴在侧栏右缘外侧（分界线偏右），避免压在列表内容上 */}
       <div
-        className={`absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize transition-colors ${
-          isResizing
-            ? 'bg-[color-mix(in_srgb,var(--accent-primary)_50%,transparent)]'
-            : 'hover:bg-[color-mix(in_srgb,var(--accent-primary)_30%,transparent)]'
-        }`}
+        className={`sftp-sidebar-resizer ${isResizing ? 'sftp-sidebar-resizer-active' : ''}`}
         onMouseDown={(event) => {
           event.preventDefault();
           startXRef.current = event.clientX;

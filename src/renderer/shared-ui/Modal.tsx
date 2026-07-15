@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 /** Modal 尺寸档位到最大宽度类的映射 */
@@ -7,6 +8,11 @@ const SIZE_CLASS = {
   md: 'max-w-md',
   lg: 'max-w-lg',
   xl: 'max-w-xl',
+  /** 宽编辑器 / 设置类 */
+  '2xl': 'max-w-4xl',
+  '3xl': 'max-w-5xl',
+  /** 接近全屏的编辑区 */
+  '4xl': 'max-w-6xl',
 } as const;
 
 /** 可聚焦元素选择器，用于焦点陷阱 */
@@ -135,8 +141,9 @@ export function Modal({
     return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+  // Portal 到 body：避免 header 的 backdrop-filter / relative 祖先把 fixed 弹层裁切或偏移
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4">
       <div
         className="modal-backdrop"
         onClick={closeOnBackdrop ? onClose : undefined}
@@ -148,11 +155,11 @@ export function Modal({
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         tabIndex={-1}
-        className={`industrial-modal relative w-full ${SIZE_CLASS[size]} ${panelClassName ?? ''}`}
+        className={`industrial-modal relative my-auto max-h-[min(90vh,calc(100vh-2rem))] w-full overflow-y-auto ${SIZE_CLASS[size]} ${panelClassName ?? ''}`}
       >
         {title != null && (
-          <div className="industrial-modal-header">
-            <h3 className="font-semibold text-slate-900 dark:text-white">{title}</h3>
+          <div className="industrial-modal-header shrink-0">
+            <h3 className="min-w-0 flex-1 font-semibold text-slate-900 dark:text-white">{title}</h3>
             {showClose && (
               <button
                 type="button"
@@ -167,6 +174,7 @@ export function Modal({
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -159,14 +159,123 @@ async function deleteSftpItems(sftp, remotePaths) {
   return { items, deletedCount, failedCount };
 }
 
+/** 在线编辑最大字节数（与前端/ Rust 保持一致）。 */
+const MAX_SFTP_EDIT_BYTES = 2 * 1024 * 1024;
+
+/** 读取远端文本文件；超限或非 UTF-8 时抛错。 */
+async function readSftpTextFile(sftp, remotePath, maxBytes = MAX_SFTP_EDIT_BYTES) {
+  validateItemPath(remotePath);
+  const protocolPath = sftpProtocolPath(remotePath);
+  const attrs = await callSftp(sftp, 'stat', protocolPath);
+  if (typeof attrs.isDirectory === 'function' ? attrs.isDirectory() : attrs.isDirectory) {
+    throw new Error('Cannot edit a directory');
+  }
+  const size = Number(attrs.size || 0);
+  if (size > maxBytes) {
+    const error = new Error(`File too large to edit (${size} bytes, max ${maxBytes} bytes)`);
+    error.code = 'file-too-large';
+    throw error;
+  }
+
+  const content = await new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    const stream = sftp.createReadStream(protocolPath);
+    stream.on('data', (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        stream.destroy();
+        const error = new Error(`File too large to edit (max ${maxBytes} bytes)`);
+        error.code = 'file-too-large';
+        reject(error);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on('error', reject);
+    stream.on('end', () => {
+      const buffer = Buffer.concat(chunks);
+      try {
+        resolve(buffer.toString('utf8'));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+
+  // 粗检：含大量空字节视为二进制
+  if (content.includes('\u0000')) {
+    throw new Error('File is not valid UTF-8 text and cannot be edited in-app');
+  }
+
+  return {
+    path: remotePath,
+    content,
+    size: Buffer.byteLength(content, 'utf8'),
+    encoding: 'utf-8',
+    maxBytes,
+  };
+}
+
+/**
+ * 解析权限：支持八进制字符串（"644"/"0755"/"0o644"）或数字。
+ * 返回 0–0o7777 的 permission bits。
+ */
+function parsePermissionMode(mode) {
+  if (typeof mode === 'number' && Number.isFinite(mode)) {
+    return mode & 0o7777;
+  }
+  const raw = String(mode ?? '').trim().toLowerCase();
+  if (!raw) {
+    throw new Error('Invalid permission mode');
+  }
+  const octal = raw.startsWith('0o') ? raw.slice(2) : raw.replace(/^0+(?=\d)/, '') || '0';
+  if (!/^[0-7]{1,4}$/.test(octal)) {
+    throw new Error('Invalid permission mode');
+  }
+  return parseInt(octal, 8) & 0o7777;
+}
+
+/** 修改远端文件/目录权限（chmod）。 */
+async function setSftpPermissions(sftp, remotePath, mode) {
+  validateItemPath(remotePath);
+  const permission = parsePermissionMode(mode);
+  const protocolPath = sftpProtocolPath(remotePath);
+  await callSftp(sftp, 'chmod', protocolPath, permission);
+  return { path: remotePath, mode: permission.toString(8).padStart(3, '0') };
+}
+
+/** 覆盖写入远端文本文件。 */
+async function writeSftpTextFile(sftp, remotePath, content, maxBytes = MAX_SFTP_EDIT_BYTES) {
+  validateItemPath(remotePath);
+  const buffer = Buffer.from(String(content ?? ''), 'utf8');
+  if (buffer.length > maxBytes) {
+    const error = new Error(`Content too large to save (max ${maxBytes} bytes)`);
+    error.code = 'file-too-large';
+    throw error;
+  }
+  const protocolPath = sftpProtocolPath(remotePath);
+  await new Promise((resolve, reject) => {
+    const stream = sftp.createWriteStream(protocolPath, { flags: 'w' });
+    stream.on('error', reject);
+    stream.on('close', resolve);
+    stream.end(buffer);
+  });
+}
+
 module.exports = {
+  MAX_SFTP_EDIT_BYTES,
   collapseDescendants,
   createSftpDirectory,
   deleteSftpItem,
   deleteSftpItems,
+  parsePermissionMode,
+  readSftpTextFile,
   renameSftpItem,
+  setSftpPermissions,
   siblingPath,
   sftpProtocolPath,
   validateItemName,
   validateItemPath,
+  writeSftpTextFile,
 };

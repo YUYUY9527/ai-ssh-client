@@ -281,7 +281,13 @@ export function WorkspaceHeader({
                 <button
                   type="button"
                   className="industrial-button-secondary flex-1 justify-center px-2 py-1.5 text-xs"
-                  onClick={() => setImportExportMode('import')}
+                  onClick={() => {
+                    // 先关下拉再开弹窗，避免遮挡与焦点错乱
+                    if (isConnectionDropdownOpen) {
+                      onToggleConnectionDropdown();
+                    }
+                    setImportExportMode('import');
+                  }}
                 >
                   <Upload className="h-3.5 w-3.5" />
                   {translate('connection.importExport.import')}
@@ -289,7 +295,12 @@ export function WorkspaceHeader({
                 <button
                   type="button"
                   className="industrial-button-secondary flex-1 justify-center px-2 py-1.5 text-xs"
-                  onClick={() => setImportExportMode('export')}
+                  onClick={() => {
+                    if (isConnectionDropdownOpen) {
+                      onToggleConnectionDropdown();
+                    }
+                    setImportExportMode('export');
+                  }}
                 >
                   <Download className="h-3.5 w-3.5" />
                   {translate('connection.importExport.export')}

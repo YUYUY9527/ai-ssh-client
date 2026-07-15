@@ -3,8 +3,10 @@ import {
   AlertCircle,
   Archive,
   ChevronRight,
+  Copy,
   Download,
   File,
+  FileCode2,
   FileText,
   Folder,
   FolderOpen,
@@ -15,6 +17,7 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
+  Shield,
   Trash2,
   Upload,
   X,
@@ -29,12 +32,14 @@ import {
   useSftpTransferStore,
 } from '../store/useSftpTransferStore';
 import { SftpConflictDialog } from '../transfer/SftpConflictDialog';
+import { SftpFileEditor } from '../transfer/SftpFileEditor';
 import { TransferTaskList } from '../transfer/TransferTaskList';
 import { useSftpTransferController } from '../transfer/useSftpTransferController';
 import {
   DEFAULT_REMOTE_PATH,
   type RemoteFileItem,
 } from '../transfer/transfer-types';
+import { MAX_SFTP_EDIT_BYTES } from '../../shared/ipc-types';
 
 interface FileTransferProps {
   connectionId: string;
@@ -46,6 +51,38 @@ interface FileTransferProps {
 function joinRemoteChild(parent: string, name: string): string {
   if (!parent || parent === '/') return `/${name}`;
   return `${parent.replace(/\/+$/, '')}/${name}`;
+}
+
+/**
+ * 将列表中的 mode 规范为权限位 0–0o7777。
+ * 桌面端多为八进制字符串（如 100644），Web 端 ssh2 常为十进制（如 33188）。
+ */
+function modeToPermissionBits(mode?: string): number {
+  if (mode == null || !String(mode).trim()) {
+    return 0o644;
+  }
+  const raw = String(mode).trim();
+  // 含 8/9 只能是十进制
+  if (/[89]/.test(raw)) {
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) ? (n & 0o7777) : 0o644;
+  }
+  const n = Number.parseInt(raw, 8);
+  return Number.isFinite(n) ? (n & 0o7777) : 0o644;
+}
+
+/** 权限位格式化为 3–4 位八进制字符串。 */
+function permissionBitsToOctal(bits: number): string {
+  return (bits & 0o7777).toString(8).padStart(3, '0');
+}
+
+/** 解析用户输入的八进制权限。 */
+function parseOctalPermissionInput(raw: string): number | null {
+  const value = raw.trim().toLowerCase().replace(/^0o/, '');
+  if (!/^[0-7]{1,4}$/.test(value)) {
+    return null;
+  }
+  return Number.parseInt(value, 8) & 0o7777;
 }
 
 /** 规范化地址栏路径：去空白、折叠重复斜杠，空输入回落家目录。/home 是真实目录，不改写成 ~。 */
@@ -67,6 +104,64 @@ function normalizeRemoteBrowsePath(rawPath: string): string {
   }
   // 相对路径按家目录子路径处理，避免 SFTP 相对当前目录语义含糊
   return normalizeHistoryPath(`~/${trimmed}`);
+}
+
+/** 解析地址栏输入：父目录 + 末段前缀，供路径补全使用。 */
+function splitPathForSuggest(rawPath: string): { parent: string; fragment: string } {
+  const normalized = rawPath.replace(/\\/g, '/');
+  const trimmedEnd = normalized.replace(/\s+$/, '');
+  if (!trimmedEnd.trim()) {
+    return { parent: DEFAULT_REMOTE_PATH, fragment: '' };
+  }
+  // 以 / 结尾：列出该目录下全部子目录
+  if (trimmedEnd.endsWith('/')) {
+    return { parent: normalizeRemoteBrowsePath(trimmedEnd), fragment: '' };
+  }
+  const lastSlash = trimmedEnd.lastIndexOf('/');
+  if (lastSlash < 0) {
+    return { parent: DEFAULT_REMOTE_PATH, fragment: trimmedEnd.trim() };
+  }
+  if (lastSlash === 0) {
+    return { parent: '/', fragment: trimmedEnd.slice(1) };
+  }
+  // ~/ 单独一段
+  if (trimmedEnd.startsWith('~/') && lastSlash === 1) {
+    return { parent: DEFAULT_REMOTE_PATH, fragment: trimmedEnd.slice(2) };
+  }
+  return {
+    parent: normalizeRemoteBrowsePath(trimmedEnd.slice(0, lastSlash)),
+    fragment: trimmedEnd.slice(lastSlash + 1),
+  };
+}
+
+interface PathSuggestion {
+  path: string;
+  name: string;
+  /** history = 近期访问；dir = 目录列举 */
+  source: 'dir' | 'history';
+}
+
+/** 按前缀过滤目录项，优先 startsWith。 */
+function filterDirectorySuggestions(
+  candidates: RemoteFileItem[],
+  fragment: string,
+): PathSuggestion[] {
+  const frag = fragment.toLowerCase();
+  return candidates
+    .filter((item) => item.isDirectory)
+    .filter((item) => {
+      if (!frag) return true;
+      return item.name.toLowerCase().startsWith(frag) || item.name.toLowerCase().includes(frag);
+    })
+    .sort((left, right) => {
+      if (!frag) return left.name.localeCompare(right.name);
+      const leftStarts = left.name.toLowerCase().startsWith(frag) ? 0 : 1;
+      const rightStarts = right.name.toLowerCase().startsWith(frag) ? 0 : 1;
+      if (leftStarts !== rightStarts) return leftStarts - rightStarts;
+      return left.name.localeCompare(right.name);
+    })
+    .slice(0, 12)
+    .map((item) => ({ path: item.path, name: item.name, source: 'dir' as const }));
 }
 
 function formatSize(bytes: number): string {
@@ -119,6 +214,11 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const navigationVersion = resolvedBrowser.navigationVersion ?? 0;
 
   const [pathInput, setPathInput] = useState(currentPath);
+  const [pathFocused, setPathFocused] = useState(false);
+  const [pathSuggestions, setPathSuggestions] = useState<PathSuggestion[]>([]);
+  const [pathSuggestIndex, setPathSuggestIndex] = useState(0);
+  const [pathSuggestLoading, setPathSuggestLoading] = useState(false);
+  const [pathHistory, setPathHistory] = useState<string[]>([]);
   const [files, setFiles] = useState<RemoteFileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,10 +241,25 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const [mkdirError, setMkdirError] = useState<string | null>(null);
   const [isCreatingDir, setIsCreatingDir] = useState(false);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+  const [editTarget, setEditTarget] = useState<RemoteFileItem | null>(null);
+  /** 文件过大等提示：居中弹窗，避免顶栏错误需滚动才可见 */
+  const [editAlert, setEditAlert] = useState<string | null>(null);
+  const [chmodTarget, setChmodTarget] = useState<RemoteFileItem | null>(null);
+  const [chmodMode, setChmodMode] = useState('644');
+  const [chmodError, setChmodError] = useState<string | null>(null);
+  const [isChmodding, setIsChmodding] = useState(false);
+  /** 复制路径等轻量成功提示 */
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const mkdirInputRef = useRef<HTMLInputElement>(null);
+  const chmodInputRef = useRef<HTMLInputElement>(null);
+  const pathInputRef = useRef<HTMLInputElement>(null);
+  const pathSuggestRef = useRef<HTMLDivElement>(null);
+  const pathListCacheRef = useRef<Map<string, RemoteFileItem[]>>(new Map());
+  const statusNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pathSuggestRequestRef = useRef(0);
   const refreshedUploadTasksRef = useRef<Set<string>>(new Set());
   const loadRequestRef = useRef(0);
   const handledNavigationVersionRef = useRef(navigationVersion);
@@ -201,6 +316,12 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         // 服务端 realpath 后的规范路径（绝对路径），用于地址栏与后续导航
         const resolvedPath = normalizeRemoteBrowsePath(result.data.path || targetPath);
         setFiles(nextFiles);
+        pathListCacheRef.current.set(resolvedPath, nextFiles);
+        pathListCacheRef.current.set(targetPath, nextFiles);
+        setPathHistory((prev) => {
+          const next = [resolvedPath, ...prev.filter((item) => item !== resolvedPath)];
+          return next.slice(0, 40);
+        });
         setPathInput(resolvedPath);
         setBrowserPath(connectionId, resolvedPath);
         // 刷新时剔除已不存在的选中路径。
@@ -403,10 +524,128 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     const nextPath = normalizeRemoteBrowsePath(pathInput);
     if (nextPath === normalizeRemoteBrowsePath(currentPath) && files.length > 0 && !error) {
       setPathInput(nextPath);
+      setPathSuggestions([]);
       return;
     }
+    setPathSuggestions([]);
+    setPathFocused(false);
     navigateTo(nextPath);
   }, [currentPath, error, files.length, navigateTo, pathInput]);
+
+  /** 点击补全项：跳转完整目录路径。 */
+  const applyPathSuggestion = useCallback((suggestion: PathSuggestion) => {
+    setPathInput(suggestion.path);
+    setPathSuggestions([]);
+    setPathFocused(false);
+    navigateTo(suggestion.path);
+  }, [navigateTo]);
+
+  const showPathSuggestions = pathFocused && pathSuggestions.length > 0 && isLive;
+
+  // 路径补全：根据输入父目录列举子目录 + 近期访问路径
+  useEffect(() => {
+    if (!pathFocused || !isLive || activeView !== 'files') {
+      return;
+    }
+
+    const { parent, fragment } = splitPathForSuggest(pathInput);
+    const parentKey = normalizeRemoteBrowsePath(parent);
+    const requestId = ++pathSuggestRequestRef.current;
+
+    const mergeWithHistory = (dirItems: PathSuggestion[]): PathSuggestion[] => {
+      const inputLower = pathInput.trim().toLowerCase();
+      const historyHits = pathHistory
+        .filter((item) => {
+          if (!inputLower) return item !== normalizeRemoteBrowsePath(currentPath);
+          return item.toLowerCase().includes(inputLower) && item.toLowerCase() !== inputLower;
+        })
+        .slice(0, 6)
+        .map((item) => ({
+          path: item,
+          name: item,
+          source: 'history' as const,
+        }));
+      const seen = new Set<string>();
+      const merged: PathSuggestion[] = [];
+      for (const item of [...dirItems, ...historyHits]) {
+        if (seen.has(item.path)) continue;
+        seen.add(item.path);
+        merged.push(item);
+      }
+      return merged.slice(0, 14);
+    };
+
+    const applyCandidates = (candidates: RemoteFileItem[]) => {
+      if (requestId !== pathSuggestRequestRef.current) return;
+      const dirs = filterDirectorySuggestions(candidates, fragment);
+      setPathSuggestions(mergeWithHistory(dirs));
+      setPathSuggestIndex(0);
+      setPathSuggestLoading(false);
+    };
+
+    // 当前目录可直接用已加载列表
+    if (parentKey === normalizeRemoteBrowsePath(currentPath) && files.length > 0) {
+      applyCandidates(files);
+      return;
+    }
+
+    const cached = pathListCacheRef.current.get(parentKey);
+    if (cached) {
+      applyCandidates(cached);
+      return;
+    }
+
+    setPathSuggestLoading(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (!window.electronAPI || requestId !== pathSuggestRequestRef.current) {
+          return;
+        }
+        try {
+          const result = await window.electronAPI.listDirectory(connectionId, parentKey);
+          if (requestId !== pathSuggestRequestRef.current) {
+            return;
+          }
+          if (result.success && result.data?.files) {
+            const listed = result.data.files;
+            const resolvedParent = normalizeRemoteBrowsePath(result.data.path || parentKey);
+            pathListCacheRef.current.set(parentKey, listed);
+            pathListCacheRef.current.set(resolvedParent, listed);
+            applyCandidates(listed);
+            return;
+          }
+          setPathSuggestions(mergeWithHistory([]));
+          setPathSuggestIndex(0);
+        } catch {
+          if (requestId === pathSuggestRequestRef.current) {
+            setPathSuggestions(mergeWithHistory([]));
+          }
+        } finally {
+          if (requestId === pathSuggestRequestRef.current) {
+            setPathSuggestLoading(false);
+          }
+        }
+      })();
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeView, connectionId, currentPath, files, isLive, pathFocused, pathHistory, pathInput]);
+
+  // 点击补全面板外关闭
+  useEffect(() => {
+    if (!pathFocused) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (pathInputRef.current?.contains(target) || pathSuggestRef.current?.contains(target)) {
+        return;
+      }
+      setPathFocused(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [pathFocused]);
 
   const goUp = () => {
     const base = normalizeRemoteBrowsePath(currentPath);
@@ -467,6 +706,105 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     setRenameName(item.name);
     setRenameError(null);
   };
+
+  /** 短暂底部提示（复制路径成功等）。 */
+  const showStatusNotice = useCallback((message: string) => {
+    setStatusNotice(message);
+    if (statusNoticeTimerRef.current) {
+      clearTimeout(statusNoticeTimerRef.current);
+    }
+    statusNoticeTimerRef.current = setTimeout(() => {
+      setStatusNotice(null);
+      statusNoticeTimerRef.current = null;
+    }, 1600);
+  }, []);
+
+  useEffect(() => () => {
+    if (statusNoticeTimerRef.current) {
+      clearTimeout(statusNoticeTimerRef.current);
+    }
+  }, []);
+
+  /** 复制远端路径到剪贴板。 */
+  const handleCopyPath = async (item: RemoteFileItem) => {
+    setContextMenu(null);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(item.path);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = item.path;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      showStatusNotice(t('fileTransfer.pathCopied'));
+    } catch {
+      setEditAlert(t('fileTransfer.copyPathFailed'));
+    }
+  };
+
+  /** 打开权限编辑弹窗。 */
+  const openChmodDialog = (item: RemoteFileItem) => {
+    setContextMenu(null);
+    setChmodTarget(item);
+    setChmodMode(permissionBitsToOctal(modeToPermissionBits(item.mode)));
+    setChmodError(null);
+  };
+
+  /** 切换某一 rwx 位。 */
+  const toggleChmodBit = (mask: number) => {
+    const current = parseOctalPermissionInput(chmodMode) ?? 0;
+    const next = (current & mask) === mask ? (current & ~mask) : (current | mask);
+    setChmodMode(permissionBitsToOctal(next));
+    setChmodError(null);
+  };
+
+  /** 提交 chmod。 */
+  const handleChmod = async () => {
+    if (!chmodTarget || isChmodding) {
+      return;
+    }
+    const mode = parseOctalPermissionInput(chmodMode);
+    if (mode == null) {
+      setChmodError(t('fileTransfer.permissionsInvalid'));
+      return;
+    }
+    if (!window.electronAPI?.setSftpPermissions) {
+      setChmodError(t('fileTransfer.permissionsFailed'));
+      return;
+    }
+    setIsChmodding(true);
+    setChmodError(null);
+    try {
+      const result = await window.electronAPI.setSftpPermissions(
+        connectionId,
+        chmodTarget.path,
+        mode,
+      );
+      if (!result.success) {
+        setChmodError(result.error || t('fileTransfer.permissionsFailed'));
+        return;
+      }
+      setChmodTarget(null);
+      await loadDirectory(currentPath);
+    } catch (err) {
+      setChmodError((err as Error).message || t('fileTransfer.permissionsFailed'));
+    } finally {
+      setIsChmodding(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!chmodTarget) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => chmodInputRef.current?.select());
+    return () => cancelAnimationFrame(frame);
+  }, [chmodTarget]);
 
   const handleRename = async () => {
     if (!renameTarget || isRenaming) {
@@ -762,22 +1100,104 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <input
-              type="text"
-              value={pathInput}
-              onChange={(e) => setPathInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  commitPathInput();
-                }
-              }}
-              className="industrial-input min-w-0 flex-1 py-1"
-              placeholder={t('fileTransfer.pathPlaceholder')}
-              disabled={!isLive}
-              spellCheck={false}
-              autoComplete="off"
-            />
+            <div className="relative min-w-0 flex-1">
+              <input
+                ref={pathInputRef}
+                type="text"
+                value={pathInput}
+                onChange={(e) => {
+                  setPathInput(e.target.value);
+                  setPathFocused(true);
+                }}
+                onFocus={() => setPathFocused(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown' && showPathSuggestions) {
+                    e.preventDefault();
+                    setPathSuggestIndex((index) => Math.min(index + 1, pathSuggestions.length - 1));
+                    return;
+                  }
+                  if (e.key === 'ArrowUp' && showPathSuggestions) {
+                    e.preventDefault();
+                    setPathSuggestIndex((index) => Math.max(index - 1, 0));
+                    return;
+                  }
+                  if (e.key === 'Escape') {
+                    if (showPathSuggestions) {
+                      e.preventDefault();
+                      setPathSuggestions([]);
+                      setPathFocused(false);
+                    }
+                    return;
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (showPathSuggestions && pathSuggestions[pathSuggestIndex]) {
+                      applyPathSuggestion(pathSuggestions[pathSuggestIndex]);
+                      return;
+                    }
+                    commitPathInput();
+                  }
+                }}
+                className="industrial-input w-full py-1"
+                placeholder={t('fileTransfer.pathPlaceholder')}
+                disabled={!isLive}
+                spellCheck={false}
+                autoComplete="off"
+                role="combobox"
+                aria-expanded={showPathSuggestions}
+                aria-autocomplete="list"
+                aria-controls="sftp-path-suggestions"
+              />
+              {pathFocused && isLive && (showPathSuggestions || pathSuggestLoading) && (
+                <div
+                  ref={pathSuggestRef}
+                  id="sftp-path-suggestions"
+                  role="listbox"
+                  className="app-popover scrollbar-thin left-0 right-0 top-full z-[60] mt-1 max-h-56 overflow-y-auto py-1"
+                >
+                  {pathSuggestLoading && pathSuggestions.length === 0 ? (
+                    <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t('common.loading')}
+                    </div>
+                  ) : pathSuggestions.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-slate-500">
+                      {t('fileTransfer.pathNoMatches')}
+                    </div>
+                  ) : (
+                    pathSuggestions.map((item, index) => (
+                      <button
+                        key={`${item.source}-${item.path}`}
+                        type="button"
+                        role="option"
+                        aria-selected={index === pathSuggestIndex}
+                        className={`app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm ${
+                          index === pathSuggestIndex
+                            ? 'bg-[color-mix(in_srgb,var(--accent-primary)_14%,transparent)]'
+                            : ''
+                        }`}
+                        onMouseEnter={() => setPathSuggestIndex(index)}
+                        onMouseDown={(event) => {
+                          // 避免 input blur 先于 click 关掉列表
+                          event.preventDefault();
+                          applyPathSuggestion(item);
+                        }}
+                      >
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-800 dark:text-slate-100">
+                          {item.path}
+                        </span>
+                        {item.source === 'history' && (
+                          <span className="shrink-0 text-[10px] text-slate-500">
+                            {t('fileTransfer.pathRecent')}
+                          </span>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -1029,18 +1449,39 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                     {t('fileTransfer.open')}
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const item = contextMenu.item;
-                      setContextMenu(null);
-                      void handleDownload(item);
-                    }}
-                    className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
-                  >
-                    <Download className="h-4 w-4" />
-                    {t('common.download')}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const item = contextMenu.item;
+                        setContextMenu(null);
+                        if (typeof item.size === 'number' && item.size > MAX_SFTP_EDIT_BYTES) {
+                          setEditAlert(t('fileTransfer.editTooLarge', {
+                            size: formatSize(item.size),
+                            max: formatSize(MAX_SFTP_EDIT_BYTES),
+                          }));
+                          return;
+                        }
+                        setEditTarget(item);
+                      }}
+                      className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      <FileCode2 className="h-4 w-4" />
+                      {t('fileTransfer.edit')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const item = contextMenu.item;
+                        setContextMenu(null);
+                        void handleDownload(item);
+                      }}
+                      className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      <Download className="h-4 w-4" />
+                      {t('common.download')}
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
@@ -1049,6 +1490,23 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                 >
                   <Pencil className="h-4 w-4" />
                   {t('fileTransfer.rename')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyPath(contextMenu.item)}
+                  className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                >
+                  <Copy className="h-4 w-4" />
+                  {t('fileTransfer.copyPath')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openChmodDialog(contextMenu.item)}
+                  className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                  disabled={!isLive}
+                >
+                  <Shield className="h-4 w-4" />
+                  {t('fileTransfer.permissions')}
                 </button>
                 <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
                 <button
@@ -1087,6 +1545,43 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             : 'SFTP'}
         </span>
       </div>
+
+      {editTarget && (
+        <SftpFileEditor
+          isOpen
+          connectionId={connectionId}
+          remotePath={editTarget.path}
+          knownSize={editTarget.size}
+          onClose={() => setEditTarget(null)}
+          onAlert={(message) => {
+            setEditTarget(null);
+            setEditAlert(message);
+          }}
+        />
+      )}
+
+      <Modal
+        isOpen={Boolean(editAlert)}
+        onClose={() => setEditAlert(null)}
+        title={t('fileTransfer.edit')}
+        size="sm"
+        closeLabel={t('common.close')}
+      >
+        <div className="space-y-4 p-4">
+          <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+            {editAlert}
+          </p>
+        </div>
+        <div className="industrial-modal-footer">
+          <button
+            type="button"
+            className="industrial-button-primary"
+            onClick={() => setEditAlert(null)}
+          >
+            {t('common.confirm')}
+          </button>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={renameTarget != null}
@@ -1201,6 +1696,116 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
           </div>
         </form>
       </Modal>
+
+      <Modal
+        isOpen={chmodTarget != null}
+        onClose={() => {
+          if (!isChmodding) {
+            setChmodTarget(null);
+            setChmodError(null);
+          }
+        }}
+        title={t('fileTransfer.permissionsTitle')}
+        size="sm"
+        closeLabel={t('common.close')}
+        initialFocusRef={chmodInputRef}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleChmod();
+          }}
+        >
+          <div className="space-y-3 p-4">
+            {chmodTarget && (
+              <p className="truncate font-mono text-xs text-slate-500 dark:text-slate-400" title={chmodTarget.path}>
+                {chmodTarget.path}
+              </p>
+            )}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                {t('fileTransfer.permissionsLabel')}
+              </label>
+              <input
+                ref={chmodInputRef}
+                value={chmodMode}
+                onChange={(event) => {
+                  setChmodMode(event.target.value);
+                  setChmodError(null);
+                }}
+                className="industrial-input w-full font-mono"
+                disabled={isChmodding}
+                spellCheck={false}
+                autoComplete="off"
+                inputMode="numeric"
+              />
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {t('fileTransfer.permissionsHint')}
+              </p>
+            </div>
+            {(() => {
+              const bits = parseOctalPermissionInput(chmodMode) ?? 0;
+              const rows: Array<{ key: string; label: string; shift: number }> = [
+                { key: 'owner', label: t('fileTransfer.permissionsOwner'), shift: 6 },
+                { key: 'group', label: t('fileTransfer.permissionsGroup'), shift: 3 },
+                { key: 'other', label: t('fileTransfer.permissionsOther'), shift: 0 },
+              ];
+              return (
+                <div className="space-y-2 rounded-sm border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] p-2.5">
+                  {rows.map((row) => (
+                    <div key={row.key} className="grid grid-cols-[4.5rem_1fr] items-center gap-2 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">{row.label}</span>
+                      <div className="flex items-center gap-3">
+                        {([
+                          { label: t('fileTransfer.permissionsRead'), mask: 0o4 << row.shift },
+                          { label: t('fileTransfer.permissionsWrite'), mask: 0o2 << row.shift },
+                          { label: t('fileTransfer.permissionsExec'), mask: 0o1 << row.shift },
+                        ] as const).map((bit) => (
+                          <label key={bit.mask} className="inline-flex cursor-pointer items-center gap-1 text-slate-700 dark:text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={(bits & bit.mask) === bit.mask}
+                              onChange={() => toggleChmodBit(bit.mask)}
+                              disabled={isChmodding}
+                            />
+                            {bit.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {chmodError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{chmodError}</p>
+            )}
+          </div>
+          <div className="industrial-modal-footer">
+            <button
+              type="button"
+              onClick={() => setChmodTarget(null)}
+              className="industrial-button-secondary"
+              disabled={isChmodding}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="submit"
+              className="industrial-button-primary"
+              disabled={isChmodding}
+            >
+              {isChmodding ? t('common.loading') : t('common.confirm')}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {statusNotice && (
+        <div className="pointer-events-none fixed bottom-8 left-1/2 z-[90] -translate-x-1/2 rounded-md bg-slate-900/92 px-3 py-1.5 text-xs text-white shadow-lg dark:bg-slate-100/95 dark:text-slate-900">
+          {statusNotice}
+        </div>
+      )}
 
       <ConfirmDialog
         isOpen={deleteTargets.length > 0}
