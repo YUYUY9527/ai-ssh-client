@@ -50,10 +50,26 @@ module.exports = {
             muted: '#64748b',
           },
         },
+        accent: 'var(--accent-primary)',
+        success: 'var(--success)',
+        warning: 'var(--warning)',
+        danger: 'var(--danger)',
       },
       fontFamily: {
-        sans: ['Geist', 'IBM Plex Sans', 'Aptos', 'Segoe UI', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Source Code Pro', 'Consolas', 'monospace'],
+        sans: ['Geist', 'IBM Plex Sans', 'Segoe UI Variable', 'Segoe UI', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Cascadia Code', 'Source Code Pro', 'Consolas', 'monospace'],
+      },
+      borderRadius: {
+        sm: 'var(--radius-sm)',
+        DEFAULT: 'var(--radius-md)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+      },
+      transitionDuration: {
+        chrome: '180ms',
+      },
+      transitionTimingFunction: {
+        chrome: 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
     },
   },

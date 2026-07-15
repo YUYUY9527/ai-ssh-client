@@ -127,11 +127,11 @@ const stateLabels: Record<AgentState, { color: string; icon: React.ReactNode }> 
   idle: { color: 'text-slate-500', icon: <Brain className="w-3 h-3" /> },
   thinking: { color: 'text-blue-500', icon: <Brain className="w-3 h-3 animate-pulse" /> },
   planning: { color: 'text-purple-500', icon: <ListTodo className="w-3 h-3 animate-pulse" /> },
-  executing: { color: 'text-yellow-500', icon: <Terminal className="w-3 h-3 animate-pulse" /> },
+  executing: { color: 'text-warning', icon: <Terminal className="w-3 h-3 animate-pulse" /> },
   observing: { color: 'text-cyan-500', icon: <Eye className="w-3 h-3 animate-pulse" /> },
   paused: { color: 'text-orange-500', icon: <Pause className="w-3 h-3" /> },
-  finished: { color: 'text-green-500', icon: <CheckCircle2 className="w-3 h-3" /> },
-  error: { color: 'text-red-500', icon: <XCircle className="w-3 h-3" /> },
+  finished: { color: 'text-success', icon: <CheckCircle2 className="w-3 h-3" /> },
+  error: { color: 'text-danger', icon: <XCircle className="w-3 h-3" /> },
 };
 
 function getStateLabel(state: AgentState, t: (key: string) => string): string {
@@ -449,7 +449,7 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
         )}
 
         {agentState === 'error' && currentTask.error && (
-          <p className="text-xs leading-5 text-red-500 mt-3">{currentTask.error}</p>
+          <p className="mt-3 text-xs leading-5 text-danger">{currentTask.error}</p>
         )}
       </div>
 
@@ -496,9 +496,9 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                         {isCurrentlyActive ? (
                           <div className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse" />
                         ) : latestStep.status === 'completed' ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                         ) : latestStep.status === 'failed' ? (
-                          <XCircle className="w-3.5 h-3.5 text-red-500" />
+                          <XCircle className="h-3.5 w-3.5 text-danger" />
                         ) : (
                           <div className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600" />
                         )}
@@ -558,10 +558,10 @@ export function AgentThinking({ onPause, onResume, onRetry, onCancel }: AgentThi
                                   </span>
                                 )}
                                 {step.status === 'completed' && (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                                 )}
                                 {step.status === 'failed' && (
-                                  <XCircle className="w-3.5 h-3.5 text-red-500" />
+                                  <XCircle className="h-3.5 w-3.5 text-danger" />
                                 )}
                               </div>
                               {step.type === 'execution' ? (

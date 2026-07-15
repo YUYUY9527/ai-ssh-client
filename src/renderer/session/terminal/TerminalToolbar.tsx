@@ -72,8 +72,8 @@ export function TerminalToolbar({
                 onClick={() => onSelectTheme(themeKey)}
                 className={`app-popover-row text-sm ${
                   terminalTheme === themeKey
-                    ? 'bg-teal-600 text-white'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    ? 'bg-[color-mix(in_srgb,var(--accent-primary)_85%,transparent)] text-white'
+                    : 'text-slate-700 dark:text-slate-300'
                 }`}
               >
                 <div className="flex items-center gap-2">

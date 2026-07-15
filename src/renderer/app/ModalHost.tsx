@@ -52,9 +52,10 @@ interface ModalHostProps {
 
 function LazyModalFallback({ translate }: { translate: ModalHostProps['translate'] }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="industrial-modal px-6 py-5 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-        <Loader2 className="w-5 h-5 animate-spin" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="modal-backdrop" />
+      <div className="industrial-modal relative z-10 flex items-center gap-3 px-6 py-5 text-sm text-slate-600 dark:text-slate-300">
+        <Loader2 className="h-5 w-5 animate-spin text-accent" />
         {translate('common.loading')}
       </div>
     </div>
@@ -225,8 +226,8 @@ export function ModalHost({
             <div className="industrial-card space-y-3 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-sm border border-teal-500/35 bg-teal-500/10">
-                    <KeyRound className="h-4 w-4 text-teal-500" />
+                  <span className="workspace-empty-card-icon workspace-empty-card-icon-connect">
+                    <KeyRound className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
                     <label className="industrial-field-label mb-0">

@@ -38,10 +38,17 @@ export function AppFooter({
     ? translate('commandStatus.failed')
     : translate('commandStatus.completed');
 
+  const commandTone =
+    commandStatus?.status === 'pending'
+      ? 'text-warning'
+      : commandStatus?.status === 'success'
+      ? 'text-success'
+      : 'text-danger';
+
   return (
     <footer className="app-footer">
       <div className="flex min-w-0 items-center gap-3">
-        <div className={`flex shrink-0 items-center gap-2 ${status.color}`}>
+        <div className={`app-footer-status shrink-0 ${status.color}`}>
           {status.icon}
           <span>{status.text}</span>
         </div>
@@ -49,7 +56,7 @@ export function AppFooter({
           <button
             type="button"
             onClick={onOpenTransfers}
-            className="flex min-w-0 items-center gap-1.5 text-teal-600 transition-colors hover:text-teal-500 dark:text-teal-400"
+            className="app-footer-meta app-footer-transfer min-w-0"
             title={translate('fileTransfer.transferTasks')}
           >
             <FolderUp className="h-3 w-3 shrink-0" />
@@ -62,21 +69,17 @@ export function AppFooter({
           </button>
         )}
         {commandStatus && (
-          <div className={`flex min-w-0 items-center gap-1 ${
-            commandStatus.status === 'pending' ? 'text-yellow-500' :
-            commandStatus.status === 'success' ? 'text-green-500' : 'text-red-500'
-          }`}
-          >
-            {commandStatus.status === 'pending' && <Loader2 className="w-3 h-3 animate-spin" />}
-            {commandStatus.status === 'success' && <FileText className="w-3 h-3" />}
-            {commandStatus.status === 'error' && <AlertCircle className="w-3 h-3" />}
+          <div className={`app-footer-meta min-w-0 ${commandTone}`}>
+            {commandStatus.status === 'pending' && <Loader2 className="h-3 w-3 animate-spin" />}
+            {commandStatus.status === 'success' && <FileText className="h-3 w-3" />}
+            {commandStatus.status === 'error' && <AlertCircle className="h-3 w-3" />}
             <span className="max-w-48 truncate sm:max-w-72" title={commandStatus.command}>
               {commandStatusText}
             </span>
           </div>
         )}
       </div>
-      <span>AI SSH Client v{__APP_VERSION__}</span>
+      <span className="shrink-0 opacity-80">AI SSH Client v{__APP_VERSION__}</span>
     </footer>
   );
 }

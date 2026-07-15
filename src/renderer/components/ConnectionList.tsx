@@ -216,7 +216,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               onContextMenu={(e) => handleContextMenu(e, connection)}
               className={`p-2 mb-1 rounded-sm border transition-colors ${
                 activeConnectionId === connection.id
-                  ? 'border-teal-500 bg-teal-500/10'
+                  ? 'connection-list-row-active'
                   : 'border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_68%,var(--bg-secondary))] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
               }`}
             >
@@ -250,7 +250,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 ) : (
                   <button
                     onClick={() => handleConnect(connection)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-teal-600 hover:bg-teal-500 rounded-sm transition-colors text-white"
+                    className="industrial-button-primary px-2 py-1 text-xs"
                   >
                     <MonitorPlay className="w-3 h-3" />
                     连接
@@ -267,7 +267,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 </button>
                 <button
                   onClick={() => handleDeleteConnection(connection.id)}
-                  className="icon-button h-6 w-6 hover:text-red-500"
+                  className="icon-button h-6 w-6 hover:text-danger"
                   title="删除"
                 >
                   <Trash2 className="w-3 h-3" />

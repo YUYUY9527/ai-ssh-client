@@ -275,7 +275,7 @@ export function ConnectionImportExportModal({
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                className={`industrial-button-secondary justify-center ${importKind === 'backup' ? 'ring-1 ring-teal-500' : ''}`}
+                className={`industrial-button-secondary justify-center ${importKind === 'backup' ? 'ring-1 ring-[var(--accent-primary)]' : ''}`}
                 onClick={() => {
                   setImportKind('backup');
                   setPendingPayload(null);
@@ -286,7 +286,7 @@ export function ConnectionImportExportModal({
               </button>
               <button
                 type="button"
-                className={`industrial-button-secondary justify-center ${importKind === 'openssh' ? 'ring-1 ring-teal-500' : ''}`}
+                className={`industrial-button-secondary justify-center ${importKind === 'openssh' ? 'ring-1 ring-[var(--accent-primary)]' : ''}`}
                 onClick={() => {
                   setImportKind('openssh');
                   setPendingPayload(null);

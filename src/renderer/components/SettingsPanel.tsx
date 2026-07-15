@@ -29,17 +29,9 @@ function ToggleButton({ enabled, label, onChange }: ToggleButtonProps) {
       aria-checked={enabled}
       aria-label={label}
       onClick={() => onChange(!enabled)}
-      className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full border transition-colors ${
-        enabled
-          ? 'border-teal-500 bg-teal-600'
-          : 'border-slate-300 bg-slate-200 dark:border-slate-600 dark:bg-slate-700'
-      }`}
+      className={`ui-toggle ${enabled ? 'ui-toggle-on' : 'ui-toggle-off'}`}
     >
-      <span
-        className={`pointer-events-none absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-          enabled ? 'translate-x-5' : 'translate-x-0'
-        }`}
-      />
+      <span className="ui-toggle-thumb" />
     </button>
   );
 }
@@ -134,8 +126,9 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   ] as const;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">
-      <div className="industrial-modal flex max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+      <div className="modal-backdrop" onClick={onClose} />
+      <div className="industrial-modal relative z-10 flex max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
         <div className="industrial-modal-header">
           <h2 className="font-semibold text-slate-900 dark:text-white">{t('settings.title')}</h2>
           <button
@@ -156,10 +149,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 aria-pressed={activeTab === tab.id}
-                className={`flex shrink-0 items-center gap-2 rounded-sm border px-3 py-2 text-sm transition-colors sm:w-full ${
-                  activeTab === tab.id
-                    ? 'border-teal-500 bg-teal-600 text-white'
-                    : 'border-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+                className={`settings-nav-item ${
+                  activeTab === tab.id ? 'settings-nav-item-active' : ''
                 }`}
               >
                 <tab.icon className="w-4 h-4" />
@@ -330,7 +321,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           <button
                             type="button"
                             onClick={() => void handleDeleteHostTrust(record)}
-                            className="icon-button h-7 w-7 text-red-500"
+                            className="icon-button h-7 w-7 text-danger"
                             title={t('common.delete')}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -347,7 +338,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
               <div className="space-y-5">
                 <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.agent.title')}</h3>
 
-                <div className="industrial-card border-teal-500/50 bg-teal-500/10 p-4">
+                <div className="industrial-card connection-list-row-active p-4">
                   <p className="text-sm text-teal-700 dark:text-teal-300">
                     {t('settings.agent.description')}
                   </p>

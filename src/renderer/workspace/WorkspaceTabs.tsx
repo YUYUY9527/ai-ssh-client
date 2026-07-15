@@ -42,11 +42,11 @@ export function WorkspaceTabs({
   }
 
   const getTabStatusClass = (tab: WorkspaceTab) => {
-    if (tab.restoredFromScrollback) return 'bg-slate-400';
-    if (tab.state === 'error') return 'bg-red-500';
-    if (tab.isConnecting) return 'bg-yellow-500 animate-pulse';
-    if (tab.isConnected) return 'bg-green-500';
-    return 'bg-slate-500';
+    if (tab.restoredFromScrollback) return 'status-dot-idle';
+    if (tab.state === 'error') return 'status-dot-error';
+    if (tab.isConnecting) return 'status-dot-connecting';
+    if (tab.isConnected) return 'status-dot-connected';
+    return 'status-dot-idle';
   };
 
   return (
@@ -79,17 +79,19 @@ export function WorkspaceTabs({
           onContextMenu={(event) => onTabContextMenu(event, tab)}
           className={`workspace-tab group ${
             activeTabId === tab.id ? 'workspace-tab-active' : ''
-          } ${dragState.dragOverTabId === tab.id ? 'bg-cyan-50 ring-1 ring-cyan-300 dark:bg-cyan-500/10 dark:ring-cyan-800' : ''} ${
+          } ${dragState.dragOverTabId === tab.id ? 'ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_50%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)]' : ''} ${
             dragState.isDragging && dragState.draggedTabId === tab.id ? 'opacity-50' : ''
           }`}
         >
           <span className={`status-dot ${getTabStatusClass(tab)}`} />
-          <span className="truncate max-w-32">{tab.name}</span>
+          <span className="max-w-32 truncate">{tab.name}</span>
           <button
+            type="button"
             onClick={(event) => onCloseTab(event, tab.id)}
-            className="opacity-0 group-hover:opacity-100 hover:bg-slate-300 dark:hover:bg-slate-600 rounded p-0.5 transition-opacity"
+            className="workspace-tab-close"
+            aria-label="Close tab"
           >
-            <X className="w-3 h-3" />
+            <X className="h-3 w-3" />
           </button>
         </div>
       ))}

@@ -232,7 +232,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                           <div className="h-3 w-3 rounded-sm border border-white/20" style={{ backgroundColor: group.color }} />
                           <span className="text-xs font-semibold uppercase text-slate-700 dark:text-slate-300">{group.name}</span>
                         </div>
-                        <button onClick={() => handleDeleteGroup(group.id)} className="icon-button h-6 w-6 hover:text-red-500">
+                        <button onClick={() => handleDeleteGroup(group.id)} className="icon-button h-6 w-6 hover:text-danger">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
@@ -291,7 +291,7 @@ function CommandItem({ cmd, onPaste, onEdit, onDelete }: {
         <button onClick={() => onEdit(cmd)} className="icon-button h-6 w-6">
           <Pencil className="w-3 h-3" />
         </button>
-        <button onClick={() => onDelete(cmd.id)} className="icon-button h-6 w-6 hover:text-red-500">
+        <button onClick={() => onDelete(cmd.id)} className="icon-button h-6 w-6 hover:text-danger">
           <Trash2 className="w-3 h-3" />
         </button>
       </div>

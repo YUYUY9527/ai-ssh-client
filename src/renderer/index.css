@@ -3,7 +3,12 @@
 @tailwind utilities;
 
 @layer base {
-  /* Dark theme */
+  /*
+   * Design tokens (single source of truth)
+   * radius: sm 6 / md 8 / lg 12
+   * type: 10 / 12 / 13 / 14 / 16 via Tailwind text-*
+   * spacing: 4px scale via Tailwind
+   */
   :root, .dark {
     --bg-primary: #080c10;
     --bg-secondary: #0f151b;
@@ -14,11 +19,34 @@
     --text-secondary: #c9d3cc;
     --text-muted: #8a9992;
     --accent-primary: #14b8a6;
+    --accent-hover: #2dd4bf;
+    --accent-muted: color-mix(in srgb, #14b8a6 16%, transparent);
     --accent-strong: #f97316;
+    --accent-gradient-from: #14a99b;
+    --accent-gradient-to: #0f766e;
+    --success: #22c55e;
+    --success-muted: color-mix(in srgb, #22c55e 14%, transparent);
+    --success-fg: #86efac;
+    --warning: #eab308;
+    --warning-muted: color-mix(in srgb, #eab308 14%, transparent);
+    --warning-fg: #fde047;
+    --danger: #ef4444;
+    --danger-muted: color-mix(in srgb, #ef4444 14%, transparent);
+    --danger-fg: #fca5a5;
+    --info: #3b82f6;
+    --info-muted: color-mix(in srgb, #3b82f6 14%, transparent);
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --shadow-sm: 0 8px 20px rgba(0, 0, 0, 0.18);
+    --shadow-md: 0 18px 48px rgba(0, 0, 0, 0.28);
+    --shadow-lg: 0 28px 72px rgba(0, 0, 0, 0.42);
     --surface-shadow: 0 18px 55px rgba(0, 0, 0, 0.32);
+    --duration-chrome: 180ms;
+    --ease-chrome: cubic-bezier(0.16, 1, 0.3, 1);
+    --focus-ring: color-mix(in srgb, var(--accent-primary) 70%, #ffffff);
   }
 
-  /* Light theme */
   .light {
     --bg-primary: #f3f1ea;
     --bg-secondary: #fcfbf6;
@@ -29,7 +57,25 @@
     --text-secondary: #43504a;
     --text-muted: #6f7b74;
     --accent-primary: #0f766e;
+    --accent-hover: #0d9488;
+    --accent-muted: color-mix(in srgb, #0f766e 12%, transparent);
     --accent-strong: #c2410c;
+    --accent-gradient-from: #0f8f84;
+    --accent-gradient-to: #0c6f68;
+    --success: #16a34a;
+    --success-muted: color-mix(in srgb, #16a34a 12%, transparent);
+    --success-fg: #15803d;
+    --warning: #ca8a04;
+    --warning-muted: color-mix(in srgb, #ca8a04 12%, transparent);
+    --warning-fg: #a16207;
+    --danger: #dc2626;
+    --danger-muted: color-mix(in srgb, #dc2626 12%, transparent);
+    --danger-fg: #b91c1c;
+    --info: #2563eb;
+    --info-muted: color-mix(in srgb, #2563eb 12%, transparent);
+    --shadow-sm: 0 6px 16px rgba(63, 54, 39, 0.08);
+    --shadow-md: 0 14px 36px rgba(63, 54, 39, 0.12);
+    --shadow-lg: 0 24px 56px rgba(63, 54, 39, 0.16);
     --surface-shadow: 0 16px 42px rgba(63, 54, 39, 0.13);
   }
 
@@ -38,11 +84,12 @@
   }
 
   body {
-    @apply font-sans;
+    @apply font-sans text-[13px] leading-5;
     background-color: var(--bg-primary);
     color: var(--text-primary);
-    font-feature-settings: "tnum";
+    font-feature-settings: "tnum", "ss01";
     letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
   }
 
   input[type="number"] {
@@ -66,7 +113,7 @@
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--accent-primary) 70%, #ffffff);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
 }
@@ -75,69 +122,74 @@
   .app-shell {
     @apply flex h-screen flex-col overflow-hidden text-slate-900 dark:text-slate-100;
     background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 5%, transparent) 1px, transparent 1px),
-      linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 3%, transparent) 1px, transparent 1px),
+      radial-gradient(1200px 480px at 12% -10%, color-mix(in srgb, var(--accent-primary) 12%, transparent), transparent 60%),
+      radial-gradient(900px 420px at 88% 0%, color-mix(in srgb, var(--accent-strong) 8%, transparent), transparent 55%),
       var(--bg-primary);
-    background-size: 64px 64px, 64px 64px, auto;
   }
 
   .app-header {
-    @apply relative z-[80] flex h-14 flex-shrink-0 items-center justify-between border-b px-3;
-    background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 42%),
-      color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+    @apply relative z-[80] flex h-12 flex-shrink-0 items-center justify-between border-b px-3;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
-    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent-primary) 18%, transparent), 0 10px 30px rgba(0, 0, 0, 0.18);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent-primary) 12%, transparent);
     backdrop-filter: blur(14px);
   }
 
   .app-title-mark {
-    @apply flex h-8 w-8 items-center justify-center rounded-md border text-teal-700 dark:text-teal-200;
+    @apply flex h-8 w-8 items-center justify-center border text-teal-700 dark:text-teal-200;
+    border-radius: var(--radius-md);
     background:
       radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent-primary) 36%, transparent), transparent 54%),
       color-mix(in srgb, var(--bg-primary) 76%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffffff 10%, transparent), 0 0 24px rgba(20, 184, 166, 0.14);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffffff 10%, transparent), 0 0 20px color-mix(in srgb, var(--accent-primary) 18%, transparent);
   }
 
   .toolbar-group {
-    @apply flex items-center gap-1 rounded-md border p-1;
+    @apply flex items-center gap-0.5 border p-0.5;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 74%, transparent);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
   .toolbar-button {
-    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-transparent px-2.5 text-sm font-medium text-slate-700 transition-all duration-200 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300 dark:hover:text-white;
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-transparent px-2.5 text-sm font-medium text-slate-700 transition-all hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300 dark:hover:text-white;
+    border-radius: var(--radius-sm);
     background: transparent;
+    transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .toolbar-button:hover {
     background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
     border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
-    box-shadow: 0 10px 24px rgba(20, 184, 166, 0.1);
   }
 
   .toolbar-button-primary {
-    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-3 text-sm font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50;
-    background: linear-gradient(180deg, #14a99b, #0f766e);
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border px-3 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
     border-color: color-mix(in srgb, var(--accent-primary) 78%, #082f2c);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 12px 30px rgba(20, 184, 166, 0.22);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 10px 24px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+    transition-duration: var(--duration-chrome);
   }
 
   .toolbar-button-primary:hover {
-    background: linear-gradient(180deg, #2dd4bf, #0f8f84);
+    background: linear-gradient(180deg, var(--accent-hover), var(--accent-gradient-from));
   }
 
   .toolbar-button-active {
-    @apply text-teal-800 dark:text-teal-100;
+    color: color-mix(in srgb, var(--accent-primary) 40%, var(--text-primary));
     background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-hover));
     border-color: color-mix(in srgb, var(--accent-primary) 54%, var(--border-color));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
   .icon-button {
-    @apply inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-transparent text-slate-500 transition-all duration-200 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+    @apply inline-flex h-8 w-8 cursor-pointer items-center justify-center border border-transparent text-slate-500 transition-all hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+    border-radius: var(--radius-sm);
+    transition-duration: var(--duration-chrome);
   }
 
   .icon-button:hover {
@@ -146,19 +198,21 @@
   }
 
   .icon-button-active {
-    @apply text-teal-800 dark:text-teal-200;
+    color: color-mix(in srgb, var(--accent-primary) 35%, var(--text-primary));
     background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 52%, var(--border-color));
   }
 
   .app-popover {
-    @apply absolute top-full z-[90] mt-2 max-h-96 overflow-y-auto rounded-md border shadow-xl;
+    @apply absolute top-full z-[90] mt-2 max-h-96 overflow-y-auto border;
+    border-radius: var(--radius-md);
     background:
       linear-gradient(145deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 42%),
-      color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+      color-mix(in srgb, var(--bg-secondary) 94%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 26%, var(--border-color));
-    box-shadow: 0 28px 72px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
     backdrop-filter: blur(18px);
+    animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .app-popover-header {
@@ -176,13 +230,15 @@
   }
 
   .workspace-tabbar {
-    @apply relative z-[40] flex h-10 flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2;
-    background: color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary));
+    @apply relative z-[40] flex h-9 flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2;
+    background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
     border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
   }
 
   .workspace-tab {
-    @apply flex h-8 cursor-pointer items-center gap-2 rounded-md border border-transparent px-2.5 text-sm text-slate-600 transition-all duration-200 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+    @apply flex h-7 cursor-pointer items-center gap-2 border border-transparent px-2.5 text-[13px] text-slate-600 transition-all hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+    border-radius: var(--radius-sm);
+    transition-duration: var(--duration-chrome);
   }
 
   .workspace-tab:hover {
@@ -191,16 +247,30 @@
   }
 
   .workspace-tab-active {
-    @apply text-slate-950 shadow-sm dark:text-white;
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 10%, var(--bg-secondary)), var(--bg-primary));
-    border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
-    box-shadow: inset 0 2px 0 var(--accent-primary), 0 8px 20px rgba(20, 184, 166, 0.08);
+    @apply text-slate-950 dark:text-white;
+    background: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
+    box-shadow: inset 0 2px 0 var(--accent-primary);
+  }
+
+  .workspace-tab-close {
+    @apply rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100;
+    color: var(--text-muted);
+  }
+
+  .workspace-tab-close:hover {
+    background: color-mix(in srgb, var(--bg-hover) 80%, transparent);
+    color: var(--text-primary);
   }
 
   .status-dot {
     @apply h-2 w-2 flex-shrink-0 rounded-full;
   }
+
+  .status-dot-connected { background: var(--success); }
+  .status-dot-connecting { background: var(--warning); animation: pulse 1.4s ease-in-out infinite; }
+  .status-dot-error { background: var(--danger); }
+  .status-dot-idle { background: color-mix(in srgb, var(--text-muted) 70%, transparent); }
 
   .app-main {
     @apply relative z-0 flex min-h-0 flex-1 overflow-hidden;
@@ -424,10 +494,12 @@
   }
 
   .agent-pet-panel {
-    @apply fixed z-40 flex h-[min(620px,calc(100vh-9rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-sm border;
+    @apply fixed z-40 flex h-[min(620px,calc(100vh-9rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden border;
+    border-radius: var(--radius-lg);
     background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
-    box-shadow: 0 22px 56px rgba(0, 0, 0, 0.34);
+    box-shadow: var(--shadow-lg);
+    animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .agent-pet-panel::after {
@@ -781,10 +853,32 @@
   }
 
   .app-footer {
-    @apply flex h-7 flex-shrink-0 items-center justify-between border-t px-3 text-xs text-slate-500 dark:text-slate-400;
-    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    @apply flex h-7 flex-shrink-0 items-center justify-between border-t px-3 text-xs;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
   }
+
+  .app-footer-status {
+    @apply flex min-w-0 items-center gap-2;
+  }
+
+  .app-footer-meta {
+    @apply flex min-w-0 items-center gap-1.5;
+  }
+
+  .app-footer-transfer {
+    color: var(--accent-primary);
+  }
+
+  .app-footer-transfer:hover {
+    color: var(--accent-hover);
+  }
+
+  .text-success { color: var(--success); }
+  .text-warning { color: var(--warning); }
+  .text-danger { color: var(--danger); }
+  .text-accent { color: var(--accent-primary); }
 
   .panel-header {
     @apply border-b p-3;
@@ -795,13 +889,16 @@
   }
 
   .segmented-control {
-    @apply grid grid-cols-2 gap-1 rounded-md border p-1;
+    @apply grid grid-cols-2 gap-1 border p-1;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 20%, var(--border-color));
   }
 
   .segment-button {
-    @apply cursor-pointer rounded-md border border-transparent px-3 py-1.5 text-sm font-medium text-slate-600 transition-all duration-200 dark:text-slate-400;
+    @apply cursor-pointer border border-transparent px-3 py-1.5 text-sm font-medium text-slate-600 transition-all dark:text-slate-400;
+    border-radius: var(--radius-sm);
+    transition-duration: var(--duration-chrome);
   }
 
   .segment-button:hover {
@@ -810,7 +907,7 @@
 
   .segment-button-active {
     @apply text-white dark:text-white;
-    background: linear-gradient(180deg, #0f8f84, #0c6f68);
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
     border-color: color-mix(in srgb, var(--accent-primary) 64%, #063b36);
   }
 
@@ -937,34 +1034,35 @@
   }
 
   .industrial-modal {
-    @apply rounded-md border;
+    border-radius: var(--radius-lg);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
     background:
       linear-gradient(145deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 44%),
-      color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
-    box-shadow: 0 34px 92px rgba(0, 0, 0, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+      color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
     backdrop-filter: blur(18px);
+    animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .industrial-modal-header {
-    @apply flex items-center justify-between border-b p-4;
-    background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 16%, transparent), transparent 54%),
-      color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
-    border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-color));
+    @apply flex items-center justify-between border-b px-4 py-3;
+    background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
   .industrial-modal-footer {
-    @apply flex flex-wrap items-center justify-end gap-2 border-t p-4;
+    @apply flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3;
     background: color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 20%, var(--border-color));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
   .industrial-input {
-    @apply rounded-md border px-3 py-2 text-sm text-slate-900 transition-all duration-200 dark:text-white;
+    @apply border px-3 py-2 text-sm text-slate-900 transition-all dark:text-white;
+    border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    transition-duration: var(--duration-chrome);
   }
 
   .industrial-input:focus {
@@ -974,29 +1072,33 @@
   }
 
   .industrial-card {
-    @apply rounded-md border;
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color));
     background:
       linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 6%, transparent), transparent 44%),
       color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 18%, var(--border-color));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
   .industrial-button-primary {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50;
-    background: linear-gradient(180deg, #14a99b, #0f766e);
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
     border-color: color-mix(in srgb, var(--accent-primary) 76%, #082f2c);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 14px 30px rgba(20, 184, 166, 0.18);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 12px 28px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    transition-duration: var(--duration-chrome);
   }
 
   .industrial-button-primary:hover:not(:disabled) {
-    background: linear-gradient(180deg, #2dd4bf, #0f8f84);
+    background: linear-gradient(180deg, var(--accent-hover), var(--accent-gradient-from));
   }
 
   .industrial-button-secondary {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-medium text-slate-700 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-200;
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-sm font-medium text-slate-700 transition-all disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-200;
+    border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--bg-hover) 46%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    transition-duration: var(--duration-chrome);
   }
 
   .industrial-button-secondary:hover:not(:disabled) {
@@ -1005,25 +1107,153 @@
   }
 
   .industrial-button-danger {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50;
-    box-shadow: 0 14px 30px rgba(220, 38, 38, 0.18);
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    border-radius: var(--radius-sm);
+    background: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 80%, #450a0a);
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--danger) 22%, transparent);
+    transition-duration: var(--duration-chrome);
   }
 
   .industrial-button-danger:hover:not(:disabled) {
-    @apply bg-red-500;
+    filter: brightness(1.08);
   }
 
   .industrial-field-label {
-    @apply mb-1.5 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
-    letter-spacing: 0;
+    @apply mb-1.5 block text-xs font-semibold;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
   }
 
   .industrial-setting-row {
-    @apply flex flex-col items-start justify-between gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:gap-4;
+    @apply flex flex-col items-start justify-between gap-3 border p-3 sm:flex-row sm:items-center sm:gap-4;
+    border-radius: var(--radius-md);
     background:
       linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 48%),
       color-mix(in srgb, var(--bg-primary) 60%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--accent-primary) 16%, var(--border-color));
+  }
+
+  .toast-host {
+    @apply fixed right-4 top-14 z-[70] w-[min(22rem,calc(100vw-2rem))] space-y-2;
+  }
+
+  .toast-item {
+    @apply border px-3 py-2.5;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    animation: ui-toast-in var(--duration-chrome) var(--ease-chrome) both;
+  }
+
+  .toast-item-success {
+    background: color-mix(in srgb, var(--success-muted) 80%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--success) 40%, var(--border-color));
+    color: var(--success-fg);
+  }
+
+  .toast-item-error {
+    background: color-mix(in srgb, var(--danger-muted) 80%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-color));
+    color: var(--danger-fg);
+  }
+
+  .workspace-empty {
+    @apply absolute inset-0 flex flex-col items-center justify-center gap-7 p-8 text-center;
+    animation: ui-chrome-in calc(var(--duration-chrome) + 40ms) var(--ease-chrome) both;
+  }
+
+  .workspace-empty-mark {
+    @apply flex h-16 w-16 items-center justify-center border;
+    border-radius: var(--radius-lg);
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
+    box-shadow: 0 0 32px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  }
+
+  .workspace-empty-card-icon {
+    @apply flex h-8 w-8 shrink-0 items-center justify-center border;
+    border-radius: var(--radius-sm);
+  }
+
+  .workspace-empty-card-icon-connect {
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    color: var(--accent-primary);
+  }
+
+  .workspace-empty-card-icon-ai {
+    border-color: color-mix(in srgb, var(--info) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--info) 12%, transparent);
+    color: var(--info);
+  }
+
+  .settings-nav-item {
+    @apply flex shrink-0 items-center gap-2 border px-3 py-2 text-sm transition-colors sm:w-full;
+    border-radius: var(--radius-sm);
+    border-color: transparent;
+    color: var(--text-secondary);
+    transition-duration: var(--duration-chrome);
+  }
+
+  .settings-nav-item:hover {
+    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+  }
+
+  .settings-nav-item-active {
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
+    border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    color: #ffffff;
+  }
+
+  .ui-toggle {
+    @apply relative inline-flex h-6 w-11 flex-shrink-0 items-center border transition-colors;
+    border-radius: 9999px;
+  }
+
+  .ui-toggle-on {
+    background: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 80%, transparent);
+  }
+
+  .ui-toggle-off {
+    background: color-mix(in srgb, var(--bg-hover) 80%, transparent);
+    border-color: var(--border-color);
+  }
+
+  .ui-toggle-thumb {
+    @apply pointer-events-none absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition-transform;
+    transition-duration: var(--duration-chrome);
+  }
+
+  .ui-toggle-on .ui-toggle-thumb {
+    transform: translateX(1.25rem);
+  }
+
+  .connection-list-row {
+    @apply mx-2 my-1 flex items-center border px-2 py-2 transition-colors;
+    border-radius: var(--radius-sm);
+    border-color: transparent;
+  }
+
+  .connection-list-row:hover {
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
+  }
+
+  .connection-list-row-active {
+    background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
+  }
+
+  .sftp-sidebar {
+    @apply relative flex h-full min-w-0 flex-col border-l;
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-secondary));
+  }
+
+  .modal-backdrop {
+    @apply absolute inset-0 bg-black/50 backdrop-blur-sm;
+    animation: ui-fade-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .industrial-table-head {
@@ -1079,12 +1309,10 @@
   }
 
   .agent-pet-panel {
-    @apply rounded-md;
+    border-radius: var(--radius-lg);
     background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 82%, var(--accent-primary));
-    box-shadow:
-      0 20px 50px rgba(0, 0, 0, 0.32),
-      inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
     backdrop-filter: blur(18px);
   }
 
@@ -1260,7 +1488,7 @@
   background-color: #f6f2e8 !important;
 }
 
-/* 自定义动画 */
+/* Chrome open/close motion (modals, popovers, toasts, empty state) */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -1269,6 +1497,32 @@
 @keyframes slide-up {
   from { transform: translateY(10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes ui-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ui-chrome-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ui-toast-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @keyframes agent-pet-pulse {
@@ -1363,5 +1617,5 @@
 
 /* Text selection */
 ::selection {
-  @apply bg-blue-500/30;
+  background: color-mix(in srgb, var(--accent-primary) 30%, transparent);
 }

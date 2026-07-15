@@ -152,8 +152,8 @@ export function WorkspaceHeader({
           <AppIcon className="h-6 w-6" />
         </div>
         <div className="mr-2 leading-tight">
-          <h1 className="text-sm font-semibold tracking-wide">AI SSH Client</h1>
-          <p className="text-[10px] uppercase text-slate-500 dark:text-slate-500">
+          <h1 className="text-sm font-semibold tracking-tight">AI SSH Client</h1>
+          <p className="text-[10px] text-slate-500 dark:text-slate-500">
             secure shell workspace
           </p>
         </div>
@@ -214,10 +214,10 @@ export function WorkspaceHeader({
                       onDragLeave={handleConnectionDragLeave}
                       onDrop={(event) => handleConnectionDrop(event, connection.id)}
                       onDragEnd={handleConnectionDragEnd}
-                      className={`group mx-2 my-1 flex items-center rounded-sm border px-2 py-2 transition-colors ${
+                      className={`connection-list-row group ${
                         dragOverConnectionId === connection.id
-                          ? 'border-teal-500 bg-teal-500/10 ring-1 ring-teal-400/50'
-                          : 'border-[color-mix(in_srgb,var(--border-color)_68%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
+                          ? 'connection-list-row-active ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_45%,transparent)]'
+                          : ''
                       } ${
                         draggedConnectionId === connection.id ? 'opacity-50' : ''
                       } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
@@ -232,23 +232,25 @@ export function WorkspaceHeader({
                         </span>
                       )}
                       <button
+                        type="button"
                         onClick={() => onConnect(connection.id, connection.name)}
                         className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       >
-                        <span className="flex h-7 w-7 items-center justify-center rounded-sm border border-teal-500/40 bg-teal-500/10">
-                          <Server className="w-4 h-4 text-teal-500" />
+                        <span className="workspace-empty-card-icon workspace-empty-card-icon-connect">
+                          <Server className="h-4 w-4" />
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
                             {connection.name}
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="truncate text-xs text-slate-500">
                             {connection.username}@{connection.host}:{connection.port}
                           </div>
                         </div>
                       </button>
                       <div className="hidden items-center gap-1 group-hover:flex">
                         <button
+                          type="button"
                           onClick={(event) => {
                             event.stopPropagation();
                             onEditConnection(connection);
@@ -256,17 +258,18 @@ export function WorkspaceHeader({
                           className="icon-button h-7 w-7"
                           title={translate('common.edit')}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
+                          <Edit3 className="h-3.5 w-3.5" />
                         </button>
                         <button
+                          type="button"
                           onClick={(event) => {
                             event.stopPropagation();
                             onDeleteConnection(connection.id);
                           }}
-                          className="icon-button h-7 w-7 hover:text-red-500 dark:hover:text-red-400"
+                          className="icon-button h-7 w-7 hover:text-danger"
                           title={translate('common.delete')}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </div>

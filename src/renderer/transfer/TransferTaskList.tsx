@@ -89,7 +89,7 @@ export function TransferTaskList({
             : failed
             ? 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400'
             : task.status === 'transferring' || task.status === 'committing'
-            ? 'border-teal-500/40 bg-teal-500/10 text-teal-600 dark:text-teal-400'
+            ? 'border-[color-mix(in_srgb,var(--accent-primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-accent'
             : 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400';
           const progressTone = task.status === 'completed' || task.status === 'handed-off'
             ? 'bg-green-500'
@@ -97,7 +97,7 @@ export function TransferTaskList({
             ? 'bg-red-500'
             : task.status === 'queued' || task.status === 'checking' || task.status === 'waiting-conflict'
             ? 'bg-amber-500'
-            : 'bg-teal-500';
+            : 'bg-[var(--accent-primary)]';
           const statusKey = getStatusKey(task);
 
           return (
@@ -107,7 +107,7 @@ export function TransferTaskList({
                   {task.direction === 'upload' ? (
                     <Upload className="h-3.5 w-3.5 flex-shrink-0 text-teal-500" />
                   ) : (
-                    <Download className="h-3.5 w-3.5 flex-shrink-0 text-green-500" />
+                    <Download className="h-3.5 w-3.5 flex-shrink-0 text-success" />
                   )}
                   <span className="truncate text-sm text-slate-700 dark:text-slate-300" title={task.name}>
                     {task.name}

@@ -947,7 +947,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white">{t('agent.title')}</h2>
-                  {isBusy && <span className="h-2 w-2 rounded-full bg-teal-400 animate-pulse" />}
+                  {isBusy && <span className="status-dot status-dot-connecting" />}
                 </div>
                 <p className="truncate text-xs text-slate-500">
                   {activeConnection ? `${activeConnection.username}@${activeConnection.host}` : t('agent.notConnected')}

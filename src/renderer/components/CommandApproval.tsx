@@ -29,7 +29,7 @@ export function CommandApproval({
         return {
           bg: 'bg-red-500/10',
           border: 'border-red-500',
-          text: 'text-red-500',
+          text: 'text-danger',
           iconBg: 'bg-red-500',
         };
       case 'high':
@@ -43,14 +43,14 @@ export function CommandApproval({
         return {
           bg: 'bg-yellow-500/10',
           border: 'border-yellow-500',
-          text: 'text-yellow-500',
+          text: 'text-warning',
           iconBg: 'bg-yellow-500',
         };
       default:
         return {
           bg: 'bg-green-500/10',
           border: 'border-green-500',
-          text: 'text-green-500',
+          text: 'text-success',
           iconBg: 'bg-green-500',
         };
     }
@@ -127,23 +127,23 @@ export function CommandApproval({
 
         <div className="space-y-4 p-4 sm:p-5">
           <div>
-            <label className="mb-2 block text-xs font-semibold uppercase text-slate-500">
+            <label className="industrial-field-label">
               {t('commandApproval.commandToExecute')}
             </label>
             <div className="industrial-card p-4">
-              <code className="break-all font-mono text-sm text-emerald-700 dark:text-green-400">
+              <code className="break-all font-mono text-sm text-accent">
                 {command.command}
               </code>
             </div>
           </div>
 
           {command.riskDescription && (
-            <div className="rounded-md border border-red-500/50 bg-red-500/10 p-4">
+            <div className="rounded-md border p-4" style={{ borderColor: 'color-mix(in srgb, var(--danger) 50%, var(--border-color))', background: 'var(--danger-muted)' }}>
               <div className="flex items-start gap-2">
-                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" />
                 <div>
-                  <h4 className="text-sm font-medium text-red-600 dark:text-red-400">{t('commandApproval.riskWarning')}</h4>
-                  <p className="mt-1 text-sm text-red-700 dark:text-red-300">{command.riskDescription}</p>
+                  <h4 className="text-sm font-medium text-danger">{t('commandApproval.riskWarning')}</h4>
+                  <p className="mt-1 text-sm opacity-90">{command.riskDescription}</p>
                 </div>
               </div>
             </div>
@@ -156,14 +156,14 @@ export function CommandApproval({
                 role="checkbox"
                 aria-checked={rememberChoice}
                 onClick={() => setRememberChoice(!rememberChoice)}
-                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
+                className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-colors ${
                   rememberChoice
-                    ? 'bg-teal-500 border-teal-500'
-                    : 'border-slate-500 hover:border-teal-400'
+                    ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]'
+                    : 'border-[var(--border-color)] hover:border-[var(--accent-primary)]'
                 }`}
               >
                 {rememberChoice && (
-                  <Check className="w-3 h-3 text-white" />
+                  <Check className="h-3 w-3 text-white" />
                 )}
               </button>
               <div className="flex-1">
@@ -194,13 +194,11 @@ export function CommandApproval({
           <button
             type="button"
             onClick={handleApprove}
-            className={`${
-              command.riskLevel === 'critical'
+            className={
+              command.riskLevel === 'critical' || command.isDangerous
                 ? 'industrial-button-danger'
-                : command.isDangerous
-                ? 'industrial-button-danger border-orange-600 bg-orange-600 hover:bg-orange-500'
                 : 'industrial-button-primary'
-            }`}
+            }
           >
             <CheckCircle2 className="w-4 h-4" />
             {command.riskLevel === 'critical' ? t('commandApproval.confirmDangerous') : t('commandApproval.confirmExecute')}

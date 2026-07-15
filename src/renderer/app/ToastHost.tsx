@@ -21,7 +21,7 @@ export function ToastHost({ toasts, onDismiss, translate }: ToastHostProps) {
 
   return (
     <div
-      className="fixed right-4 top-16 z-[70] w-[min(22rem,calc(100vw-2rem))] space-y-2"
+      className="toast-host"
       aria-live="polite"
       aria-relevant="additions text"
     >
@@ -29,10 +29,8 @@ export function ToastHost({ toasts, onDismiss, translate }: ToastHostProps) {
         <div
           key={toast.id}
           role="status"
-          className={`industrial-card border px-3 py-2 shadow-lg ${
-            toast.type === 'success'
-              ? 'border-green-500/30 bg-green-50 text-green-800 dark:bg-green-950/70 dark:text-green-200'
-              : 'border-red-500/30 bg-red-50 text-red-800 dark:bg-red-950/70 dark:text-red-200'
+          className={`toast-item ${
+            toast.type === 'success' ? 'toast-item-success' : 'toast-item-error'
           }`}
         >
           <div className="flex items-start gap-2">
@@ -50,7 +48,7 @@ export function ToastHost({ toasts, onDismiss, translate }: ToastHostProps) {
             <button
               type="button"
               onClick={() => onDismiss(toast.id)}
-              className="rounded-sm p-0.5 opacity-70 transition-opacity hover:opacity-100"
+              className="icon-button h-6 w-6 opacity-70 hover:opacity-100"
               aria-label={translate('common.close')}
               title={translate('common.close')}
             >

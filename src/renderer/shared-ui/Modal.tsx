@@ -138,7 +138,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+        className="modal-backdrop"
         onClick={closeOnBackdrop ? onClose : undefined}
       />
       <div
@@ -148,7 +148,7 @@ export function Modal({
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         tabIndex={-1}
-        className={`industrial-modal relative w-full ${SIZE_CLASS[size]} animate-in fade-in zoom-in-95 duration-200 ${panelClassName ?? ''}`}
+        className={`industrial-modal relative w-full ${SIZE_CLASS[size]} ${panelClassName ?? ''}`}
       >
         {title != null && (
           <div className="industrial-modal-header">

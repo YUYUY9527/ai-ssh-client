@@ -337,7 +337,7 @@ export function CommandHistoryPanel({
                       <button
                         onClick={() => toggleCwd(hostNode.host, userNode.username, cwdNode.cwd)}
                         className={`mx-1 mb-1 flex w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-sm px-2 py-1 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--bg-hover)_50%,transparent)] ${
-                          isCurrentCwd ? 'bg-teal-500/10' : ''
+                          isCurrentCwd ? 'bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)]' : ''
                         }`}
                       >
                         {cwdOpen ? <ChevronDown className="h-3 w-3 text-slate-400" /> : <ChevronRight className="h-3 w-3 text-slate-400" />}

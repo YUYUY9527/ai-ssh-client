@@ -235,12 +235,12 @@ export function AIProviderSettings() {
           providers.map((provider) => (
             <div
               key={provider.id}
-              className={`industrial-card p-3 ${provider.id === activeProviderId ? 'border-teal-500/70 bg-teal-500/10' : ''}`}
+              className={`industrial-card p-3 ${provider.id === activeProviderId ? 'connection-list-row-active' : ''}`}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`h-2 w-2 rounded-full ${provider.id === activeProviderId ? 'bg-green-500' : 'bg-slate-500'}`} />
+                    <span className={`status-dot ${provider.id === activeProviderId ? 'status-dot-connected' : 'status-dot-idle'}`} />
                     <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">{provider.name}</span>
                     <span className="rounded-sm border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-1.5 py-0.5 text-[10px] text-slate-500">
                       {getProviderTypeLabel(provider.type)}
@@ -259,7 +259,7 @@ export function AIProviderSettings() {
                   <button onClick={() => void handleEditProvider(provider)} className="icon-button h-8 w-8" title={t('common.edit')}>
                     <Pencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => setConfirmProviderId(provider.id)} className="icon-button h-8 w-8 hover:text-red-500" title={t('common.delete')}>
+                  <button onClick={() => setConfirmProviderId(provider.id)} className="icon-button h-8 w-8 hover:text-danger" title={t('common.delete')}>
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>

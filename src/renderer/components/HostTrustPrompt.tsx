@@ -22,15 +22,20 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
       onClose={onReject}
       size="md"
       showClose={false}
-      panelClassName={isKeyChanged ? 'border-2 border-red-500' : 'border-2 border-amber-500'}
+      panelClassName={isKeyChanged
+        ? 'border-2 border-[color-mix(in_srgb,var(--danger)_70%,transparent)]'
+        : 'border-2 border-[color-mix(in_srgb,var(--warning)_70%,transparent)]'}
       initialFocusRef={rejectButtonRef}
     >
-      <div className={`border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] p-4 sm:p-5 ${
-        isKeyChanged ? 'bg-red-500/10' : 'bg-amber-500/10'
-      }`}
+      <div
+        className="border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] p-4 sm:p-5"
+        style={{ background: isKeyChanged ? 'var(--danger-muted)' : 'var(--warning-muted)' }}
       >
         <div className="flex items-start gap-4">
-          <div className={`rounded-md p-3 text-white ${isKeyChanged ? 'bg-red-500' : 'bg-amber-500'}`}>
+          <div
+            className="rounded-md p-3 text-white"
+            style={{ background: isKeyChanged ? 'var(--danger)' : 'var(--warning)' }}
+          >
             {isKeyChanged ? <ShieldAlert className="h-6 w-6" /> : <AlertTriangle className="h-6 w-6" />}
           </div>
           <div className="min-w-0 flex-1">
@@ -63,28 +68,31 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
         </div>
 
         <div>
-          <label className="mb-2 block text-xs font-semibold uppercase text-slate-500">
+          <label className="industrial-field-label">
             {t('hostTrust.fingerprint')}
           </label>
           <div className="industrial-card p-3">
-            <code className="break-all font-mono text-xs text-emerald-700 dark:text-green-400">
+            <code className="break-all font-mono text-xs text-accent">
               {prompt.fingerprint}
             </code>
           </div>
         </div>
 
         {isKeyChanged && prompt.previousFingerprint && (
-          <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400">
+          <div
+            className="rounded-md border p-3"
+            style={{ borderColor: 'color-mix(in srgb, var(--danger) 40%, var(--border-color))', background: 'var(--danger-muted)' }}
+          >
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-danger">
               <AlertTriangle className="h-4 w-4" />
               {t('hostTrust.previousFingerprint')}
             </div>
             {prompt.previousAlgorithm && (
-              <p className="mb-1 text-xs text-red-700 dark:text-red-300">
+              <p className="mb-1 text-xs opacity-90">
                 {prompt.previousAlgorithm}
               </p>
             )}
-            <code className="break-all font-mono text-xs text-red-700 dark:text-red-300">
+            <code className="break-all font-mono text-xs text-danger">
               {prompt.previousFingerprint}
             </code>
           </div>

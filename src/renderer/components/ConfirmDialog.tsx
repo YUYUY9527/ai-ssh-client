@@ -48,9 +48,9 @@ export function ConfirmDialog({
       <div className="industrial-modal-header">
         <div className="flex items-center gap-3">
           {type === 'warning' ? (
-            <AlertTriangle className="h-5 w-5 text-orange-500" />
+            <AlertTriangle className="h-5 w-5 text-warning" />
           ) : (
-            <Info className="h-5 w-5 text-blue-500" />
+            <Info className="h-5 w-5 text-accent" />
           )}
           <h3 id={titleId} className="font-semibold text-slate-900 dark:text-white">
             {title}
@@ -59,7 +59,7 @@ export function ConfirmDialog({
       </div>
 
       <div className="p-4">
-        <p id={messageId} className="text-sm text-slate-600 dark:text-slate-300">
+        <p id={messageId} className="text-sm leading-6 text-slate-600 dark:text-slate-300">
           {message}
         </p>
       </div>
@@ -69,7 +69,7 @@ export function ConfirmDialog({
           type="button"
           onClick={onCancel}
           disabled={isConfirming}
-          className="industrial-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          className="industrial-button-secondary"
         >
           {resolvedCancelText}
         </button>
@@ -78,7 +78,7 @@ export function ConfirmDialog({
           ref={confirmButtonRef}
           onClick={onConfirm}
           disabled={isConfirming}
-          className={`${type === 'warning' ? 'industrial-button-danger' : 'industrial-button-primary'} disabled:cursor-not-allowed disabled:opacity-50`}
+          className={type === 'warning' ? 'industrial-button-danger' : 'industrial-button-primary'}
         >
           {resolvedConfirmText}
         </button>

@@ -53,12 +53,14 @@ export function SftpSidebar({ connectionId, isLive, onClose }: SftpSidebarProps)
 
   return (
     <aside
-      className="relative flex h-full min-w-0 flex-col border-l border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_82%,var(--bg-secondary))]"
+      className="sftp-sidebar"
       style={{ width }}
     >
       <div
         className={`absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize transition-colors ${
-          isResizing ? 'bg-teal-500/50' : 'hover:bg-teal-500/30'
+          isResizing
+            ? 'bg-[color-mix(in_srgb,var(--accent-primary)_50%,transparent)]'
+            : 'hover:bg-[color-mix(in_srgb,var(--accent-primary)_30%,transparent)]'
         }`}
         onMouseDown={(event) => {
           event.preventDefault();
