@@ -71,7 +71,9 @@ interface DragState {
 export function AppController() {
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'agent'>('terminal');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'agent' | 'language' | 'password'>('terminal');
+  // Web 部署下若仍使用默认登录密码，显示提醒横幅。
+  const [showDefaultPasswordBanner, setShowDefaultPasswordBanner] = useState(false);
   const [showAgentPet, setShowAgentPet] = useState(false);
   const [agentInput, setAgentInput] = useState('');
   const [agentInputFocusToken, setAgentInputFocusToken] = useState(0);
@@ -135,6 +137,24 @@ export function AppController() {
   useEffect(() => {
     useAgentStore.getState().syncFromSettings(settings);
   }, [settings]);
+
+  // Web 部署：查询登录状态，仍使用默认密码时提示尽快修改。
+  useEffect(() => {
+    const getAuthStatus = window.electronAPI?.getAuthStatus;
+    if (!getAuthStatus) return;
+    let cancelled = false;
+    void getAuthStatus().then((result) => {
+      if (cancelled) return;
+      if (result.success && result.data?.usingDefaultPassword) {
+        setShowDefaultPasswordBanner(true);
+      }
+    }).catch(() => {
+      // 状态查询失败不影响主流程，静默忽略。
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateTabState = (
     connectionId: string,
@@ -732,8 +752,35 @@ export function AppController() {
     setShowConnectionDropdown(false);
   };
 
+  const openPasswordSettings = () => {
+    setSettingsInitialTab('password');
+    setShowSettings(true);
+  };
+
   return (
     <AppShell
+      banner={showDefaultPasswordBanner && (
+        <div className="default-password-banner" role="alert">
+          <span className="default-password-banner-text">{t('auth.defaultPasswordBanner.message')}</span>
+          <div className="default-password-banner-actions">
+            <button
+              type="button"
+              className="default-password-banner-action"
+              onClick={openPasswordSettings}
+            >
+              {t('auth.defaultPasswordBanner.action')}
+            </button>
+            <button
+              type="button"
+              className="default-password-banner-dismiss"
+              onClick={() => setShowDefaultPasswordBanner(false)}
+              aria-label={t('auth.defaultPasswordBanner.dismiss')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
       header={(
         <WorkspaceHeader
         activeTabId={activeTabId}
@@ -903,6 +950,7 @@ export function AppController() {
         onSetConnectionTestResult={setConnectionTestResult}
         onSetDeletingConnection={setDeletingConnection}
         onTestConnection={handleTestConnection}
+        onPasswordChanged={() => setShowDefaultPasswordBanner(false)}
       />
       )}
     />

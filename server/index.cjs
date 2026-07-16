@@ -651,7 +651,7 @@ function route(handler) {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
-// 初始化访问令牌鉴权：所有 /api 与页面请求都需通过校验。
+// 初始化密码鉴权：所有 /api 与页面请求都需通过校验。
 const auth = createAuth(DATA_DIR);
 
 // 健康检查无需鉴权，供容器探针使用。
@@ -661,11 +661,28 @@ app.get('/api/health', (_request, response) => response.json(success({ ok: true 
 app.post('/api/login', auth.handleLogin);
 app.post('/api/logout', auth.handleLogout);
 app.get('/api/auth-status', (request, response) => (
-  response.json(success({ authenticated: auth.isAuthed(request) }))
+  response.json(success({
+    authenticated: auth.isAuthed(request),
+    usingDefaultPassword: auth.isUsingDefaultPassword(),
+    passwordManaged: auth.isEnvManaged,
+  }))
 ));
+
+// 登录页需按当前语言渲染：把 settings.language 挂到请求上供中间件读取。
+app.use((request, _response, next) => {
+  try {
+    request.__loginLang = readStore().settings.language;
+  } catch {
+    request.__loginLang = undefined;
+  }
+  next();
+});
 
 // 鉴权网关：放行上述端点，其余一律拦截。
 app.use(auth.middleware);
+
+// 修改密码：已通过鉴权后调用，校验旧密码并保持当前会话登录。
+app.post('/api/change-password', auth.changePassword);
 
 app.get('/api/export', route((request) => {
   const store = readStore();
@@ -1339,10 +1356,12 @@ wss.on('connection', (socket) => {
 
 server.listen(PORT, HOST, () => {
   console.info(`AI SSH Client web server listening on ${HOST}:${PORT}`);
-  // 打印访问令牌来源，方便首次登录；env 提供时不回显明文。
-  if (auth.source === 'generated' || auth.source === 'file') {
-    console.info(`Web access token: ${auth.token}`);
+  // 提示登录方式；仍为默认密码时建议尽快修改。
+  if (auth.isEnvManaged) {
+    console.info('Web login: password provided via WEB_AUTH_PASSWORD.');
+  } else if (auth.isUsingDefaultPassword()) {
+    console.info('Web login: using default password "admin". Please change it in Settings after signing in.');
   } else {
-    console.info('Web access token: provided via WEB_AUTH_TOKEN');
+    console.info('Web login: password authentication enabled.');
   }
 });

@@ -149,7 +149,14 @@ declare global {
       onAgentTerminalOutput: (callback: (data: { connectionId: string; data: string }) => void) => () => void;
 
       onSystemResume: (callback: (data: { timestamp: number }) => void) => () => void;
+
+      /** Web 部署专用：查询登录状态（含是否仍为默认密码）。 */
+      getAuthStatus?: () => Promise<IPCResult<{ authenticated: boolean; usingDefaultPassword: boolean; passwordManaged: boolean }>>;
+      /** Web 部署专用：修改登录密码。 */
+      webChangePassword?: (oldPassword: string, newPassword: string) => Promise<IPCResult>;
     };
+    /** Web 部署下由 installWebApi 设置，桌面端为 undefined。 */
+    __AISSH_WEB__?: boolean;
   }
 }
 

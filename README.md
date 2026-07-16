@@ -98,8 +98,8 @@ npm run build
 ## Docker / Web Deployment
 
 **Docker Compose is the recommended way to run the web deployment.** It wires up
-the access token, container networking, and the persistent data volume for you,
-so you avoid the manual configuration and easy-to-miss security steps of a raw
+container networking and the persistent data volume for you, so you avoid the
+manual configuration and easy-to-miss security steps of a raw
 `node server/index.cjs` run.
 
 ```bash
@@ -114,28 +114,32 @@ and opens SSH/SFTP connections from the machine running Docker. Connection data
 is stored in the `ai-ssh-client-data` Docker volume. AI assistant and agent
 mode remain desktop-only in the web deployment.
 
-### Access token authentication
+### Password authentication
 
-The web gateway requires an access token. Every request and WebSocket
-connection must carry a valid session before it can reach the SSH/SFTP APIs;
-unauthenticated visitors get a sign-in page instead of the app.
+The web gateway requires a password. Every request and WebSocket connection must
+carry a valid session before it can reach the SSH/SFTP APIs; unauthenticated
+visitors get a sign-in page instead of the app.
 
-- **Provide your own token** — set `AI_SSH_CLIENT_WEB_TOKEN` (passed through to
-  the container as `WEB_AUTH_TOKEN`). Prefer this for any shared deployment:
+- **Default password** — on first start the gateway initializes with the
+  password `admin` and stores a salted hash in the data volume (never the plain
+  text). Sign in with `admin`, then open **Settings → Password** to change it.
+  A banner reminds you to do so while the default is still in use.
+
+- **Change it from the UI** — the in-app password change verifies your current
+  password, persists the new hash, and keeps your current session signed in
+  while invalidating any other sessions.
+
+- **Pin a password via environment** — set `AI_SSH_CLIENT_WEB_PASSWORD` (passed
+  through to the container as `WEB_AUTH_PASSWORD`) to manage the password
+  entirely through configuration. In this mode the password is not stored on
+  disk and cannot be changed from the UI:
 
   ```bash
-  AI_SSH_CLIENT_WEB_TOKEN='a-long-random-secret' docker compose up -d --build
+  AI_SSH_CLIENT_WEB_PASSWORD='a-long-strong-password' docker compose up -d --build
   ```
 
-- **Auto-generated token** — if you don't set one, the gateway generates a
-  random token on first start, persists it to the data volume, and prints it to
-  the container log. Retrieve it with:
-
-  ```bash
-  docker compose logs ai-ssh-client-web | grep "Web access token"
-  ```
-
-Open the page, enter the token once, and a session cookie keeps you signed in.
+Open the page, enter the password once, and a session cookie keeps you signed
+in.
 
 ### Network binding and TLS
 
@@ -143,7 +147,7 @@ Open the page, enter the token once, and a session cookie keeps you signed in.
   `127.0.0.1` by default, so it is reachable only from the local machine. Set
   `WEB_HOST=0.0.0.0` to expose it on the network. Under Docker this is already
   set inside the container, with the host port controlled by Compose.
-- **The access token travels in plain text over HTTP.** On a LAN this is usually
+- **The password travels in plain text over HTTP.** On a LAN this is usually
   acceptable, but anywhere the traffic could be observed you should terminate
   TLS in front of the gateway (a reverse proxy such as Caddy, Nginx, or
   Traefik). The session cookie is automatically marked `Secure` when the request
@@ -168,9 +172,9 @@ Caddy provisions and renews a certificate automatically and forwards
 
 > ⚠️ **Do not expose this service directly to an untrusted network without
 > TLS.** The web gateway can open SSH connections using stored credentials.
-> The access token protects it, but over plain HTTP that token can be
-> intercepted. Put it behind HTTPS for any internet-facing deployment. See
-> [SECURITY.md](SECURITY.md).
+> The password protects it, but over plain HTTP that password can be
+> intercepted. Put it behind HTTPS for any internet-facing deployment, and
+> change the default password immediately. See [SECURITY.md](SECURITY.md).
 
 <details>
 <summary>Import saved connections into the web deployment</summary>

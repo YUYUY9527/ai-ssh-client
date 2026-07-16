@@ -1036,9 +1036,21 @@ const webApi: Window['electronAPI'] = {
   onAgentTerminalOutput: (callback) => on('agent-terminal-output', callback),
 
   onSystemResume: (callback) => on('system-resume', callback),
+
+  // Web 专用：查询登录状态（含是否仍为默认密码）。
+  getAuthStatus: () => request<{ authenticated: boolean; usingDefaultPassword: boolean; passwordManaged: boolean }>(
+    '/api/auth-status',
+  ),
+  // Web 专用：修改登录密码，校验旧密码，成功后当前会话保持登录。
+  webChangePassword: (oldPassword, newPassword) => request<void>('/api/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ oldPassword, newPassword }),
+  }),
 };
 
 export function installWebApi(): void {
   connectEvents();
+  // 标记当前运行在 Web 部署下，供 UI 判断是否展示密码相关入口。
+  window.__AISSH_WEB__ = true;
   window.electronAPI = webApi;
 }

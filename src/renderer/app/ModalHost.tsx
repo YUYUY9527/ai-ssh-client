@@ -33,7 +33,7 @@ interface ModalHostProps {
   pendingCommand: CommandSuggestion | null;
   pendingHostTrust: HostTrustPromptEvent | null;
   settings: AppSettings;
-  settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'agent';
+  settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'agent' | 'language' | 'password';
   testingConnection: boolean;
   translate: (key: string, params?: Record<string, string | number>) => string;
   onApproveCommand: () => void;
@@ -48,6 +48,7 @@ interface ModalHostProps {
   onSetConnectionTestResult: Dispatch<SetStateAction<ConnectionTestResult | null>>;
   onSetDeletingConnection: Dispatch<SetStateAction<string | null>>;
   onTestConnection: () => void;
+  onPasswordChanged?: () => void;
 }
 
 function LazyModalFallback({ translate }: { translate: ModalHostProps['translate'] }) {
@@ -86,6 +87,7 @@ export function ModalHost({
   onSetConnectionTestResult,
   onSetDeletingConnection,
   onTestConnection,
+  onPasswordChanged,
 }: ModalHostProps) {
   const handleSelectPrivateKey = async () => {
     if (!window.electronAPI) {
@@ -135,6 +137,7 @@ export function ModalHost({
             onSave={onSaveSettings}
             onClose={onCloseSettings}
             initialTab={settingsInitialTab}
+            onPasswordChanged={onPasswordChanged}
           />
         </Suspense>
       )}

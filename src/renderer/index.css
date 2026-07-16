@@ -135,6 +135,34 @@
       var(--bg-primary);
   }
 
+  .default-password-banner {
+    @apply flex flex-shrink-0 items-center justify-between gap-3 px-3 py-2 text-sm;
+    background: color-mix(in srgb, var(--accent-strong, #f59e0b) 16%, var(--bg-secondary));
+    border-bottom: 1px solid color-mix(in srgb, var(--accent-strong, #f59e0b) 40%, transparent);
+  }
+
+  .default-password-banner-text {
+    @apply min-w-0 flex-1 truncate;
+  }
+
+  .default-password-banner-actions {
+    @apply flex flex-shrink-0 items-center gap-2;
+  }
+
+  .default-password-banner-action {
+    @apply rounded-sm px-2.5 py-1 text-xs font-medium transition-colors;
+    background: color-mix(in srgb, var(--accent-primary) 90%, transparent);
+    color: #fff;
+  }
+
+  .default-password-banner-action:hover {
+    background: var(--accent-primary);
+  }
+
+  .default-password-banner-dismiss {
+    @apply flex items-center justify-center rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100;
+  }
+
   .app-header {
     @apply relative z-[80] flex h-12 flex-shrink-0 items-center justify-between border-b px-3;
     background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);

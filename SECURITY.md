@@ -49,20 +49,27 @@ Understanding the trust model helps when assessing a report:
 ## Web Gateway
 
 The optional Docker/web deployment runs a Node gateway that can open SSH
-connections using stored credentials. It enforces access-token authentication:
+connections using stored credentials. It enforces password authentication:
 every HTTP request and WebSocket connection must carry a valid session, and the
 server binds to `127.0.0.1` by default (Docker Compose sets `0.0.0.0` inside the
-container and controls the exposed host port).
+container and controls the exposed host port). The password is stored only as a
+salted scrypt hash; the session cookie is derived from that hash, so changing
+the password invalidates existing sessions.
 
-Two things still need your attention:
+Three things still need your attention:
 
-- **The access token travels in plain text over HTTP.** For any deployment
-  where traffic could be observed, terminate TLS in front of the gateway (a
-  reverse proxy such as Caddy, Nginx, or Traefik). The session cookie is marked
-  `Secure` automatically when the request arrives over HTTPS.
-- **Use a strong token for shared deployments.** Set `WEB_AUTH_TOKEN`
-  (`AI_SSH_CLIENT_WEB_TOKEN` in Compose) rather than relying on the
-  auto-generated value when more than one person can reach the service.
+- **Change the default password immediately.** The gateway ships with the
+  password `admin` on first start and shows a banner until you change it via
+  **Settings → Password**. Anyone who can reach the service before you change it
+  can sign in.
+- **The password travels in plain text over HTTP.** For any deployment where
+  traffic could be observed, terminate TLS in front of the gateway (a reverse
+  proxy such as Caddy, Nginx, or Traefik). The session cookie is marked `Secure`
+  automatically when the request arrives over HTTPS.
+- **Pin a strong password for shared deployments.** Set `WEB_AUTH_PASSWORD`
+  (`AI_SSH_CLIENT_WEB_PASSWORD` in Compose) to manage the password through
+  configuration; in this mode it is never written to disk and cannot be changed
+  from the UI.
 
 Do not expose the gateway directly to an untrusted network without TLS. See the
 Docker / Web Deployment section of the README for setup details.

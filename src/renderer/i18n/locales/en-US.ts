@@ -309,6 +309,13 @@ const enUS: DeepStringify<typeof zhCN> = {
     description: 'Description (optional)',
     noGroup: 'No Group',
   },
+  auth: {
+    defaultPasswordBanner: {
+      message: 'You are still using the default login password. Please change it soon.',
+      action: 'Change it',
+      dismiss: 'Dismiss',
+    },
+  },
   hostTrust: {
     firstConnectTitle: 'Confirm Host Fingerprint',
     firstConnectDesc: 'This is the first connection to this host. Verify the fingerprint before trusting it.',
@@ -332,6 +339,7 @@ const enUS: DeepStringify<typeof zhCN> = {
       providers: 'Providers',
       agent: 'Agent',
       language: 'Language',
+      password: 'Password',
     },
     terminal: {
       title: 'Terminal Settings',
@@ -387,6 +395,23 @@ const enUS: DeepStringify<typeof zhCN> = {
       title: 'Language Settings',
       selectLanguage: 'Interface Language',
       selectLanguageDesc: 'Switch the application display language',
+    },
+    password: {
+      title: 'Change Login Password',
+      description: 'Change the password used to sign in to the web deployment. After changing it, sessions on other devices are signed out and must log in again.',
+      current: 'Current password',
+      new: 'New password',
+      confirm: 'Confirm new password',
+      submit: 'Change password',
+      submitting: 'Changing…',
+      success: 'Password changed.',
+      errorRequired: 'Please fill in all password fields.',
+      errorMismatch: 'The new passwords do not match.',
+      errorTooShort: 'The new password must be at least 4 characters.',
+      errorSame: 'The new password must differ from the current one.',
+      errorBadCurrent: 'The current password is incorrect.',
+      errorManaged: 'The password is managed by the WEB_AUTH_PASSWORD environment variable and cannot be changed here.',
+      errorGeneric: 'Failed to change the password, please retry.',
     },
   },
   theme: {

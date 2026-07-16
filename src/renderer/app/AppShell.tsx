@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 interface AppShellProps {
   assistant: ReactNode;
+  banner?: ReactNode;
   footer: ReactNode;
   header: ReactNode;
   modals: ReactNode;
@@ -13,6 +14,7 @@ interface AppShellProps {
 /** Top-level application shell that composes app chrome and workspace regions. */
 export function AppShell({
   assistant,
+  banner,
   footer,
   header,
   modals,
@@ -22,6 +24,7 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <div className="app-shell">
+      {banner}
       {header}
       {tabs}
       {workspace}

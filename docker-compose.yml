@@ -4,10 +4,11 @@ services:
     ports:
       - "${AI_SSH_CLIENT_WEB_PORT:-5080}:5080"
     environment:
-      # 容器内需监听 0.0.0.0 才能被端口映射转发；此时由访问令牌保护。
+      # 容器内需监听 0.0.0.0 才能被端口映射转发；此时由登录密码保护。
       WEB_HOST: 0.0.0.0
-      # 可选：显式设置访问令牌；留空则自动生成并持久化到数据卷。
-      WEB_AUTH_TOKEN: ${AI_SSH_CLIENT_WEB_TOKEN:-}
+      # 可选：显式设置登录密码，覆盖默认值。留空则首次启动使用默认密码 admin，
+      # 并持久化到数据卷，登录后可在「设置 → 修改密码」中更改。
+      WEB_AUTH_PASSWORD: ${AI_SSH_CLIENT_WEB_PASSWORD:-}
     volumes:
       - ai-ssh-client-data:/data
     restart: unless-stopped

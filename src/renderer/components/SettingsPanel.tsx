@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe } from 'lucide-react';
+import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
 import { clearRememberedRiskDecisions } from '../assistant/risk-approval-memory';
 import { useI18n, useI18nStore, localeNames } from '../i18n';
@@ -29,9 +29,14 @@ interface SettingsPanelProps {
   onSave: (settings: AppSettings) => void;
   onClose: () => void;
   initialTab?: SettingsTab;
+  /** Web 部署下修改密码成功后回调，用于隐藏默认密码横幅。 */
+  onPasswordChanged?: () => void;
 }
 
-type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'language';
+type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'language' | 'password';
+
+// Web 部署下才提供修改登录密码入口（桌面端无 Web 登录概念）。
+const IS_WEB = typeof window !== 'undefined' && window.__AISSH_WEB__ === true;
 
 interface ToggleButtonProps {
   enabled: boolean;
@@ -54,9 +59,16 @@ function ToggleButton({ enabled, label, onChange }: ToggleButtonProps) {
   );
 }
 
-export function SettingsPanel({ settings, onSave, onClose, initialTab = 'terminal' }: SettingsPanelProps) {
+export function SettingsPanel({ settings, onSave, onClose, initialTab = 'terminal', onPasswordChanged }: SettingsPanelProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  // 修改密码表单状态（仅 Web 部署使用）。
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwSubmitting, setPwSubmitting] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
   const [localSettings, setLocalSettings] = useState<AppSettings>({
     ...settings,
     approveHighRisk: settings.approveHighRisk ?? true,
@@ -82,6 +94,54 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
       ),
     });
     onClose();
+  };
+
+  const handleChangePassword = async () => {
+    setPwError(null);
+    setPwSuccess(false);
+    if (!pwCurrent || !pwNew || !pwConfirm) {
+      setPwError(t('settings.password.errorRequired'));
+      return;
+    }
+    if (pwNew !== pwConfirm) {
+      setPwError(t('settings.password.errorMismatch'));
+      return;
+    }
+    if (pwNew.length < 4) {
+      setPwError(t('settings.password.errorTooShort'));
+      return;
+    }
+    if (pwNew === pwCurrent) {
+      setPwError(t('settings.password.errorSame'));
+      return;
+    }
+    if (!window.electronAPI?.webChangePassword) {
+      setPwError(t('settings.password.errorGeneric'));
+      return;
+    }
+    setPwSubmitting(true);
+    try {
+      const result = await window.electronAPI.webChangePassword(pwCurrent, pwNew);
+      if (result.success) {
+        setPwSuccess(true);
+        setPwCurrent('');
+        setPwNew('');
+        setPwConfirm('');
+        onPasswordChanged?.();
+      } else if (result.code === 'BAD_OLD_PASSWORD') {
+        setPwError(t('settings.password.errorBadCurrent'));
+      } else if (result.code === 'ENV_MANAGED') {
+        setPwError(t('settings.password.errorManaged'));
+      } else if (result.code === 'WEAK_PASSWORD') {
+        setPwError(t('settings.password.errorTooShort'));
+      } else {
+        setPwError(result.error || t('settings.password.errorGeneric'));
+      }
+    } catch {
+      setPwError(t('settings.password.errorGeneric'));
+    } finally {
+      setPwSubmitting(false);
+    }
   };
 
   const terminalRuntimePreview = resolveTerminalRuntimeSettings(localSettings);
@@ -143,13 +203,15 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     }
   };
 
-  const tabs = [
+  const tabs: Array<{ id: SettingsTab; label: string; icon: typeof Terminal }> = [
     { id: 'terminal', label: t('settings.tabs.terminal'), icon: Terminal },
     { id: 'ssh', label: t('settings.tabs.ssh'), icon: Wifi },
     { id: 'providers', label: t('settings.tabs.providers'), icon: KeyRound },
     { id: 'agent', label: t('settings.tabs.agent'), icon: Bot },
     { id: 'language', label: t('settings.tabs.language'), icon: Globe },
-  ] as const;
+    // 仅 Web 部署提供修改登录密码。
+    ...(IS_WEB ? [{ id: 'password' as SettingsTab, label: t('settings.tabs.password'), icon: Lock }] : []),
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
@@ -559,6 +621,64 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'password' && (
+              <div className="space-y-5">
+                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.password.title')}</h3>
+                <p className="text-xs text-slate-500">{t('settings.password.description')}</p>
+
+                <div className="space-y-4 max-w-sm">
+                  <div>
+                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                      {t('settings.password.current')}
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={pwCurrent}
+                      onChange={(event) => setPwCurrent(event.target.value)}
+                      className="industrial-input w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                      {t('settings.password.new')}
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={pwNew}
+                      onChange={(event) => setPwNew(event.target.value)}
+                      className="industrial-input w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                      {t('settings.password.confirm')}
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={pwConfirm}
+                      onChange={(event) => setPwConfirm(event.target.value)}
+                      className="industrial-input w-full"
+                    />
+                  </div>
+
+                  {pwError && <p className="text-xs text-red-500">{pwError}</p>}
+                  {pwSuccess && <p className="text-xs text-teal-500">{t('settings.password.success')}</p>}
+
+                  <button
+                    type="button"
+                    onClick={handleChangePassword}
+                    disabled={pwSubmitting}
+                    className="industrial-button-primary"
+                  >
+                    {pwSubmitting ? t('settings.password.submitting') : t('settings.password.submit')}
+                  </button>
                 </div>
               </div>
             )}

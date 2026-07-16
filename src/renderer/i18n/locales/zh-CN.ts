@@ -303,6 +303,13 @@ const zhCN = {
     description: '描述（可选）',
     noGroup: '无分组',
   },
+  auth: {
+    defaultPasswordBanner: {
+      message: '当前仍在使用默认登录密码，建议尽快修改。',
+      action: '去修改',
+      dismiss: '关闭',
+    },
+  },
   hostTrust: {
     firstConnectTitle: '确认主机指纹',
     firstConnectDesc: '首次连接该主机，请核对指纹后再信任。',
@@ -326,6 +333,7 @@ const zhCN = {
       providers: '供应商',
       agent: '智能体',
       language: '语言',
+      password: '修改密码',
     },
     terminal: {
       title: '终端设置',
@@ -381,6 +389,23 @@ const zhCN = {
       title: '语言设置',
       selectLanguage: '界面语言',
       selectLanguageDesc: '切换应用界面显示语言',
+    },
+    password: {
+      title: '修改登录密码',
+      description: '修改 Web 端的登录密码。修改后其它设备上的登录会话将失效，需要重新登录。',
+      current: '当前密码',
+      new: '新密码',
+      confirm: '确认新密码',
+      submit: '修改密码',
+      submitting: '正在修改…',
+      success: '密码已修改。',
+      errorRequired: '请填写所有密码字段。',
+      errorMismatch: '两次输入的新密码不一致。',
+      errorTooShort: '新密码至少需要 4 个字符。',
+      errorSame: '新密码不能与当前密码相同。',
+      errorBadCurrent: '当前密码不正确。',
+      errorManaged: '密码由 WEB_AUTH_PASSWORD 环境变量管理，无法在此修改。',
+      errorGeneric: '修改密码失败，请重试。',
     },
   },
   theme: {
