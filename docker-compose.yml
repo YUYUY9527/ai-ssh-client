@@ -3,6 +3,11 @@ services:
     build: .
     ports:
       - "${AI_SSH_CLIENT_WEB_PORT:-5080}:5080"
+    environment:
+      # 容器内需监听 0.0.0.0 才能被端口映射转发；此时由访问令牌保护。
+      WEB_HOST: 0.0.0.0
+      # 可选：显式设置访问令牌；留空则自动生成并持久化到数据卷。
+      WEB_AUTH_TOKEN: ${AI_SSH_CLIENT_WEB_TOKEN:-}
     volumes:
       - ai-ssh-client-data:/data
     restart: unless-stopped

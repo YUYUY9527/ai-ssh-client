@@ -25,8 +25,11 @@ const {
   writeSftpTextFile,
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
+const { createAuth } = require('./auth.cjs');
 
 const PORT = Number(process.env.WEB_PORT || 5080);
+// 默认仅监听 127.0.0.1，避免凭据暴露到局域网；Docker 需在容器内监听 0.0.0.0（见 compose）。
+const HOST = process.env.WEB_HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'config.json');
 const STATIC_DIR = path.join(__dirname, '..', 'dist', 'renderer');
@@ -648,7 +651,21 @@ function route(handler) {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
+// 初始化访问令牌鉴权：所有 /api 与页面请求都需通过校验。
+const auth = createAuth(DATA_DIR);
+
+// 健康检查无需鉴权，供容器探针使用。
 app.get('/api/health', (_request, response) => response.json(success({ ok: true })));
+
+// 登录/登出/状态端点，登录页与前端调用它们建立或清除会话。
+app.post('/api/login', auth.handleLogin);
+app.post('/api/logout', auth.handleLogout);
+app.get('/api/auth-status', (request, response) => (
+  response.json(success({ authenticated: auth.isAuthed(request) }))
+));
+
+// 鉴权网关：放行上述端点，其余一律拦截。
+app.use(auth.middleware);
 
 app.get('/api/export', route((request) => {
   const store = readStore();
@@ -1281,7 +1298,24 @@ app.use(express.static(STATIC_DIR));
 app.use((_request, response) => response.sendFile(path.join(STATIC_DIR, 'index.html')));
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/api/events' });
+// 手动处理升级，先校验会话 Cookie 再放行 WebSocket，防止未鉴权连接。
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+  const { pathname } = new URL(request.url, 'http://localhost');
+  if (pathname !== '/api/events') {
+    socket.destroy();
+    return;
+  }
+  if (!auth.verifyUpgrade(request)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
 
 wss.on('connection', (socket) => {
   sockets.add(socket);
@@ -1303,6 +1337,12 @@ wss.on('connection', (socket) => {
   socket.on('close', () => sockets.delete(socket));
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.info(`AI SSH Client web server listening on ${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.info(`AI SSH Client web server listening on ${HOST}:${PORT}`);
+  // 打印访问令牌来源，方便首次登录；env 提供时不回显明文。
+  if (auth.source === 'generated' || auth.source === 'file') {
+    console.info(`Web access token: ${auth.token}`);
+  } else {
+    console.info('Web access token: provided via WEB_AUTH_TOKEN');
+  }
 });

@@ -47,6 +47,12 @@ pnpm-debug.log*
 # TypeScript
 *.tsbuildinfo
 
+# Compiled config outputs (source is vite.config.ts / vitest.config.ts)
+vite.config.js
+vite.config.d.ts
+vitest.config.js
+vitest.config.d.ts
+
 # Local agent/tool state
 .omx/
 .claude/

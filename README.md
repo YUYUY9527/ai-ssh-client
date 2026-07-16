@@ -1,136 +1,179 @@
+<div align="center">
+
 # AI SSH Client
+
+**A desktop SSH client that unifies multi-session terminals, SFTP transfers, and AI-assisted Linux command workflows.**
 
 English | [简体中文](README.zh-CN.md)
 
-AI SSH Client is a desktop SSH client that combines multi-session terminal access, SFTP file transfer, and AI-assisted Linux command workflows. It is built with React, Tauri, Rust, TypeScript, xterm.js, and Tailwind CSS.
+[![CI](https://github.com/YUYUY9527/ai-ssh-client/actions/workflows/ci.yml/badge.svg)](https://github.com/YUYUY9527/ai-ssh-client/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/YUYUY9527/ai-ssh-client?include_prereleases)](https://github.com/YUYUY9527/ai-ssh-client/releases)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri-24C8DB.svg)](https://tauri.app/)
+
+</div>
+
+> Built with React, Tauri, Rust, TypeScript, xterm.js, and Tailwind CSS.
+
+## Table of Contents
+
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Install](#install)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Docker / Web Deployment](#docker--web-deployment)
+- [Security](#security)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [Data and Backups](#data-and-backups)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
-- SSH connection management with password and private-key authentication.
-- Multi-tab terminal workspace with reconnect, keepalive, tab switching, and tab reordering.
-- xterm.js terminal with search, font-size controls, theme selection, command autocomplete, and command history.
-- AI assistant and agent modes for Linux command help and task execution.
-- Multiple AI providers, including OpenAI-compatible endpoints, Anthropic, Gemini, and Ollama.
-- Command risk analysis and approval gates for dangerous operations.
-- SFTP browser for listing remote directories, uploading files, downloading files, and tracking transfer progress.
-- Quick commands and command groups for frequently used shell snippets.
-- Light, dark, and system themes.
-- Import and export for app configuration data.
-- Local secret storage for SSH credentials and AI API keys.
+- **Multi-session SSH** — password and private-key auth, reconnect, keepalive, tab switching, and tab reordering.
+- **Rich terminal** — xterm.js with search, font-size controls, theme selection, command autocomplete, command history, and configurable scrollback.
+- **Session-bound SFTP** — a sidebar workspace tied to the active session for listing, uploading, downloading, editing files, changing permissions, and tracking transfer progress.
+- **AI assistant & agent** — natural-language Linux command help and guided task execution.
+- **Multiple AI providers** — OpenAI-compatible endpoints, Anthropic, Gemini, and Ollama.
+- **Guardrails** — command risk analysis with approval gates for dangerous operations, plus execution logging.
+- **Host fingerprint verification** — SHA-256 host-key check with a trust-on-first-use prompt.
+- **Quick commands** — reusable shell snippets organized into groups.
+- **Themes** — light, dark, and system.
+- **Portable config** — import and export application configuration.
+- **Local secret storage** — SSH credentials and AI API keys kept in the platform keyring.
 
-## Security Notes
+## Screenshots
 
-- Renderer access is restricted to the Tauri command bridge exposed by the app.
-- SSH passwords, private keys, passphrases, and AI API keys are stored separately from normal configuration data.
-- Sensitive data is kept in the local Tauri/Rust storage layer and platform keyring where available.
-- Private-key files can only be read after selection through the native file picker.
-- Agent-driven command execution still passes through command risk checks and execution logging.
+<div align="center">
+  <img src="docs/HOME.png" alt="Terminal workspace with AI assistant" width="820" />
+  <br /><br />
+  <img src="docs/SFTP.png" alt="Session-bound SFTP sidebar" width="820" />
+</div>
 
-## Tech Stack
+## Install
 
-- Desktop runtime: Tauri
-- Backend: Rust
-- UI: React + TypeScript
-- Build: Vite
-- Terminal: xterm.js
-- SSH/SFTP: Rust SSH/SFTP services
-- State management: Zustand
-- Styling: Tailwind CSS
-- Storage: Tauri app data + platform keyring
+Download the latest installer from the
+[**Releases**](https://github.com/YUYUY9527/ai-ssh-client/releases) page.
+
+- **Windows** — download and run the `.exe` (NSIS) installer.
+- **macOS / Linux** — build from source (see [Development](#development)); prebuilt artifacts are planned.
+
+> Windows may warn about an unknown publisher until code signing is in place.
 
 ## Getting Started
 
-Install dependencies:
-
 ```bash
+# install dependencies
 npm install
-```
 
-Start the development app:
-
-```bash
+# start the development app
 npm run dev
-```
 
-Build the app:
-
-```bash
+# build the desktop app
 npm run build
-```
-
-Run the web app with Docker Compose:
-
-```bash
-docker compose up -d --build
-```
-
-Then open <http://localhost:5080>. Set `AI_SSH_CLIENT_WEB_PORT` to use another
-host port. From another device on the same LAN, open
-`http://<laptop-ip>:5080`.
-
-Package a Windows build:
-
-```bash
-npm run dist:win
 ```
 
 ## Usage
 
 1. Create an SSH connection from the connection menu.
-2. Enter host, port, username, and either password or private-key credentials.
+2. Enter host, port, username, and either a password or private key.
 3. Connect to open a terminal tab.
-4. Configure an AI provider from the AI panel settings.
+4. Configure and activate an AI provider from the AI panel settings.
 5. Ask the assistant for Linux command help, or use agent mode to execute a task through guarded command steps.
-6. Use the transfer button when connected to browse remote files through SFTP.
+6. Once connected, open the SFTP sidebar to browse and transfer remote files.
 
-## Project Structure
+## Keyboard Shortcuts
 
-```text
-ai-ssh-client/
-├── src-tauri/            # Tauri/Rust backend
-│   └── src/
-│       ├── commands/     # Tauri command handlers
-│       ├── models/       # Rust data contracts
-│       └── services/     # SSH, SFTP, AI, Agent, and storage services
-├── src/
-│   ├── renderer/         # React renderer
-│   │   ├── components/   # UI components
-│   │   ├── hooks/        # Renderer hooks
-│   │   ├── store/        # Zustand stores
-│   │   ├── App.tsx       # Main workspace UI
-│   │   └── main.tsx      # Renderer entry
-│   └── shared/           # Shared types and constants
-├── docs/                 # Project notes and analysis docs
-├── package.json
-├── vite.config.ts
-└── tailwind.config.js
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+F` | Search terminal output |
+| `Ctrl++` | Increase terminal font size |
+| `Ctrl+-` | Decrease terminal font size |
+| `Esc` | Close terminal search or autocomplete |
+
+## Docker / Web Deployment
+
+**Docker Compose is the recommended way to run the web deployment.** It wires up
+the access token, container networking, and the persistent data volume for you,
+so you avoid the manual configuration and easy-to-miss security steps of a raw
+`node server/index.cjs` run.
+
+```bash
+docker compose up -d --build
 ```
 
-## Scripts
+Open <http://localhost:5080>. Set `AI_SSH_CLIENT_WEB_PORT` to use another host
+port. From another device on the same LAN, open `http://<laptop-ip>:5080`.
 
-| Command | Description |
-| --- | --- |
-| `npm run dev` | Start the Tauri development app. |
-| `npm run build` | Build the Tauri application. |
-| `npm run build:renderer` | Build the renderer bundle only. |
-| `npm run preview` | Preview the renderer bundle. |
-| `npm run dist` | Build distributable packages. |
-| `npm run dist:win` | Build Windows distributables. |
+The Compose deployment runs a Node web gateway that serves the React renderer
+and opens SSH/SFTP connections from the machine running Docker. Connection data
+is stored in the `ai-ssh-client-data` Docker volume. AI assistant and agent
+mode remain desktop-only in the web deployment.
 
-## Docker Compose
+### Access token authentication
 
-The Compose deployment runs a Node web gateway and serves the React renderer in
-the same container. Browser clients connect to the gateway, and the gateway
-opens SSH/SFTP connections from the laptop running Docker. Connection data is
-stored in the `ai-ssh-client-data` Docker volume.
+The web gateway requires an access token. Every request and WebSocket
+connection must carry a valid session before it can reach the SSH/SFTP APIs;
+unauthenticated visitors get a sign-in page instead of the app.
 
-Do not expose this service to an untrusted network. The web gateway can open SSH
-connections using the credentials saved in the app. AI assistant and agent mode
-remain desktop-only in the web deployment.
+- **Provide your own token** — set `AI_SSH_CLIENT_WEB_TOKEN` (passed through to
+  the container as `WEB_AUTH_TOKEN`). Prefer this for any shared deployment:
 
-### Import Saved Connections
+  ```bash
+  AI_SSH_CLIENT_WEB_TOKEN='a-long-random-secret' docker compose up -d --build
+  ```
 
-The Docker web deployment can import JSON:
+- **Auto-generated token** — if you don't set one, the gateway generates a
+  random token on first start, persists it to the data volume, and prints it to
+  the container log. Retrieve it with:
+
+  ```bash
+  docker compose logs ai-ssh-client-web | grep "Web access token"
+  ```
+
+Open the page, enter the token once, and a session cookie keeps you signed in.
+
+### Network binding and TLS
+
+- **Desktop / local `node server/index.cjs`** — the server binds to
+  `127.0.0.1` by default, so it is reachable only from the local machine. Set
+  `WEB_HOST=0.0.0.0` to expose it on the network. Under Docker this is already
+  set inside the container, with the host port controlled by Compose.
+- **The access token travels in plain text over HTTP.** On a LAN this is usually
+  acceptable, but anywhere the traffic could be observed you should terminate
+  TLS in front of the gateway (a reverse proxy such as Caddy, Nginx, or
+  Traefik). The session cookie is automatically marked `Secure` when the request
+  arrives over HTTPS (including via `X-Forwarded-Proto` from a proxy).
+
+<details>
+<summary>Example: Caddy reverse proxy with automatic HTTPS</summary>
+
+Run the gateway bound to loopback (or an internal Docker network) and let Caddy
+handle TLS. A minimal `Caddyfile`:
+
+```caddyfile
+ssh.example.com {
+    reverse_proxy 127.0.0.1:5080
+}
+```
+
+Caddy provisions and renews a certificate automatically and forwards
+`X-Forwarded-Proto: https`, so the gateway issues a `Secure` session cookie.
+
+</details>
+
+> ⚠️ **Do not expose this service directly to an untrusted network without
+> TLS.** The web gateway can open SSH connections using stored credentials.
+> The access token protects it, but over plain HTTP that token can be
+> intercepted. Put it behind HTTPS for any internet-facing deployment. See
+> [SECURITY.md](SECURITY.md).
+
+<details>
+<summary>Import saved connections into the web deployment</summary>
 
 ```powershell
 Invoke-RestMethod `
@@ -157,24 +200,90 @@ Minimum JSON shape:
 }
 ```
 
-For the current Tauri desktop app, connection metadata is stored in
+For the Tauri desktop app, connection metadata is stored in
 `%LOCALAPPDATA%\ai-ssh-client\store.json`, but passwords, private keys, and
 passphrases live in Windows Credential Manager and are not in that file. Import
-the metadata, then edit the connection in the web page to fill the secret again.
+the metadata, then edit the connection in the web page to fill in the secret.
 
-## Keyboard Shortcuts
+</details>
 
-| Shortcut | Action |
+## Security
+
+- The renderer reaches the backend only through the Tauri command bridge.
+- SSH passwords, private keys, passphrases, and AI API keys are stored separately from normal configuration data.
+- Sensitive data is kept in the local Tauri/Rust storage layer and the platform keyring where available.
+- Private-key files are read only after selection through the native file picker.
+- Agent-driven command execution passes through command risk checks and execution logging.
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md). Please do not open a
+public issue for security problems.
+
+## Tech Stack
+
+| Layer | Technology |
 | --- | --- |
-| `Ctrl+F` | Search terminal output. |
-| `Ctrl++` | Increase terminal font size. |
-| `Ctrl+-` | Decrease terminal font size. |
-| `Esc` | Close terminal search or autocomplete. |
+| Desktop runtime | Tauri 2 |
+| Backend | Rust (russh / russh-sftp) |
+| UI | React + TypeScript |
+| Build | Vite |
+| Terminal | xterm.js |
+| State | Zustand |
+| Styling | Tailwind CSS |
+| Storage | Tauri app data + platform keyring |
+
+## Project Structure
+
+```text
+ai-ssh-client/
+├── src-tauri/            # Tauri/Rust backend
+│   └── src/
+│       ├── commands/     # Tauri command handlers
+│       ├── models/       # Rust data contracts
+│       └── services/     # SSH, SFTP, AI, agent, and storage services
+├── src/
+│   ├── renderer/         # React renderer (domain-organized)
+│   │   ├── session/      # Session model, terminal, recovery
+│   │   ├── transfer/     # SFTP browser, sidebar, transfer tasks
+│   │   ├── workspace/    # Tabs, layout, workspace store
+│   │   ├── assistant/    # AI assistant + risk approval
+│   │   ├── agent/        # Agent runtime
+│   │   └── store/        # Zustand stores
+│   └── shared/           # Shared types and constants
+├── server/               # Optional Node web gateway (Docker)
+├── docs/                 # Architecture notes
+└── scripts/              # Node verification scripts
+```
+
+## Development
+
+**Prerequisites:** Node.js 20+, the stable Rust toolchain, and the
+[Tauri 2 platform dependencies](https://tauri.app/start/prerequisites/).
+
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the Tauri development app |
+| `npm run build` | Build the Tauri application |
+| `npm run build:renderer` | Build the renderer bundle only |
+| `npm run preview` | Preview the renderer bundle |
+| `npm run typecheck` | Type-check the renderer |
+| `npm run check` | Typecheck + script tests + renderer build |
+| `npm run test:rust` | Run the Rust backend tests |
+| `npm run dist:win` | Build Windows distributables |
+
+Run `npm run check` and `npm run test:rust` before opening a pull request.
 
 ## Data and Backups
 
-Connection metadata, settings, quick commands, and AI provider metadata are stored locally through the Tauri/Rust storage service. Sensitive SSH and AI secrets are stored separately. Use the import/export tools in settings to back up or restore portable configuration data.
+Connection metadata, settings, quick commands, and AI provider metadata are
+stored locally through the Tauri/Rust storage service. Sensitive SSH and AI
+secrets are stored separately. Use the import/export tools in settings to back
+up or restore portable configuration data.
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md) before getting started.
 
 ## License
 
-MIT
+[MIT](LICENSE) © YUYUY9527
