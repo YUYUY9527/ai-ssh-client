@@ -1101,6 +1101,44 @@
     outline: none;
   }
 
+  /* 自定义下拉触发器：与 industrial-input 对齐，列表走 app-popover */
+  .industrial-select-root {
+    @apply w-full;
+  }
+
+  .industrial-select-trigger {
+    @apply industrial-input flex w-full cursor-pointer items-center gap-2 text-left;
+    min-height: 2.375rem;
+  }
+
+  .industrial-select-trigger:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  .industrial-select-trigger-open {
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  }
+
+  .industrial-select-menu {
+    /* 盖过设置弹窗内容区，避免被裁切感 */
+    z-index: 100;
+  }
+
+  /* 兼容仍使用原生 select.industrial-select 的遗留写法 */
+  select.industrial-select {
+    @apply industrial-input w-full cursor-pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    min-height: 2.375rem;
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 0.75rem;
+  }
+
   .industrial-card {
     border-radius: var(--radius-md);
     border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color));

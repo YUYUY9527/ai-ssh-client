@@ -2,25 +2,26 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
 import type { AppSettings } from '../../../shared/types';
 import { t } from '../../i18n';
 import {
-  XTERM_SCROLLBACK_LINES,
   TERMINAL_THEMES,
   getTerminalFontFamily,
 } from './terminal-theme';
-
-function prepareTerminalPaste(text: string): string {
-  return text.replace(/\r?\n/g, '\r');
-}
+import { resolveTerminalRuntimeSettings } from './terminal-settings';
+import { isOpenableHttpUrl, ShellIntegrationParser, type ShellIntegrationState } from './shell-integration';
+import { gateTerminalPaste } from './paste-safety';
 
 interface XtermInstanceOptions {
   copyTerminalSelectionToClipboard: () => boolean;
   fontSize: number;
   liveConnectionId: string | null;
   onInstanceVersionChange: () => void;
+  /** 多行粘贴需确认时回调；单行不会触发。 */
+  onMultilinePasteRequest?: (previewText: string, preparedText: string) => void;
   resetInputTracking: () => void;
   searchAddonRef: MutableRefObject<SearchAddon | null>;
   sessionId: string | null;
@@ -29,6 +30,29 @@ interface XtermInstanceOptions {
   terminalRef: MutableRefObject<HTMLDivElement | null>;
   terminalTheme: string;
   xtermRef: MutableRefObject<XTerm | null>;
+  onShellIntegrationStateChange?: (state: ShellIntegrationState) => void;
+}
+
+/** 打开 HTTP(S) 链接：优先新窗口，失败时用 a 标签回退。 */
+function openTerminalUrl(url: string): void {
+  if (!isOpenableHttpUrl(url)) {
+    return;
+  }
+  try {
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (opened) {
+      return;
+    }
+  } catch {
+    // fall through
+  }
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 /** Owns xterm lifecycle, sizing, write target registration and option synchronization. */
@@ -37,6 +61,7 @@ export function useXtermInstance({
   fontSize,
   liveConnectionId,
   onInstanceVersionChange,
+  onMultilinePasteRequest,
   resetInputTracking,
   searchAddonRef,
   sessionId,
@@ -45,6 +70,7 @@ export function useXtermInstance({
   terminalRef,
   terminalTheme,
   xtermRef,
+  onShellIntegrationStateChange,
 }: XtermInstanceOptions) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -52,11 +78,31 @@ export function useXtermInstance({
   const initTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveConnectionIdRef = useRef(liveConnectionId);
+  const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
+  const onShellIntegrationStateChangeRef = useRef(onShellIntegrationStateChange);
+  const copyOnSelectRef = useRef(false);
+  const shellIntegrationEnabledRef = useRef(true);
+  const copySelectionRef = useRef(copyTerminalSelectionToClipboard);
+  const shellParserRef = useRef(new ShellIntegrationParser());
+  const selectionDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const [renderedOutput, setRenderedOutput] = useState('');
+  const runtimeSettings = resolveTerminalRuntimeSettings(settings);
+
+  copyOnSelectRef.current = runtimeSettings.copyOnSelect;
+  shellIntegrationEnabledRef.current = runtimeSettings.shellIntegration;
+  copySelectionRef.current = copyTerminalSelectionToClipboard;
 
   useEffect(() => {
     liveConnectionIdRef.current = liveConnectionId;
   }, [liveConnectionId]);
+
+  useEffect(() => {
+    onMultilinePasteRequestRef.current = onMultilinePasteRequest;
+  }, [onMultilinePasteRequest]);
+
+  useEffect(() => {
+    onShellIntegrationStateChangeRef.current = onShellIntegrationStateChange;
+  }, [onShellIntegrationStateChange]);
 
   const resizeSSH = useCallback((cols: number, rows: number) => {
     if (liveConnectionIdRef.current && window.electronAPI) {
@@ -82,6 +128,21 @@ export function useXtermInstance({
     }
   }, [fitAndResize, liveConnectionId]);
 
+  /** 经粘贴门控后发送；多行走确认回调。 */
+  const sendPasteText = useCallback((text: string) => {
+    const gated = gateTerminalPaste(text, false);
+    if (gated.action === 'skip') {
+      return;
+    }
+    if (gated.action === 'confirm') {
+      onMultilinePasteRequestRef.current?.(gated.previewText, gated.preparedText);
+      return;
+    }
+    if (liveConnectionIdRef.current && window.electronAPI) {
+      window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, gated.text);
+    }
+  }, []);
+
   useEffect(() => {
     if (!sessionId || !terminalRef.current) {
       if (xtermRef.current) {
@@ -90,6 +151,7 @@ export function useXtermInstance({
         onInstanceVersionChange();
       }
       setRenderedOutput('');
+      shellParserRef.current.reset();
       return;
     }
 
@@ -97,29 +159,47 @@ export function useXtermInstance({
       return;
     }
 
+    const initialRuntime = resolveTerminalRuntimeSettings(settings);
+
     const term = new XTerm({
       theme: TERMINAL_THEMES[terminalTheme],
       fontFamily: getTerminalFontFamily(settings?.fontFamily),
       fontSize,
       lineHeight: 1.2,
-      cursorBlink: true,
+      cursorBlink: initialRuntime.cursorBlink,
       allowTransparency: true,
-      cursorStyle: 'block',
-      scrollback: XTERM_SCROLLBACK_LINES,
+      cursorStyle: initialRuntime.cursorStyle,
+      scrollback: initialRuntime.scrollback,
     });
 
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
+    const webLinksAddon = new WebLinksAddon((_event, uri) => {
+      openTerminalUrl(uri);
+    });
 
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
+    term.loadAddon(webLinksAddon);
 
     term.open(terminalRef.current);
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
     setRenderedOutput('');
+    shellParserRef.current.reset();
     onInstanceVersionChange();
+
+    // 选中即复制：用 ref 读最新开关，避免重建实例
+    selectionDisposableRef.current = term.onSelectionChange(() => {
+      if (!copyOnSelectRef.current) {
+        return;
+      }
+      const selection = term.getSelection();
+      if (selection) {
+        copySelectionRef.current();
+      }
+    });
 
     const shouldHandlePaste = (eventTarget: EventTarget | null) => {
       const targetNode = eventTarget instanceof Node ? eventTarget : null;
@@ -154,10 +234,8 @@ export function useXtermInstance({
 
       event.preventDefault();
       event.stopPropagation();
-      const terminalText = prepareTerminalPaste(text);
-      if (liveConnectionIdRef.current && window.electronAPI) {
-        window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, terminalText);
-      }
+      // 多行不直接 sshExecuteSync，统一走门控
+      sendPasteText(text);
     };
 
     terminalRef.current.addEventListener('paste', handleTerminalPaste, true);
@@ -171,10 +249,10 @@ export function useXtermInstance({
       }
 
       if (event.ctrlKey && key === 'v') {
-        if (event.type === 'keydown' && liveConnectionIdRef.current && window.electronAPI?.sshExecuteSync) {
+        if (event.type === 'keydown' && liveConnectionIdRef.current && window.electronAPI) {
           void navigator.clipboard?.readText?.().then((text) => {
             if (text && liveConnectionIdRef.current) {
-              window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, prepareTerminalPaste(text));
+              sendPasteText(text);
             }
           }).catch(() => {});
         }
@@ -264,6 +342,10 @@ export function useXtermInstance({
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
       }
+      if (selectionDisposableRef.current) {
+        selectionDisposableRef.current.dispose();
+        selectionDisposableRef.current = null;
+      }
       terminalRef.current?.removeEventListener('paste', handleTerminalPaste, true);
       document.removeEventListener('paste', handleTerminalPaste, true);
       writeParsedDisposable.dispose();
@@ -279,6 +361,7 @@ export function useXtermInstance({
     onInstanceVersionChange,
     resetInputTracking,
     searchAddonRef,
+    sendPasteText,
     sessionId,
     syncAlternateScreenState,
     terminalRef,
@@ -357,8 +440,35 @@ export function useXtermInstance({
     }
   }, [terminalTheme, xtermRef]);
 
+  // 实时应用 scrollback / 光标 / 闪烁
+  useEffect(() => {
+    if (!xtermRef.current) {
+      return;
+    }
+    xtermRef.current.options.scrollback = runtimeSettings.scrollback;
+    xtermRef.current.options.cursorStyle = runtimeSettings.cursorStyle;
+    xtermRef.current.options.cursorBlink = runtimeSettings.cursorBlink;
+  }, [
+    runtimeSettings.scrollback,
+    runtimeSettings.cursorStyle,
+    runtimeSettings.cursorBlink,
+    xtermRef,
+  ]);
+
+  /** 消费输出分片中的 Shell Integration OSC（不阻断写流）。 */
+  const consumeShellIntegration = useCallback((chunk: string): ShellIntegrationState => {
+    if (!shellIntegrationEnabledRef.current) {
+      return shellParserRef.current.getState();
+    }
+    const next = shellParserRef.current.feed(chunk);
+    onShellIntegrationStateChangeRef.current?.(next);
+    return next;
+  }, []);
+
   return {
     renderedOutput,
     setRenderedOutput,
+    consumeShellIntegration,
+    getShellIntegrationState: () => shellParserRef.current.getState(),
   };
 }

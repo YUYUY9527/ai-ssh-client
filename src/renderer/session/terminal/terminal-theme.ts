@@ -1,6 +1,9 @@
+import { DEFAULT_TERMINAL_SCROLLBACK } from './terminal-settings';
+
 const DEFAULT_TERMINAL_FONT_FAMILY = "Consolas, 'Courier New', monospace";
 
-export const XTERM_SCROLLBACK_LINES = 3000;
+/** @deprecated 使用 resolveTerminalRuntimeSettings().scrollback / DEFAULT_TERMINAL_SCROLLBACK */
+export const XTERM_SCROLLBACK_LINES = DEFAULT_TERMINAL_SCROLLBACK;
 export const MIN_TERMINAL_FONT_SIZE = 10;
 export const MAX_TERMINAL_FONT_SIZE = 24;
 

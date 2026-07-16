@@ -1,4 +1,10 @@
-import { Palette, Search, ZoomIn, ZoomOut } from 'lucide-react';
+import { Download, Palette, Search, Settings2, ZoomIn, ZoomOut } from 'lucide-react';
+import type { TerminalCursorStyle } from './terminal-settings';
+import {
+  MAX_TERMINAL_SCROLLBACK,
+  MIN_TERMINAL_SCROLLBACK,
+} from './terminal-settings';
+import { IndustrialSelect } from '../../shared-ui/IndustrialSelect';
 
 interface TerminalToolbarProps {
   fontSize: number;
@@ -8,14 +14,28 @@ interface TerminalToolbarProps {
   themes: Record<string, { background?: string }>;
   translate: (key: string, params?: Record<string, string | number>) => string;
   isThemeSelectorOpen: boolean;
+  isSettingsOpen: boolean;
+  scrollback: number;
+  cursorStyle: TerminalCursorStyle;
+  cursorBlink: boolean;
+  copyOnSelect: boolean;
+  shellIntegration: boolean;
+  shellCwd: string | null;
   onDecreaseFontSize: () => void;
   onIncreaseFontSize: () => void;
   onToggleSearch: () => void;
   onToggleThemeSelector: () => void;
+  onToggleSettings: () => void;
   onSelectTheme: (themeKey: string) => void;
+  onScrollbackChange: (value: number) => void;
+  onCursorStyleChange: (value: TerminalCursorStyle) => void;
+  onCursorBlinkChange: (value: boolean) => void;
+  onCopyOnSelectChange: (value: boolean) => void;
+  onShellIntegrationChange: (value: boolean) => void;
+  onSaveLog: () => void;
 }
 
-/** Terminal toolbar for font size, search and theme controls. */
+/** Terminal toolbar for font size, search, theme and professional settings. */
 export function TerminalToolbar({
   fontSize,
   isSearchOpen,
@@ -24,11 +44,25 @@ export function TerminalToolbar({
   themes,
   translate,
   isThemeSelectorOpen,
+  isSettingsOpen,
+  scrollback,
+  cursorStyle,
+  cursorBlink,
+  copyOnSelect,
+  shellIntegration,
+  shellCwd,
   onDecreaseFontSize,
   onIncreaseFontSize,
   onToggleSearch,
   onToggleThemeSelector,
+  onToggleSettings,
   onSelectTheme,
+  onScrollbackChange,
+  onCursorStyleChange,
+  onCursorBlinkChange,
+  onCopyOnSelectChange,
+  onShellIntegrationChange,
+  onSaveLog,
 }: TerminalToolbarProps) {
   return (
     <div className="terminal-toolbar">
@@ -85,6 +119,105 @@ export function TerminalToolbar({
                 </div>
               </button>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="relative">
+        <button
+          onClick={onToggleSettings}
+          className={`terminal-control ${isSettingsOpen ? 'terminal-control-active' : ''}`}
+          title={translate('terminal.settings')}
+          data-terminal-settings-toggle
+        >
+          <Settings2 className="w-4 h-4" />
+        </button>
+
+        {isSettingsOpen && (
+          <div
+            className="app-popover right-0 w-[280px] space-y-3 p-3"
+            data-terminal-settings-panel
+          >
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                {translate('terminal.scrollback')}
+              </label>
+              <input
+                type="number"
+                min={MIN_TERMINAL_SCROLLBACK}
+                max={MAX_TERMINAL_SCROLLBACK}
+                value={scrollback}
+                onChange={(event) => onScrollbackChange(Number(event.target.value))}
+                className="industrial-input w-full text-sm"
+                data-terminal-setting="scrollback"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                {translate('terminal.cursorStyle')}
+              </label>
+              <IndustrialSelect
+                value={cursorStyle}
+                data-terminal-setting="cursorStyle"
+                options={[
+                  { value: 'block', label: translate('terminal.cursorBlock') },
+                  { value: 'underline', label: translate('terminal.cursorUnderline') },
+                  { value: 'bar', label: translate('terminal.cursorBar') },
+                ]}
+                onChange={(value) => onCursorStyleChange(value as TerminalCursorStyle)}
+              />
+            </div>
+
+            <label className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+              <span>{translate('terminal.cursorBlink')}</span>
+              <input
+                type="checkbox"
+                checked={cursorBlink}
+                onChange={(event) => onCursorBlinkChange(event.target.checked)}
+                data-terminal-setting="cursorBlink"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+              <span>{translate('terminal.copyOnSelect')}</span>
+              <input
+                type="checkbox"
+                checked={copyOnSelect}
+                onChange={(event) => onCopyOnSelectChange(event.target.checked)}
+                data-terminal-setting="copyOnSelect"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+              <span>{translate('terminal.shellIntegration')}</span>
+              <input
+                type="checkbox"
+                checked={shellIntegration}
+                onChange={(event) => onShellIntegrationChange(event.target.checked)}
+                data-terminal-setting="shellIntegration"
+              />
+            </label>
+
+            {shellIntegration && shellCwd && (
+              <div
+                className="truncate rounded border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-2 py-1 text-[11px] text-slate-500 dark:text-slate-400"
+                title={shellCwd}
+                data-terminal-shell-cwd
+              >
+                {translate('terminal.shellCwd')}: {shellCwd}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={onSaveLog}
+              className="industrial-button-secondary flex w-full items-center justify-center gap-2 text-sm"
+              data-terminal-save-log
+            >
+              <Download className="h-4 w-4" />
+              {translate('terminal.saveLog')}
+            </button>
           </div>
         )}
       </div>

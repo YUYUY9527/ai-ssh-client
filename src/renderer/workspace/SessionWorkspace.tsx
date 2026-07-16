@@ -23,6 +23,7 @@ interface SessionWorkspaceProps {
   onCloseSftpSidebar: () => void;
   theme: 'dark' | 'light' | 'system';
   settings: AppSettings;
+  onSettingsPatch?: (patch: Partial<AppSettings>) => void | Promise<void>;
 }
 
 /** Renders the active session terminal and its session-bound SFTP sidebar. */
@@ -34,6 +35,7 @@ export function SessionWorkspace({
   onCloseSftpSidebar,
   theme,
   settings,
+  onSettingsPatch,
 }: SessionWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   // 侧栏绑定活动标签；断线时仍保留会话上下文，方便查看任务与上次路径
@@ -62,6 +64,7 @@ export function SessionWorkspace({
             onPasteToAI={onPasteToAI}
             theme={theme}
             settings={settings}
+            onSettingsPatch={onSettingsPatch}
           />
         </div>
       ))}

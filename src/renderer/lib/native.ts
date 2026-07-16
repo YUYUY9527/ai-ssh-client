@@ -59,6 +59,7 @@ type ElectronApiLike = {
   sshExecute: (connectionId: string, command: string) => Promise<IPCResult>;
   sshExecuteSync: (connectionId: string, command: string) => void;
   sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
+  sshGetOutputBuffer?: (connectionId: string) => Promise<IPCResult<import('../../shared/ipc-types').SshOutputBufferResult>>;
   sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
   sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
   sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;

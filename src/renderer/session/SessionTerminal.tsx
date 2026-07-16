@@ -7,6 +7,7 @@ interface SessionTerminalProps {
   sessionId: string | null;
   settings: AppSettings;
   theme: 'dark' | 'light' | 'system';
+  onSettingsPatch?: (patch: Partial<AppSettings>) => void | Promise<void>;
 }
 
 /** Session-facing terminal entry point. */
@@ -16,6 +17,7 @@ export function SessionTerminal({
   sessionId,
   settings,
   theme,
+  onSettingsPatch,
 }: SessionTerminalProps) {
   return (
     <TerminalView
@@ -24,6 +26,7 @@ export function SessionTerminal({
       sessionId={sessionId}
       settings={settings}
       theme={theme}
+      onSettingsPatch={onSettingsPatch}
     />
   );
 }

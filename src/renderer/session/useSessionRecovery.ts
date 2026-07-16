@@ -2,8 +2,30 @@ import { useEffect, useRef } from 'react';
 
 import type { AppSettings, SSHConnection } from '../../shared/types';
 import { useConnectionStore } from '../store/useConnectionStore';
+import { applyRemoteOutputBuffer } from './merge-remote-output';
 import { loadSessionScrollbackSnapshots } from './session-scrollback';
 import { useSessionStore } from './useSessionStore';
+
+/** 重挂 live 会话：回放服务端输出缓冲并触发 resize。 */
+async function reattachLiveSession(sessionId: string): Promise<void> {
+  if (!window.electronAPI?.sshGetOutputBuffer) {
+    return;
+  }
+  try {
+    const bufferResult = await window.electronAPI.sshGetOutputBuffer(sessionId);
+    if (bufferResult.success && bufferResult.data?.data) {
+      applyRemoteOutputBuffer(sessionId, bufferResult.data.data);
+    }
+  } catch {
+    // ignore
+  }
+  // 通知远端当前窗口尺寸（xterm 侧也会在 live 后 fit）
+  try {
+    await window.electronAPI.sshResize(sessionId, 120, 32);
+  } catch {
+    // ignore
+  }
+}
 
 /** 为会话解析可用的连接配置（支持多会话克隆 id）。 */
 function resolveConnectionForSession(
@@ -65,7 +87,7 @@ export function useSessionRecovery(
           continue;
         }
 
-        // 后端会话仍在：直接恢复为在线，无需重新握手
+        // 后端会话仍在：直接恢复为在线，并回放缓冲（否则提示符已打过就丢了）
         if (liveIds.has(sessionId)) {
           useSessionStore.getState().setSessionState(sessionId, {
             state: 'connected',
@@ -73,6 +95,7 @@ export function useSessionRecovery(
             reconnectAttempts: 0,
             lastError: undefined,
           });
+          await reattachLiveSession(sessionId);
           continue;
         }
 

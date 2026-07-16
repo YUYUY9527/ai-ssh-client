@@ -453,6 +453,25 @@ function connectEvents(): void {
   };
 }
 
+/** 等待事件 WebSocket 打开，避免连接成功后首包广播无人接收。 */
+function ensureEventsConnected(timeoutMs = 3000): Promise<void> {
+  connectEvents();
+  if (socket?.readyState === WebSocket.OPEN) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      if (socket?.readyState === WebSocket.OPEN || Date.now() - started >= timeoutMs) {
+        resolve();
+        return;
+      }
+      window.setTimeout(tick, 25);
+    };
+    tick();
+  });
+}
+
 function sendSocket(type: string, payload: Record<string, unknown>): void {
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type, ...payload }));
@@ -478,6 +497,7 @@ async function resolveConnectionConfig(connectionId: string): Promise<SSHConnect
 
 /** 会话丢失时按配置重连，供终端写入与 SFTP 共用。 */
 async function ensureSshSession(connectionId: string): Promise<IPCResult> {
+  await ensureEventsConnected();
   const sessionsResult = await request<SSessionsResult>('/api/ssh/sessions');
   if (sessionsResult.success) {
     const live = sessionsResult.data.sessions.some((session) => (
@@ -495,6 +515,7 @@ async function ensureSshSession(connectionId: string): Promise<IPCResult> {
 
   const settingsResult = await request<SettingsResult<AppSettings>>('/api/settings');
   const settings = settingsResult.success ? settingsResult.data.settings : undefined;
+  await ensureEventsConnected();
   return request<SSHConnectResult>('/api/ssh/connect', {
     method: 'POST',
     body: JSON.stringify({
@@ -608,10 +629,14 @@ async function readSelectedFile(filePath: string): Promise<IPCResult<PrivateKeyF
 }
 
 const webApi: Window['electronAPI'] = {
-  sshConnect: (connection, cols, rows, settings) => request<SSHConnectResult>('/api/ssh/connect', {
-    method: 'POST',
-    body: JSON.stringify({ connection, cols, rows, settings }),
-  }),
+  sshConnect: async (connection, cols, rows, settings) => {
+    // 先确保 WS 就绪，再握手，减少 MOTD/提示符丢失
+    await ensureEventsConnected();
+    return request<SSHConnectResult>('/api/ssh/connect', {
+      method: 'POST',
+      body: JSON.stringify({ connection, cols, rows, settings }),
+    });
+  },
   sshDisconnect: (connectionId) => request<void>(`/api/ssh/${connectionId}/disconnect`, {
     method: 'POST',
     body: '{}',
@@ -621,6 +646,9 @@ const webApi: Window['electronAPI'] = {
     void writeSshInput(connectionId, command);
   },
   sshGetSessions: () => request<SSessionsResult>('/api/ssh/sessions'),
+  sshGetOutputBuffer: (connectionId) => request<import('../../shared/ipc-types').SshOutputBufferResult>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/output-buffer`,
+  ),
   sshResize: (connectionId, cols, rows) => request<void>(`/api/ssh/${connectionId}/resize`, {
     method: 'POST',
     body: JSON.stringify({ cols, rows }),

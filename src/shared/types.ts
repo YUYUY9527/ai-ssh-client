@@ -173,6 +173,16 @@ export interface AppSettings {
   rememberChoice?: boolean;
   showTerminalOutputPrompt?: boolean;
   terminalTheme?: string;
+  /** xterm scrollback 行数 */
+  terminalScrollback?: number;
+  /** 光标样式：block / underline / bar */
+  terminalCursorStyle?: 'block' | 'underline' | 'bar';
+  /** 光标是否闪烁 */
+  terminalCursorBlink?: boolean;
+  /** 选中即复制 */
+  terminalCopyOnSelect?: boolean;
+  /** 客户端识别 Shell Integration OSC 序列 */
+  terminalShellIntegration?: boolean;
   agentEnabled?: boolean;
   agentSemanticSummaryContextLength?: number;
   maxPersistedSessions?: number;

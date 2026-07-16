@@ -42,6 +42,11 @@ const defaultSettings = {
   maxReconnectAttempts: 5,
   showTerminalOutputPrompt: true,
   terminalTheme: 'dark',
+  terminalScrollback: 3000,
+  terminalCursorStyle: 'block',
+  terminalCursorBlink: true,
+  terminalCopyOnSelect: false,
+  terminalShellIntegration: true,
   agentSemanticSummaryContextLength: 12000,
   maxPersistedSessions: 8,
   maxScrollbackBytesPerSession: 150 * 1024,
@@ -439,6 +444,20 @@ function stateFor(connectionId, patch = {}) {
   };
 }
 
+/** 单会话输出环形缓冲上限：刷新重挂时回放 MOTD/提示符。 */
+const MAX_SSH_OUTPUT_BUFFER = 128 * 1024;
+
+/** 将 shell 输出写入会话缓冲（丢弃时仍可 HTTP 拉取）。 */
+function appendSessionOutput(session, text) {
+  if (!session || !text) {
+    return;
+  }
+  const next = `${session.outputBuffer || ''}${text}`;
+  session.outputBuffer = next.length > MAX_SSH_OUTPUT_BUFFER
+    ? next.slice(-MAX_SSH_OUTPUT_BUFFER)
+    : next;
+}
+
 function closeSession(connectionId) {
   const session = sessions.get(connectionId);
   if (!session) {
@@ -463,7 +482,14 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
     closeSession(connection.id);
 
     const client = new Client();
-    const session = { client, stream: null, sftp: null, sftpPromise: null, ready: false };
+    const session = {
+      client,
+      stream: null,
+      sftp: null,
+      sftpPromise: null,
+      ready: false,
+      outputBuffer: '',
+    };
     sessions.set(connection.id, session);
     broadcast('ssh-data', {
       connectionId: connection.id,
@@ -500,6 +526,8 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
             stream
               .on('data', (data) => {
                 const text = stripVisibleAgentArtifacts(session, data.toString('utf8'));
+                // 先缓冲再广播：WS 未就绪时刷新后仍可回放
+                appendSessionOutput(session, text);
                 broadcast('agent-terminal-output', { connectionId: connection.id, data: text });
                 broadcast('ssh-data', {
                   connectionId: connection.id,
@@ -522,7 +550,13 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
               type: 'state',
               state: stateFor(connection.id),
             });
-            finish(success({ sessionId: connection.id }));
+            // 稍等首包 MOTD/提示符进入缓冲，随 connect 响应一并返回
+            setTimeout(() => {
+              finish(success({
+                sessionId: connection.id,
+                initialOutput: session.outputBuffer || '',
+              }));
+            }, 120);
           },
         );
       })
@@ -831,6 +865,17 @@ app.post('/api/ssh/:id/resize', route((request) => {
   const { cols, rows } = request.body;
   getSession(request.params.id).stream.setWindow(rows, cols);
   return success();
+}));
+// 拉取会话输出缓冲：页面刷新重挂 live session 时补齐提示符
+app.get('/api/ssh/:id/output-buffer', route((request) => {
+  const session = sessions.get(request.params.id);
+  if (!session?.ready) {
+    throw new Error('SSH session is not connected');
+  }
+  return success({
+    connectionId: request.params.id,
+    data: session.outputBuffer || '',
+  });
 }));
 app.get('/api/ssh/sessions', route(() => success({
   sessions: Array.from(sessions.keys()).map((connectionId) => stateFor(connectionId)),

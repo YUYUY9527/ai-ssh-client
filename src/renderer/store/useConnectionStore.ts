@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AppSettings, SSHConnection } from '../../shared/types';
+import { applyRemoteOutputBuffer } from '../session/merge-remote-output';
 import {
   buildRuntimeConnection,
   resolveSessionConnection,
@@ -73,11 +74,32 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     if (!window.electronAPI) return false;
 
     const result = await window.electronAPI.sshConnect(connection, cols, rows, settings);
-    if (result.success) {
-      return true;
+    if (!result.success) {
+      return false;
     }
 
-    return false;
+    // Web：把 connect 响应里的首包输出写入 store（补偿 WS 竞态）
+    const initialOutput = result.data?.initialOutput;
+    if (initialOutput) {
+      applyRemoteOutputBuffer(connection.id, initialOutput);
+    } else if (window.electronAPI.sshGetOutputBuffer) {
+      // 兜底再拉一次缓冲（慢 MOTD / 重挂）
+      try {
+        const bufferResult = await window.electronAPI.sshGetOutputBuffer(connection.id);
+        if (bufferResult.success && bufferResult.data?.data) {
+          applyRemoteOutputBuffer(connection.id, bufferResult.data.data);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 同步真实终端尺寸，避免 shell 按默认 cols 绘制后前端才 fit
+    if (typeof cols === 'number' && typeof rows === 'number' && cols > 0 && rows > 0) {
+      void window.electronAPI.sshResize(connection.id, cols, rows);
+    }
+
+    return true;
   },
 
   disconnect: async (connectionId: string) => {

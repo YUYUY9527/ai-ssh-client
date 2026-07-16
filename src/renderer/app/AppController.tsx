@@ -703,6 +703,16 @@ export function AppController() {
     useAgentStore.getState().syncFromSettings(newSettings);
   };
 
+  /** 终端工具栏等局部改动：合并后落盘，避免只改本地 state */
+  const handleSettingsPatch = useCallback(async (patch: Partial<AppSettings>) => {
+    const newSettings = { ...settings, ...patch };
+    updateSettings(newSettings);
+    if (window.electronAPI) {
+      await window.electronAPI.saveSettings(newSettings);
+    }
+    useAgentStore.getState().syncFromSettings(newSettings);
+  }, [settings, updateSettings]);
+
   const handleSaveConnection = async () => {
     if (!editingConnection?.name || !editingConnection?.host || !editingConnection?.username) {
       return;
@@ -838,6 +848,7 @@ export function AppController() {
         onCloseSftpSidebar={() => setSftpSidebarOpen(false)}
         theme={theme}
         settings={settings}
+        onSettingsPatch={handleSettingsPatch}
       />
       )}
       assistant={(

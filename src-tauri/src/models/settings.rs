@@ -22,6 +22,21 @@ pub struct AppSettings {
     pub show_terminal_output_prompt: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_theme: Option<String>,
+    /// xterm scrollback 行数
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_scrollback: Option<u32>,
+    /// 光标样式：block / underline / bar
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_cursor_style: Option<String>,
+    /// 光标是否闪烁
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_cursor_blink: Option<bool>,
+    /// 选中即复制
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_copy_on_select: Option<bool>,
+    /// 客户端识别 Shell Integration OSC
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_shell_integration: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,6 +63,11 @@ impl Default for AppSettings {
             remember_choice: None,
             show_terminal_output_prompt: Some(true),
             terminal_theme: Some("dark".to_string()),
+            terminal_scrollback: Some(3000),
+            terminal_cursor_style: Some("block".to_string()),
+            terminal_cursor_blink: Some(true),
+            terminal_copy_on_select: Some(false),
+            terminal_shell_integration: Some(true),
             agent_enabled: None,
             agent_semantic_summary_context_length: Some(12_000),
             max_persisted_sessions: Some(8),
@@ -96,4 +116,53 @@ pub struct QuickCommand {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppSettings;
+
+    /// 终端专业设置字段必须随 camelCase JSON 往返保留，避免 save_settings 静默丢字段。
+    #[test]
+    fn terminal_pro_settings_round_trip_via_json() {
+        let json = r#"{
+            "language": "zh-CN",
+            "theme": "dark",
+            "fontSize": 14,
+            "fontFamily": "Consolas",
+            "keepaliveInterval": 60,
+            "keepaliveCountMax": 3,
+            "autoReconnect": true,
+            "maxReconnectAttempts": 5,
+            "terminalScrollback": 8000,
+            "terminalCursorStyle": "bar",
+            "terminalCursorBlink": false,
+            "terminalCopyOnSelect": true,
+            "terminalShellIntegration": true
+        }"#;
+
+        let parsed: AppSettings = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(parsed.terminal_scrollback, Some(8000));
+        assert_eq!(parsed.terminal_cursor_style.as_deref(), Some("bar"));
+        assert_eq!(parsed.terminal_cursor_blink, Some(false));
+        assert_eq!(parsed.terminal_copy_on_select, Some(true));
+        assert_eq!(parsed.terminal_shell_integration, Some(true));
+
+        let encoded = serde_json::to_value(&parsed).expect("serialize");
+        assert_eq!(encoded["terminalScrollback"], 8000);
+        assert_eq!(encoded["terminalCursorStyle"], "bar");
+        assert_eq!(encoded["terminalCursorBlink"], false);
+        assert_eq!(encoded["terminalCopyOnSelect"], true);
+        assert_eq!(encoded["terminalShellIntegration"], true);
+    }
+
+    #[test]
+    fn terminal_pro_settings_defaults_match_shared_baseline() {
+        let defaults = AppSettings::default();
+        assert_eq!(defaults.terminal_scrollback, Some(3000));
+        assert_eq!(defaults.terminal_cursor_style.as_deref(), Some("block"));
+        assert_eq!(defaults.terminal_cursor_blink, Some(true));
+        assert_eq!(defaults.terminal_copy_on_select, Some(false));
+        assert_eq!(defaults.terminal_shell_integration, Some(true));
+    }
 }

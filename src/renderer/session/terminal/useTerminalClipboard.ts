@@ -1,16 +1,15 @@
-import { useCallback, useState, type RefObject } from 'react';
+import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { Terminal as XTerm } from '@xterm/xterm';
 
 import { t } from '../../i18n';
+import { gateTerminalPaste, prepareTerminalPaste } from './paste-safety';
 
 interface TerminalClipboardOptions {
   liveConnectionId: string | null;
   onPasteToAI?: (text: string) => void;
   xtermRef: RefObject<XTerm | null>;
-}
-
-function prepareTerminalPaste(text: string): string {
-  return text.replace(/\r?\n/g, '\r');
+  /** 多行粘贴需确认；单行直接发送 */
+  onMultilinePasteRequest?: (previewText: string, preparedText: string) => void;
 }
 
 function inputTerminalText(connectionId: string | null, text: string): void {
@@ -22,6 +21,23 @@ function inputTerminalText(connectionId: string | null, text: string): void {
   if (connectionId && window.electronAPI) {
     window.electronAPI.sshExecuteSync(connectionId, terminalText);
   }
+}
+
+/** 经安全门控后发送到终端（多行触发确认回调）。 */
+function sendGatedPaste(
+  connectionId: string | null,
+  text: string,
+  onMultilinePasteRequest?: (previewText: string, preparedText: string) => void,
+): void {
+  const gated = gateTerminalPaste(text, false);
+  if (gated.action === 'skip') {
+    return;
+  }
+  if (gated.action === 'confirm') {
+    onMultilinePasteRequest?.(gated.previewText, gated.preparedText);
+    return;
+  }
+  inputTerminalText(connectionId, gated.text);
 }
 
 function copyText(text: string): void {
@@ -57,8 +73,15 @@ function promptPasteText(): string {
 }
 
 /** Handles terminal context-menu clipboard actions. */
-export function useTerminalClipboard({ liveConnectionId, onPasteToAI, xtermRef }: TerminalClipboardOptions) {
+export function useTerminalClipboard({
+  liveConnectionId,
+  onPasteToAI,
+  xtermRef,
+  onMultilinePasteRequest,
+}: TerminalClipboardOptions) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
+  onMultilinePasteRequestRef.current = onMultilinePasteRequest;
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -77,7 +100,7 @@ export function useTerminalClipboard({ liveConnectionId, onPasteToAI, xtermRef }
   const pasteToInput = useCallback((text: string) => {
     const cleanText = text.replace(/[\r\n]+$/, '');
     if (cleanText) {
-      inputTerminalText(liveConnectionId, cleanText);
+      sendGatedPaste(liveConnectionId, cleanText, onMultilinePasteRequestRef.current);
     }
   }, [liveConnectionId]);
 
@@ -93,11 +116,11 @@ export function useTerminalClipboard({ liveConnectionId, onPasteToAI, xtermRef }
     }
 
     readClipboardText().then((text) => {
-      inputTerminalText(liveConnectionId, text);
+      sendGatedPaste(liveConnectionId, text, onMultilinePasteRequestRef.current);
       closeContextMenu();
     }).catch((error) => {
       console.error('Failed to read clipboard:', error);
-      inputTerminalText(liveConnectionId, promptPasteText());
+      sendGatedPaste(liveConnectionId, promptPasteText(), onMultilinePasteRequestRef.current);
       xtermRef.current?.focus();
       closeContextMenu();
     });
@@ -123,7 +146,7 @@ export function useTerminalClipboard({ liveConnectionId, onPasteToAI, xtermRef }
       closeContextMenu();
     }).catch((error) => {
       console.error('Failed to read clipboard:', error);
-      inputTerminalText(liveConnectionId, promptPasteText());
+      sendGatedPaste(liveConnectionId, promptPasteText(), onMultilinePasteRequestRef.current);
       xtermRef.current?.focus();
       closeContextMenu();
     });

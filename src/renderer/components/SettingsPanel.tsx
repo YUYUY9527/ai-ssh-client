@@ -5,6 +5,24 @@ import { clearRememberedRiskDecisions } from '../assistant/risk-approval-memory'
 import { useI18n, useI18nStore, localeNames } from '../i18n';
 import type { Locale } from '../i18n';
 import type { AppSettings, HostTrustRecord } from '../../shared/types';
+import {
+  MAX_TERMINAL_SCROLLBACK,
+  MIN_TERMINAL_SCROLLBACK,
+  clampTerminalScrollback,
+  normalizeCursorStyle,
+  resolveTerminalRuntimeSettings,
+} from '../session/terminal/terminal-settings';
+import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
+
+const FONT_FAMILY_OPTIONS = [
+  { value: "Consolas, 'Courier New', monospace", label: 'Consolas' },
+  { value: "'Cascadia Code', Consolas, monospace", label: 'Cascadia Code' },
+  { value: "'Fira Code', Consolas, monospace", label: 'Fira Code' },
+  { value: "'JetBrains Mono', Consolas, monospace", label: 'JetBrains Mono' },
+  { value: "'Source Code Pro', Consolas, monospace", label: 'Source Code Pro' },
+  { value: "'Courier New', monospace", label: 'Courier New' },
+  { value: 'monospace', label: 'System Monospace' },
+];
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -50,8 +68,14 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   const [hostTrustError, setHostTrustError] = useState<string | null>(null);
 
   const handleSave = () => {
+    const terminalRuntime = resolveTerminalRuntimeSettings(localSettings);
     onSave({
       ...localSettings,
+      terminalScrollback: terminalRuntime.scrollback,
+      terminalCursorStyle: terminalRuntime.cursorStyle,
+      terminalCursorBlink: terminalRuntime.cursorBlink,
+      terminalCopyOnSelect: terminalRuntime.copyOnSelect,
+      terminalShellIntegration: terminalRuntime.shellIntegration,
       agentSemanticSummaryContextLength: Math.max(
         1000,
         Math.floor(localSettings.agentSemanticSummaryContextLength ?? 12000),
@@ -59,6 +83,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     });
     onClose();
   };
+
+  const terminalRuntimePreview = resolveTerminalRuntimeSettings(localSettings);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -187,19 +213,82 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                     {t('settings.terminal.fontFamily')}
                   </label>
-                  <select
+                  <IndustrialSelect
                     value={localSettings.fontFamily}
-                    onChange={(e) => setLocalSettings({ ...localSettings, fontFamily: e.target.value })}
+                    options={FONT_FAMILY_OPTIONS}
+                    onChange={(value) => setLocalSettings({ ...localSettings, fontFamily: value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                    {t('settings.terminal.scrollback')}
+                  </label>
+                  <input
+                    type="number"
+                    min={MIN_TERMINAL_SCROLLBACK}
+                    max={MAX_TERMINAL_SCROLLBACK}
+                    value={terminalRuntimePreview.scrollback}
+                    onChange={(e) => setLocalSettings({
+                      ...localSettings,
+                      terminalScrollback: clampTerminalScrollback(parseInt(e.target.value, 10)),
+                    })}
                     className="industrial-input w-full"
-                  >
-                    <option value="Consolas, 'Courier New', monospace">Consolas</option>
-                    <option value="'Cascadia Code', Consolas, monospace">Cascadia Code</option>
-                    <option value="'Fira Code', Consolas, monospace">Fira Code</option>
-                    <option value="'JetBrains Mono', Consolas, monospace">JetBrains Mono</option>
-                    <option value="'Source Code Pro', Consolas, monospace">Source Code Pro</option>
-                    <option value="'Courier New', monospace">Courier New</option>
-                    <option value="monospace">System Monospace</option>
-                  </select>
+                  />
+                  <p className="text-xs text-slate-500 mt-1">{t('settings.terminal.scrollbackDesc')}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                    {t('settings.terminal.cursorStyle')}
+                  </label>
+                  <IndustrialSelect
+                    value={terminalRuntimePreview.cursorStyle}
+                    options={[
+                      { value: 'block', label: t('terminal.cursorBlock') },
+                      { value: 'underline', label: t('terminal.cursorUnderline') },
+                      { value: 'bar', label: t('terminal.cursorBar') },
+                    ]}
+                    onChange={(value) => setLocalSettings({
+                      ...localSettings,
+                      terminalCursorStyle: normalizeCursorStyle(value),
+                    })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.cursorBlink')}</label>
+                  </div>
+                  <ToggleButton
+                    enabled={terminalRuntimePreview.cursorBlink}
+                    label={t('settings.terminal.cursorBlink')}
+                    onChange={(value) => setLocalSettings({ ...localSettings, terminalCursorBlink: value })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.copyOnSelect')}</label>
+                    <p className="text-xs text-slate-500">{t('settings.terminal.copyOnSelectDesc')}</p>
+                  </div>
+                  <ToggleButton
+                    enabled={terminalRuntimePreview.copyOnSelect}
+                    label={t('settings.terminal.copyOnSelect')}
+                    onChange={(value) => setLocalSettings({ ...localSettings, terminalCopyOnSelect: value })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.shellIntegration')}</label>
+                    <p className="text-xs text-slate-500">{t('settings.terminal.shellIntegrationDesc')}</p>
+                  </div>
+                  <ToggleButton
+                    enabled={terminalRuntimePreview.shellIntegration}
+                    label={t('settings.terminal.shellIntegration')}
+                    onChange={(value) => setLocalSettings({ ...localSettings, terminalShellIntegration: value })}
+                  />
                 </div>
 
               </div>

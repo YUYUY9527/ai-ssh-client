@@ -30,6 +30,14 @@ export function error(err: string, code?: string): ErrorResult {
 
 export interface SSHConnectResult {
   sessionId: string;
+  /** Web 端：连接建立后短暂窗口内捕获的 MOTD/提示符，用于 WS 竞态补偿 */
+  initialOutput?: string;
+}
+
+/** 远端会话输出缓冲（刷新重挂时回放）。 */
+export interface SshOutputBufferResult {
+  connectionId: string;
+  data: string;
 }
 
 export interface SSessionsResult {

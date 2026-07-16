@@ -16,6 +16,7 @@ import type {
 import type {
   IPCResult,
   SSHConnectResult,
+  SshOutputBufferResult,
   SSessionsResult,
   AIChatResult,
   AIChatStreamOptions,
@@ -54,6 +55,8 @@ declare global {
       sshExecute: (connectionId: string, command: string) => Promise<IPCResult>;
       sshExecuteSync: (connectionId: string, command: string) => void;
       sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
+      /** 拉取服务端会话输出缓冲（Web 刷新重挂补齐提示符）。 */
+      sshGetOutputBuffer?: (connectionId: string) => Promise<IPCResult<SshOutputBufferResult>>;
       sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
       sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;

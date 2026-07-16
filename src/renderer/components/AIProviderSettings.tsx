@@ -4,6 +4,7 @@ import { useAIStore } from '../store/useAIStore';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useI18n } from '../i18n';
 import type { AIProviderConfig, AIProviderSummary, AIProviderType } from '../../shared/types';
+import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
 
 interface ProviderFormState {
   name: string;
@@ -292,17 +293,17 @@ export function AIProviderSettings() {
             </div>
             <div>
               <label className="industrial-field-label">Type</label>
-              <select
+              <IndustrialSelect
                 value={providerForm.type}
-                onChange={(e) => setProviderForm({ ...providerForm, type: e.target.value as AIProviderType })}
-                className="industrial-input w-full"
-              >
-                <option value="openai">OpenAI</option>
-                <option value="openai-compatible">OpenAI Compatible</option>
-                <option value="anthropic">Anthropic (compatible endpoint)</option>
-                <option value="gemini">Gemini (compatible endpoint)</option>
-                <option value="ollama">Ollama (compatible endpoint)</option>
-              </select>
+                options={[
+                  { value: 'openai', label: 'OpenAI' },
+                  { value: 'openai-compatible', label: 'OpenAI Compatible' },
+                  { value: 'anthropic', label: 'Anthropic (compatible endpoint)' },
+                  { value: 'gemini', label: 'Gemini (compatible endpoint)' },
+                  { value: 'ollama', label: 'Ollama (compatible endpoint)' },
+                ]}
+                onChange={(value) => setProviderForm({ ...providerForm, type: value as AIProviderType })}
+              />
             </div>
             <div className="sm:col-span-2">
               <label className="industrial-field-label">API Key</label>
