@@ -67,7 +67,15 @@ function success(data) {
 }
 
 function failure(error) {
-  return { success: false, error: error instanceof Error ? error.message : String(error) };
+  const payload = {
+    success: false,
+    error: error instanceof Error ? error.message : String(error),
+  };
+  // 透传业务/系统错误码，便于前端区分冲突、中断与 IO 失败
+  if (error && typeof error === 'object' && error.code != null && error.code !== '') {
+    payload.code = String(error.code);
+  }
+  return payload;
 }
 
 function normalizeSettings(settings) {
@@ -1180,10 +1188,18 @@ app.delete('/api/sftp/transfers/:taskId', route(async (request) => {
 app.put('/api/sftp/transfers/:taskId/content', async (request, response) => {
   try {
     const clientId = requireClientId(request);
+    // 单次分片也可能较久：关闭 socket 空闲超时，避免传输中被掐断
+    request.setTimeout?.(0);
+    response.setTimeout?.(0);
     const snapshot = await sftpTransfers.upload(clientId, request.params.taskId, request);
     response.json(success({ task: snapshot }));
   } catch (error) {
-    response.status(error?.code === 'not-found' ? 404 : 400).json(failure(error));
+    const status = error?.code === 'not-found'
+      ? 404
+      : error?.code === 'conflict'
+        ? 409
+        : 400;
+    response.status(status).json(failure(error));
   }
 });
 
@@ -1334,6 +1350,14 @@ app.use(express.static(STATIC_DIR));
 app.use((_request, response) => response.sendFile(path.join(STATIC_DIR, 'index.html')));
 
 const server = http.createServer(app);
+// Node 默认 requestTimeout=300s：大文件经 SFTP 慢速落盘时，整包 PUT 会在 ~5 分钟被断开（3GB≈16%）。
+// 0 表示禁用；可用 WEB_REQUEST_TIMEOUT_MS 覆盖（毫秒）。
+const requestTimeoutMs = Number(process.env.WEB_REQUEST_TIMEOUT_MS ?? 0);
+server.requestTimeout = Number.isFinite(requestTimeoutMs) ? Math.max(0, requestTimeoutMs) : 0;
+server.headersTimeout = server.requestTimeout === 0
+  ? 0
+  : Math.max(server.requestTimeout + 60_000, 60_000);
+server.timeout = 0;
 // 手动处理升级，先校验会话 Cookie 再放行 WebSocket，防止未鉴权连接。
 const wss = new WebSocketServer({ noServer: true });
 

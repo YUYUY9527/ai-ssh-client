@@ -156,7 +156,31 @@ function publishTaskSnapshot(snapshot: SftpTransferTaskSnapshot): void {
   emitTransferSnapshot(snapshot);
 }
 
-/** 流式上传：支持从 checkpoint offset 续传（file.slice）。 */
+/** 单次 PUT 分片大小：避免整文件超 Node/代理超时（默认 5 分钟约只能传到数百 MB）。 */
+const WEB_UPLOAD_CHUNK_BYTES = 32 * 1024 * 1024;
+
+/** 发布上传失败快照（保留已传字节便于 UI/重试）。 */
+function publishUploadFailure(
+  baselinetask: SftpTransferTaskSnapshot | undefined,
+  message: string,
+  code: SftpErrorCode = 'io-error',
+  transferredBytes?: number,
+): void {
+  if (!baselinetask) {
+    return;
+  }
+  publishTaskSnapshot({
+    ...baselinetask,
+    status: 'failed',
+    transferredBytes: transferredBytes ?? baselinetask.transferredBytes,
+    error: { code, message, retryable: code !== 'not-found' },
+    sequence: baselinetask.sequence + 1,
+    updatedAt: Date.now(),
+    completedAt: Date.now(),
+  });
+}
+
+/** 流式分片上传：按 32MiB 切片 PUT，支持 checkpoint offset 续传。 */
 async function streamSftpUpload(
   taskId: string,
   resumeOffset = 0,
@@ -165,77 +189,103 @@ async function streamSftpUpload(
   const source = webSftpTaskSources.get(taskId);
   const file = source ? selectedFiles.get(source) : undefined;
   if (!file) {
-    const failed: SftpTransferTaskSnapshot | null = baselinetask
-      ? {
-        ...baselinetask,
-        status: 'failed',
-        error: { code: 'not-found' as SftpErrorCode, message: 'Selected file is no longer available', retryable: false },
-        sequence: baselinetask.sequence + 1,
-        updatedAt: Date.now(),
-        completedAt: Date.now(),
-      }
-      : null;
-    if (failed) publishTaskSnapshot(failed);
+    publishUploadFailure(baselinetask, 'Selected file is no longer available', 'not-found');
     return makeError('Selected file is no longer available', 'not-found');
   }
-  const offset = Math.max(0, Math.min(resumeOffset, file.size));
+
+  let offset = Math.max(0, Math.min(resumeOffset, file.size));
+  let latestTask = baselinetask;
   try {
     // 进入传输中：立即更新 UI，避免长期停在 queued/等待中
     if (baselinetask) {
-      publishTaskSnapshot({
+      latestTask = {
         ...baselinetask,
         status: 'transferring',
         resumedFrom: offset,
         transferredBytes: offset,
         sequence: baselinetask.sequence + 1,
         updatedAt: Date.now(),
-      });
+      };
+      publishTaskSnapshot(latestTask);
     }
+
     const edges = await hashFileEdges(file);
-    const response = await fetch(`/api/sftp/transfers/${encodeURIComponent(taskId)}/content`, {
-      method: 'PUT',
-      headers: {
-        'x-sftp-client-id': sftpClientId,
-        'content-type': 'application/octet-stream',
-        'x-sftp-source-size': String(file.size),
-        'x-sftp-source-mtime': String(file.lastModified),
-        'x-sftp-source-head': edges.head,
-        'x-sftp-source-tail': edges.tail,
-        'x-sftp-resume-offset': String(offset),
-      },
-      body: offset > 0 ? file.slice(offset) : file,
-    });
-    const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
-    // HTTP 响应里带最终快照时同步到 store（WebSocket 丢失时也能结束任务）
-    if (result.success && result.data?.task) {
-      publishTaskSnapshot(result.data.task);
-    } else if (!result.success && baselinetask) {
-      publishTaskSnapshot({
-        ...baselinetask,
-        status: 'failed',
-        error: {
-          code: (result.code as SftpErrorCode | undefined) || 'io-error',
-          message: result.error || 'Upload failed',
-          retryable: true,
+
+    // 空文件也要走一轮 complete=1，触发远端创建
+    do {
+      const chunkStart = offset;
+      const end = file.size === 0
+        ? 0
+        : Math.min(offset + WEB_UPLOAD_CHUNK_BYTES, file.size);
+      const isComplete = end >= file.size;
+      const body = file.size === 0 ? new Blob([]) : file.slice(offset, end);
+
+      const response = await fetch(`/api/sftp/transfers/${encodeURIComponent(taskId)}/content`, {
+        method: 'PUT',
+        headers: {
+          'x-sftp-client-id': sftpClientId,
+          'content-type': 'application/octet-stream',
+          'x-sftp-source-size': String(file.size),
+          'x-sftp-source-mtime': String(file.lastModified),
+          'x-sftp-source-head': edges.head,
+          'x-sftp-source-tail': edges.tail,
+          'x-sftp-resume-offset': String(offset),
+          'x-sftp-upload-complete': isComplete ? '1' : '0',
         },
-        sequence: baselinetask.sequence + 1,
-        updatedAt: Date.now(),
-        completedAt: Date.now(),
+        body,
       });
-    }
-    return result;
+      const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
+
+      if (!result.success) {
+        // 冲突由服务端 WS snapshot(waiting-conflict) 驱动，勿覆盖成 failed
+        if (result.code === 'conflict' || response.status === 409) {
+          return makeError(result.error || 'Destination already exists', 'conflict');
+        }
+        publishUploadFailure(
+          latestTask || baselinetask,
+          result.error || `Upload failed (${response.status})`,
+          (result.code as SftpErrorCode | undefined) || 'io-error',
+          offset,
+        );
+        return result;
+      }
+      if (!result.data?.task) {
+        publishUploadFailure(
+          latestTask || baselinetask,
+          `Upload failed (${response.status})`,
+          'io-error',
+          offset,
+        );
+        return makeError(`Upload failed (${response.status})`, 'io-error');
+      }
+
+      latestTask = result.data.task;
+      publishTaskSnapshot(latestTask);
+      // 以服务端确认偏移为准（可能因 checkpoint 校正与客户端切片不完全一致）
+      offset = Math.max(chunkStart, Number(latestTask.transferredBytes || end));
+
+      if (isComplete || latestTask.status === 'completed' || latestTask.status === 'skipped') {
+        return { success: true, data: { task: latestTask } };
+      }
+      if (latestTask.status === 'waiting-conflict') {
+        return { success: true, data: { task: latestTask } };
+      }
+      if (latestTask.status === 'failed' || latestTask.status === 'canceled') {
+        return { success: true, data: { task: latestTask } };
+      }
+      // 防御：本片结束后偏移未推进则避免死循环
+      if (file.size > 0 && offset <= chunkStart) {
+        publishUploadFailure(latestTask, 'Upload offset did not advance', 'io-error', offset);
+        return makeError('Upload offset did not advance', 'io-error');
+      }
+    } while (offset < file.size);
+
+    return latestTask
+      ? { success: true, data: { task: latestTask } }
+      : makeError('Upload finished without task snapshot');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (baselinetask) {
-      publishTaskSnapshot({
-        ...baselinetask,
-        status: 'failed',
-        error: { code: 'io-error', message, retryable: true },
-        sequence: baselinetask.sequence + 1,
-        updatedAt: Date.now(),
-        completedAt: Date.now(),
-      });
-    }
+    publishUploadFailure(latestTask || baselinetask, message, 'io-error', offset);
     return makeError(message);
   }
 }

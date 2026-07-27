@@ -289,5 +289,37 @@ describe('sftp-transfer', () => {
         'x-sftp-resume-offset': '2',
       })),
     ).rejects.toThrow(/Source file changed/);
+
+    // 分片上传：complete=0 不提交，complete=1 提交
+    const chunked = service.startUpload('client-a', {
+      connectionId: 'connection-a',
+      remoteDirectory: '/uploads',
+      files: [{ name: 'chunked.bin', ref: 'web-file:chunked', size: 10 }],
+    }).tasks[0];
+    const partial = await service.upload('client-a', chunked.taskId, requestLike([Buffer.from('hello')], {
+      'x-sftp-source-size': '10',
+      'x-sftp-source-mtime': '7',
+      'x-sftp-source-head': 'h1',
+      'x-sftp-source-tail': 't1',
+      'x-sftp-resume-offset': '0',
+      'x-sftp-upload-complete': '0',
+    }));
+    expect(partial.status).toBe('queued');
+    expect(partial.transferredBytes).toBe(5);
+    expect(partial.progress).toBe(50);
+    expect(remoteFiles.has('/uploads/chunked.bin')).toBe(false);
+    expect(remoteFiles.get(temporaryRemotePath('/uploads/chunked.bin', chunked.taskId))!.toString()).toBe('hello');
+
+    const done = await service.upload('client-a', chunked.taskId, requestLike([Buffer.from('world')], {
+      'x-sftp-source-size': '10',
+      'x-sftp-source-mtime': '7',
+      'x-sftp-source-head': 'h1',
+      'x-sftp-source-tail': 't1',
+      'x-sftp-resume-offset': '5',
+      'x-sftp-upload-complete': '1',
+    }));
+    expect(done.status).toBe('completed');
+    expect(done.progress).toBe(100);
+    expect(remoteFiles.get('/uploads/chunked.bin')!.toString()).toBe('helloworld');
   });
 });

@@ -307,6 +307,9 @@ function createSftpTransferService({ getSftp, emitEvent }) {
       task._sourceHead = sourceHead;
       task._sourceTail = sourceTail;
       const claimedOffset = Number(request.headers?.['x-sftp-resume-offset'] || 0);
+      // 缺省视为整包完成（兼容旧客户端）；分片上传显式传 0/false
+      const completeRaw = String(request.headers?.['x-sftp-upload-complete'] ?? '1').toLowerCase();
+      const shouldCommit = completeRaw !== '0' && completeRaw !== 'false';
       let offset = await resolveResumeOffset(
         sftp,
         temporaryPath,
@@ -320,6 +323,20 @@ function createSftpTransferService({ getSftp, emitEvent }) {
       const handle = await callSftp(sftp, 'open', temporaryPath, offset > 0 ? 'r+' : 'w');
       let lastCheckpointAt = now();
       let lastCheckpointBytes = offset;
+      const persistCheckpoint = async () => {
+        await writeCheckpoint(sftp, temporaryPath, {
+          taskId: snapshot.taskId,
+          sourceSize,
+          sourceMtime,
+          sourceHead,
+          sourceTail,
+          totalBytes: sourceSize,
+          confirmedOffset: offset,
+          destinationPath: destination,
+        });
+        lastCheckpointAt = now();
+        lastCheckpointBytes = offset;
+      };
       try {
         update(task, (current) => {
           current.status = 'transferring';
@@ -329,18 +346,10 @@ function createSftpTransferService({ getSftp, emitEvent }) {
           current.progress = current.totalBytes
             ? Math.min(99, Math.round((offset / current.totalBytes) * 100))
             : 0;
+          current.error = undefined;
         });
         if (offset > 0) {
-          await writeCheckpoint(sftp, temporaryPath, {
-            taskId: snapshot.taskId,
-            sourceSize,
-            sourceMtime,
-            sourceHead,
-            sourceTail,
-            totalBytes: sourceSize,
-            confirmedOffset: offset,
-            destinationPath: destination,
-          });
+          await persistCheckpoint();
         }
 
         for await (const input of request) {
@@ -372,22 +381,25 @@ function createSftpTransferService({ getSftp, emitEvent }) {
               offset - lastCheckpointBytes >= CHECKPOINT_BYTES
               || now() - lastCheckpointAt >= CHECKPOINT_MS
             ) {
-              await writeCheckpoint(sftp, temporaryPath, {
-                taskId: snapshot.taskId,
-                sourceSize,
-                sourceMtime,
-                sourceHead,
-                sourceTail,
-                totalBytes: sourceSize,
-                confirmedOffset: offset,
-                destinationPath: destination,
-              });
-              lastCheckpointAt = now();
-              lastCheckpointBytes = offset;
+              await persistCheckpoint();
             }
           }
         }
         await callSftp(sftp, 'close', handle);
+
+        // 分片未完成：落 checkpoint，回到 queued 等待下一片
+        if (!shouldCommit) {
+          await persistCheckpoint();
+          return update(task, (current) => {
+            current.status = 'queued';
+            current.transferredBytes = offset;
+            current.totalBytes = sourceSize || current.totalBytes || undefined;
+            current.progress = current.totalBytes
+              ? Math.min(99, Math.round((offset / current.totalBytes) * 100))
+              : 0;
+          });
+        }
+
         update(task, (current) => { current.status = 'committing'; });
         await callSftp(sftp, 'rename', temporaryPath, protocolDestination);
         await removeRemoteQuiet(sftp, checkpointRemotePath(temporaryPath));
@@ -631,7 +643,11 @@ function createSftpTransferService({ getSftp, emitEvent }) {
     upload: async (clientId, taskId, request) => {
       const task = tasks.get(taskId);
       assertOwner(task, clientId);
-      if (task.snapshot.direction !== 'upload' || task.snapshot.status !== 'queued') {
+      // queued=首片/续传；transferring 仅防御并发误入，正常分片结束会回到 queued
+      if (
+        task.snapshot.direction !== 'upload'
+        || !['queued', 'transferring'].includes(task.snapshot.status)
+      ) {
         throw new TransferError('Transfer is not ready for upload data', 'conflict', false);
       }
       return writeRequestToSftp(task, request);
