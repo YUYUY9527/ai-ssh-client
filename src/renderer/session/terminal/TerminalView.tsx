@@ -30,6 +30,7 @@ import {
   serializeXtermBuffer,
 } from './session-log';
 import type { ShellIntegrationState } from './shell-integration';
+import { planTerminalOutputSync } from './terminal-output-sync';
 import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
 import { useTerminalSearch } from './useTerminalSearch';
@@ -121,7 +122,12 @@ export function TerminalView({
     setShellState(state);
   }, []);
 
-  const { consumeOutputChunk, resetInputTracking } = useTerminalInputTracking({
+  const {
+    consumeOutputChunk,
+    resetInputTracking,
+    beginSuspendInputForward,
+    endSuspendInputForward,
+  } = useTerminalInputTracking({
     liveConnectionId,
     syncAlternateScreenState,
     terminalInstanceVersion,
@@ -321,32 +327,58 @@ export function TerminalView({
     const currentOutput = terminalOutput || '';
     const previousOutput = renderedOutput;
     const term = xtermRef.current;
+    const plan = planTerminalOutputSync(previousOutput, currentOutput);
+
+    if (plan.action === 'noop') {
+      return;
+    }
 
     const applyChunk = (chunk: string) => {
       if (!chunk) {
         return;
       }
-
       consumeOutputChunk(chunk);
       consumeShellIntegration(chunk);
       term.write(chunk);
     };
 
-    if (currentOutput && previousOutput && currentOutput.startsWith(previousOutput)) {
-      applyChunk(currentOutput.slice(previousOutput.length));
+    if (plan.action === 'append') {
+      // 增量写入：允许 xterm 对直播 OSC 查询正常 onData 应答
+      applyChunk(plan.chunk);
       setRenderedOutput(currentOutput);
       return;
     }
 
-    if (currentOutput !== previousOutput) {
+    if (plan.action === 'watermark') {
+      // store 截断/错位：xterm 自有 scrollback 已包含画面，只对齐水位，禁止回放
+      setRenderedOutput(currentOutput);
+      return;
+    }
+
+    // replay：仅初始装载或显式清空；挂起 onData，防止历史查询应答打回 PTY 形成死循环
+    beginSuspendInputForward();
+    try {
       term.clear();
       resetInputTracking();
-      applyChunk(currentOutput);
-      setRenderedOutput(currentOutput);
+      if (plan.chunk) {
+        consumeOutputChunk(plan.chunk);
+        consumeShellIntegration(plan.chunk);
+        term.write(plan.chunk, () => {
+          endSuspendInputForward();
+        });
+      } else {
+        endSuspendInputForward();
+      }
+    } catch (error) {
+      endSuspendInputForward();
+      throw error;
     }
+    setRenderedOutput(currentOutput);
   }, [
+    beginSuspendInputForward,
     consumeOutputChunk,
     consumeShellIntegration,
+    endSuspendInputForward,
     renderedOutput,
     resetInputTracking,
     setRenderedOutput,

@@ -172,6 +172,8 @@ export function useTerminalInputTracking({
   const currentInputRef = useRef('');
   const cwdRef = useRef(DEFAULT_CWD);
   const outputTailRef = useRef('');
+  /** >0 时不向 SSH 转发 onData（全量回放会重放 OSC 查询应答，导致死循环刷屏） */
+  const suspendInputForwardRef = useRef(0);
 
   const syncSessionCwd = useCallback((cwd: string) => {
     if (!liveConnectionId) {
@@ -228,6 +230,11 @@ export function useTerminalInputTracking({
 
     const onDataDisposable = term.onData((data: string) => {
       if (data === '\x16') {
+        return;
+      }
+
+      // 回放/重建 buffer 期间产生的查询应答不得写回 PTY
+      if (suspendInputForwardRef.current > 0) {
         return;
       }
 
@@ -306,8 +313,19 @@ export function useTerminalInputTracking({
     };
   }, [liveConnectionId, syncAlternateScreenState, syncSessionCwd, terminalInstanceVersion, xtermRef]);
 
+  /** 在回放输出时挂起 onData→SSH，避免历史 OSC/DA 查询被再次应答。 */
+  const beginSuspendInputForward = useCallback(() => {
+    suspendInputForwardRef.current += 1;
+  }, []);
+
+  const endSuspendInputForward = useCallback(() => {
+    suspendInputForwardRef.current = Math.max(0, suspendInputForwardRef.current - 1);
+  }, []);
+
   return {
     consumeOutputChunk,
     resetInputTracking,
+    beginSuspendInputForward,
+    endSuspendInputForward,
   };
 }
