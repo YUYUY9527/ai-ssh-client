@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const posixPath = require('node:path').posix;
+const { StringDecoder } = require('node:string_decoder');
 
 const express = require('express');
 const { Client } = require('ssh2');
@@ -492,6 +493,8 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
       sftpPromise: null,
       ready: false,
       outputBuffer: '',
+      // 跨 chunk 拼 UTF-8，避免多字节字符被 TCP 分片切断成乱码
+      outputDecoder: new StringDecoder('utf8'),
     };
     sessions.set(connection.id, session);
     broadcast('ssh-data', {
@@ -508,6 +511,24 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
       }
       settled = true;
       resolve(result);
+    };
+
+    /** 解码并广播一帧 shell 输出（含 agent 可见伪影剥离）。 */
+    const publishShellOutput = (raw) => {
+      const decoded = typeof raw === 'string'
+        ? raw
+        : session.outputDecoder.write(raw);
+      const text = stripVisibleAgentArtifacts(session, decoded);
+      if (!text) {
+        return;
+      }
+      // 先缓冲再广播：WS 未就绪时刷新后仍可回放
+      appendSessionOutput(session, text);
+      broadcast('agent-terminal-output', { connectionId: connection.id, data: text });
+      broadcast('ssh-data', {
+        connectionId: connection.id,
+        data: text,
+      });
     };
 
     client
@@ -528,16 +549,14 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
             session.ready = true;
             stream
               .on('data', (data) => {
-                const text = stripVisibleAgentArtifacts(session, data.toString('utf8'));
-                // 先缓冲再广播：WS 未就绪时刷新后仍可回放
-                appendSessionOutput(session, text);
-                broadcast('agent-terminal-output', { connectionId: connection.id, data: text });
-                broadcast('ssh-data', {
-                  connectionId: connection.id,
-                  data: text,
-                });
+                publishShellOutput(data);
               })
               .on('close', () => {
+                // 冲刷解码器尾部残留字节
+                const tail = session.outputDecoder.end();
+                if (tail) {
+                  publishShellOutput(tail);
+                }
                 emitSessionClose(connection.id);
               })
               .stderr.on('data', (data) => {
@@ -1345,7 +1364,11 @@ wss.on('connection', (socket) => {
         }
         socket.clientId = message.clientId;
       } else if (message.type === 'ssh-write') {
-        getSession(message.connectionId).stream.write(message.data || '');
+        // 终端输入热路径：与 HTTP /write 等价，但经 WS 保序低延迟
+        const data = typeof message.data === 'string' ? message.data : '';
+        if (data) {
+          getSession(message.connectionId).stream.write(data);
+        }
       }
     } catch (error) {
       socket.send(JSON.stringify({ type: 'error', payload: failure(error) }));

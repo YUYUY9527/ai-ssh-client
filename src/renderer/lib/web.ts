@@ -478,6 +478,20 @@ function sendSocket(type: string, payload: Record<string, unknown>): void {
   }
 }
 
+/** 经事件 WS 写 SSH 输入；未连通时返回 false，由调用方 HTTP 兜底。 */
+function tryWriteSshViaSocket(connectionId: string, data: string): boolean {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  // 与 server ssh-write 约定一致：低延迟保序，供 xterm 查询应答（CPR/DA/OSC）
+  socket.send(JSON.stringify({
+    type: 'ssh-write',
+    connectionId,
+    data,
+  }));
+  return true;
+}
+
 /** 按 sessionId 找回连接配置；多会话克隆 id 回退到 connectionId 前缀匹配。 */
 async function resolveConnectionConfig(connectionId: string): Promise<SSHConnection | null> {
   const connectionsResult = await request<ConnectionsResult<SSHConnection>>('/api/connections');
@@ -528,6 +542,17 @@ async function ensureSshSession(connectionId: string): Promise<IPCResult> {
 }
 
 async function writeSshInput(connectionId: string, command: string): Promise<IPCResult> {
+  // 优先 WS：终端按键与 xterm 查询应答必须低延迟、保序
+  if (tryWriteSshViaSocket(connectionId, command)) {
+    return { success: true };
+  }
+
+  // WS 短暂未就绪时先拉起再写，避免整段输入退化到 HTTP
+  await ensureEventsConnected(800);
+  if (tryWriteSshViaSocket(connectionId, command)) {
+    return { success: true };
+  }
+
   const result = await request<void>(`/api/ssh/${connectionId}/write`, {
     method: 'POST',
     body: JSON.stringify({ command }),
@@ -540,6 +565,10 @@ async function writeSshInput(connectionId: string, command: string): Promise<IPC
   const connectResult = await ensureSshSession(connectionId);
   if (!connectResult.success) {
     return connectResult;
+  }
+
+  if (tryWriteSshViaSocket(connectionId, command)) {
+    return { success: true };
   }
 
   return request<void>(`/api/ssh/${connectionId}/write`, {
@@ -642,7 +671,11 @@ const webApi: Window['electronAPI'] = {
     body: '{}',
   }),
   sshExecute: (connectionId, command) => writeSshInput(connectionId, command),
+  // 同步路径：WS 可写则立即发送，避免 HTTP 竞态打乱 CSI/OSC 应答
   sshExecuteSync: (connectionId, command) => {
+    if (tryWriteSshViaSocket(connectionId, command)) {
+      return;
+    }
     void writeSshInput(connectionId, command);
   },
   sshGetSessions: () => request<SSessionsResult>('/api/ssh/sessions'),
