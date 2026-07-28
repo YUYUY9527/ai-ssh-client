@@ -10,104 +10,16 @@ import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
 import { useConnectionStore } from '../../store/useConnectionStore';
 import { useSessionStore } from '../useSessionStore';
 import type { CommandHistoryItem } from '../../../shared/types';
+import {
+  extractCwdFromTerminalOutput,
+  stripTerminalControlSequences,
+} from './terminal-cwd';
 
 function tailText(input: string, maxChars: number): string {
   if (input.length <= maxChars) {
     return input;
   }
   return input.slice(-maxChars);
-}
-
-function stripTerminalControlSequences(input: string): string {
-  let output = '';
-
-  for (let index = 0; index < input.length; index += 1) {
-    const ch = input[index];
-    if (ch === '\u001b') {
-      const next = input[index + 1];
-      if (next === ']') {
-        index += 2;
-        let previousEscape = false;
-        for (; index < input.length; index += 1) {
-          const oscChar = input[index];
-          if (oscChar === '\u0007' || (previousEscape && oscChar === '\\')) {
-            break;
-          }
-          previousEscape = oscChar === '\u001b';
-        }
-      } else if (next === '[') {
-        index += 2;
-        for (; index < input.length; index += 1) {
-          const csiChar = input[index];
-          if (csiChar >= '@' && csiChar <= '~') {
-            break;
-          }
-        }
-      } else if (next) {
-        index += 1;
-      }
-      continue;
-    }
-
-    if (ch === '\0') {
-      continue;
-    }
-
-    if (ch < ' ' && ch !== '\r' && ch !== '\n' && ch !== '\t') {
-      continue;
-    }
-
-    output += ch;
-  }
-
-  return output;
-}
-
-function parsePromptCwd(line: string): string | null {
-  const trimmed = line.trim();
-  const lastChar = trimmed[trimmed.length - 1];
-  if (!trimmed || (lastChar !== '$' && lastChar !== '#')) {
-    return null;
-  }
-
-  const bracketMatch = trimmed.match(/\[([^\]]+)\]\s*[#$]$/);
-  if (bracketMatch) {
-    const candidate = bracketMatch[1].trim().split(/\s+/).pop();
-    if (candidate && (candidate.startsWith('~') || candidate.startsWith('/'))) {
-      return candidate;
-    }
-  }
-
-  const colonMatch = trimmed.match(/:([~/][^\s#$]*)\s*[#$]$/);
-  if (colonMatch) {
-    return colonMatch[1];
-  }
-
-  const trailingMatch = trimmed.match(/(?:^|\s)([~/][^\s#$]*)\s*[#$]$/);
-  if (trailingMatch) {
-    return trailingMatch[1];
-  }
-
-  return null;
-}
-
-function extractCwdFromTerminalOutput(output: string): string | null {
-  const normalized = stripTerminalControlSequences(tailText(output, 4096)).replace(/\r/g, '\n');
-  const lines = normalized
-    .split('\n')
-    .map(line => line.trimEnd())
-    .filter(line => line.trim().length > 0)
-    .slice(-8)
-    .reverse();
-
-  for (const line of lines) {
-    const cwd = parsePromptCwd(line);
-    if (cwd) {
-      return cwd;
-    }
-  }
-
-  return parsePromptCwd(normalized.trim());
 }
 
 function parsePromptCommand(line: string): string | null {

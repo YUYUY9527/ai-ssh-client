@@ -30,6 +30,11 @@ import {
   serializeXtermBuffer,
 } from './session-log';
 import type { ShellIntegrationState } from './shell-integration';
+import { normalizeHistoryPath } from '../../history/command-history-index';
+import {
+  extractCwdFromTerminalOutput,
+  resolveTransferOpenPath,
+} from './terminal-cwd';
 import { planTerminalOutputSync } from './terminal-output-sync';
 import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
@@ -120,7 +125,12 @@ export function TerminalView({
 
   const handleShellIntegrationStateChange = useCallback((state: ShellIntegrationState) => {
     setShellState(state);
-  }, []);
+    // OSC7 cwd 同步到会话，供传输/历史等与 prompt 追踪共用
+    const cwd = state.cwd?.trim();
+    if (cwd && liveConnectionId) {
+      useSessionStore.getState().setSessionCwd(liveConnectionId, normalizeHistoryPath(cwd));
+    }
+  }, [liveConnectionId]);
 
   const {
     consumeOutputChunk,
@@ -237,20 +247,26 @@ export function TerminalView({
     if (!liveConnectionId) {
       return;
     }
-    // 终端右键：优先用已解析的 cwd（含绝对路径）；否则保留当前浏览路径
+    // 终端右键打开传输：实时提示符优先，避免过期 shellCwd 把目录钉在 /root
+    const outputKey = sessionId || liveConnectionId;
+    const livePromptCwd = extractCwdFromTerminalOutput(
+      useSessionStore.getState().outputs[outputKey] || '',
+    );
     const sessionCwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd?.trim();
     const shellCwd = shellState?.cwd?.trim();
     const browserPath = useSftpTransferStore.getState()
       .browserByConnection[liveConnectionId]?.remotePath;
-    const preferredCwd = shellCwd || sessionCwd;
-    const hasTrackedCwd = Boolean(preferredCwd && preferredCwd.length > 0);
-    const targetPath = hasTrackedCwd
-      ? preferredCwd!
-      : (browserPath || DEFAULT_REMOTE_PATH);
+    const targetPath = resolveTransferOpenPath({
+      livePromptCwd,
+      shellCwd,
+      sessionCwd,
+      browserPath,
+      fallbackPath: DEFAULT_REMOTE_PATH,
+    });
     useSftpTransferStore.getState().requestBrowserPath(liveConnectionId, targetPath);
     useWorkspaceStore.getState().setSftpSidebarOpen(true);
     closeContextMenu();
-  }, [closeContextMenu, liveConnectionId, shellState?.cwd]);
+  }, [closeContextMenu, liveConnectionId, sessionId, shellState?.cwd]);
 
   // 当 settings 中的 terminalTheme 变化时同步本地状态（处理异步加载）
   useEffect(() => {

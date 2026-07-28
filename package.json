@@ -17,7 +17,7 @@
     "test:history": "vitest run command-history-index",
     "test:sftp": "vitest run sftp-items sftp-upload sftp-transfer",
     "test:ui": "vitest run ui-design-system",
-    "test:terminal": "vitest run paste-safety terminal-settings shell-integration settings-persistence-fields terminal-output-sync",
+    "test:terminal": "vitest run paste-safety terminal-settings shell-integration settings-persistence-fields terminal-output-sync terminal-cwd",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "npm run typecheck && npm run test && npm run build:renderer",
     "web": "node server/index.cjs",
