@@ -534,12 +534,16 @@ function tryWriteSshViaSocket(connectionId: string, data: string): boolean {
     return false;
   }
   // 与 server ssh-write 约定一致：低延迟保序，供 xterm 查询应答（CPR/DA/OSC）
-  socket.send(JSON.stringify({
-    type: 'ssh-write',
-    connectionId,
-    data,
-  }));
-  return true;
+  try {
+    socket.send(JSON.stringify({
+      type: 'ssh-write',
+      connectionId,
+      data,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** 按 sessionId 找回连接配置；多会话克隆 id 回退到 connectionId 前缀匹配。 */
@@ -723,14 +727,26 @@ const webApi: Window['electronAPI'] = {
   sshExecute: (connectionId, command) => writeSshInput(connectionId, command),
   // 同步路径：WS 可写则立即发送，避免 HTTP 竞态打乱 CSI/OSC 应答
   sshExecuteSync: (connectionId, command) => {
-    if (tryWriteSshViaSocket(connectionId, command)) {
-      return;
+    try {
+      if (tryWriteSshViaSocket(connectionId, command)) {
+        return;
+      }
+    } catch {
+      // WS send 异常时走 HTTP 兜底，避免按键被静默吞掉
     }
     void writeSshInput(connectionId, command);
   },
   sshGetSessions: () => request<SSessionsResult>('/api/ssh/sessions'),
   sshGetOutputBuffer: (connectionId) => request<import('../../shared/ipc-types').SshOutputBufferResult>(
     `/api/ssh/${encodeURIComponent(connectionId)}/output-buffer`,
+  ),
+  // 交互 shell 真实 PWD，供终端右键打开传输（SFTP 家目录无法反映 cd）
+  sshProbePwd: (connectionId) => request<{ cwd: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/pwd`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
   ),
   sshResize: (connectionId, cols, rows) => request<void>(`/api/ssh/${connectionId}/resize`, {
     method: 'POST',

@@ -3,6 +3,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 
 import {
   DEFAULT_CWD,
+  nextTrackedCwd,
   normalizeHistoryPath,
 } from '../../history/command-history-index';
 import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
@@ -86,6 +87,11 @@ export function useTerminalInputTracking({
   const outputTailRef = useRef('');
   /** >0 时不向 SSH 转发 onData（全量回放会重放 OSC 查询应答，导致死循环刷屏） */
   const suspendInputForwardRef = useRef(0);
+  /** 挂起世代：超时强制恢复时避免误伤新一轮挂起 */
+  const suspendGenerationRef = useRef(0);
+  const suspendTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 回放 write 回调偶发不触发时的最长挂起（ms） */
+  const SUSPEND_INPUT_FORWARD_TIMEOUT_MS = 1500;
 
   const syncSessionCwd = useCallback((cwd: string) => {
     if (!liveConnectionId) {
@@ -129,20 +135,30 @@ export function useTerminalInputTracking({
     }
   }, [liveConnectionId]);
 
+  /** 强制恢复输入转发（连接切换 / 超时 / 实例重建）。 */
+  const forceResumeInputForward = useCallback(() => {
+    suspendInputForwardRef.current = 0;
+    suspendGenerationRef.current += 1;
+    if (suspendTimeoutRef.current) {
+      clearTimeout(suspendTimeoutRef.current);
+      suspendTimeoutRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
-    if (!xtermRef.current || !liveConnectionId) {
-      if (onDataDisposableRef.current) {
-        onDataDisposableRef.current.dispose();
-        onDataDisposableRef.current = null;
-      }
-      return;
+    // 每次绑定前先卸旧监听，避免 early-return 丢 cleanup 或闭包过期
+    if (onDataDisposableRef.current) {
+      onDataDisposableRef.current.dispose();
+      onDataDisposableRef.current = null;
     }
 
-    if (onDataDisposableRef.current) {
+    if (!xtermRef.current || !liveConnectionId) {
+      forceResumeInputForward();
       return;
     }
 
     const term = xtermRef.current;
+    const connectionId = liveConnectionId;
 
     const onDataDisposable = term.onData((data: string) => {
       if (data === '\x16') {
@@ -154,8 +170,12 @@ export function useTerminalInputTracking({
         return;
       }
 
-      if (liveConnectionId && window.electronAPI) {
-        window.electronAPI.sshExecuteSync(liveConnectionId, data);
+      if (window.electronAPI) {
+        try {
+          window.electronAPI.sshExecuteSync(connectionId, data);
+        } catch (error) {
+          console.warn('sshExecuteSync failed', error);
+        }
       }
 
       if (syncAlternateScreenState()) {
@@ -168,18 +188,21 @@ export function useTerminalInputTracking({
           ? currentInputRef.current.trim()
           : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
         if (command) {
-          // 历史记录用执行前目录；cwd 本身不在此处按 cd 乐观推断
-          // （输入中回删/拼写错误会得到 /otetc/xdg 这类假路径；真实 PWD 以提示符/OSC7 为准）
           const currentCwd = normalizeHistoryPath(cwdRef.current || DEFAULT_CWD);
+          // cd 追踪：提示符弱/无 OSC7 时仍能跟着跳目录；打开传输时 live 提示符优先可纠正误输入
+          const inferredNextCwd = nextTrackedCwd(currentCwd, command);
+          if (inferredNextCwd) {
+            syncSessionCwd(inferredNextCwd);
+          }
 
           void (async () => {
             const { connections } = useConnectionStore.getState();
-            const connection = connections.find(item => item.id === liveConnectionId);
+            const connection = connections.find(item => item.id === connectionId);
             const historyItem: CommandHistoryItem = {
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               command,
               timestamp: Date.now(),
-              connectionId: liveConnectionId || '',
+              connectionId: connectionId || '',
               connectionName: connection?.name || 'Unknown',
               host: connection?.host,
               username: connection?.username,
@@ -220,26 +243,64 @@ export function useTerminalInputTracking({
     onDataDisposableRef.current = onDataDisposable;
 
     return () => {
-      if (onDataDisposableRef.current) {
-        onDataDisposableRef.current.dispose();
+      onDataDisposable.dispose();
+      if (onDataDisposableRef.current === onDataDisposable) {
         onDataDisposableRef.current = null;
       }
     };
-  }, [liveConnectionId, syncAlternateScreenState, syncSessionCwd, terminalInstanceVersion, xtermRef]);
+  }, [
+    forceResumeInputForward,
+    liveConnectionId,
+    syncAlternateScreenState,
+    syncSessionCwd,
+    terminalInstanceVersion,
+    xtermRef,
+  ]);
 
-  /** 在回放输出时挂起 onData→SSH，避免历史 OSC/DA 查询被再次应答。 */
+  /**
+   * 回放输出时挂起 onData→SSH。
+   * 带超时保险：xterm write 回调偶发不触发时，避免一直“光标闪但不能输入”。
+   */
   const beginSuspendInputForward = useCallback(() => {
     suspendInputForwardRef.current += 1;
+    const generation = ++suspendGenerationRef.current;
+    if (suspendTimeoutRef.current) {
+      clearTimeout(suspendTimeoutRef.current);
+    }
+    suspendTimeoutRef.current = setTimeout(() => {
+      if (suspendGenerationRef.current !== generation) {
+        return;
+      }
+      suspendInputForwardRef.current = 0;
+      suspendTimeoutRef.current = null;
+    }, SUSPEND_INPUT_FORWARD_TIMEOUT_MS);
   }, []);
 
   const endSuspendInputForward = useCallback(() => {
     suspendInputForwardRef.current = Math.max(0, suspendInputForwardRef.current - 1);
+    if (suspendInputForwardRef.current === 0 && suspendTimeoutRef.current) {
+      clearTimeout(suspendTimeoutRef.current);
+      suspendTimeoutRef.current = null;
+    }
   }, []);
+
+  // 连接切换或终端实例重建时清掉挂起，避免上一轮回放泄漏
+  useEffect(() => {
+    forceResumeInputForward();
+  }, [forceResumeInputForward, liveConnectionId, terminalInstanceVersion]);
+
+  /** 打开传输时读取最新追踪快照（避免 React state 滞后）。 */
+  const getCwdTrackingSnapshot = useCallback(() => ({
+    cwd: cwdRef.current,
+    outputTail: outputTailRef.current,
+  }), []);
 
   return {
     consumeOutputChunk,
     resetInputTracking,
     beginSuspendInputForward,
     endSuspendInputForward,
+    forceResumeInputForward,
+    getCwdTrackingSnapshot,
   };
 }

@@ -27,6 +27,10 @@ const {
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
 const { createAuth } = require('./auth.cjs');
+const {
+  probeInteractivePwd,
+  stripPwdProbeArtifacts,
+} = require('./shell-cwd-probe.cjs');
 
 const PORT = Number(process.env.WEB_PORT || 5080);
 // 默认仅监听 127.0.0.1，避免凭据暴露到局域网；Docker 需在容器内监听 0.0.0.0（见 compose）。
@@ -521,12 +525,14 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
       resolve(result);
     };
 
-    /** 解码并广播一帧 shell 输出（含 agent 可见伪影剥离）。 */
+    /** 解码并广播一帧 shell 输出（含 agent / pwd 探测伪影剥离）。 */
     const publishShellOutput = (raw) => {
       const decoded = typeof raw === 'string'
         ? raw
         : session.outputDecoder.write(raw);
-      const text = stripVisibleAgentArtifacts(session, decoded);
+      const text = stripPwdProbeArtifacts(
+        stripVisibleAgentArtifacts(session, decoded),
+      );
       if (!text) {
         return;
       }
@@ -921,6 +927,14 @@ app.post('/api/ssh/:id/disconnect', route((request) => {
 app.post('/api/ssh/:id/write', route((request) => {
   getSession(request.params.id).stream.write(request.body.command || '');
   return success();
+}));
+// 探测交互 shell 的真实 PWD（与 SFTP 家目录无关），供终端右键打开传输
+app.post('/api/ssh/:id/pwd', route(async (request) => {
+  const session = getSession(request.params.id);
+  const cwd = await probeInteractivePwd(session, {
+    timeoutMs: Number(request.body?.timeoutMs) || 2500,
+  });
+  return success({ cwd });
 }));
 app.post('/api/ssh/:id/resize', route((request) => {
   const { cols, rows } = request.body;

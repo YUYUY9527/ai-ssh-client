@@ -57,6 +57,11 @@ declare global {
       sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
       /** 拉取服务端会话输出缓冲（Web 刷新重挂补齐提示符）。 */
       sshGetOutputBuffer?: (connectionId: string) => Promise<IPCResult<SshOutputBufferResult>>;
+      /**
+       * 探测交互 shell 真实 PWD（非 SFTP 家目录）。
+       * Web 端走 /api/ssh/:id/pwd；桌面端暂无实现时可省略。
+       */
+      sshProbePwd?: (connectionId: string) => Promise<IPCResult<{ cwd: string }>>;
       sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
       sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;

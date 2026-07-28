@@ -142,6 +142,7 @@ export function TerminalView({
     resetInputTracking,
     beginSuspendInputForward,
     endSuspendInputForward,
+    getCwdTrackingSnapshot,
   } = useTerminalInputTracking({
     liveConnectionId,
     syncAlternateScreenState,
@@ -252,26 +253,58 @@ export function TerminalView({
     if (!liveConnectionId) {
       return;
     }
-    // 终端右键打开传输：实时提示符优先，避免过期 shellCwd 把目录钉在 /root
-    const outputKey = sessionId || liveConnectionId;
-    const livePromptCwd = extractCwdFromTerminalOutput(
-      useSessionStore.getState().outputs[outputKey] || '',
-    );
-    const sessionCwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd?.trim();
-    const shellCwd = shellState?.cwd?.trim();
-    const browserPath = useSftpTransferStore.getState()
-      .browserByConnection[liveConnectionId]?.remotePath;
-    const targetPath = resolveTransferOpenPath({
-      livePromptCwd,
-      shellCwd,
-      sessionCwd,
-      browserPath,
-      fallbackPath: DEFAULT_REMOTE_PATH,
-    });
-    useSftpTransferStore.getState().requestBrowserPath(liveConnectionId, targetPath);
-    useWorkspaceStore.getState().setSftpSidebarOpen(true);
     closeContextMenu();
-  }, [closeContextMenu, liveConnectionId, sessionId, shellState?.cwd]);
+
+    const connectionId = liveConnectionId;
+    const outputKey = sessionId || connectionId;
+
+    void (async () => {
+      // 1) 优先探测交互 shell 真实 PWD（不依赖提示符格式 / 过期 OSC7）
+      let probedCwd: string | null = null;
+      try {
+        const probe = window.electronAPI?.sshProbePwd;
+        if (probe) {
+          const result = await probe(connectionId);
+          if (result.success && result.data?.cwd?.trim()) {
+            probedCwd = result.data.cwd.trim();
+            useSessionStore.getState().setSessionCwd(
+              connectionId,
+              normalizeHistoryPath(probedCwd),
+            );
+          }
+        }
+      } catch (error) {
+        console.warn('sshProbePwd failed, fallback to local cwd parse', error);
+      }
+
+      // 2) 回退：屏幕提示符 / 追踪尾部 / store / 会话 / OSC7
+      const storeOutput = useSessionStore.getState().outputs[outputKey] || '';
+      const tracking = getCwdTrackingSnapshot();
+      const xtermOutput = serializeXtermBuffer(xtermRef.current);
+      const livePromptCwd = probedCwd
+        || extractCwdFromTerminalOutput(xtermOutput)
+        || extractCwdFromTerminalOutput(tracking.outputTail)
+        || extractCwdFromTerminalOutput(storeOutput);
+      const sessionCwd = (
+        useSessionStore.getState().sessions[connectionId]?.cwd
+        || tracking.cwd
+        || ''
+      ).trim();
+      const shellCwd = shellState?.cwd?.trim();
+      const browserPath = useSftpTransferStore.getState()
+        .browserByConnection[connectionId]?.remotePath;
+      const targetPath = resolveTransferOpenPath({
+        livePromptCwd,
+        shellCwd,
+        sessionCwd,
+        browserPath,
+        fallbackPath: DEFAULT_REMOTE_PATH,
+      });
+
+      useSftpTransferStore.getState().requestBrowserPath(connectionId, targetPath);
+      useWorkspaceStore.getState().setSftpSidebarOpen(true);
+    })();
+  }, [closeContextMenu, getCwdTrackingSnapshot, liveConnectionId, sessionId, shellState?.cwd]);
 
   // 当 settings 中的 terminalTheme 变化时同步本地状态（处理异步加载）
   useEffect(() => {
@@ -378,20 +411,27 @@ export function TerminalView({
 
     // replay：仅初始装载或显式清空；挂起 onData，防止历史查询应答打回 PTY 形成死循环
     beginSuspendInputForward();
+    let released = false;
+    const releaseSuspend = () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      endSuspendInputForward();
+    };
     try {
       term.clear();
       resetInputTracking();
       if (plan.chunk) {
         consumeOutputChunk(plan.chunk);
         consumeShellIntegration(plan.chunk);
-        term.write(plan.chunk, () => {
-          endSuspendInputForward();
-        });
+        // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
+        term.write(plan.chunk, releaseSuspend);
       } else {
-        endSuspendInputForward();
+        releaseSuspend();
       }
     } catch (error) {
-      endSuspendInputForward();
+      releaseSuspend();
       throw error;
     }
     setRenderedOutput(currentOutput);
@@ -406,6 +446,17 @@ export function TerminalView({
     sessionId,
     terminalOutput,
   ]);
+
+  // 连接成功后聚焦终端，避免点到页面其它区域导致按键不进 xterm
+  useEffect(() => {
+    if (!liveConnectionId || !xtermRef.current) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      xtermRef.current?.focus();
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [liveConnectionId, terminalInstanceVersion]);
 
   const terminalStatus = (() => {
     if (!hasSession) {

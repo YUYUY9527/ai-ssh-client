@@ -3,12 +3,16 @@
 /**
  * 从 xterm buffer 序列化可见/缓冲文本；失败时返回空串。
  * 使用 duck-typed buffer 以便单测不依赖真实 xterm。
+ * 折行（isWrapped）拼回同一逻辑行，否则长路径提示符会被拆断导致 cwd 解析失败。
  */
 export function serializeXtermBuffer(term: {
   buffer?: {
     active?: {
       length: number;
-      getLine?: (index: number) => { translateToString?: (trimRight?: boolean) => string } | undefined;
+      getLine?: (index: number) => {
+        translateToString?: (trimRight?: boolean) => string;
+        isWrapped?: boolean;
+      } | undefined;
     };
   };
 } | null | undefined): string {
@@ -21,7 +25,12 @@ export function serializeXtermBuffer(term: {
   for (let i = 0; i < active.length; i += 1) {
     const line = active.getLine(i);
     const text = line?.translateToString?.(true) ?? '';
-    lines.push(text);
+    // isWrapped 表示本行是上一行的续行
+    if (line?.isWrapped && lines.length > 0) {
+      lines[lines.length - 1] += text;
+    } else {
+      lines.push(text);
+    }
   }
 
   // 去掉尾部空行，保留内容中的空行

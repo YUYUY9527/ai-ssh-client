@@ -60,6 +60,8 @@ type ElectronApiLike = {
   sshExecuteSync: (connectionId: string, command: string) => void;
   sshGetSessions: () => Promise<IPCResult<SSessionsResult>>;
   sshGetOutputBuffer?: (connectionId: string) => Promise<IPCResult<import('../../shared/ipc-types').SshOutputBufferResult>>;
+  /** 探测交互 shell 真实 PWD；桌面端尚未实现时回落本地解析。 */
+  sshProbePwd?: (connectionId: string) => Promise<IPCResult<{ cwd: string }>>;
   sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
   sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
   sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
