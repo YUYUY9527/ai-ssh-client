@@ -55,44 +55,55 @@ export function createShellIntegrationState(): ShellIntegrationState {
   };
 }
 
-/** 从 OSC 7 file:// URI 中解析路径。 */
+/** 解码路径，失败则原样返回。 */
+function decodePath(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * 从 OSC 7 file:// URI 中解析路径。
+ * 只取 pathname，绝不拼接 hostname，避免 file://ot/etc/xdg → /otetc/xdg 这类错误。
+ */
 export function parseOsc7Cwd(payload: string): string | null {
   const body = payload.replace(/^7;/, '');
   if (!body) {
     return null;
   }
 
-  // file://hostname/path 或 file:///path
+  // file://hostname/path 或 file:///path 或 file://localhost/path
   if (body.startsWith('file://')) {
-    try {
-      const url = new URL(body);
-      let path = decodeURIComponent(url.pathname || '');
-      // Windows 风格 file:///C:/... 保留；Unix file://host/tmp → /tmp
-      if (path.length > 1 && /^\/[A-Za-z]:\//.test(path)) {
-        path = path.slice(1);
-      }
-      return path || null;
-    } catch {
-      // 宽松回退：取第三个 / 之后
-      const match = body.match(/^file:\/\/[^/]*(.*)$/);
-      if (match?.[1]) {
-        try {
-          return decodeURIComponent(match[1]) || null;
-        } catch {
-          return match[1] || null;
-        }
-      }
+    const rest = body.slice('file://'.length);
+    if (!rest) {
       return null;
     }
+
+    // file:///etc/xdg → rest 以 / 开头；file://host/etc/xdg → 跳过 host
+    let path: string;
+    if (rest.startsWith('/')) {
+      path = rest;
+    } else {
+      const slash = rest.indexOf('/');
+      if (slash < 0) {
+        return null;
+      }
+      path = rest.slice(slash);
+    }
+
+    path = decodePath(path);
+    // Windows 风格 file:///C:/... → C:/...
+    if (path.length > 1 && /^\/[A-Za-z]:\//.test(path)) {
+      path = path.slice(1);
+    }
+    return path || null;
   }
 
   // 某些 shell 直接发路径
   if (body.startsWith('/')) {
-    try {
-      return decodeURIComponent(body);
-    } catch {
-      return body;
-    }
+    return decodePath(body) || null;
   }
 
   return null;

@@ -7,6 +7,39 @@ function tailText(input: string, maxChars: number): string {
   return input.slice(-maxChars);
 }
 
+/** 是否为绝对远端路径（SFTP/ shell PWD）。 */
+export function isAbsoluteRemotePath(path: string): boolean {
+  return path.startsWith('/');
+}
+
+/** 是否为 shell 家目录记法（~ 或 ~/...）。 */
+export function isTildeRemotePath(path: string): boolean {
+  return path === '~' || path.startsWith('~/');
+}
+
+/**
+ * 是否应用新的 cwd。
+ * 禁止用提示符里的 ~/... 覆盖已有绝对路径：SFTP 的 ~ 按登录家目录展开，
+ * 与 PS1 里的 ~（按 $HOME）可能不是同一位置。
+ */
+export function shouldReplaceCwd(current: string | null | undefined, next: string): boolean {
+  const cur = current?.trim();
+  const value = next.trim();
+  if (!value) {
+    return false;
+  }
+  if (!cur) {
+    return true;
+  }
+  if (cur === value) {
+    return false;
+  }
+  if (isAbsoluteRemotePath(cur) && isTildeRemotePath(value)) {
+    return false;
+  }
+  return true;
+}
+
 /** 剥离 OSC/CSI 等控制序列，保留可解析的提示符文本。 */
 export function stripTerminalControlSequences(input: string): string {
   let output = '';
@@ -69,6 +102,7 @@ export function parsePromptCwd(line: string): string | null {
     }
   }
 
+  // 只取最后一个冒号后的路径，避免 user@host:port 等干扰
   const colonMatch = trimmed.match(/:([~/][^\s#$%]*)\s*[#$%]$/);
   if (colonMatch) {
     return colonMatch[1];
@@ -92,6 +126,7 @@ export function extractCwdFromTerminalOutput(output: string): string | null {
     .slice(-12)
     .reverse();
 
+  // 只取最近一条提示符路径；~ 与绝对路径的取舍交给 resolveTransferOpenPath / shouldReplaceCwd
   for (const line of lines) {
     const cwd = parsePromptCwd(line);
     if (cwd) {
@@ -104,8 +139,9 @@ export function extractCwdFromTerminalOutput(output: string): string | null {
 
 /**
  * 打开 SFTP 时解析目标目录。
- * 优先实时提示符与会话 cwd（含 cd/prompt 追踪），再回退 OSC7 / 已有浏览路径。
- * 不把可能过期的 shellCwd 放在 sessionCwd 之前。
+ * 在候选中优先绝对路径；来源优先级：
+ * 实时提示符 > OSC7(shell) > 会话缓存 > 已有浏览路径。
+ * 会话缓存不再含「按 cd 输入乐观推断」的假路径，但仍可能过期，故排在 shell 之后。
  */
 export function resolveTransferOpenPath(options: {
   livePromptCwd?: string | null;
@@ -114,17 +150,19 @@ export function resolveTransferOpenPath(options: {
   browserPath?: string | null;
   fallbackPath: string;
 }): string {
-  const candidates = [
+  const ranked = [
     options.livePromptCwd,
-    options.sessionCwd,
     options.shellCwd,
+    options.sessionCwd,
     options.browserPath,
-  ];
-  for (const candidate of candidates) {
-    const trimmed = candidate?.trim();
-    if (trimmed) {
-      return trimmed;
-    }
+  ]
+    .map((item) => item?.trim())
+    .filter((item): item is string => Boolean(item));
+
+  const absolute = ranked.find(isAbsoluteRemotePath);
+  if (absolute) {
+    return absolute;
   }
-  return options.fallbackPath;
+
+  return ranked[0] || options.fallbackPath;
 }

@@ -34,6 +34,7 @@ import { normalizeHistoryPath } from '../../history/command-history-index';
 import {
   extractCwdFromTerminalOutput,
   resolveTransferOpenPath,
+  shouldReplaceCwd,
 } from './terminal-cwd';
 import { planTerminalOutputSync } from './terminal-output-sync';
 import { useTerminalClipboard } from './useTerminalClipboard';
@@ -125,10 +126,14 @@ export function TerminalView({
 
   const handleShellIntegrationStateChange = useCallback((state: ShellIntegrationState) => {
     setShellState(state);
-    // OSC7 cwd 同步到会话，供传输/历史等与 prompt 追踪共用
+    // OSC7 一般为绝对 PWD，同步到会话；不让后续 ~ 提示符降级覆盖
     const cwd = state.cwd?.trim();
     if (cwd && liveConnectionId) {
-      useSessionStore.getState().setSessionCwd(liveConnectionId, normalizeHistoryPath(cwd));
+      const normalized = normalizeHistoryPath(cwd);
+      const current = useSessionStore.getState().sessions[liveConnectionId]?.cwd;
+      if (shouldReplaceCwd(current, normalized)) {
+        useSessionStore.getState().setSessionCwd(liveConnectionId, normalized);
+      }
     }
   }, [liveConnectionId]);
 

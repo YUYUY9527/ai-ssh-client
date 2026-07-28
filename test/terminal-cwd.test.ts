@@ -4,6 +4,7 @@ import {
   extractCwdFromTerminalOutput,
   parsePromptCwd,
   resolveTransferOpenPath,
+  shouldReplaceCwd,
 } from '../src/renderer/session/terminal/terminal-cwd';
 
 describe('terminal-cwd', () => {
@@ -13,24 +14,59 @@ describe('terminal-cwd', () => {
     expect(parsePromptCwd('[root@host /home]#')).toBe('/home');
     expect(parsePromptCwd('[root@host ~]#')).toBe('~');
     expect(parsePromptCwd('user@host:/var/log%')).toBe('/var/log');
+    expect(parsePromptCwd('root@host:/etc/xdg#')).toBe('/etc/xdg');
+    expect(parsePromptCwd('root@host:/home/docker/buildkit#')).toBe('/home/docker/buildkit');
   });
 
   it('extracts latest prompt cwd from mixed terminal output', () => {
-    const output = [
-      'root@host:/root# cd /home',
-      'root@host:/home#',
-    ].join('\n');
-    expect(extractCwdFromTerminalOutput(output)).toBe('/home');
+    expect(extractCwdFromTerminalOutput([
+      'root@host:/root# cd /home/docker/buildkit',
+      'root@host:/home/docker/buildkit#',
+    ].join('\n'))).toBe('/home/docker/buildkit');
+
+    expect(extractCwdFromTerminalOutput([
+      'root@host:/etc/xdg#',
+    ].join('\n'))).toBe('/etc/xdg');
+
+    expect(extractCwdFromTerminalOutput([
+      'root@host:/home/docker/buildkit# cd ~',
+      'root@host:~#',
+    ].join('\n'))).toBe('~');
   });
 
-  it('prefers live prompt and session cwd over stale shell cwd', () => {
+  it('does not let tilde cwd replace absolute cwd', () => {
+    expect(shouldReplaceCwd('/home/docker/buildkit', '~/docker/buildkit')).toBe(false);
+    expect(shouldReplaceCwd('/etc/xdg', '~')).toBe(false);
+    expect(shouldReplaceCwd('~/docker', '/home/docker')).toBe(true);
+    expect(shouldReplaceCwd('/root', '/etc/xdg')).toBe(true);
+  });
+
+  it('prefers absolute paths when opening transfer', () => {
+    // PS1 显示 ~/docker/buildkit，但 OSC7 已有绝对路径
     expect(resolveTransferOpenPath({
-      livePromptCwd: '/home',
+      livePromptCwd: '~/docker/buildkit',
+      shellCwd: '/home/docker/buildkit',
+      sessionCwd: '/home/docker/buildkit',
+      browserPath: '/root',
+      fallbackPath: '~',
+    })).toBe('/home/docker/buildkit');
+
+    expect(resolveTransferOpenPath({
+      livePromptCwd: '/etc/xdg',
       shellCwd: '/root',
-      sessionCwd: '/var',
+      sessionCwd: '~/something',
       browserPath: '/tmp',
       fallbackPath: '~',
-    })).toBe('/home');
+    })).toBe('/etc/xdg');
+
+    // 错误 cd 推断的 session 不得压过 OSC7 真实 PWD
+    expect(resolveTransferOpenPath({
+      livePromptCwd: null,
+      shellCwd: '/etc/xdg',
+      sessionCwd: '/otetc/xdg',
+      browserPath: '/tmp',
+      fallbackPath: '~',
+    })).toBe('/etc/xdg');
 
     expect(resolveTransferOpenPath({
       livePromptCwd: null,
@@ -38,7 +74,7 @@ describe('terminal-cwd', () => {
       sessionCwd: '/home',
       browserPath: '/tmp',
       fallbackPath: '~',
-    })).toBe('/home');
+    })).toBe('/root');
 
     expect(resolveTransferOpenPath({
       livePromptCwd: null,

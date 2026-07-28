@@ -22,6 +22,11 @@ describe('shell-integration', () => {
   it('parses OSC 7 cwd', () => {
     expect(parseOsc7Cwd('7;file://host/home/user/project')).toBe('/home/user/project');
     expect(parseOsc7Cwd('7;file:///tmp/foo')).toBe('/tmp/foo');
+    expect(parseOsc7Cwd('7;file://ot/etc/xdg')).toBe('/etc/xdg');
+    expect(parseOsc7Cwd('7;file://localhost/etc/xdg')).toBe('/etc/xdg');
+    expect(parseOsc7Cwd('7;file:///home/docker/buildkit')).toBe('/home/docker/buildkit');
+    // 绝不能把 host 拼进路径变成 /otetc/xdg
+    expect(parseOsc7Cwd('7;file://ot/etc/xdg')).not.toBe('/otetc/xdg');
   });
 
   it('parses OSC 133 markers', () => {

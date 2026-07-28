@@ -3,7 +3,6 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 
 import {
   DEFAULT_CWD,
-  nextTrackedCwd,
   normalizeHistoryPath,
 } from '../../history/command-history-index';
 import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
@@ -12,6 +11,7 @@ import { useSessionStore } from '../useSessionStore';
 import type { CommandHistoryItem } from '../../../shared/types';
 import {
   extractCwdFromTerminalOutput,
+  shouldReplaceCwd,
   stripTerminalControlSequences,
 } from './terminal-cwd';
 
@@ -92,6 +92,10 @@ export function useTerminalInputTracking({
       return;
     }
     const normalized = normalizeHistoryPath(cwd);
+    // 禁止用 ~/x 覆盖 /abs/x，否则打开 SFTP 时按登录家目录展开 ~ 会偏到错误位置
+    if (!shouldReplaceCwd(cwdRef.current, normalized)) {
+      return;
+    }
     cwdRef.current = normalized;
     useSessionStore.getState().setSessionCwd(liveConnectionId, normalized);
   }, [liveConnectionId]);
@@ -164,11 +168,9 @@ export function useTerminalInputTracking({
           ? currentInputRef.current.trim()
           : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
         if (command) {
+          // 历史记录用执行前目录；cwd 本身不在此处按 cd 乐观推断
+          // （输入中回删/拼写错误会得到 /otetc/xdg 这类假路径；真实 PWD 以提示符/OSC7 为准）
           const currentCwd = normalizeHistoryPath(cwdRef.current || DEFAULT_CWD);
-          const inferredNextCwd = nextTrackedCwd(currentCwd, command);
-          if (inferredNextCwd) {
-            syncSessionCwd(inferredNextCwd);
-          }
 
           void (async () => {
             const { connections } = useConnectionStore.getState();
