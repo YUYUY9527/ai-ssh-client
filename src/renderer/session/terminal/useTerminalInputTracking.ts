@@ -23,6 +23,20 @@ function tailText(input: string, maxChars: number): string {
   return input.slice(-maxChars);
 }
 
+/**
+ * xterm 对 OSC/CSI 查询的自动应答（挂起期间应丢弃，防 PTY 回显死循环）。
+ * 特征：所有以 ESC（0x1b）或单字节 CSI（0x9b）开头的序列。
+ * 注意：用户方向键等也是 \x1b[ 开头，但回放挂起窗口为毫秒级，期间丢弃可接受；
+ * 普通字符、回车、退格、制表符等真实输入不受影响。
+ */
+function isXtermAutoReply(data: string): boolean {
+  if (!data) {
+    return false;
+  }
+  const code = data.charCodeAt(0);
+  return code === 0x1b || code === 0x9b;
+}
+
 function parsePromptCommand(line: string): string | null {
   const trimmed = line.trimEnd();
   if (!trimmed) {
@@ -167,7 +181,13 @@ export function useTerminalInputTracking({
 
       // 回放/重建 buffer 期间产生的查询应答不得写回 PTY
       if (suspendInputForwardRef.current > 0) {
-        return;
+        // 挂起只拦截 xterm 的 OSC/CSI 自动应答：回放历史内容时这些应答若写回
+        // PTY 会被 echo 再次回放，形成刷屏死循环（典型：无限刷 11;rgb:...）。
+        // 用户真实按键（可打印字符/回车/退格/制表符等）不在拦截范围，
+        // 避免“连接成功后首屏回放期间敲命令没反应”。
+        if (isXtermAutoReply(data)) {
+          return;
+        }
       }
 
       if (window.electronAPI) {
@@ -268,20 +288,21 @@ export function useTerminalInputTracking({
       clearTimeout(suspendTimeoutRef.current);
     }
     suspendTimeoutRef.current = setTimeout(() => {
+      suspendTimeoutRef.current = null;
       if (suspendGenerationRef.current !== generation) {
         return;
       }
-      suspendInputForwardRef.current = 0;
-      suspendTimeoutRef.current = null;
+      if (suspendInputForwardRef.current > 0) {
+        suspendInputForwardRef.current = 0;
+      }
     }, SUSPEND_INPUT_FORWARD_TIMEOUT_MS);
   }, []);
 
   const endSuspendInputForward = useCallback(() => {
     suspendInputForwardRef.current = Math.max(0, suspendInputForwardRef.current - 1);
-    if (suspendInputForwardRef.current === 0 && suspendTimeoutRef.current) {
-      clearTimeout(suspendTimeoutRef.current);
-      suspendTimeoutRef.current = null;
-    }
+    // 注意：不清理 suspendTimeoutRef。超时恢复（挂起提前归零）后迟到的
+    // endSuspend 若清掉 timer，会让新挂起失去兜底，极端情况下永久吞输入。
+    // timer 到期时会按 generation 校验自行收敛，无需在此清理。
   }, []);
 
   // 连接切换或终端实例重建时清掉挂起，避免上一轮回放泄漏
