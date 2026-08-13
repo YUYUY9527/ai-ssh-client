@@ -1693,6 +1693,19 @@
   to { opacity: 1; transform: none; }
 }
 
+/* 版本更新提示条：检测到新构建后自动刷新前展示 */
+.version-update-banner {
+  @apply fixed left-1/2 top-14 z-[80] flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 border px-3 py-2.5;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 55%),
+    color-mix(in srgb, var(--bg-primary) 85%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border-color));
+  color: var(--text-primary);
+  animation: ui-toast-in var(--duration-chrome) var(--ease-chrome) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

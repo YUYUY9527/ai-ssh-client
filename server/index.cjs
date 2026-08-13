@@ -1412,8 +1412,31 @@ app.delete('/api/agent/tasks/:id', route((request) => {
 }));
 app.post('/api/unsupported', route(() => failure('This feature is only available in the desktop app')));
 
-app.use(express.static(STATIC_DIR));
-app.use((_request, response) => response.sendFile(path.join(STATIC_DIR, 'index.html')));
+/**
+ * 静态资源缓存策略：
+ * - index.html 每次重新获取（no-store）：保证部署后浏览器立即拿到最新入口，
+ *   从而引用最新 hash 的构建产物，无需手动强刷；
+ * - /assets/ 下带 hash 的构建产物永久缓存（immutable）：内容变化文件名必变，
+ *   旧条目永不命中，避免重复下载；
+ * - 其余资源（favicon 等非 hash 文件）协商缓存。
+ */
+app.use(express.static(STATIC_DIR, {
+  etag: true,
+  lastModified: true,
+  setHeaders(response, filePath) {
+    if (filePath.endsWith('.html')) {
+      response.setHeader('Cache-Control', 'no-store');
+    } else if (filePath.split(path.sep).includes('assets')) {
+      response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else {
+      response.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
+app.use((_request, response) => {
+  response.setHeader('Cache-Control', 'no-store');
+  response.sendFile(path.join(STATIC_DIR, 'index.html'));
+});
 
 const server = http.createServer(app);
 // Node 默认 requestTimeout=300s：大文件经 SFTP 慢速落盘时，整包 PUT 会在 ~5 分钟被断开（3GB≈16%）。
@@ -1463,8 +1486,15 @@ wss.on('connection', (socket) => {
         // 终端输入热路径：与 HTTP /write 等价，但经 WS 保序低延迟
         const data = typeof message.data === 'string' ? message.data : '';
         if (data) {
-          getSession(message.connectionId, socket.sshClientId || socket.clientId || '')
-            .stream.write(data);
+          try {
+            getSession(message.connectionId, socket.sshClientId || socket.clientId || '')
+              .stream.write(data);
+          } catch (error) {
+            // 会话已死（网络/超时/服务端重启）：立即通知前端关闭并自动重连，
+            // 否则 UI 会停留在"已连接"但输入全部静默失败（假死）。
+            socket.send(JSON.stringify({ type: 'ssh-close', payload: message.connectionId }));
+            throw error;
+          }
         }
       }
     } catch (error) {

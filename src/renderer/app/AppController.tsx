@@ -30,6 +30,7 @@ import { AppFooter } from './AppFooter';
 import { AppShell } from './AppShell';
 import { ModalHost } from './ModalHost';
 import { ToastHost, type AppToast } from './ToastHost';
+import { VersionUpdateBanner } from './VersionUpdateBanner';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { SessionWorkspace } from '../workspace/SessionWorkspace';
 import { WorkspaceTabs } from '../workspace/WorkspaceTabs';
@@ -758,7 +759,8 @@ export function AppController() {
   };
 
   return (
-    <AppShell
+    <>
+      <AppShell
       banner={showDefaultPasswordBanner && (
         <div className="default-password-banner" role="alert">
           <span className="default-password-banner-text">{t('auth.defaultPasswordBanner.message')}</span>
@@ -953,6 +955,8 @@ export function AppController() {
         onPasswordChanged={() => setShowDefaultPasswordBanner(false)}
       />
       )}
-    />
+      />
+      <VersionUpdateBanner />
+    </>
   );
 }
