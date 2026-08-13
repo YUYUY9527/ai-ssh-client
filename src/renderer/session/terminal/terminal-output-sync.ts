@@ -9,11 +9,12 @@
 export type TerminalOutputSyncPlan =
   | { action: 'noop' }
   | { action: 'append'; chunk: string }
-  | { action: 'replay'; chunk: string }
-  | { action: 'watermark' };
+  | { action: 'replay'; chunk: string };
 
 /** 单次追赶的最大滑动字节，防止截断对齐时 O(n²) 扫整段 scrollback。 */
-const MAX_SLIDE_PROBE = 512 * 1024;
+const MAX_SLIDE_PROBE = 1024 * 1024;
+/** 滑动探测最大尝试次数：超过即放弃对齐走 replay，避免不可对齐时 O(n²) 卡死。 */
+const MAX_SLIDE_TRIES = 128 * 1024;
 
 /**
  * store 在 maxBytes 处头部截断后：
@@ -38,9 +39,10 @@ export function deltaAfterBoundedSlide(
     return current.slice(previous.length);
   }
 
-  // previous 被从头部滑掉 slide 字节后再接上新尾部（kept 必须 >0，全量替换走 watermark）
+  // previous 被从头部滑掉 slide 字节后再接上新尾部（kept 必须 >0，全量替换走 replay）
   const maxK = Math.min(previous.length - 1, maxSlide);
-  for (let slide = 1; slide <= maxK; slide += 1) {
+  const slideLimit = Math.min(maxK, MAX_SLIDE_TRIES);
+  for (let slide = 1; slide <= slideLimit; slide += 1) {
     const kept = previous.length - slide;
     if (kept <= 0 || kept > current.length) {
       continue;
@@ -71,12 +73,12 @@ export function planTerminalOutputSync(
   }
 
   const delta = deltaAfterBoundedSlide(previousOutput, currentOutput);
-  if (delta === null) {
-    // 无法对齐：只同步水位，禁止 clear+rewrite（会触发查询应答风暴）
-    return { action: 'watermark' };
-  }
-  if (!delta) {
-    return { action: 'watermark' };
+  if (delta === null || !delta) {
+    // 无法对齐（store 头部截断后旧尾新头混合）：
+    // 只对齐水位会让 xterm 与 store 从此错位，后续 append 按截断视角计算，
+    // vim 大文件滚动时画面缺行、内容丢失。改走 replay 全量重建，
+    // xterm 与 store 严格一致（OSC/CSI 查询应答死循环已由输入挂起机制拦截）。
+    return { action: 'replay', chunk: currentOutput };
   }
   return { action: 'append', chunk: delta };
 }

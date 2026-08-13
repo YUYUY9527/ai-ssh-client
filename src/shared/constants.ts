@@ -130,7 +130,9 @@ export const DEFAULT_SETTINGS = {
   terminalShellIntegration: true,
   agentSemanticSummaryContextLength: 12000,
   maxPersistedSessions: 8,
-  maxScrollbackBytesPerSession: 150 * 1024,
+  // 单会话输出缓冲上限：vim/less 等全屏重绘程序滚动时输出量大，
+  // 过小会导致截断错位、终端画面缺行丢内容，故放宽到 1MB
+  maxScrollbackBytesPerSession: 1024 * 1024,
 };
 
 // SSH 默认端口

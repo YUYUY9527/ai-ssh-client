@@ -37,6 +37,7 @@ import {
   shouldReplaceCwd,
 } from './terminal-cwd';
 import { planTerminalOutputSync } from './terminal-output-sync';
+import { planReplayCalibration } from './terminal-replay';
 import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
 import { useTerminalSearch } from './useTerminalSearch';
@@ -360,6 +361,33 @@ export function TerminalView({
     setPastePreview(null);
   }, []);
 
+  /**
+   * 重放后校准终端状态（见 terminal-replay）：
+   * - chunk 被行截断时可能丢失 \x1b[?1049h，xterm 停在 normal buffer
+   *   （症状：右侧滚动条出现、vim 向下滚动丢内容）→ 补写 1049h 恢复 alt screen；
+   * - 程序确认在全屏模式时发送 Ctrl+L（vim 默认映射为重绘），
+   *   让 vim 全屏重绘补齐截断丢失的画面。
+   */
+  const calibrateAfterReplay = useCallback((chunk: string) => {
+    if (!liveConnectionId || !xtermRef.current) {
+      return;
+    }
+    const plan = planReplayCalibration(
+      chunk,
+      xtermRef.current.buffer.active.type === 'alternate',
+    );
+    if (plan.write) {
+      xtermRef.current.write(plan.write);
+    }
+    if (plan.redraw && window.electronAPI) {
+      try {
+        window.electronAPI.sshExecuteSync(liveConnectionId, '\x0c');
+      } catch {
+        // 忽略：写入失败时后续输出仍会继续同步
+      }
+    }
+  }, [liveConnectionId]);
+
   const handleSaveLog = useCallback(() => {
     const xtermText = serializeXtermBuffer(xtermRef.current);
     const content = resolveSessionLogText(xtermText, terminalOutput);
@@ -403,13 +431,7 @@ export function TerminalView({
       return;
     }
 
-    if (plan.action === 'watermark') {
-      // store 截断/错位：xterm 自有 scrollback 已包含画面，只对齐水位，禁止回放
-      setRenderedOutput(currentOutput);
-      return;
-    }
-
-    // replay：仅初始装载或显式清空；挂起 onData，防止历史查询应答打回 PTY 形成死循环
+    // replay：初始装载 / store 截断错位 / 显式清空；挂起 onData，防止历史查询应答打回 PTY 形成死循环
     beginSuspendInputForward();
     let released = false;
     const releaseSuspend = () => {
@@ -420,15 +442,21 @@ export function TerminalView({
       endSuspendInputForward();
     };
     try {
-      term.clear();
+      // 用 reset 而非 clear：干净重建两个 buffer 与状态机。clear 只清当前视口，
+      // vim 等全屏程序感知不到屏幕被清，后续增量输出画在残画面上 → 内容缺失。
+      term.reset();
       resetInputTracking();
       if (plan.chunk) {
         consumeOutputChunk(plan.chunk);
         consumeShellIntegration(plan.chunk);
         // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
-        term.write(plan.chunk, releaseSuspend);
+        term.write(plan.chunk, () => {
+          releaseSuspend();
+          calibrateAfterReplay(plan.chunk);
+        });
       } else {
         releaseSuspend();
+        calibrateAfterReplay(plan.chunk);
       }
     } catch (error) {
       releaseSuspend();
@@ -437,6 +465,7 @@ export function TerminalView({
     setRenderedOutput(currentOutput);
   }, [
     beginSuspendInputForward,
+    calibrateAfterReplay,
     consumeOutputChunk,
     consumeShellIntegration,
     endSuspendInputForward,

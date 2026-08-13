@@ -475,18 +475,29 @@ function stateFor(connectionId, clientId, patch = {}) {
   };
 }
 
-/** 单会话输出环形缓冲上限：刷新重挂时回放 MOTD/提示符。 */
-const MAX_SSH_OUTPUT_BUFFER = 128 * 1024;
+/** 单会话输出环形缓冲上限：刷新重挂时回放 MOTD/提示符；1MB 避免 vim 大文件滚动频繁截断。 */
+const MAX_SSH_OUTPUT_BUFFER = 1024 * 1024;
 
-/** 将 shell 输出写入会话缓冲（丢弃时仍可 HTTP 拉取）。 */
+/**
+ * 将 shell 输出写入会话缓冲（丢弃时仍可 HTTP 拉取）。
+ * 超限时按行边界截断：重放/合并时 chunk 从完整行开始，
+ * 避免切断多字节转义序列（如 \x1b[?1049h）产生解析碎片。
+ */
 function appendSessionOutput(session, text) {
   if (!session || !text) {
     return;
   }
   const next = `${session.outputBuffer || ''}${text}`;
-  session.outputBuffer = next.length > MAX_SSH_OUTPUT_BUFFER
-    ? next.slice(-MAX_SSH_OUTPUT_BUFFER)
-    : next;
+  if (next.length <= MAX_SSH_OUTPUT_BUFFER) {
+    session.outputBuffer = next;
+    return;
+  }
+  let truncated = next.slice(-MAX_SSH_OUTPUT_BUFFER);
+  const lineStart = truncated.search(/[\r\n]/);
+  if (lineStart > 0) {
+    truncated = truncated.slice(lineStart);
+  }
+  session.outputBuffer = truncated;
 }
 
 /** 按复合 key 关闭会话，仅通知该会话归属的客户端。 */

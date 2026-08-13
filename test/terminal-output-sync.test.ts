@@ -46,10 +46,19 @@ describe('terminal-output-sync', () => {
     });
   });
 
-  it('watermarks when buffers share no slide alignment', () => {
+  it('replays when buffers share no slide alignment', () => {
     expect(deltaAfterBoundedSlide('alpha-only', 'zeta-only')).toBeNull();
     expect(planTerminalOutputSync('alpha-only', 'zeta-only')).toEqual({
-      action: 'watermark',
+      action: 'replay',
+      chunk: 'zeta-only',
+    });
+  });
+
+  it('replays when truncation mixes tail and new head', () => {
+    // 截断 + 头部插入导致字节流无法滑动对齐时，必须全量重建避免水位错位丢内容
+    expect(planTerminalOutputSync('AAABBBCCCDDD', 'XXCCCDDDYYY')).toEqual({
+      action: 'replay',
+      chunk: 'XXCCCDDDYYY',
     });
   });
 

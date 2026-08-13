@@ -5,6 +5,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // Windows 沙箱环境下 results.json 缓存写入偶发 EPERM，禁用缓存
+    cache: false,
     include: ['test/**/*.test.{ts,cts,mts}'],
     coverage: {
       provider: 'v8',
