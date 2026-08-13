@@ -261,7 +261,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
 
   async function writeRequestToSftp(task, request) {
     const { snapshot } = task;
-    const sftp = await getSftp(snapshot.connectionId);
+    const sftp = await getSftp(snapshot.connectionId, task.clientId);
     const remotePath = snapshot.remotePath;
     if (!remotePath) throw new TransferError('Upload target is missing', 'invalid-path', false);
 
@@ -576,7 +576,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
     let resumeFrom = 0;
     if (task.snapshot.direction === 'upload' && task.snapshot.remotePath) {
       try {
-        const sftp = await getSftp(task.snapshot.connectionId);
+        const sftp = await getSftp(task.snapshot.connectionId, task.clientId);
         const temporaryPath = temporaryRemotePath(task.snapshot.remotePath, task.snapshot.taskId);
         const checkpoint = await readRemoteJson(sftp, checkpointRemotePath(temporaryPath));
         const partSize = await remoteFileSize(sftp, temporaryPath);
@@ -612,7 +612,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
     }
     if (task.snapshot.remotePath) {
       try {
-        const sftp = await getSftp(task.snapshot.connectionId);
+        const sftp = await getSftp(task.snapshot.connectionId, task.clientId);
         const temporaryPath = temporaryRemotePath(task.snapshot.remotePath, task.snapshot.taskId);
         await removeRemoteQuiet(sftp, temporaryPath);
         await removeRemoteQuiet(sftp, checkpointRemotePath(temporaryPath));

@@ -66,6 +66,28 @@ const activeAiRequests = new Map();
 const activeAgentExecs = new Map();
 const AGENT_INTERRUPT_SETTLE_MS = 250;
 
+/**
+ * Web 多客户端隔离：同一连接配置可被多台浏览器同时打开，
+ * 每个客户端拥有独立 SSH shell 会话。key = connectionId + clientId 复合键，
+ * 防止两台电脑（或同一浏览器两个标签页）共享同一会话互相串命令。
+ */
+function sessionKeyOf(connectionId, clientId) {
+  return `${connectionId}::${clientId || ''}`;
+}
+
+/** SSH 路由的客户端标识：优先 x-ssh-client-id，兼容旧版 x-sftp-client-id。 */
+function requestClientId(request) {
+  return String(request.get('x-ssh-client-id') || request.get('x-sftp-client-id') || '').slice(0, 200);
+}
+
+/** 关闭某连接配置下所有客户端的会话（删除连接时兜底清理）。 */
+function closeSessionsForConnection(connectionId) {
+  const prefix = `${connectionId}::`;
+  Array.from(sessions.keys())
+    .filter((key) => key.startsWith(prefix))
+    .forEach((key) => closeSessionByKey(key));
+}
+
 function success(data) {
   return data === undefined ? { success: true } : { success: true, data };
 }
@@ -369,8 +391,8 @@ async function streamChatWithProvider(provider, messages, requestId, sendEvent) 
   }
 }
 
-function runSshCommand(connectionId, command, options = {}) {
-  const session = getSession(connectionId);
+function runSshCommand(connectionId, command, options = {}, clientId = '') {
+  const session = getSession(connectionId, clientId);
   const stream = session.stream;
   const runId = options.runId || `${connectionId}-${Date.now()}`;
   const timeoutMs = Number(options.timeoutMs || 45000);
@@ -419,25 +441,18 @@ function runSshCommand(connectionId, command, options = {}) {
     stream.on('close', handleClose);
     timeout = setTimeout(() => interruptAndFinish('timeout'), timeoutMs);
 
-    broadcast('ssh-data', { connectionId, data: formatAgentCommandEcho(command) });
+    emitToClient(clientId, 'ssh-data', { connectionId, data: formatAgentCommandEcho(command) });
     session.agentEchoPending = true;
     stream.write(wrapCommandWithSentinel(command, runId));
   });
 }
 
-function broadcast(type, payload) {
-  const data = JSON.stringify({ type, payload });
-  sockets.forEach((socket) => {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(data);
-    }
-  });
-}
-
+/** 定向推送：仅发送给指定客户端的 socket（SSH 事件按客户端隔离）。 */
 function emitToClient(clientId, type, payload) {
   const data = JSON.stringify({ type, payload });
   sockets.forEach((socket) => {
-    if (socket.clientId === clientId && socket.readyState === socket.OPEN) {
+    const matches = socket.clientId === clientId || socket.sshClientId === clientId;
+    if (matches && socket.readyState === socket.OPEN) {
       socket.send(data);
     }
   });
@@ -448,8 +463,8 @@ const sftpTransfers = createSftpTransferService({
   emitEvent: emitToClient,
 });
 
-function stateFor(connectionId, patch = {}) {
-  const session = sessions.get(connectionId);
+function stateFor(connectionId, clientId, patch = {}) {
+  const session = sessions.get(sessionKeyOf(connectionId, clientId));
 
   return {
     connectionId,
@@ -474,28 +489,38 @@ function appendSessionOutput(session, text) {
     : next;
 }
 
-function closeSession(connectionId) {
-  const session = sessions.get(connectionId);
+/** 按复合 key 关闭会话，仅通知该会话归属的客户端。 */
+function closeSessionByKey(key) {
+  const session = sessions.get(key);
   if (!session) {
     return;
   }
 
-  sessions.delete(connectionId);
+  sessions.delete(key);
   session.sftp?.end?.();
   session.stream?.end();
   session.client.end();
-  broadcast('ssh-close', connectionId);
-}
-
-function emitSessionClose(connectionId) {
-  if (sessions.delete(connectionId)) {
-    broadcast('ssh-close', connectionId);
+  if (session.clientId) {
+    emitToClient(session.clientId, 'ssh-close', session.connectionId);
   }
 }
 
-function connectSsh(connection, cols, rows, settings = defaultSettings) {
+function closeSession(connectionId, clientId) {
+  closeSessionByKey(sessionKeyOf(connectionId, clientId));
+}
+
+function emitSessionClose(connectionId, clientId) {
+  const key = sessionKeyOf(connectionId, clientId);
+  const session = sessions.get(key);
+  if (sessions.delete(key)) {
+    emitToClient(session?.clientId || clientId, 'ssh-close', connectionId);
+  }
+}
+
+function connectSsh(connection, cols, rows, settings = defaultSettings, clientId = '') {
   return new Promise((resolve, reject) => {
-    closeSession(connection.id);
+    // 只关闭自己 clientId 的旧会话，绝不顶掉其他客户端的会话
+    closeSession(connection.id, clientId);
 
     const client = new Client();
     const session = {
@@ -504,16 +529,18 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
       sftp: null,
       sftpPromise: null,
       ready: false,
+      clientId,
+      connectionId: connection.id,
       outputBuffer: '',
       // 跨 chunk 拼 UTF-8，避免多字节字符被 TCP 分片切断成乱码
       outputDecoder: new StringDecoder('utf8'),
     };
-    sessions.set(connection.id, session);
-    broadcast('ssh-data', {
+    sessions.set(sessionKeyOf(connection.id, clientId), session);
+    emitToClient(clientId, 'ssh-data', {
       connectionId: connection.id,
       data: '',
       type: 'state',
-      state: stateFor(connection.id),
+      state: stateFor(connection.id, clientId),
     });
 
     let settled = false;
@@ -536,10 +563,10 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
       if (!text) {
         return;
       }
-      // 先缓冲再广播：WS 未就绪时刷新后仍可回放
+      // 先缓冲再推送：WS 未就绪时刷新后仍可回放
       appendSessionOutput(session, text);
-      broadcast('agent-terminal-output', { connectionId: connection.id, data: text });
-      broadcast('ssh-data', {
+      emitToClient(clientId, 'agent-terminal-output', { connectionId: connection.id, data: text });
+      emitToClient(clientId, 'ssh-data', {
         connectionId: connection.id,
         data: text,
       });
@@ -571,20 +598,20 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
                 if (tail) {
                   publishShellOutput(tail);
                 }
-                emitSessionClose(connection.id);
+                emitSessionClose(connection.id, clientId);
               })
               .stderr.on('data', (data) => {
-                broadcast('ssh-error', {
+                emitToClient(clientId, 'ssh-error', {
                   connectionId: connection.id,
                   error: data.toString('utf8'),
                 });
               });
 
-            broadcast('ssh-data', {
+            emitToClient(clientId, 'ssh-data', {
               connectionId: connection.id,
               data: '',
               type: 'state',
-              state: stateFor(connection.id),
+              state: stateFor(connection.id, clientId),
             });
             // 稍等首包 MOTD/提示符进入缓冲，随 connect 响应一并返回
             setTimeout(() => {
@@ -597,14 +624,14 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
         );
       })
       .on('error', (error) => {
-        sessions.delete(connection.id);
-        broadcast('ssh-error', { connectionId: connection.id, error: error.message });
+        sessions.delete(sessionKeyOf(connection.id, clientId));
+        emitToClient(clientId, 'ssh-error', { connectionId: connection.id, error: error.message });
         if (!settled) {
           reject(error);
         }
       })
       .on('close', () => {
-        emitSessionClose(connection.id);
+        emitSessionClose(connection.id, clientId);
       })
       .connect({
         host: connection.host,
@@ -620,8 +647,8 @@ function connectSsh(connection, cols, rows, settings = defaultSettings) {
   });
 }
 
-function getSession(connectionId) {
-  const session = sessions.get(connectionId);
+function getSession(connectionId, clientId) {
+  const session = sessions.get(sessionKeyOf(connectionId, clientId));
   if (!session?.ready) {
     throw new Error('SSH session is not connected');
   }
@@ -640,8 +667,8 @@ function joinRemoteDisplayPath(parent, name) {
   return posixPath.join(base, name);
 }
 
-function getSftp(connectionId) {
-  const session = getSession(connectionId);
+function getSftp(connectionId, clientId) {
+  const session = getSession(connectionId, clientId);
   if (session.sftp) {
     return Promise.resolve(session.sftp);
   }
@@ -855,7 +882,7 @@ app.delete('/api/connections/:id', route((request) => {
   updateStore((store) => {
     store.connections = store.connections.filter((item) => item.id !== request.params.id);
   });
-  closeSession(request.params.id);
+  closeSessionsForConnection(request.params.id);
   return success();
 }));
 
@@ -918,19 +945,25 @@ app.delete('/api/quick-command-groups/:id', route((request) => {
 }));
 
 app.post('/api/ssh/connect', route((request) => (
-  connectSsh(request.body.connection, request.body.cols, request.body.rows, request.body.settings)
+  connectSsh(
+    request.body.connection,
+    request.body.cols,
+    request.body.rows,
+    request.body.settings,
+    requestClientId(request),
+  )
 )));
 app.post('/api/ssh/:id/disconnect', route((request) => {
-  closeSession(request.params.id);
+  closeSession(request.params.id, requestClientId(request));
   return success();
 }));
 app.post('/api/ssh/:id/write', route((request) => {
-  getSession(request.params.id).stream.write(request.body.command || '');
+  getSession(request.params.id, requestClientId(request)).stream.write(request.body.command || '');
   return success();
 }));
 // 探测交互 shell 的真实 PWD（与 SFTP 家目录无关），供终端右键打开传输
 app.post('/api/ssh/:id/pwd', route(async (request) => {
-  const session = getSession(request.params.id);
+  const session = getSession(request.params.id, requestClientId(request));
   const cwd = await probeInteractivePwd(session, {
     timeoutMs: Number(request.body?.timeoutMs) || 2500,
   });
@@ -938,12 +971,12 @@ app.post('/api/ssh/:id/pwd', route(async (request) => {
 }));
 app.post('/api/ssh/:id/resize', route((request) => {
   const { cols, rows } = request.body;
-  getSession(request.params.id).stream.setWindow(rows, cols);
+  getSession(request.params.id, requestClientId(request)).stream.setWindow(rows, cols);
   return success();
 }));
 // 拉取会话输出缓冲：页面刷新重挂 live session 时补齐提示符
 app.get('/api/ssh/:id/output-buffer', route((request) => {
-  const session = sessions.get(request.params.id);
+  const session = sessions.get(sessionKeyOf(request.params.id, requestClientId(request)));
   if (!session?.ready) {
     throw new Error('SSH session is not connected');
   }
@@ -952,8 +985,11 @@ app.get('/api/ssh/:id/output-buffer', route((request) => {
     data: session.outputBuffer || '',
   });
 }));
-app.get('/api/ssh/sessions', route(() => success({
-  sessions: Array.from(sessions.keys()).map((connectionId) => stateFor(connectionId)),
+app.get('/api/ssh/sessions', route((request) => success({
+  // 只返回当前客户端的会话：多客户端部署下互不可见、互不干扰
+  sessions: Array.from(sessions.values())
+    .filter((session) => session.clientId === requestClientId(request))
+    .map((session) => stateFor(session.connectionId, session.clientId)),
 })));
 app.post('/api/ssh/test', route((request) => new Promise((resolve) => {
   const client = new Client();
@@ -977,7 +1013,7 @@ app.post('/api/ssh/test', route((request) => new Promise((resolve) => {
 app.get('/api/sftp/:id/list', route(async (request) => {
   const requestedPath = String(request.query.path || '~');
   const protocolPath = sftpProtocolPath(requestedPath);
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
 
   // realpath 把 ~ / . / ~/foo 解析成绝对路径；/home 保持为真实目录，不映射成家目录
   const resolvedPath = await new Promise((resolve) => {
@@ -1032,27 +1068,27 @@ app.get('/api/sftp/:id/list', route(async (request) => {
 }));
 
 app.post('/api/sftp/:id/rename', route(async (request) => {
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
   await renameSftpItem(sftp, request.body.remotePath, request.body.newName);
   return success();
 }));
 
 app.delete('/api/sftp/:id/item', route(async (request) => {
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
   await deleteSftpItem(sftp, request.body.remotePath);
   return success();
 }));
 
 // 创建单层远程目录
 app.post('/api/sftp/:id/directory', route(async (request) => {
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
   await createSftpDirectory(sftp, request.body.remotePath);
   return success();
 }));
 
 // 修改远端权限（chmod）
 app.post('/api/sftp/:id/permissions', route(async (request) => {
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
   const remotePath = String(request.body?.remotePath || '');
   const mode = request.body?.mode;
   return success(await setSftpPermissions(sftp, remotePath, mode));
@@ -1060,14 +1096,14 @@ app.post('/api/sftp/:id/permissions', route(async (request) => {
 
 // 读取远端文本（在线编辑，有大小上限）
 app.get('/api/sftp/:id/text', route(async (request) => {
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
   const remotePath = String(request.query.path || '');
   return success(await readSftpTextFile(sftp, remotePath));
 }));
 
 // 覆盖写入远端文本
 app.put('/api/sftp/:id/text', route(async (request) => {
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
   const remotePath = String(request.body?.remotePath || '');
   const content = String(request.body?.content ?? '');
   await writeSftpTextFile(sftp, remotePath, content);
@@ -1076,7 +1112,7 @@ app.put('/api/sftp/:id/text', route(async (request) => {
 
 // 批量删除文件/目录，返回逐项结果
 app.delete('/api/sftp/:id/items', route(async (request) => {
-  const sftp = await getSftp(request.params.id);
+  const sftp = await getSftp(request.params.id, requireClientId(request));
   return success(await deleteSftpItems(sftp, request.body.remotePaths || []));
 }));
 
@@ -1084,7 +1120,7 @@ app.get('/api/sftp/:id/download', async (request, response) => {
   try {
     const remotePath = sftpProtocolPath(String(request.query.path || ''));
     const filename = posixPath.basename(String(request.query.path || remotePath));
-    const sftp = await getSftp(request.params.id);
+    const sftp = await getSftp(request.params.id, requireClientId(request));
     // 尽量带上 content-length，并支持 Range 续传下载。
     let size = 0;
     try {
@@ -1328,7 +1364,12 @@ app.post('/api/agent/:id/stop', route((request) => {
   return success();
 }));
 app.post('/api/agent/:id/exec-await', route((request) => (
-  runSshCommand(request.params.id, request.body.command || '', request.body.options)
+  runSshCommand(
+    request.params.id,
+    request.body.command || '',
+    request.body.options,
+    requestClientId(request),
+  )
 )));
 app.post('/api/agent/:id/cancel-exec', route((request) => {
   activeAgentExecs.get(request.params.id)?.();
@@ -1401,11 +1442,18 @@ wss.on('connection', (socket) => {
           throw new Error('Invalid SFTP client identity');
         }
         socket.clientId = message.clientId;
+        // 独立的 SSH 客户端标识：每浏览器标签页一个，用于会话隔离
+        if (typeof message.sshClientId === 'string' && message.sshClientId && message.sshClientId.length <= 200) {
+          socket.sshClientId = message.sshClientId;
+        } else {
+          socket.sshClientId = message.clientId;
+        }
       } else if (message.type === 'ssh-write') {
         // 终端输入热路径：与 HTTP /write 等价，但经 WS 保序低延迟
         const data = typeof message.data === 'string' ? message.data : '';
         if (data) {
-          getSession(message.connectionId).stream.write(data);
+          getSession(message.connectionId, socket.sshClientId || socket.clientId || '')
+            .stream.write(data);
         }
       }
     } catch (error) {

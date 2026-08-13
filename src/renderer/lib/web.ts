@@ -94,11 +94,16 @@ async function request<T>(
   try {
     // headers 必须在 ...options 之后合并，否则自定义 headers 会丢掉 Content-Type，
     // 导致 express.json 无法解析 body（SFTP 上传/下载表现为 No files selected）。
+    // x-ssh-client-id：SSH 会话按标签页隔离，避免多客户端共享同一 shell 互相串命令。
     const response = await fetch(path, {
       ...options,
       headers: options.body instanceof FormData
         ? options.headers
-        : { 'Content-Type': 'application/json', ...options.headers },
+        : {
+            'Content-Type': 'application/json',
+            'x-ssh-client-id': sftpClientId,
+            ...options.headers,
+          },
     });
     return await response.json();
   } catch (error) {
@@ -486,7 +491,7 @@ function connectEvents(): void {
   socket = new WebSocket(`${protocol}//${window.location.host}/api/events`);
 
   socket.onopen = () => {
-    sendSocket('sftp-identify', { clientId: sftpClientId });
+    sendSocket('sftp-identify', { clientId: sftpClientId, sshClientId: sftpClientId });
   };
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data) as { type: keyof EventMap; payload: unknown };
