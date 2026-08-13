@@ -492,10 +492,6 @@ function connectEvents(): void {
 
   socket.onopen = () => {
     sendSocket('sftp-identify', { clientId: sftpClientId, sshClientId: sftpClientId });
-    // WS（重）连成功即触发会话校准：服务端会话可能已因网络/超时静默丢失，
-    // 桌面端靠系统恢复事件校准，Web 端必须在 WS 重连后主动对齐，
-    // 否则 UI 停留在"已连接"但输入全部无效（假死）。
-    window.setTimeout(() => emit('system-resume', { timestamp: Date.now() }), 150);
   };
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data) as { type: keyof EventMap; payload: unknown };

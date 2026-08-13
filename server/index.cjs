@@ -1486,14 +1486,18 @@ wss.on('connection', (socket) => {
         // 终端输入热路径：与 HTTP /write 等价，但经 WS 保序低延迟
         const data = typeof message.data === 'string' ? message.data : '';
         if (data) {
-          try {
-            getSession(message.connectionId, socket.sshClientId || socket.clientId || '')
-              .stream.write(data);
-          } catch (error) {
-            // 会话已死（网络/超时/服务端重启）：立即通知前端关闭并自动重连，
-            // 否则 UI 会停留在"已连接"但输入全部静默失败（假死）。
+          const session = sessions.get(sessionKeyOf(
+            message.connectionId,
+            socket.sshClientId || socket.clientId || '',
+          ));
+          if (!session) {
+            // 会话完全不存在（网络/超时/服务端重启后已清理）：立即通知前端
+            // 关闭并自动重连，避免 UI 停留在"已连接"但输入全部静默失败（假死）。
             socket.send(JSON.stringify({ type: 'ssh-close', payload: message.connectionId }));
-            throw error;
+          } else if (session.ready) {
+            // 仅就绪后写入；连接握手期间的输入静默丢弃，绝不误发 ssh-close，
+            // 否则会把"正在建立连接"误判为"会话已死"，触发重连风暴。
+            session.stream.write(data);
           }
         }
       }
