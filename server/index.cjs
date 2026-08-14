@@ -555,11 +555,28 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
     });
 
     let settled = false;
+    // TCP 黑洞（SYN 无应答）时 ssh2 既不 ready 也不 error/close，HTTP 请求会挂起数分钟，
+    // 前端永远停在"重新连接中"。硬超时兜底，保证及时失败并进入下一轮重试。
+    const hardTimeoutMs = Math.max(10000, Number(process.env.SSH_CONNECT_TIMEOUT_MS ?? 30000));
+    const hardTimeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      try {
+        client.end();
+      } catch {
+        // ignore
+      }
+      sessions.delete(sessionKeyOf(connection.id, clientId));
+      reject(new Error('SSH connect timed out'));
+    }, hardTimeoutMs);
     const finish = (result) => {
       if (settled) {
         return;
       }
       settled = true;
+      clearTimeout(hardTimeout);
       resolve(result);
     };
 
@@ -593,7 +610,10 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
           },
           (error, stream) => {
             if (error) {
-              reject(error);
+              if (!settled) {
+                clearTimeout(hardTimeout);
+                reject(error);
+              }
               return;
             }
 
@@ -638,6 +658,7 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
         sessions.delete(sessionKeyOf(connection.id, clientId));
         emitToClient(clientId, 'ssh-error', { connectionId: connection.id, error: error.message });
         if (!settled) {
+          clearTimeout(hardTimeout);
           reject(error);
         }
       })

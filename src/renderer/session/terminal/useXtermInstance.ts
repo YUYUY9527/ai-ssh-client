@@ -111,7 +111,13 @@ export function useXtermInstance({
   }, []);
 
   const fitAndResize = useCallback(() => {
-    if (!xtermRef.current || !fitAddonRef.current) {
+    if (!xtermRef.current || !fitAddonRef.current || !terminalRef.current) {
+      return;
+    }
+    // 容器不可见/未布局时跳过：fit() 会按 0 尺寸算出最小网格，
+    // 终端渲染成"左上角一小块"；等容器可见后由 ResizeObserver 触发真正的初始 fit。
+    const rect = terminalRef.current.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) {
       return;
     }
 
@@ -120,7 +126,7 @@ export function useXtermInstance({
     if (cols > 0 && rows > 0) {
       resizeSSH(cols, rows);
     }
-  }, [resizeSSH, xtermRef]);
+  }, [resizeSSH, terminalRef, xtermRef]);
 
   useEffect(() => {
     if (liveConnectionId) {
@@ -303,9 +309,6 @@ export function useXtermInstance({
     });
 
     resizeObserverRef.current = new ResizeObserver(() => {
-      if (!initialFitDone) {
-        return;
-      }
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
@@ -313,7 +316,13 @@ export function useXtermInstance({
         if (!terminalRef.current) {
           return;
         }
-
+        if (!initialFitDone) {
+          // 容器可能刚从隐藏变为可见（非活跃标签页 display:none → flex）。
+          // 首次拿到有效尺寸即完成初始 fit；若此处直接 return，终端会永远
+          // 停在创建时的默认小网格（表现为左上角一小块）。
+          doInitialFit();
+          return;
+        }
         const rect = terminalRef.current.getBoundingClientRect();
         if (rect.width < 10 || rect.height < 10) {
           return;

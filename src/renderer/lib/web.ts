@@ -568,6 +568,30 @@ async function resolveConnectionConfig(connectionId: string): Promise<SSHConnect
   return base ? { ...base, id: connectionId } : null;
 }
 
+/** SSH 连接 HTTP 请求超时：远端 TCP 黑洞（SYN 无应答）时 fetch 可挂起数分钟，
+ * 前端状态机停在"重新连接中"无法推进，必须主动 abort 进入下一轮重试。 */
+const SSH_CONNECT_HTTP_TIMEOUT_MS = 25000;
+
+async function requestSshConnect(
+  connection: SSHConnection,
+  cols?: number,
+  rows?: number,
+  settings?: AppSettings,
+): Promise<IPCResult<SSHConnectResult>> {
+  await ensureEventsConnected();
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), SSH_CONNECT_HTTP_TIMEOUT_MS);
+  try {
+    return await request<SSHConnectResult>('/api/ssh/connect', {
+      method: 'POST',
+      body: JSON.stringify({ connection, cols, rows, settings }),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /** 会话丢失时按配置重连，供终端写入与 SFTP 共用。 */
 async function ensureSshSession(connectionId: string): Promise<IPCResult> {
   await ensureEventsConnected();
@@ -588,16 +612,7 @@ async function ensureSshSession(connectionId: string): Promise<IPCResult> {
 
   const settingsResult = await request<SettingsResult<AppSettings>>('/api/settings');
   const settings = settingsResult.success ? settingsResult.data.settings : undefined;
-  await ensureEventsConnected();
-  return request<SSHConnectResult>('/api/ssh/connect', {
-    method: 'POST',
-    body: JSON.stringify({
-      connection,
-      cols: 120,
-      rows: 32,
-      settings,
-    }),
-  });
+  return requestSshConnect(connection, 120, 32, settings);
 }
 
 async function writeSshInput(connectionId: string, command: string): Promise<IPCResult> {
@@ -718,12 +733,8 @@ async function readSelectedFile(filePath: string): Promise<IPCResult<PrivateKeyF
 
 const webApi: Window['electronAPI'] = {
   sshConnect: async (connection, cols, rows, settings) => {
-    // 先确保 WS 就绪，再握手，减少 MOTD/提示符丢失
-    await ensureEventsConnected();
-    return request<SSHConnectResult>('/api/ssh/connect', {
-      method: 'POST',
-      body: JSON.stringify({ connection, cols, rows, settings }),
-    });
+    // 先确保 WS 就绪再握手，减少 MOTD/提示符丢失；requestSshConnect 内含超时兜底
+    return requestSshConnect(connection, cols, rows, settings);
   },
   sshDisconnect: (connectionId) => request<void>(`/api/ssh/${connectionId}/disconnect`, {
     method: 'POST',

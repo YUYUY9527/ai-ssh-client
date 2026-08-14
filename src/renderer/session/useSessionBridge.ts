@@ -41,6 +41,8 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
   const reconnectTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // 同一任务终态可能同时来自 WebSocket 与 HTTP 本地快照，避免重复弹 toast
   const toastedTransferKeysRef = useRef<Set<string>>(new Set());
+  // 回到页面时的会话校准节流：10s 内只跑一次，避免高频 focus 事件触发风暴
+  const lastVisibilityRecoveryCheckRef = useRef(0);
 
   const flushOutput = useCallback(() => {
     flushHandleRef.current = null;
@@ -290,4 +292,66 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
     settings,
     translate,
   ]);
+
+  // 回到页面（标签页重新可见 / 窗口聚焦）时校准会话状态：
+  // - 后台放置期间会话在服务端死亡，但 ssh-close 因 WS 断开而丢失 →
+  //   前端 UI 仍显示"已连接"，实际输入全部失效 → 补发重连；
+  // - 后台期间自动重连重试耗尽停在 closed → 重置计数重新来一轮。
+  // 桌面端另有系统恢复事件校准，此处同时兜底 Web 端（节流 10s，防 focus 风暴）。
+  useEffect(() => {
+    if (!window.electronAPI) {
+      return;
+    }
+
+    const runRecoveryCheck = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastVisibilityRecoveryCheckRef.current < 10000) {
+        return;
+      }
+      lastVisibilityRecoveryCheckRef.current = now;
+
+      void (async () => {
+        const liveResult = await window.electronAPI?.sshGetSessions();
+        const liveIds = new Set(
+          liveResult?.success
+            ? liveResult.data.sessions
+              .filter((session) => session.isConnected)
+              .map((session) => session.connectionId)
+            : [],
+        );
+
+        const store = useSessionStore.getState();
+        store.orderedSessionIds.forEach((sessionId) => {
+          const session = store.sessions[sessionId];
+          if (!session || !settings.autoReconnect) {
+            return;
+          }
+          if (session.state === 'connected' && !liveIds.has(sessionId)) {
+            // 服务端会话已丢但前端不知道：标记断开并自动重连
+            store.setSessionState(sessionId, { state: 'closed', lastError: undefined });
+            scheduleReconnect(sessionId);
+            return;
+          }
+          if (session.state === 'closed' && (session.reconnectAttempts || 0) > 0) {
+            // 之前自动重连耗尽失败：回到页面后重新开始一轮
+            store.setSessionState(sessionId, { reconnectAttempts: 0 });
+            scheduleReconnect(sessionId);
+          }
+        });
+      })();
+    };
+
+    window.addEventListener('focus', runRecoveryCheck);
+    document.addEventListener('visibilitychange', runRecoveryCheck);
+    // 窗口已聚焦时点击页面不会触发 focus 事件；pointerdown 兜底"回到页面开始操作"的场景
+    document.addEventListener('pointerdown', runRecoveryCheck);
+    return () => {
+      window.removeEventListener('focus', runRecoveryCheck);
+      document.removeEventListener('visibilitychange', runRecoveryCheck);
+      document.removeEventListener('pointerdown', runRecoveryCheck);
+    };
+  }, [scheduleReconnect, settings]);
 }
