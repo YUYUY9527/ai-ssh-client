@@ -365,16 +365,17 @@ export function TerminalView({
    * 重放后校准终端状态（见 terminal-replay）：
    * - chunk 被行截断时可能丢失 \x1b[?1049h，xterm 停在 normal buffer
    *   （症状：右侧滚动条出现、vim 向下滚动丢内容）→ 补写 1049h 恢复 alt screen；
-   * - 程序确认在全屏模式时发送 Ctrl+L（vim 默认映射为重绘），
-   *   让 vim 全屏重绘补齐截断丢失的画面。
+   * - 程序确认在全屏模式时发送 Ctrl+L（vim 默认映射为重绘，nano 也全屏重绘），
+   *   让全屏程序补齐截断丢失的画面（nano 会重建标题/状态栏/帮助栏）。
    */
-  const calibrateAfterReplay = useCallback((chunk: string) => {
+  const calibrateAfterReplay = useCallback((chunk: string, wasInAlternateScreen: boolean) => {
     if (!liveConnectionId || !xtermRef.current) {
       return;
     }
     const plan = planReplayCalibration(
       chunk,
       xtermRef.current.buffer.active.type === 'alternate',
+      wasInAlternateScreen,
     );
     if (plan.write) {
       xtermRef.current.write(plan.write);
@@ -441,6 +442,9 @@ export function TerminalView({
       released = true;
       endSuspendInputForward();
     };
+    // 记录重放前的 alt screen 状态：截断窗口滑掉 1049h 时（nano 场景），
+    // 本端仍知道远端在全屏模式，校准据此补头 + 让远端 Ctrl+L 重绘。
+    const wasInAlternateScreen = xtermRef.current?.buffer.active.type === 'alternate';
     try {
       // 用 reset 而非 clear：干净重建两个 buffer 与状态机。clear 只清当前视口，
       // vim 等全屏程序感知不到屏幕被清，后续增量输出画在残画面上 → 内容缺失。
@@ -452,11 +456,11 @@ export function TerminalView({
         // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
         term.write(plan.chunk, () => {
           releaseSuspend();
-          calibrateAfterReplay(plan.chunk);
+          calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
         });
       } else {
         releaseSuspend();
-        calibrateAfterReplay(plan.chunk);
+        calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
       }
     } catch (error) {
       releaseSuspend();

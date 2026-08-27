@@ -12,6 +12,7 @@ import {
   persistSessionScrollbackSnapshot,
   removeSessionScrollbackSnapshot,
 } from './session-scrollback';
+import { prepareWindowForReplay } from './terminal/terminal-alt';
 import type { SessionOutputRecord, SessionRecord } from './session-types';
 
 const FALLBACK_PERSISTENCE_SETTINGS: SessionPersistenceSettings = {
@@ -64,17 +65,15 @@ function buildSessionFromConnection(
  * 按字节上限裁剪终端输出，避免 Zustand 无限增长。
  * 超限时丢弃到下一个行首：重放时 chunk 从完整行开始，
  * 避免切断转义序列（如 \x1b[?1049h）导致终端状态解析错乱。
+ * 同时保证 alt screen 状态：全屏程序（vim/nano）的 1049h 只在打开
+ * 时发送一次、位于流头部，截断会滑掉它；若截断前处于 alt screen，
+ * 在窗口头部补写进入序列，重放后终端状态机才不会错位。
  */
 function boundSessionOutput(content: string, maxBytes: number): string {
   if (!content || maxBytes <= 0 || content.length <= maxBytes) {
     return content || '';
   }
-  let truncated = content.slice(-maxBytes);
-  const lineStart = truncated.search(/[\r\n]/);
-  if (lineStart > 0) {
-    truncated = truncated.slice(lineStart);
-  }
-  return truncated;
+  return prepareWindowForReplay(content, maxBytes);
 }
 
 function shouldClearRestoredFlag(patch: Partial<Session>): boolean {

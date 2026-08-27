@@ -6,6 +6,7 @@ import type {
   SessionPersistenceSettings,
   SessionScrollbackSnapshot,
 } from '../../shared/types';
+import { prepareWindowForReplay } from './terminal/terminal-alt';
 
 const STORAGE_KEY = 'ai-ssh-client:session-scrollback:v1';
 
@@ -34,7 +35,9 @@ function trimOutput(content: string, maxBytes: number): string {
     return content;
   }
 
-  return content.slice(-maxBytes);
+  // 超限截断时保持 alt screen 状态：全屏程序的 1049h 在流头部，
+  // 截断窗口重放后 xterm 才能停在正确 buffer（见 terminal-alt.ts）。
+  return prepareWindowForReplay(content, maxBytes);
 }
 
 function readAllSnapshots(): SessionScrollbackSnapshot[] {

@@ -67,7 +67,7 @@ AGENTS.md
 # Local development diagnostics
 dev-*.log
 
-# Local databases
+# Local database
 *.db
 *.db-shm
 *.db-wal
@@ -75,6 +75,9 @@ dev-*.log
 *.sqlite3
 *.sqlite-shm
 *.sqlite-wal
+
+# Local debug/experiment artifacts
+.tmp/
 
 # Packaging artifacts
 *.exe

@@ -482,7 +482,33 @@ const MAX_SSH_OUTPUT_BUFFER = 1024 * 1024;
  * 将 shell 输出写入会话缓冲（丢弃时仍可 HTTP 拉取）。
  * 超限时按行边界截断：重放/合并时 chunk 从完整行开始，
  * 避免切断多字节转义序列（如 \x1b[?1049h）产生解析碎片。
+ * 同时保持 alt screen 状态：vim/nano 的 1049h 只在进入时发送一次
+ * 且位于流头部，截断会滑掉它；若截断前处于 alt screen，在截断窗口
+ * 头部补写进入序列，刷新重挂回放后终端状态机才不致错位。
  */
+const ALT_SWITCH_RE = /\x1b\[\?(?:1049|1047|47)([hl])/g;
+const ALT_ENTER_SEQUENCE = '\x1b[?1049h';
+
+function scanAltScreenState(text) {
+  let last = null;
+  ALT_SWITCH_RE.lastIndex = 0;
+  let match;
+  while ((match = ALT_SWITCH_RE.exec(text)) !== null) {
+    last = match[1];
+  }
+  return last === 'h';
+}
+
+function detectAltSwitch(text) {
+  let last = null;
+  ALT_SWITCH_RE.lastIndex = 0;
+  let match;
+  while ((match = ALT_SWITCH_RE.exec(text)) !== null) {
+    last = match[1];
+  }
+  return last;
+}
+
 function appendSessionOutput(session, text) {
   if (!session || !text) {
     return;
@@ -496,6 +522,11 @@ function appendSessionOutput(session, text) {
   const lineStart = truncated.search(/[\r\n]/);
   if (lineStart > 0) {
     truncated = truncated.slice(lineStart);
+  }
+  // 截断前在 alt screen 而窗口内无任何切换序列 → 补 1049h 头，
+  // 保证任何以该窗口开头的回放都从 alt 状态开始。
+  if (scanAltScreenState(next) && detectAltSwitch(truncated) === null) {
+    truncated = ALT_ENTER_SEQUENCE + truncated;
   }
   session.outputBuffer = truncated;
 }
