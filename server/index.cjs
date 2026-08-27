@@ -478,14 +478,7 @@ function stateFor(connectionId, clientId, patch = {}) {
 /** 单会话输出环形缓冲上限：刷新重挂时回放 MOTD/提示符；1MB 避免 vim 大文件滚动频繁截断。 */
 const MAX_SSH_OUTPUT_BUFFER = 1024 * 1024;
 
-/**
- * 将 shell 输出写入会话缓冲（丢弃时仍可 HTTP 拉取）。
- * 超限时按行边界截断：重放/合并时 chunk 从完整行开始，
- * 避免切断多字节转义序列（如 \x1b[?1049h）产生解析碎片。
- * 同时保持 alt screen 状态：vim/nano 的 1049h 只在进入时发送一次
- * 且位于流头部，截断会滑掉它；若截断前处于 alt screen，在截断窗口
- * 头部补写进入序列，刷新重挂回放后终端状态机才不致错位。
- */
+/** 进入/退出 alt screen 的常见序列族（1049/1047/47）。 */
 const ALT_SWITCH_RE = /\x1b\[\?(?:1049|1047|47)([hl])/g;
 const ALT_ENTER_SEQUENCE = '\x1b[?1049h';
 
@@ -509,6 +502,94 @@ function detectAltSwitch(text) {
   return last;
 }
 
+/** CSI 终止字节范围（0x40-0x7E，参数中间字节为 0x20-0x3F）。 */
+function isCsiFinalByte(code) {
+  return code >= 0x40 && code <= 0x7E;
+}
+
+/** OSC/DCS/APC/PM/SOS 序列族的第二字节（均以 ST 或 BEL 终止）。 */
+const STRING_SEQUENCE_TAILS = new Set([']', 'P', 'X', '^', '_']);
+
+/** 2 字节 ESC 序列族的第二字节（后跟单个终结字节）。 */
+const TWO_BYTE_PREFIX = new Set(['(', ')', '*', '+', '-', '.', '/', '#', '%']);
+
+/** 单字节 ESC 序列：ESC + 1 字节即完成（C1 控制/单字节命令）。 */
+const SINGLE_BYTE_TAILS = new Set([
+  '7', '8', '9', '=', '>', 'D', 'E', 'F', 'G', 'H', 'K', 'M', 'N',
+  'O', 'Z', 'c',
+]);
+
+/** 扫描 content 中从 escIndex 开始的转义序列，返回结束后的下标；畸形返回 -1。 */
+function escapeSequenceEndAt(content, escIndex) {
+  const next = content[escIndex + 1];
+  if (next === undefined) {
+    return -1;
+  }
+  if (next === '[') {
+    let j = escIndex + 2;
+    while (j < content.length) {
+      const code = content.charCodeAt(j);
+      j += 1;
+      if (isCsiFinalByte(code)) {
+        return j;
+      }
+    }
+    return -1;
+  }
+  if (STRING_SEQUENCE_TAILS.has(next)) {
+    let j = escIndex + 2;
+    while (j < content.length) {
+      const ch = content[j];
+      if (ch === '\x07') {
+        return j + 1;
+      }
+      if (ch === '\x1b' && content[j + 1] === '\\') {
+        return j + 2;
+      }
+      j += 1;
+    }
+    return -1;
+  }
+  if (TWO_BYTE_PREFIX.has(next)) {
+    return escIndex + 3 <= content.length ? escIndex + 3 : -1;
+  }
+  if (SINGLE_BYTE_TAILS.has(next)) {
+    return escIndex + 2 <= content.length ? escIndex + 2 : -1;
+  }
+  return escIndex + 2 <= content.length ? escIndex + 2 : -1;
+}
+
+/**
+ * 截断窗口起点对齐到转义序列边界：
+ * nano/vim 在 alt screen 内的重绘流无 LF/CRLF 行边界（全用 CUP/VPA
+ * 绝对定位），行边界对齐失效，窗口起点极易落在 `\x1b[8;1H` 这类 CSI
+ * 序列内部——ESC 被丢在窗口外，序列残余（如 `8;1H`）被 xterm 当作
+ * 普通文本绘制在行尾 → 行号与内容重叠粘连、画面错乱。
+ */
+function alignToEscapeBoundary(content, cut) {
+  if (cut <= 0 || cut >= content.length) {
+    return cut;
+  }
+  const esc = content.lastIndexOf('\x1b', cut - 1);
+  if (esc === -1) {
+    return cut;
+  }
+  const seqEnd = escapeSequenceEndAt(content, esc);
+  if (seqEnd === -1 || seqEnd > content.length) {
+    return cut;
+  }
+  return cut >= seqEnd ? cut : seqEnd;
+}
+
+/**
+ * 将 shell 输出写入会话缓冲（丢弃时仍可 HTTP 拉取）。
+ * 超限时按行边界截断 + 转义序列边界对齐：重放/合并时 chunk 从完整行
+ * 开始，且绝不切断转义序列（nano/vim alt 流内无行边界，行边界对齐失效，
+ * 必须再按序列边界对齐，否则 `\x1b[8;1H` 残片会被当文本绘制）。
+ * 同时保持 alt screen 状态：vim/nano 的 1049h 只在进入时发送一次
+ * 且位于流头部，截断会滑掉它；若截断前处于 alt screen，在截断窗口
+ * 头部补写进入序列，刷新重挂回放后终端状态机才不致错位。
+ */
 function appendSessionOutput(session, text) {
   if (!session || !text) {
     return;
@@ -518,13 +599,16 @@ function appendSessionOutput(session, text) {
     session.outputBuffer = next;
     return;
   }
-  let truncated = next.slice(-MAX_SSH_OUTPUT_BUFFER);
+  // 1) 尾部窗口，切点对齐到转义序列边界（alt 流内无行边界，防止切碎序列）。
+  const cut = alignToEscapeBoundary(next, next.length - MAX_SSH_OUTPUT_BUFFER);
+  let truncated = next.slice(cut);
+  // 2) 行边界对齐：普通 shell 流（含 LF/CRLF）从完整行开始，避免行首残片。
   const lineStart = truncated.search(/[\r\n]/);
   if (lineStart > 0) {
     truncated = truncated.slice(lineStart);
   }
-  // 截断前在 alt screen 而窗口内无任何切换序列 → 补 1049h 头，
-  // 保证任何以该窗口开头的回放都从 alt 状态开始。
+  // 3) 截断前在 alt screen 而窗口内无任何切换序列 → 补 1049h 头，
+  //    保证任何以该窗口开头的回放都从 alt 状态开始。
   if (scanAltScreenState(next) && detectAltSwitch(truncated) === null) {
     truncated = ALT_ENTER_SEQUENCE + truncated;
   }

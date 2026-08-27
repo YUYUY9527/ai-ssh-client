@@ -1,3 +1,9 @@
+import {
+  ALT_ENTER_SEQUENCE,
+  continuationOffset,
+  pendingEscapeAtEnd,
+} from './terminal-alt';
+
 /**
  * 计算 session 输出字符串相对已渲染前缀的增量策略。
  *
@@ -12,6 +18,12 @@
  * 回流 → 再截断再注入 → 再对不齐 → replay 死循环（症状：周期性重放、
  * 行号/内容重叠错位、帮助栏消失）。对齐时须先把注入头剥离后再比较，
  * 追加增量时按头部差异补写（xterm 缺头一次补齐 / 头消失走 replay 收敛）。
+ *
+ * 追加路径的第二个坑：xterm 尾部可能悬挂未完成的转义序列（WS/PTY 帧把
+ * `\x1b[18;1H` 切成前帧 `\x1b` + 后帧 `[18;1H`；滑动对齐又把 `\x1b[18;1H`
+ * 切开成 prev 尾 `\x1b` + delta 首 `[18;1H`）。若注入头直接插在 delta 前，
+ * xterm 会丢弃挂起的 ESC 去解析 1049h，裸残片 `[18;1H` 被当文本打印 →
+ * 行号与内容重叠粘连。注入头必须插在续接序列完成之后（见 continuationOffset）。
  */
 
 export type TerminalOutputSyncPlan =
@@ -31,7 +43,6 @@ const MAX_SLIDE_TRIES = 128 * 1024;
  * 对齐时识别并剥离它，仅对"内容窗口"做滑动比较；
  * delta 返回时再把头部差异作为增量的一部分补回。
  */
-const ALT_ENTER_SEQUENCE = '\x1b[?1049h';
 
 /** 剥离一个前导的 \x1b[?1049h 注入头。无注入头时原样返回。 */
 function stripAltEnterHeader(content: string): string {
@@ -50,17 +61,31 @@ export function deltaAfterBoundedSlide(
   current: string,
   maxSlide: number = MAX_SLIDE_PROBE,
 ): string | null {
+  const resolved = deltaAfterBoundedSlideDetailed(previous, current, maxSlide);
+  return resolved === null ? null : resolved.delta;
+}
+
+/**
+ * 同 deltaAfterBoundedSlide，额外返回 `kept`（previous 中被保留并已渲染的部分
+ * 长度）。调用方需据此判断 xterm 末尾是否有悬挂转义序列，从而决定注入头
+ * （1049h）应插入的位置，避免打断跨帧续接的转义序列（行号粘连根因）。
+ */
+export function deltaAfterBoundedSlideDetailed(
+  previous: string,
+  current: string,
+  maxSlide: number = MAX_SLIDE_PROBE,
+): { delta: string; kept: number } | null {
   if (current === previous) {
-    return '';
+    return { delta: '', kept: previous.length };
   }
   if (!previous) {
-    return current;
+    return { delta: current, kept: 0 };
   }
   if (!current) {
     return null;
   }
   if (current.startsWith(previous)) {
-    return current.slice(previous.length);
+    return { delta: current.slice(previous.length), kept: previous.length };
   }
 
   // previous 被从头部滑掉 slide 字节后再接上新尾部（kept 必须 >0，全量替换走 replay）
@@ -72,11 +97,54 @@ export function deltaAfterBoundedSlide(
       continue;
     }
     if (previous.slice(slide) === current.slice(0, kept)) {
-      return current.slice(kept);
+      // 滑动对齐可能把转义序列拦腰切开：prev 尾（已渲染）以悬挂 ESC 结尾，
+      // current 续接处是裸字节（如 `[18;1H`）。xterm 处于等待续接状态时，
+      // 给 delta 补回 ESC 前缀让 xterm 收完整序列；无悬挂时原样返回。
+      let delta = current.slice(kept);
+      if (kept - 1 >= 0 && previous[kept - 1] === '\x1b'
+        && delta[0] && delta[0] !== '\x1b') {
+        delta = `\x1b${delta}`;
+      }
+      return { delta, kept };
     }
   }
 
   return null;
+}
+
+/**
+ * 组装追加 chunk：注入头（如 1049h 状态头）不能打断 xterm 尾部的悬挂转义
+ * 序列续接。若已渲染前缀末尾有未完成的转义序列（WS/PTY 帧把 `\x1b[18;1H`
+ * 切成前帧 `\x1b` + 后帧 `[18;1H`），xterm 正处于"等待续接"状态，此时直接
+ * 在 delta 前注入新序列会让 xterm 丢弃挂起的 ESC、把裸字节当文本绘制
+ * （行号/内容重叠粘连）。注入头须插在续接序列完成之后。
+ */
+function assembleAppendChunk(
+  delta: string,
+  prevStripped: string,
+  head: string,
+): string {
+  if (!head) {
+    return delta;
+  }
+  // prev 尾部若存在未闭合的转义序列（xterm 处于等待续接状态），
+  // 注入头必须插在续接序列完成之后，否则 xterm 丢弃挂起的 ESC、
+  // 把裸续接字节当文本绘制（行号粘连）。注意：kept 是滑动对齐的
+  // 保留长度，但悬挂 ESC 可能恰好在 kept 边界附近（prev 尾部），
+  // 因此用完整 prevStripped 检测尾部悬挂。
+  const pendingEsc = pendingEscapeAtEnd(prevStripped);
+  if (pendingEsc < 0) {
+    // xterm 尾部干净 → 头插最前即可。
+    return `${head}${delta}`;
+  }
+  const offset = continuationOffset(delta, pendingEsc, prevStripped);
+  if (offset > 0 && offset <= delta.length) {
+    // 续接序列完成点之后插入头：xterm 先收完 `\x1b[18;1H` 再收 1049h。
+    return `${delta.slice(0, offset)}${head}${delta.slice(offset)}`;
+  }
+  // delta 本身还只是续接序列的一部分（尚未完成）：此时插入任何序列都会
+  // 毁掉续接 → 先跳过注入头，等下一轮续接完成后再补（头语义不变）。
+  return delta;
 }
 
 /** 根据已渲染前缀与最新 store 输出，决定如何喂给 xterm。 */
@@ -102,15 +170,15 @@ export function planTerminalOutputSync(
   const prevStripped = stripAltEnterHeader(previousOutput);
   const currStripped = stripAltEnterHeader(currentOutput);
 
-  const delta = deltaAfterBoundedSlide(prevStripped, currStripped);
-  if (delta === null) {
+  const resolved = deltaAfterBoundedSlideDetailed(prevStripped, currStripped);
+  if (resolved === null) {
     // 内容窗口无法对齐（store 头部截断后旧尾新头混合）：
     // 只对齐水位会让 xterm 与 store 从此错位，后续 append 按截断视角计算，
     // vim 大文件滚动时画面缺行、内容丢失。改走 replay 全量重建，
     // xterm 与 store 严格一致（OSC/CSI 查询应答死循环已由输入挂起机制拦截）。
     return { action: 'replay', chunk: currentOutput };
   }
-  if (!delta) {
+  if (!resolved.delta) {
     // 内容无增量（仅注入头位置变化）：无内容变化 → 不动作，
     // 避免截断→注入头→对不齐→replay→Ctrl+L→… 的无限循环。
     return { action: 'noop' };
@@ -123,5 +191,10 @@ export function planTerminalOutputSync(
     : currStripped.length !== currentOutput.length
       ? ALT_ENTER_SEQUENCE
       : '';
-  return { action: 'append', chunk: `${head}${delta}` };
+  const chunk = assembleAppendChunk(
+    resolved.delta,
+    prevStripped,
+    head,
+  );
+  return { action: 'append', chunk };
 }
