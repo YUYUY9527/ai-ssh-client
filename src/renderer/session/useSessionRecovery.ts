@@ -19,12 +19,9 @@ async function reattachLiveSession(sessionId: string): Promise<void> {
   } catch {
     // ignore
   }
-  // 通知远端当前窗口尺寸（xterm 侧也会在 live 后 fit）
-  try {
-    await window.electronAPI.sshResize(sessionId, 120, 32);
-  } catch {
-    // ignore
-  }
+  // 注意：这里不再发固定尺寸 resize（曾用 120x32）。重挂后 xterm fit 完成时
+  // 会以真实网格尺寸走 WS 有序通道发送 resize，固定值后到会把正确尺寸顶掉，
+  // 导致 vim 按错误行列绘制（底部状态栏错位/内容缺行）。
 }
 
 /** 为会话解析可用的连接配置（支持多会话克隆 id）。 */

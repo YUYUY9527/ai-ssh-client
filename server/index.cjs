@@ -776,11 +776,8 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
         socket.send(frameData);
       }
       // 背压：目标 WS 缓冲超水位 → 暂停 shell 输出；排空后由 drain 事件恢复。
+      // 无目标 socket（WS 全断）时不 pause：输出继续进 outputBuffer，重连后回放。
       if (targets.length === 0) {
-        if (!session.paused) {
-          session.stream?.pause();
-          session.paused = true;
-        }
         return;
       }
       if (targets.some((socket) => socket.bufferedAmount > WS_HIGH_WATER)) {
@@ -1708,6 +1705,21 @@ wss.on('connection', (socket) => {
         }
         // 同 clientId 重连（网络瞬断自动恢复）：取消上一轮 WS 断开触发的延迟清理
         cancelSessionCleanup(socket.sshClientId);
+      } else if (message.type === 'ssh-resize') {
+        // 终端 resize 有序通道：与 ssh-write 同走 WS，替代乱序的 HTTP POST。
+        // 首次 fit 会连发多次尺寸（RAF/50ms/200ms/ResizeObserver），HTTP 无顺序保证，
+        // 旧尺寸后到会覆盖新尺寸且不再有后续 SIGWINCH → vim 按错误行列绘制，底部缺行。
+        const cols = Math.max(2, Math.min(1000, Number(message.cols) || 0));
+        const rows = Math.max(2, Math.min(1000, Number(message.rows) || 0));
+        if (cols && rows) {
+          const session = sessions.get(sessionKeyOf(
+            message.connectionId,
+            socket.sshClientId || socket.clientId || '',
+          ));
+          if (session?.ready && session.stream) {
+            session.stream.setWindow(rows, cols);
+          }
+        }
       } else if (message.type === 'ssh-write') {
         // 终端输入热路径：与 HTTP /write 等价，但经 WS 保序低延迟
         const data = typeof message.data === 'string' ? message.data : '';

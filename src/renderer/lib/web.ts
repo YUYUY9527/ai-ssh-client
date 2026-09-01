@@ -570,6 +570,28 @@ function tryWriteSshViaSocket(connectionId: string, data: string): boolean {
   }
 }
 
+/**
+ * 经事件 WS 发送 resize；未连通时返回 false，由调用方 HTTP 兜底。
+ * resize 必须保序：首次 fit 会连发多次尺寸，HTTP POST 无顺序保证，
+ * 旧尺寸后到会覆盖新尺寸且不再有后续 SIGWINCH → vim 按错误行列绘制（底部缺行）。
+ */
+function tryResizeSshViaSocket(connectionId: string, cols: number, rows: number): boolean {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  try {
+    socket.send(JSON.stringify({
+      type: 'ssh-resize',
+      connectionId,
+      cols,
+      rows,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** 按 sessionId 找回连接配置；多会话克隆 id 回退到 connectionId 前缀匹配。 */
 async function resolveConnectionConfig(connectionId: string): Promise<SSHConnection | null> {
   const connectionsResult = await request<ConnectionsResult<SSHConnection>>('/api/connections');
@@ -783,10 +805,16 @@ const webApi: Window['electronAPI'] = {
       body: JSON.stringify({}),
     },
   ),
-  sshResize: (connectionId, cols, rows) => request<void>(`/api/ssh/${connectionId}/resize`, {
-    method: 'POST',
-    body: JSON.stringify({ cols, rows }),
-  }),
+  sshResize: (connectionId, cols, rows) => {
+    // 优先走 WS 有序通道；WS 未就绪时回退 HTTP（server 两端等价处理）
+    if (tryResizeSshViaSocket(connectionId, cols, rows)) {
+      return Promise.resolve({ success: true } as IPCResult<void>);
+    }
+    return request<void>(`/api/ssh/${connectionId}/resize`, {
+      method: 'POST',
+      body: JSON.stringify({ cols, rows }),
+    });
+  },
   sshTestConnection: (connection) => request<void>('/api/ssh/test', {
     method: 'POST',
     body: JSON.stringify({ connection }),
