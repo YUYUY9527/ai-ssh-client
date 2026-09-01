@@ -77,6 +77,9 @@ export function useXtermInstance({
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // resize RAF 节流：高频 resize（窗口拖动/侧栏切换）合并为一帧一次，只发最新尺寸
+  const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
   const liveConnectionIdRef = useRef(liveConnectionId);
   const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
   const onShellIntegrationStateChangeRef = useRef(onShellIntegrationStateChange);
@@ -104,11 +107,22 @@ export function useXtermInstance({
     onShellIntegrationStateChangeRef.current = onShellIntegrationStateChange;
   }, [onShellIntegrationStateChange]);
 
-  const resizeSSH = useCallback((cols: number, rows: number) => {
-    if (liveConnectionIdRef.current && window.electronAPI) {
-      window.electronAPI.sshResize(liveConnectionIdRef.current, cols, rows);
+  const flushResize = useCallback(() => {
+    resizeRafRef.current = null;
+    const pending = pendingResizeRef.current;
+    pendingResizeRef.current = null;
+    if (pending && liveConnectionIdRef.current && window.electronAPI) {
+      window.electronAPI.sshResize(liveConnectionIdRef.current, pending.cols, pending.rows);
     }
   }, []);
+
+  const resizeSSH = useCallback((cols: number, rows: number) => {
+    // RAF 合并：同一帧内多次 resize 只发最新值，避免 HTTP 请求乱序导致终端行列错乱
+    pendingResizeRef.current = { cols, rows };
+    if (resizeRafRef.current == null) {
+      resizeRafRef.current = requestAnimationFrame(flushResize);
+    }
+  }, [flushResize]);
 
   const fitAndResize = useCallback(() => {
     if (!xtermRef.current || !fitAddonRef.current || !terminalRef.current) {
@@ -335,6 +349,11 @@ export function useXtermInstance({
 
     return () => {
       window.removeEventListener('resize', handleWindowResize);
+      if (resizeRafRef.current != null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      pendingResizeRef.current = null;
       if (initTimeoutRef.current) {
         clearTimeout(initTimeoutRef.current);
         initTimeoutRef.current = null;

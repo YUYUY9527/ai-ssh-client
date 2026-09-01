@@ -508,6 +508,25 @@ function connectEvents(): void {
   };
 }
 
+/**
+ * 关闭/刷新标签页时尽力通知服务端提前清理会话。
+ * sendBeacon 无法带自定义 header，clientId 走 query；鉴权依赖同源 Cookie。
+ * 服务端只缩短清理宽限期（5s）：F5 刷新重挂秒级重连可取消，不丢 vim 现场；
+ * 真关闭则 5s 后释放，避免幽灵 vim 占文件。
+ */
+function registerPageHideCleanup(): void {
+  if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') {
+    return;
+  }
+  window.addEventListener('pagehide', () => {
+    try {
+      navigator.sendBeacon(`/api/ssh/cleanup?clientId=${encodeURIComponent(sftpClientId)}`);
+    } catch {
+      // 页面正在卸载，失败无妨：服务端 20s 宽限期兜底
+    }
+  });
+}
+
 /** 等待事件 WebSocket 打开，避免连接成功后首包广播无人接收。 */
 function ensureEventsConnected(timeoutMs = 3000): Promise<void> {
   connectEvents();
@@ -1165,6 +1184,7 @@ const webApi: Window['electronAPI'] = {
 
 export function installWebApi(): void {
   connectEvents();
+  registerPageHideCleanup();
   // 标记当前运行在 Web 部署下，供 UI 判断是否展示密码相关入口。
   window.__AISSH_WEB__ = true;
   window.electronAPI = webApi;

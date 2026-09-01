@@ -65,6 +65,17 @@ const sockets = new Set();
 const activeAiRequests = new Map();
 const activeAgentExecs = new Map();
 const AGENT_INTERRUPT_SETTLE_MS = 250;
+// clientId → 延迟清理定时器（WS 断开后宽限期内可被重连取消）
+const pendingSessionCleanup = new Map();
+// 幽灵会话宽限期：WS 断开（关标签/崩溃/断网）后延迟释放 SSH 会话，
+// 同 clientId 的新 socket 重连（网络瞬断秒级恢复）可取消清理，不误杀 vim 等现场。
+const SESSION_CLEANUP_GRACE_MS = 20 * 1000;
+// 前端 pagehide 通知后的快清宽限期：F5 刷新重挂需保留现场，因此不立即清，
+// 只把宽限缩短到 5s（刷新后新页面秒级重连会取消；真关闭则 5s 后释放）。
+const SESSION_CLEANUP_FAST_MS = 5 * 1000;
+// WS 发送背压阈值：目标 socket 缓冲超高水位 → 暂停 shell 输出，排空到低水位 → 恢复。
+const WS_HIGH_WATER = 512 * 1024;
+const WS_LOW_WATER = 128 * 1024;
 
 /**
  * Web 多客户端隔离：同一连接配置可被多台浏览器同时打开，
@@ -635,6 +646,50 @@ function closeSession(connectionId, clientId) {
   closeSessionByKey(sessionKeyOf(connectionId, clientId));
 }
 
+/** 延迟清理：WS 断开后按 clientId 宽限清理其全部会话；同 clientId 重连（瞬断）可取消。 */
+function scheduleSessionCleanup(clientId, graceMs = SESSION_CLEANUP_GRACE_MS) {
+  if (!clientId) {
+    return;
+  }
+  const existing = pendingSessionCleanup.get(clientId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  const timer = setTimeout(() => {
+    pendingSessionCleanup.delete(clientId);
+    for (const [key, session] of sessions) {
+      if (session.clientId === clientId) {
+        closeSessionByKey(key);
+      }
+    }
+  }, graceMs);
+  pendingSessionCleanup.set(clientId, timer);
+}
+
+function cancelSessionCleanup(clientId) {
+  if (!clientId) {
+    return;
+  }
+  const existing = pendingSessionCleanup.get(clientId);
+  if (existing) {
+    clearTimeout(existing);
+    pendingSessionCleanup.delete(clientId);
+  }
+}
+
+/** WS 发送缓冲排空后，恢复该 client 下被背压暂停的 shell 输出流。 */
+function resumeStreamsForClient(clientId) {
+  if (!clientId) {
+    return;
+  }
+  for (const session of sessions.values()) {
+    if (session.clientId === clientId && session.paused && session.stream) {
+      session.stream.resume();
+      session.paused = false;
+    }
+  }
+}
+
 function emitSessionClose(connectionId, clientId) {
   const key = sessionKeyOf(connectionId, clientId);
   const session = sessions.get(key);
@@ -708,11 +763,35 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
       }
       // 先缓冲再推送：WS 未就绪时刷新后仍可回放
       appendSessionOutput(session, text);
-      emitToClient(clientId, 'agent-terminal-output', { connectionId: connection.id, data: text });
-      emitToClient(clientId, 'ssh-data', {
-        connectionId: connection.id,
-        data: text,
-      });
+      // 单次构造双事件帧：避免同一内容重复 JSON.stringify + 重复遍历 sockets
+      const payload = { connectionId: connection.id, data: text };
+      const frameAgent = JSON.stringify({ type: 'agent-terminal-output', payload });
+      const frameData = JSON.stringify({ type: 'ssh-data', payload });
+      const targets = [...sockets].filter((socket) =>
+        (socket.clientId === clientId || socket.sshClientId === clientId)
+        && socket.readyState === socket.OPEN,
+      );
+      for (const socket of targets) {
+        socket.send(frameAgent);
+        socket.send(frameData);
+      }
+      // 背压：目标 WS 缓冲超水位 → 暂停 shell 输出；排空后由 drain 事件恢复。
+      if (targets.length === 0) {
+        if (!session.paused) {
+          session.stream?.pause();
+          session.paused = true;
+        }
+        return;
+      }
+      if (targets.some((socket) => socket.bufferedAmount > WS_HIGH_WATER)) {
+        if (!session.paused) {
+          session.stream?.pause();
+          session.paused = true;
+        }
+      } else if (session.paused && targets.every((socket) => socket.bufferedAmount <= WS_LOW_WATER)) {
+        session.stream?.resume();
+        session.paused = false;
+      }
     };
 
     client
@@ -1102,6 +1181,15 @@ app.post('/api/ssh/connect', route((request) => (
 )));
 app.post('/api/ssh/:id/disconnect', route((request) => {
   closeSession(request.params.id, requestClientId(request));
+  return success();
+}));
+// 浏览器 pagehide 时 sendBeacon 调用：自定义 header 带不了，clientId 走 query。
+// 关闭标签页时主动缩短清理宽限期；F5 刷新重挂可在快清前重连取消，不丢现场。
+app.post('/api/ssh/cleanup', route((request) => {
+  const clientId = String(request.query.clientId || request.body?.clientId || '');
+  if (clientId) {
+    scheduleSessionCleanup(clientId, SESSION_CLEANUP_FAST_MS);
+  }
   return success();
 }));
 app.post('/api/ssh/:id/write', route((request) => {
@@ -1618,6 +1706,8 @@ wss.on('connection', (socket) => {
         } else {
           socket.sshClientId = message.clientId;
         }
+        // 同 clientId 重连（网络瞬断自动恢复）：取消上一轮 WS 断开触发的延迟清理
+        cancelSessionCleanup(socket.sshClientId);
       } else if (message.type === 'ssh-write') {
         // 终端输入热路径：与 HTTP /write 等价，但经 WS 保序低延迟
         const data = typeof message.data === 'string' ? message.data : '';
@@ -1641,7 +1731,16 @@ wss.on('connection', (socket) => {
       socket.send(JSON.stringify({ type: 'error', payload: failure(error) }));
     }
   });
-  socket.on('close', () => sockets.delete(socket));
+  socket.on('drain', () => {
+    // 发送缓冲排空：恢复被背压暂停的 shell 输出流（该 client 的全部会话）
+    resumeStreamsForClient(socket.sshClientId || socket.clientId);
+  });
+  socket.on('close', () => {
+    sockets.delete(socket);
+    // WS 断开 ≠ 用户意图断开：宽限期内同 clientId 重连可取消清理，
+    // 真关闭标签/崩溃/断网后 20s 内释放 SSH 会话，避免幽灵 vim 占文件、连接泄漏。
+    scheduleSessionCleanup(socket.sshClientId || socket.clientId || '');
+  });
 });
 
 server.listen(PORT, HOST, () => {
