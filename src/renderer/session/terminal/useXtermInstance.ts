@@ -154,9 +154,14 @@ export function useXtermInstance({
   // 若首帧 fit 的 resize 恰在握手期被丢弃，PTY 会卡在初始 200x50 直到下次
   // 手动改容器尺寸（症状：top/vim 头部被顶出可视区）。状态变 connected 即补发，
   // 延迟到容器尺寸稳定后再发，确保 xterm 网格与远端窗口一致。
-  const liveState = liveConnectionId
-    ? useSessionStore((state) => state.sessions[liveConnectionId]?.state)
-    : undefined;
+  // 注意：useSessionStore 必须无条件调用（禁止 liveConnectionId ? useSessionStore() : undefined，
+  // 条件调用会让 React hooks 链表错位 → 生产包黑屏崩溃）。
+  const liveState = useSessionStore(
+    useCallback(
+      (state) => (liveConnectionId ? state.sessions[liveConnectionId]?.state : undefined),
+      [liveConnectionId],
+    ),
+  );
   const prevLiveStateRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     const prev = prevLiveStateRef.current;
