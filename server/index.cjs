@@ -626,9 +626,29 @@ function appendSessionOutput(session, text) {
   session.outputBuffer = truncated;
 }
 
+/**
+ * 应用终端窗口尺寸：session 未就绪（连接握手期）时缓存到 pendingResize，
+ * shell 建立后立即套用（见 connectSsh 中 session.ready = true 分支）。
+ * 防止 PTY 卡在 connect 请求的初始 200x50，导致 top/vim 按错误行列绘制。
+ */
+function applySessionResize(session, cols, rows) {
+  if (!session) {
+    return;
+  }
+  const c = Math.max(2, Math.min(1000, Number(cols) || 0));
+  const r = Math.max(2, Math.min(1000, Number(rows) || 0));
+  if (!c || !r) {
+    return;
+  }
+  if (session.ready && session.stream) {
+    session.stream.setWindow(r, c);
+  } else {
+    session.pendingResize = { cols: c, rows: r };
+  }
+}
+
 /** 按复合 key 关闭会话，仅通知该会话归属的客户端。 */
-function closeSessionByKey(key) {
-  const session = sessions.get(key);
+function closeSessionByKey(key) {  const session = sessions.get(key);
   if (!session) {
     return;
   }
@@ -810,6 +830,18 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
 
             session.stream = stream;
             session.ready = true;
+            // 握手期缓存的 resize（连接未 ready 时前端已发出真实尺寸）：
+            // shell 建立后立即应用，避免 PTY 卡在 connect 请求的初始 200x50，
+            // top/vim 按错误行列绘制（折行、头部挤出可视区）。
+            if (session.pendingResize) {
+              const { cols: prCols, rows: prRows } = session.pendingResize;
+              session.pendingResize = null;
+              try {
+                stream.setWindow(prRows, prCols);
+              } catch {
+                // ignore
+              }
+            }
             stream
               .on('data', (data) => {
                 publishShellOutput(data);
@@ -1203,7 +1235,11 @@ app.post('/api/ssh/:id/pwd', route(async (request) => {
 }));
 app.post('/api/ssh/:id/resize', route((request) => {
   const { cols, rows } = request.body;
-  getSession(request.params.id, requestClientId(request)).stream.setWindow(rows, cols);
+  applySessionResize(
+    sessions.get(sessionKeyOf(request.params.id, requestClientId(request))),
+    cols,
+    rows,
+  );
   return success();
 }));
 // 拉取会话输出缓冲：页面刷新重挂 live session 时补齐提示符
@@ -1712,13 +1748,14 @@ wss.on('connection', (socket) => {
         const cols = Math.max(2, Math.min(1000, Number(message.cols) || 0));
         const rows = Math.max(2, Math.min(1000, Number(message.rows) || 0));
         if (cols && rows) {
-          const session = sessions.get(sessionKeyOf(
-            message.connectionId,
-            socket.sshClientId || socket.clientId || '',
-          ));
-          if (session?.ready && session.stream) {
-            session.stream.setWindow(rows, cols);
-          }
+          applySessionResize(
+            sessions.get(sessionKeyOf(
+              message.connectionId,
+              socket.sshClientId || socket.clientId || '',
+            )),
+            cols,
+            rows,
+          );
         }
       } else if (message.type === 'ssh-write') {
         // 终端输入热路径：与 HTTP /write 等价，但经 WS 保序低延迟

@@ -14,6 +14,7 @@ import {
 import { resolveTerminalRuntimeSettings } from './terminal-settings';
 import { isOpenableHttpUrl, ShellIntegrationParser, type ShellIntegrationState } from './shell-integration';
 import { gateTerminalPaste } from './paste-safety';
+import { useSessionStore } from '../useSessionStore';
 
 interface XtermInstanceOptions {
   copyTerminalSelectionToClipboard: () => boolean;
@@ -147,6 +148,37 @@ export function useXtermInstance({
       fitAndResize();
     }
   }, [fitAndResize, liveConnectionId]);
+
+  // 会话就绪（连接/重连/重挂成功）后强制对齐一次 PTY 尺寸：
+  // 刷新重挂或自动重连时 liveConnectionId 全程不变，上面的 effect 不会重跑，
+  // 若首帧 fit 的 resize 恰在握手期被丢弃，PTY 会卡在初始 200x50 直到下次
+  // 手动改容器尺寸（症状：top/vim 头部被顶出可视区）。状态变 connected 即补发，
+  // 延迟到容器尺寸稳定后再发，确保 xterm 网格与远端窗口一致。
+  const liveState = liveConnectionId
+    ? useSessionStore((state) => state.sessions[liveConnectionId]?.state)
+    : undefined;
+  const prevLiveStateRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevLiveStateRef.current;
+    prevLiveStateRef.current = liveState;
+    if (!liveConnectionId || !liveState || liveState !== 'connected' || prev === 'connected') {
+      return;
+    }
+    const doFit = () => {
+      if (liveConnectionIdRef.current === liveConnectionId) {
+        fitAndResize();
+      }
+    };
+    // 就绪事件可能早于终端容器布局完成，等一帧 + 容错定时再补一次
+    const raf = requestAnimationFrame(doFit);
+    const timer = window.setTimeout(doFit, 120);
+    const timer2 = window.setTimeout(doFit, 400);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+      window.clearTimeout(timer2);
+    };
+  }, [fitAndResize, liveConnectionId, liveState]);
 
   /** 经粘贴门控后发送；多行走确认回调。 */
   const sendPasteText = useCallback((text: string) => {
