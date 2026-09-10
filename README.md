@@ -111,8 +111,24 @@ port. From another device on the same LAN, open `http://<laptop-ip>:5080`.
 
 The Compose deployment runs a Node web gateway that serves the React renderer
 and opens SSH/SFTP connections from the machine running Docker. Connection data
-is stored in the `ai-ssh-client-data` Docker volume. AI assistant and agent
-mode remain desktop-only in the web deployment.
+is stored in the `ai-ssh-client-data` Docker volume.
+
+The terminal, SFTP transfers, AI assistant, and agent mode all work in the web
+deployment. The gateway keeps these on par with the desktop app by verifying
+SSH host keys before authenticating and by encrypting stored credentials at rest
+— see [SECURITY.md](SECURITY.md) for the trust model.
+
+### Host key confirmation
+
+Like the desktop app, the gateway asks you to confirm a host's key fingerprint
+the first time you connect (and again if the key ever changes). The prompt
+appears in the page that started the connection, so keep the tab open while a
+new host is being verified; the request fails after 90 seconds without an
+answer.
+
+For unattended deployments with no browser attached, set
+`WEB_SSH_TRUST_ON_FIRST_USE=true` to trust and record hosts that have no record
+yet. A **changed** key is still rejected in that mode.
 
 ### Password authentication
 
@@ -140,6 +156,27 @@ visitors get a sign-in page instead of the app.
 
 Open the page, enter the password once, and a session cookie keeps you signed
 in.
+
+### Credential storage
+
+Connection passwords, private keys, passphrases, and AI API keys are encrypted
+(AES-256-GCM) before being written to `config.json` in the data volume. The
+encryption key depends on how the password is managed:
+
+- **`WEB_AUTH_PASSWORD` set** — the key is derived from that password and is
+  never written to disk. A stolen data volume cannot be decrypted. This is the
+  strongest option and the one to prefer for shared or internet-facing
+  deployments.
+- **Otherwise** — a random key is generated and kept in `data/secret.key`
+  (mode `0600`). This protects against `config.json` being copied, backed up, or
+  accidentally committed, but not against an attacker who can read the entire
+  data directory, since the key sits next to the data.
+
+Existing plaintext `config.json` files keep working and are re-encrypted on the
+next write — no manual migration step. If you later change
+`WEB_AUTH_PASSWORD` (or lose `secret.key`), previously stored secrets can no
+longer be decrypted; the affected connections show an empty password and must be
+filled in again.
 
 ### Network binding and TLS
 

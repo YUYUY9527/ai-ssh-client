@@ -27,6 +27,9 @@ const {
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
 const { createAuth } = require('./auth.cjs');
+const { createHostTrust } = require('./host-trust.cjs');
+const { createSecretStore } = require('./secret-store.cjs');
+const { sessionKeyOf, clientKeysOf } = require('./session-key.cjs');
 const {
   probeInteractivePwd,
   stripPwdProbeArtifacts,
@@ -60,9 +63,15 @@ const defaultSettings = {
   maxScrollbackBytesPerSession: 150 * 1024,
 };
 
+// 会话表：key 为 sessionKeyOf(connectionId, clientId) 复合键（格式见 session-key.cjs）。
+// Web 多客户端隔离：同一连接配置可被多台浏览器同时打开，每个客户端拥有独立 SSH shell 会话，
+// 防止两台电脑（或同一浏览器两个标签页）共享同一会话互相串命令。
 const sessions = new Map();
 const sockets = new Set();
 const activeAiRequests = new Map();
+// 在途 agent 执行：key = sessionKeyOf(connectionId, clientId)。
+// 必须按客户端区分：多客户端连同一台主机时，若只按 connectionId 索引，
+// 后发起的执行会覆盖前一个的取消句柄，导致"取消/暂停"误伤别的客户端。
 const activeAgentExecs = new Map();
 const AGENT_INTERRUPT_SETTLE_MS = 250;
 // clientId → 延迟清理定时器（WS 断开后宽限期内可被重连取消）
@@ -76,15 +85,6 @@ const SESSION_CLEANUP_FAST_MS = 5 * 1000;
 // WS 发送背压阈值：目标 socket 缓冲超高水位 → 暂停 shell 输出，排空到低水位 → 恢复。
 const WS_HIGH_WATER = 512 * 1024;
 const WS_LOW_WATER = 128 * 1024;
-
-/**
- * Web 多客户端隔离：同一连接配置可被多台浏览器同时打开，
- * 每个客户端拥有独立 SSH shell 会话。key = connectionId + clientId 复合键，
- * 防止两台电脑（或同一浏览器两个标签页）共享同一会话互相串命令。
- */
-function sessionKeyOf(connectionId, clientId) {
-  return `${connectionId}::${clientId || ''}`;
-}
 
 /** SSH 路由的客户端标识：优先 x-ssh-client-id，兼容旧版 x-sftp-client-id。 */
 function requestClientId(request) {
@@ -121,10 +121,19 @@ function normalizeSettings(settings) {
   return normalized;
 }
 
+/**
+ * 凭据加解密：env 模式（WEB_AUTH_PASSWORD）从口令派生密钥且不落盘，
+ * 否则使用 data/secret.key（0600）。威胁模型见 secret-store.cjs。
+ */
+const secretStore = createSecretStore({
+  dataDir: DATA_DIR,
+  passphrase: process.env.WEB_AUTH_PASSWORD,
+});
+
 function readStore() {
   try {
     const stored = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
-    return {
+    return secretStore.decryptStore({
       connections: [],
       settings: defaultSettings,
       commandHistory: [],
@@ -132,9 +141,10 @@ function readStore() {
       quickCommandGroups: [],
       aiProviders: [],
       agentTasks: [],
+      hostTrustRecords: [],
       ...stored,
       settings: normalizeSettings(stored.settings),
-    };
+    });
   } catch {
     return {
       connections: [],
@@ -144,13 +154,16 @@ function readStore() {
       quickCommandGroups: [],
       aiProviders: [],
       agentTasks: [],
+      hostTrustRecords: [],
     };
   }
 }
 
 function writeStore(store) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(STORE_PATH, `${JSON.stringify(store, null, 2)}\n`);
+  // 落盘前加密 SSH 密码/私钥/passphrase 与 AI apiKey；历史明文字段在本次写入时被一并加密。
+  const payload = secretStore.encryptStore(store);
+  fs.writeFileSync(STORE_PATH, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 function updateStore(update) {
@@ -189,6 +202,7 @@ function normalizeImportData(input) {
     quickCommands: asArray(data.quickCommands || data.quick_commands),
     quickCommandGroups: asArray(data.quickCommandGroups || data.quick_command_groups),
     aiProviders: asArray(data.aiProviders || data.ai_providers),
+    hostTrustRecords: asArray(data.hostTrustRecords || data.host_trust_records),
   };
 }
 
@@ -408,11 +422,16 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
   const runId = options.runId || `${connectionId}-${Date.now()}`;
   const timeoutMs = Number(options.timeoutMs || 45000);
   const marker = makeSentinelMarker(runId);
+  const execKey = sessionKeyOf(connectionId, clientId);
 
   return new Promise((resolve) => {
     let buffer = '';
     let settled = false;
     let timeout = null;
+    // 中断原因（canceled / timeout）。一旦主动发过 Ctrl-C，就必须由它决定 reason：
+    // 被中断的 shell 往往会紧接着打印 sentinel（退出码 130），若让 handleData
+    // 抢先结算就会报成 "done"，与桌面端"取消即 canceled"的语义不一致。
+    let interruptReason = null;
 
     const finish = (reason, exitCode = null) => {
       if (settled) {
@@ -424,9 +443,9 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
       }
       stream.off('data', handleData);
       stream.off('close', handleClose);
-      activeAgentExecs.delete(connectionId);
+      activeAgentExecs.delete(execKey);
       const output = stripCompleteSentinelArtifacts(buffer);
-      resolve(success({ output, exitCode, reason }));
+      resolve(success({ output, exitCode, reason: interruptReason || reason }));
     };
 
     const handleData = (data) => {
@@ -441,12 +460,13 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
 
     const handleClose = () => finish('closed');
     const interruptAndFinish = (reason) => {
+      interruptReason = reason;
       stream.write('\x03');
       setTimeout(() => finish(reason), AGENT_INTERRUPT_SETTLE_MS);
     };
 
-    activeAgentExecs.get(connectionId)?.();
-    activeAgentExecs.set(connectionId, () => interruptAndFinish('canceled'));
+    activeAgentExecs.get(execKey)?.();
+    activeAgentExecs.set(execKey, () => interruptAndFinish('canceled'));
 
     stream.on('data', handleData);
     stream.on('close', handleClose);
@@ -458,16 +478,68 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
   });
 }
 
-/** 定向推送：仅发送给指定客户端的 socket（SSH 事件按客户端隔离）。 */
+/**
+ * 中止指定连接上、属于指定客户端的在途 agent 执行。
+ * 返回是否命中（false 表示当前没有在跑的执行，属正常情况）。
+ */
+function cancelAgentExec(connectionId, clientId = '') {
+  const key = sessionKeyOf(connectionId, clientId);
+  const cancel = activeAgentExecs.get(key);
+  if (!cancel) {
+    return false;
+  }
+  cancel();
+  activeAgentExecs.delete(key);
+  return true;
+}
+
+/**
+ * 中止某客户端全部在途 agent 执行，返回被中止的数量。
+ * 对应桌面端 `agent_pause_task` → `cancel_all_execs()`：暂停时真正掐断远端命令，
+ * 而不仅仅是前端停止等待。
+ */
+function cancelAgentExecsForClient(clientId = '') {
+  let canceled = 0;
+  clientKeysOf(Array.from(activeAgentExecs.keys()), clientId).forEach((key) => {
+    activeAgentExecs.get(key)?.();
+    activeAgentExecs.delete(key);
+    canceled += 1;
+  });
+  return canceled;
+}
+
+/**
+ * 定向推送：仅发送给指定客户端的 socket（SSH 事件按客户端隔离）。
+ * 返回实际送达的 socket 数，供调用方判断"是否有人能收到"。
+ */
 function emitToClient(clientId, type, payload) {
   const data = JSON.stringify({ type, payload });
+  let delivered = 0;
   sockets.forEach((socket) => {
     const matches = socket.clientId === clientId || socket.sshClientId === clientId;
     if (matches && socket.readyState === socket.OPEN) {
       socket.send(data);
+      delivered += 1;
     }
   });
+  return delivered;
 }
+
+/**
+ * 主机指纹信任：Web 端此前完全不校验主机密钥（ssh2 不传 hostVerifier 时自动接受），
+ * 属于中间人风险。此处对齐桌面端 TOFU 语义：首次连接/密钥变更都要用户确认。
+ */
+const hostTrust = createHostTrust({
+  loadRecords: () => readStore().hostTrustRecords || [],
+  saveRecords: (records) => updateStore((store) => {
+    store.hostTrustRecords = records;
+  }),
+  emitPrompt: (clientId, prompt) => emitToClient(clientId, 'ssh-host-trust-prompt', prompt),
+  // 无前端的自动化场景（纯 HTTP 调用、脚本导入后直连）可显式开启：
+  // 自动信任未记录过的主机，但密钥变更依旧拒绝。
+  trustOnFirstUse: process.env.WEB_SSH_TRUST_ON_FIRST_USE === 'true',
+  promptTimeoutMs: Math.max(5000, Number(process.env.WEB_SSH_HOST_TRUST_TIMEOUT_MS) || 90000),
+});
 
 const sftpTransfers = createSftpTransferService({
   getSftp,
@@ -898,6 +970,12 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
         keepaliveInterval: Math.max(0, Number(settings.keepaliveInterval || 0)) * 1000,
         keepaliveCountMax: settings.keepaliveCountMax || 3,
         readyTimeout: 20000,
+        // 主机密钥校验（TOFU）：不传则 ssh2 默认自动接受任意主机密钥。
+        hostVerifier: hostTrust.createVerifier({
+          host: connection.host,
+          port: connection.port,
+          clientId,
+        }),
       });
   });
 }
@@ -1028,6 +1106,7 @@ app.get('/api/export', route((request) => {
       commandHistory: store.commandHistory,
       quickCommands: store.quickCommands,
       quickCommandGroups: store.quickCommandGroups,
+      hostTrustRecords: store.hostTrustRecords || [],
     },
   });
 }));
@@ -1085,6 +1164,18 @@ app.post('/api/import', route((request) => {
           ]
         : imported.aiProviders;
     }
+    if (imported.hostTrustRecords.length > 0) {
+      store.hostTrustRecords = merge
+        ? [
+            ...(store.hostTrustRecords || []).filter((item) => (
+              !imported.hostTrustRecords.some((next) => (
+                next.host === item.host && Number(next.port) === Number(item.port)
+              ))
+            )),
+            ...imported.hostTrustRecords,
+          ]
+        : imported.hostTrustRecords;
+    }
   });
 
   return success({
@@ -1094,6 +1185,7 @@ app.post('/api/import', route((request) => {
       settings: imported.settings ? 1 : 0,
       quickCommands: imported.quickCommands.length,
       quickCommandGroups: imported.quickCommandGroups.length,
+      hostTrustRecords: imported.hostTrustRecords.length,
     },
     skipped: [],
   });
@@ -1199,6 +1291,28 @@ app.delete('/api/quick-command-groups/:id', route((request) => {
   return success();
 }));
 
+// 主机指纹信任记录：与桌面端 ssh_*_host_trust_record 六个命令一一对应。
+// 必须注册在 /api/ssh/:id/* 之前，避免 "host-trust" 被当成连接 ID 匹配。
+app.get('/api/ssh/host-trust', route(() => success({ records: hostTrust.listRecords() })));
+app.get('/api/ssh/host-trust/record', route((request) => success({
+  record: hostTrust.getRecord(String(request.query.host || ''), Number(request.query.port)),
+})));
+app.post('/api/ssh/host-trust', route((request) => {
+  hostTrust.upsertRecord(request.body?.record || request.body || {});
+  return success();
+}));
+app.delete('/api/ssh/host-trust', route((request) => {
+  hostTrust.deleteRecord(String(request.query.host || ''), Number(request.query.port));
+  return success();
+}));
+app.post('/api/ssh/host-trust/clear', route(() => {
+  hostTrust.clearRecords();
+  return success();
+}));
+// 前端确认主机指纹；accepted=false 会让对应握手立即以失败结束。
+app.post('/api/ssh/host-trust/respond', route((request) => success({
+  handled: hostTrust.respond(request.body?.requestId, request.body?.accepted === true),
+})));
 app.post('/api/ssh/connect', route((request) => (
   connectSsh(
     request.body.connection,
@@ -1275,6 +1389,12 @@ app.post('/api/ssh/test', route((request) => new Promise((resolve) => {
       privateKey: request.body.connection.privateKey || undefined,
       passphrase: request.body.connection.passphrase || undefined,
       readyTimeout: 20000,
+      // 与正式连接同等严格：测试连接也校验主机密钥（桌面端 ssh_test_connection 同样会弹确认）。
+      hostVerifier: hostTrust.createVerifier({
+        host: request.body.connection.host,
+        port: request.body.connection.port,
+        clientId: requestClientId(request),
+      }),
     });
 })));
 
@@ -1626,11 +1746,9 @@ app.post('/api/ai/cancel/:id', route((request) => {
 }));
 
 app.post('/api/agent/:id/start', route(() => success()));
-app.post('/api/agent/:id/stop', route((request) => {
-  activeAgentExecs.get(request.params.id)?.();
-  activeAgentExecs.delete(request.params.id);
-  return success();
-}));
+app.post('/api/agent/:id/stop', route((request) => success({
+  canceled: cancelAgentExec(request.params.id, requestClientId(request)),
+})));
 app.post('/api/agent/:id/exec-await', route((request) => (
   runSshCommand(
     request.params.id,
@@ -1639,11 +1757,14 @@ app.post('/api/agent/:id/exec-await', route((request) => (
     requestClientId(request),
   )
 )));
-app.post('/api/agent/:id/cancel-exec', route((request) => {
-  activeAgentExecs.get(request.params.id)?.();
-  activeAgentExecs.delete(request.params.id);
-  return success();
-}));
+app.post('/api/agent/:id/cancel-exec', route((request) => success({
+  canceled: cancelAgentExec(request.params.id, requestClientId(request)),
+})));
+// 暂停：中止该客户端全部在途远端执行（前端本地暂停由 agent store 驱动）。
+// 对应桌面端 agent_pause_task → cancel_all_execs()，避免"界面已暂停、远端命令仍在跑"。
+app.post('/api/agent/pause', route((request) => success({
+  canceled: cancelAgentExecsForClient(requestClientId(request)),
+})));
 app.get('/api/agent/tasks', route(() => success({ tasks: readStore().agentTasks })));
 app.post('/api/agent/tasks', route((request) => {
   updateStore((store) => {
@@ -1667,7 +1788,6 @@ app.delete('/api/agent/tasks/:id', route((request) => {
   });
   return success();
 }));
-app.post('/api/unsupported', route(() => failure('This feature is only available in the desktop app')));
 
 /**
  * 静态资源缓存策略：
@@ -1690,7 +1810,18 @@ app.use(express.static(STATIC_DIR, {
     }
   },
 }));
-app.use((_request, response) => {
+app.use((request, response) => {
+  // 未匹配的 /api/* 必须返回 JSON 404：否则会落到下面的 SPA 兜底，
+  // 把 index.html 以 200 返回，前端 response.json() 抛 "Unexpected token '<'"，
+  // 拼错路径或调用已移除的端点时极难定位。
+  if (request.path.startsWith('/api/')) {
+    response.status(404).json({
+      success: false,
+      error: `Unknown API endpoint: ${request.method} ${request.path}`,
+      code: 'NOT_FOUND',
+    });
+    return;
+  }
   response.setHeader('Cache-Control', 'no-store');
   response.sendFile(path.join(STATIC_DIR, 'index.html'));
 });

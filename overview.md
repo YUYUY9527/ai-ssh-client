@@ -50,13 +50,14 @@ if (!window.electronAPI && '__TAURI_INTERNALS__' in window) {
 | 能力 | 桌面端 | Web 端 |
 |---|---|---|
 | 传输通道 | `invoke()` + Tauri event | HTTP REST + WebSocket |
-| 后端实现 | Rust `commands/*.rs`（68 个 `#[tauri::command]`） | `server/index.cjs`（66 条路由 + WS） |
+| 后端实现 | Rust `commands/*.rs`（68 个 `#[tauri::command]`） | `server/index.cjs`（72 条路由 + WS） |
 | SSH 协议栈 | `russh` / `russh-sftp` | `ssh2` |
-| 密钥存储 | 系统钥匙串（Windows Credential Manager 等） | `data/config.json` + 密码哈希会话 Cookie |
+| 主机密钥校验 | TOFU（`check_server_key` + 原生确认弹窗） | TOFU（`host-trust.cjs` + WS 事件推送到页面） |
+| 密钥存储 | 系统钥匙串（Windows Credential Manager 等） | AES-256-GCM 加密的 `data/config.json`（密钥来自 `WEB_AUTH_PASSWORD` 或 `data/secret.key`） |
 | 文件选择 | 原生对话框（`tauri-plugin-dialog`） | `<input type="file">` / File System Access API |
 | AI 调用 | Rust `ai_service.rs` 直连 | `server/index.cjs` 代理转发 |
 
-**约束**：新增后端能力必须**两侧同时实现**，否则该功能在另一运行时静默失效（`app.post('/api/unsupported')` 是 Web 端显式兜底）。
+**约束**：新增后端能力必须**两侧同时实现**。运行时契约是 `src/shared/global.d.ts` 中的 `Window['electronAPI']`（80 个方法，其中 5 个可选），两个适配层都必须满足它 —— 但**没有自动校验**，遗漏不会编译报错，只会在另一运行时静默失效（见技术债第 4 条）。
 
 ---
 
@@ -119,8 +120,11 @@ error.rs
 ### 3.3 Web 网关 `server/`
 
 ```text
-index.cjs             主服务：66 条路由 + WebSocket（60 KB）
+index.cjs             主服务：72 条路由 + WebSocket（65.6 KB）
 auth.cjs              密码哈希、会话 Cookie、改密
+host-trust.cjs        SSH 主机指纹校验（TOFU）与前端确认握手
+secret-store.cjs      凭据落盘加密（AES-256-GCM）
+session-key.cjs       会话/执行的复合键格式（connectionId + clientId）
 sftp-transfer.cjs     传输任务、断点续传
 sftp-items.cjs        目录列举、重命名、删除
 sftp-upload.cjs       上传
@@ -175,11 +179,21 @@ sentinel.cjs          Agent 哨兵剥离
 - **Agent 任务历史** → SQLite（`rusqlite`，仅 `agent_history_service.rs` 使用）。
 - **敏感数据**（SSH 密码、私钥、passphrase、AI API Key）→ 系统钥匙串，`KEYRING_SERVICE = "ai-ssh-client"`，**不落 store.json**。
 - 桌面端元数据位置：`%LOCALAPPDATA%\ai-ssh-client\store.json`。
+- **Web 端**（`secret-store.cjs`）：同样的敏感字段落盘前用 AES-256-GCM 加密（`enc:v1:` 前缀）。密钥来源二选一 —— 设了 `WEB_AUTH_PASSWORD` 则 scrypt 派生且**不落盘**；否则随机 32 字节存 `data/secret.key`（0600）。旧明文数据读时兼容、下次写盘自动加密。详见 [`SECURITY.md`](SECURITY.md)。
 
-### 4.6 Web 网关鉴权
+### 4.6 SSH 主机指纹校验（TOFU）
+
+两端共用同一套语义：首次连接与密钥变更都需用户确认，拒绝或 90 秒超时则握手失败。
+
+- **桌面端**：`ssh_service.rs` 的 `SshHandler::check_server_key` + `wait_for_host_trust_decision`；信任记录存 `store.json` 的 `host_trust_records`。
+- **Web 端**：`host-trust.cjs` 提供 ssh2 的 `hostVerifier`（**不传该参数时 ssh2 会静默接受任意主机密钥**），经 `ssh-host-trust-prompt` WS 事件询问页面，`/api/ssh/host-trust/*` 六个路由对应桌面的六个命令。测试连接走同一校验。
+- 指纹统一为 OpenSSH `SHA256:<base64>` 格式，两端与 `known_hosts` 可直接互认。
+- 无人值守：`WEB_SSH_TRUST_ON_FIRST_USE=true` 自动信任未记录的主机，但密钥变更仍拒绝。
+
+### 4.7 Web 网关鉴权
 
 - 首次启动初始密码 `admin`，仅存**加盐哈希**，UI 内可改密（改密后保留当前会话、踢掉其他会话）。
-- 亦可用 `AI_SSH_CLIENT_WEB_PASSWORD` 环境变量钉住密码（此模式不落盘、UI 不可改）。
+- 亦可用 `AI_SSH_CLIENT_WEB_PASSWORD` 环境变量钉住密码（此模式不落盘、UI 不可改，并作为凭据加密密钥来源）。
 - 默认绑定 `127.0.0.1`；`WEB_HOST=0.0.0.0` 或 Docker 对外暴露。
 - Cookie 在 HTTPS（含 `X-Forwarded-Proto`）下自动置 `Secure`。
 - **密码明文过 HTTP**，任何不可信网络必须前置 TLS 反代。
@@ -283,18 +297,40 @@ Release（`.github/workflows/release.yml`）：推送 `v*` tag 触发 `tauri-act
 - 本文档重写为 Tauri 架构版本。
 - **补上 Agent 主路径测试**：新增 `test/agent-flow.test.ts`，锁定 `runAgentRoundGraph` / `runAgentExecutionGraph` 的公开契约 —— 覆盖全部决策出口与中止语义，为 LangGraph 拆除提供安全网。测试有效性经变异测试验证（9 处定向破坏捕获 8 处）。全套测试从 117 项增至 **148 项**。
 
+### 阶段八：Web 端安全对齐（2026-09-13）
+
+起因是一次「Web 端相较桌面端差多少」的逐项核对。核对方法：以 `src/shared/global.d.ts` 的 80 个契约方法为基准，比对两端实现 —— **接口覆盖上 Web 端是满的（未实现 0 项），差距全在"实现了但实现是空的/假的"**。据此修掉三处实质缺口：
+
+- **修复 Web 端完全不校验 SSH 主机密钥（安全级缺陷）**：网关两处 `new Client().connect()` 均未传 `hostVerifier`，而 ssh2 在未设置该参数时**默认自动接受任意主机密钥**（`node_modules/ssh2/README.md` 明确记载 *auto-accept if `hostVerifier` is not set*）；配套的 6 个信任记录接口在 `web.ts` 中是返回固定空值的空壳，`ssh-host-trust-prompt` 通道服务端 0 命中。**即 Web 端连接可被中间人替换主机密钥且不会提示**。新增 `server/host-trust.cjs` 对齐桌面端 TOFU 语义（首连/变更均需确认、拒绝或 90s 超时即失败、接受后落盘），补齐 6 条 `/api/ssh/host-trust/*` 路由，`web.ts` 改为真实调用。测试连接同样纳入校验（与桌面端 `ssh_test_connection` 一致）。新增 `test/host-trust.test.ts`：**21 个用例，其中多数跑真实 ssh2 握手**（含拒绝/超时/变更/无人应答分支）；经变异测试验证 —— 把实现改回"自动接受"会立刻挂掉 12 条。
+- **修复 Web 端凭据明文落盘**：SSH 密码、私钥、passphrase、AI API Key 原样写在 `data/config.json`。新增 `server/secret-store.cjs`，AES-256-GCM 加密（`enc:v1:` 前缀），密钥在 `WEB_AUTH_PASSWORD` 模式下由该口令 scrypt 派生且**不落盘**，否则随机 32 字节存 `data/secret.key`（0600）。旧明文数据读时原样兼容、**下次写盘自动加密**，无需手工迁移。威胁模型已在 `SECURITY.md` 中如实写明：文件模式可防配置被单独拷走/误提交/进日志，但**不能防**能读取整个数据目录的攻击者（网关必须无人值守自行解密才能建连，这是有意取舍）。
+- **修复 Web 端「暂停」不掐断远端命令**：`web.ts` 的 `agentPauseTask` 原为 `Promise.resolve({ success: true })` 空实现，桌面端 `agent_pause_task` 则会 `cancel_all_execs()` —— 即 Web 端点暂停后界面停了、**远端命令继续跑完**。新增 `/api/agent/pause`，并顺带修掉滚雪球式的隔离缺陷：在途执行表原按 `connectionId` 单键索引，多客户端连同一主机时后发起的执行会覆盖前一个的取消句柄，导致暂停/取消**误伤其他客户端**；改为 `connectionId + clientId` 复合键（格式抽到 `server/session-key.cjs`，与 SSH 会话表共用一份定义）。**同时对齐了两端的中断语义差异**：桌面端取消分支是立即 break 并报 `canceled`，而网关的 250ms 兜底会被抢先到达的哨兵覆盖成 `done`，已改为中断原因优先。
+- **清理死代码**：删除 `/api/unsupported`（客户端从未调用，却被文档当作 Web 端功能受限的依据）；`agent_resume_task` 在**桌面端同样是空实现**（`agent.rs:53`），故 Web 端的对应空实现保持不变并在注释中说明；`onSystemResume` 在 Web 下永不触发，但 Web 的等效场景是 WS 重连，已由 `useSessionBridge` 走同一套会话存活重校，属冗余而非缺口。
+- **顺带修掉未匹配 API 路径的兜底缺陷**（删除上述路由时实测暴露）：末尾的 SPA 兜底 `app.use` 会接住**任何**未匹配路径，未匹配的 `/api/*` 因此以 **200 + index.html** 返回，前端 `response.json()` 抛 `Unexpected token '<'`——拼错路径或调用已移除的端点时几乎无法定位。现改为对 `/api/*` 返回带 `code: 'NOT_FOUND'` 的 JSON 404，页面路由仍正常回落 SPA。
+- **修正文档失准**：`README.md` 原称 "AI assistant and agent mode remain desktop-only in the web deployment"（早在 `5d50ea6` 就已不成立，网关有完整 `/api/ai/*` 与 `/api/agent/*`），已改写并补充主机指纹确认与凭据存储两节；本文档原技术债第 8 条引用的 `/api/unsupported` 已不存在。
+
+测试从 **148 项增至 198 项**（26 个文件），新增 3 个测试文件（`host-trust` 21、`secret-store` 20、`session-key` 9）。除单元测试外，另以一次性脚本做过真实网关端到端验证：主机信任路由 25/25、旧明文迁移与重启解密 15/15、暂停与跨客户端隔离 11/11。
+
 ---
 
 ## 7. 已知技术债
 
-1. **巨石文件**：`components/FileTransfer.tsx`（69 KB / 1840+ 行）、`server/index.cjs`（60 KB / 66 路由）、`agent-runtime.ts`（62 KB）、`AgentPet.tsx`（41 KB）、`index.css`（62 KB）。
+1. **巨石文件**：`components/FileTransfer.tsx`（69 KB / 1840+ 行）、`server/index.cjs`（65.6 KB / 72 路由）、`agent-runtime.ts`（62 KB）、`AgentPet.tsx`（41 KB）、`index.css`（62 KB）。
 2. **转出兼容垫片**：`components/Terminal.tsx`、`components/SettingsPanel.tsx`、`settings/SettingsPanel.tsx`、`shared-ui/ConfirmDialog.tsx`、`transfer/useTransferStore.ts`、`assistant/AssistantStore.ts` 等仅 0.1 KB 的 re-export，属于重构残留。
 3. **`components/` 与新领域目录并存**：`FileTransfer.tsx` 与 `transfer/` 重叠，未完成收敛。
 4. **双运行时同步成本**：每项后端能力需实现两遍，且缺乏契约一致性测试（`src/shared/ipc-types.ts` 是事实契约但无自动校验）。
 5. **README 结构图与事实不符**：`docs/ # Architecture notes` 实际只有两张截图加一份评估文档；未反映 `server/`、`test/` 双运行时结构。
 6. **`.gitignore` 存在死规则**：`.agents`、`.codex`、`.trellis`、`AGENTS.md`、`.clawd-todos.json` 已随清理失效。
 7. **原生 AI 协议缺失**：Anthropic / Gemini 仅经 OpenAI-compatible 端点接入。
-8. **Web 端功能受限**：AI 助手与 Agent 能力在 Web 部署下部分不可用（见 `/api/unsupported`）。
+8. **Web 端与桌面端的剩余差异**：接口覆盖已对齐（80 个契约方法 Web 端未实现 0 项），但仍有非对称的能力 —— 桌面端在 `native.ts` 中**声明而未实现** 5 个可选方法（`sshGetOutputBuffer` / `sshProbePwd` / `prepareSftpLocalFiles` / `getAuthStatus` / `webChangePassword`），其中前三个是 Web 端反而更强的能力：刷新重连输出回放、交互 shell 真实 PWD 探测、拖放文件引用注册。桌面端的密钥保护也强于 Web 端（OS 钥匙串 vs 加密文件 + 可选的 env 派生密钥）。
+> **2026-09-13 已清除的技术债**（经过记录于阶段八）：
+>
+> - **Web 端不校验 SSH 主机密钥** —— 存在中间人风险且无任何提示。已由 `server/host-trust.cjs` + 6 条路由补齐 TOFU 语义，与桌面端对齐。
+> - **Web 端凭据明文落盘** —— 已改为 AES-256-GCM 加密，旧数据自动渐进迁移。
+> - **Web 端「暂停」不掐断远端命令** —— 已补 `/api/agent/pause`，并修复在途执行表按 `connectionId` 单键索引导致的多客户端互相误伤。
+> - **两端中断语义不一致**（网关 `canceled` 被哨兵覆盖成 `done`）—— 已改为中断原因优先。
+> - **`/api/unsupported` 死路由** —— 客户端从未调用，已删除（相关文档描述一并修正）。
+> - **README 谎称 AI/Agent 在 Web 端不可用** —— 已按实际情况改写。
+>
 > **2026-09-10 已清除的技术债**（经过记录于阶段七，评估依据见 [`docs/langgraph-removal-assessment.md`](docs/langgraph-removal-assessment.md)）：
 >
 > - **LangGraph 用于两条直线流水线** —— 已拆除，`@langchain/langgraph` / `@langchain/core` 从依赖树移除。

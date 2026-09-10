@@ -819,18 +819,29 @@ const webApi: Window['electronAPI'] = {
     method: 'POST',
     body: JSON.stringify({ connection }),
   }),
-  sshGetHostTrustRecord: (_host, _port) => Promise.resolve({
-    success: true,
-    data: { record: null as HostTrustRecord | null },
+  sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
+    `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
+  ),
+  sshListHostTrustRecords: () => request<{ records: HostTrustRecord[] }>('/api/ssh/host-trust'),
+  sshUpsertHostTrustRecord: (record) => request<void>('/api/ssh/host-trust', {
+    method: 'POST',
+    body: JSON.stringify({ record }),
   }),
-  sshListHostTrustRecords: () => Promise.resolve({
-    success: true,
-    data: { records: [] as HostTrustRecord[] },
+  sshDeleteHostTrustRecord: (host, port) => request<void>(
+    `/api/ssh/host-trust?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
+    { method: 'DELETE' },
+  ),
+  sshClearHostTrustRecords: () => request<void>('/api/ssh/host-trust/clear', {
+    method: 'POST',
+    body: '{}',
   }),
-  sshUpsertHostTrustRecord: async () => ({ success: true }),
-  sshDeleteHostTrustRecord: async () => ({ success: true }),
-  sshClearHostTrustRecords: async () => ({ success: true }),
-  sshRespondHostTrust: async () => ({ success: true }),
+  sshRespondHostTrust: (requestId, accepted) => request<void>(
+    '/api/ssh/host-trust/respond',
+    {
+      method: 'POST',
+      body: JSON.stringify({ requestId, accepted }),
+    },
+  ),
   onSshData: (callback) => on('ssh-data', callback),
   onSshError: (callback) => on('ssh-error', callback),
   onSshClose: (callback) => on('ssh-close', callback),
@@ -1171,7 +1182,13 @@ const webApi: Window['electronAPI'] = {
     method: 'POST',
     body: '{}',
   }),
-  agentPauseTask: () => Promise.resolve({ success: true }),
+  // 暂停：除前端 store 停止等待外，还要让网关掐断在途远端命令，
+  // 否则界面上已暂停、远端那条命令仍会跑完（与桌面端 cancel_all_execs 对齐）。
+  agentPauseTask: () => request<void>('/api/agent/pause', {
+    method: 'POST',
+    body: '{}',
+  }),
+  // 继续无需后端动作：恢复由前端 store 重新驱动流程（桌面端 agent_resume_task 同样为空实现）。
   agentResumeTask: () => Promise.resolve({ success: true }),
   agentExecAwait: (connectionId, command, options) => request<AgentExecAwaitResult>(
     `/api/agent/${connectionId}/exec-await`,
@@ -1197,6 +1214,9 @@ const webApi: Window['electronAPI'] = {
   }),
   onAgentTerminalOutput: (callback) => on('agent-terminal-output', callback),
 
+  // Web 部署：网关没有"系统从休眠恢复"这一事件来源（那是 Tauri 侧的应用事件）。
+  // 此处仍保留订阅以满足同一份运行时契约；Web 下的等效场景是 WS 重连，
+  // 已由 useSessionBridge 在 socket 重连时做同一套会话存活重校并重连。
   onSystemResume: (callback) => on('system-resume', callback),
 
   // Web 专用：查询登录状态（含是否仍为默认密码）。

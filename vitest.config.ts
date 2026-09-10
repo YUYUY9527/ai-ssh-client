@@ -16,6 +16,8 @@ export default defineConfig({
         'src/renderer/session/terminal/shell-integration.ts',
         'src/renderer/history/command-history-index.ts',
         'server/sentinel.cjs',
+        'server/host-trust.cjs',
+        'server/secret-store.cjs',
         'server/sftp-items.cjs',
         'server/sftp-upload.cjs',
         'server/sftp-transfer.cjs',
