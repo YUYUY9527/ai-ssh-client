@@ -3,8 +3,8 @@ import { t } from '../i18n';
 import type {
   AgentGraphAction,
   AgentRoundGraphResult,
-} from './langgraph-agent-flow';
-import { estimateAgentMessagesTokens } from './langgraph-agent-flow';
+} from './agent-flow';
+import { estimateAgentMessagesTokens } from './agent-token-estimate';
 import type {
   AgentConfig,
   AgentExecution,
@@ -1060,7 +1060,7 @@ export class AgentRuntime {
     let observation = '';
     let success = false;
     try {
-      const { runAgentExecutionGraph } = await import('./langgraph-agent-flow');
+      const { runAgentExecutionGraph } = await import('./agent-flow');
       const result = await runAgentExecutionGraph({
         command,
         execute: (graphCommand) => this.executeCommandAndWait(
@@ -1426,7 +1426,7 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
           duplicateCommand: (command: string) => t('agent.finishReasons.duplicateCommand', { command }),
         },
       };
-      const { runAgentRoundGraph } = await import('./langgraph-agent-flow');
+      const { runAgentRoundGraph } = await import('./agent-flow');
       const result = await runAgentRoundGraph({
         ...graphInput,
         ...executionHooks,
