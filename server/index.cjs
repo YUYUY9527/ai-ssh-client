@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const http = require('node:http');
+const https = require('node:https');
 const path = require('node:path');
 const posixPath = require('node:path').posix;
 const { StringDecoder } = require('node:string_decoder');
@@ -30,6 +31,7 @@ const { createAuth } = require('./auth.cjs');
 const { createHostTrust } = require('./host-trust.cjs');
 const { createSecretStore } = require('./secret-store.cjs');
 const { sessionKeyOf, clientKeysOf } = require('./session-key.cjs');
+const { resolveTlsOptions } = require('./tls.cjs');
 const {
   probeInteractivePwd,
   stripPwdProbeArtifacts,
@@ -41,6 +43,16 @@ const HOST = process.env.WEB_HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'config.json');
 const STATIC_DIR = path.join(__dirname, '..', 'dist', 'renderer');
+// HTTPS（可选）：浏览器会拦截纯 HTTP 页面上的不安全下载（.pcap/.zip 等），
+// 局域网部署建议用 WEB_TLS=1 自签名证书或 WEB_TLS_CERT/WEB_TLS_KEY 接入正式证书。
+const TLS_OPTIONS = (() => {
+  try {
+    return resolveTlsOptions(process.env, { dataDir: DATA_DIR, log: console.info });
+  } catch (error) {
+    console.error(`TLS configuration error: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+})();
 
 const defaultSettings = {
   language: 'zh-CN',
@@ -1826,7 +1838,9 @@ app.use((request, response) => {
   response.sendFile(path.join(STATIC_DIR, 'index.html'));
 });
 
-const server = http.createServer(app);
+const server = TLS_OPTIONS
+  ? https.createServer(TLS_OPTIONS, app)
+  : http.createServer(app);
 // Node 默认 requestTimeout=300s：大文件经 SFTP 慢速落盘时，整包 PUT 会在 ~5 分钟被断开（3GB≈16%）。
 // 0 表示禁用；可用 WEB_REQUEST_TIMEOUT_MS 覆盖（毫秒）。
 const requestTimeoutMs = Number(process.env.WEB_REQUEST_TIMEOUT_MS ?? 0);
@@ -1924,7 +1938,15 @@ wss.on('connection', (socket) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.info(`AI SSH Client web server listening on ${HOST}:${PORT}`);
+  const scheme = TLS_OPTIONS ? 'https' : 'http';
+  console.info(`AI SSH Client web server listening on ${scheme}://${HOST}:${PORT}`);
+  if (!TLS_OPTIONS && HOST !== '127.0.0.1' && HOST !== 'localhost') {
+    // 明确提示：非 HTTPS 访问时浏览器会拦截部分下载，避免误判为 SFTP 功能故障。
+    console.warn(
+      'Plain HTTP mode: browsers (Chrome) block "insecure downloads" (.pcap/.zip/...). '
+      + 'Set WEB_TLS=1 for a self-signed HTTPS listener, or WEB_TLS_CERT/WEB_TLS_KEY for a real certificate.',
+    );
+  }
   // 提示登录方式；仍为默认密码时建议尽快修改。
   if (auth.isEnvManaged) {
     console.info('Web login: password provided via WEB_AUTH_PASSWORD.');

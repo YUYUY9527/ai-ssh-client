@@ -21,6 +21,7 @@ export default defineConfig({
         'server/sftp-items.cjs',
         'server/sftp-upload.cjs',
         'server/sftp-transfer.cjs',
+        'server/tls.cjs',
       ],
     },
   },

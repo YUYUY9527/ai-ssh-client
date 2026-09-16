@@ -260,6 +260,7 @@ const zhCN = {
     },
     transferCompleted: '{type}完成',
     transferFailed: '{type}失败',
+    insecureDownloadHint: '当前页面为 HTTP 访问：浏览器会拦截“不安全下载”（.pcap/.zip 等非白名单类型）。若未生成文件，请改用 HTTPS 访问，或在 Chrome 站点设置中允许“不安全内容”。',
     itemCount: '{count} 个项目',
     taskCount: '{count} 个任务',
     loadFailed: '加载目录失败',

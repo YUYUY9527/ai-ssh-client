@@ -266,6 +266,7 @@ const enUS: DeepStringify<typeof zhCN> = {
     },
     transferCompleted: '{type} completed',
     transferFailed: '{type} failed',
+    insecureDownloadHint: 'This page is served over HTTP, so the browser blocks "insecure downloads" (.pcap/.zip and other non-allowlisted types). If no file appears, use HTTPS or allow "Insecure content" for this site in Chrome.',
     itemCount: '{count} items',
     taskCount: '{count} tasks',
     loadFailed: 'Failed to load directory',

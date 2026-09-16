@@ -199,6 +199,12 @@ export function TransferTaskList({
                 {formatUpdatedAt(task.updatedAt)}
               </div>
 
+              {task.notice && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" title={task.notice}>
+                  {task.notice}
+                </p>
+              )}
+
               {failed && task.error?.message && (
                 <p className="mt-2 line-clamp-2 text-xs text-red-600 dark:text-red-400" title={task.error.message}>
                   {task.error.message}

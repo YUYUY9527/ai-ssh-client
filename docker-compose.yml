@@ -9,6 +9,15 @@ services:
       # 可选：显式设置登录密码，覆盖默认值。留空则首次启动使用默认密码 admin，
       # 并持久化到数据卷，登录后可在「设置 → 修改密码」中更改。
       WEB_AUTH_PASSWORD: ${AI_SSH_CLIENT_WEB_PASSWORD:-}
+      # 可选：启用 HTTPS。Chrome 会拦截纯 HTTP 页面上的"不安全下载"（.pcap/.zip/... 都不在
+      # 安全扩展名白名单里），表现为 SFTP 下载静默失败。置 1 后首次启动会用 openssl 生成
+      # 自签名证书（含本机所有 IPv4，存于数据卷 /data/tls），改用 https://<IP>:5080 访问。
+      WEB_TLS: ${AI_SSH_CLIENT_WEB_TLS:-}
+      # 可选：自签名证书额外附加的主机名/IP（逗号分隔），例如反向代理域名。
+      # WEB_TLS_HOSTS: ssh.example.com
+      # 可选：使用正式证书时改成挂载 PEM 并设置（此时无需 WEB_TLS=1）。
+      # WEB_TLS_CERT: /certs/fullchain.pem
+      # WEB_TLS_KEY: /certs/privkey.pem
     volumes:
       - ai-ssh-client-data:/data
     restart: unless-stopped

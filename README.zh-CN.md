@@ -104,7 +104,9 @@ docker compose up -d --build
 ```
 
 访问 <http://localhost:5080>。如需修改宿主机端口，可设置
-`AI_SSH_CLIENT_WEB_PORT`。局域网内其他设备访问 `http://<笔记本IP>:5080`。
+`AI_SSH_CLIENT_WEB_PORT`。局域网内其他设备访问 `http://<笔记本IP>:5080`：浏览器会
+拦截纯 HTTP 来源的不安全下载，若需要在其他机器上使用 SFTP 下载，请开启内置 HTTPS
+（`AI_SSH_CLIENT_WEB_TLS=1`），详见[网络绑定与 TLS](#网络绑定与-tls)。
 
 Compose 部署会在同一个容器中运行 Node Web 网关并提供 React 页面，由运行
 Docker 的机器发起 SSH/SFTP 连接。连接数据保存在 `ai-ssh-client-data` Docker
@@ -141,6 +143,44 @@ SSH/SFTP 接口；未鉴权的访客只会看到登录页，而不是应用本�
   被监听，就应在网关前面做 TLS 终止（使用 Caddy、Nginx、Traefik 等反向代理）。
   当请求经由 HTTPS 到达时（包括反代传入的 `X-Forwarded-Proto`），会话 Cookie
   会自动带上 `Secure` 标志。
+
+#### 内置 HTTPS（局域网建议开启）
+
+浏览器会把「非可信来源 + 非白名单扩展名」的下载判定为 *insecure download* 并直接
+拦截：在 `http://<局域网IP>:5080` 下点 SFTP 下载后既没有文件也没有报错，控制台只留
+一条 `The file at 'http://…' was loaded over an insecure connection…`，下载气泡里是
+「已阻止不安全的下载」。`.pcap/.zip/.conf` 等常见运维文件都不在 Chrome 的安全扩展名
+白名单内，因此**这不是 SFTP 功能故障，而是浏览器的安全策略**。让页面本身走 HTTPS
+即可根治（https 属于可信来源）。网关内置两种方式：
+
+```bash
+# 方式一：自签名证书（首次启动用 openssl 生成，保存在数据卷 /data/tls）
+AI_SSH_CLIENT_WEB_TLS=1 docker compose up -d --build
+# 之后改用 https://<IP>:5080 访问；浏览器首次会提示证书不可信，选“高级 → 继续前往”
+```
+
+```yaml
+# 方式二：接入已有正式证书（PEM），挂载后指定路径即可，无需 WEB_TLS=1
+services:
+  ai-ssh-client-web:
+    volumes:
+      - ./certs:/certs:ro
+    environment:
+      WEB_TLS_CERT: /certs/fullchain.pem
+      WEB_TLS_KEY: /certs/privkey.pem
+```
+
+- `WEB_TLS=1`：未提供证书时自动生成自签名证书，SAN 默认包含 `localhost`、
+  `127.0.0.1` 与本机所有非回环 IPv4；可用 `WEB_TLS_HOSTS=ssh.example.com,192.168.4.213`
+  追加域名或固定 IP。
+- `WEB_TLS_REGENERATE=1`：强制重新生成自签名证书（例如换了访问 IP 导致域名不匹配）。
+- 证书文件位于 `DATA_DIR/tls/`（Docker 下为数据卷 `/data/tls`），删除后下次启动会重建。
+- 不走 Docker、直接 `node server/index.cjs` 时，自签名模式需要本机有 `openssl`；
+  没有的话可用 [mkcert](https://github.com/FiloSottile/mkcert) 生成本地证书，再通过
+  `WEB_TLS_CERT` / `WEB_TLS_KEY` 指定。
+
+不想启用 HTTPS 时的临时绕过办法：把 Chrome 站点设置里的「不安全内容」改为允许，或在
+服务器上做 SSH 端口转发后用 `http://localhost:5080` 访问（localhost 属于可信来源）。
 
 <details>
 <summary>示例：使用 Caddy 反向代理自动启用 HTTPS</summary>

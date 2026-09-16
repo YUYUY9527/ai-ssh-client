@@ -107,7 +107,11 @@ docker compose up -d --build
 ```
 
 Open <http://localhost:5080>. Set `AI_SSH_CLIENT_WEB_PORT` to use another host
-port. From another device on the same LAN, open `http://<laptop-ip>:5080`.
+port. From another device on the same LAN, open `http://<laptop-ip>:5080` —
+browsers block unsafe downloads on plain-HTTP origins, so enable the built-in
+HTTPS listener (`AI_SSH_CLIENT_WEB_TLS=1`) if SFTP downloads must work from
+other machines. See
+[Network binding and TLS](#network-binding-and-tls).
 
 The Compose deployment runs a Node web gateway that serves the React renderer
 and opens SSH/SFTP connections from the machine running Docker. Connection data
@@ -189,6 +193,53 @@ filled in again.
   TLS in front of the gateway (a reverse proxy such as Caddy, Nginx, or
   Traefik). The session cookie is automatically marked `Secure` when the request
   arrives over HTTPS (including via `X-Forwarded-Proto` from a proxy).
+
+#### Built-in HTTPS (recommended on a LAN)
+
+Browsers (Chrome) classify downloads as *insecure* when the page origin is not
+trustworthy and the file extension is not on their small safe list. On
+`http://<lan-ip>:5080` an SFTP download therefore finishes with no file and no
+in-app error: the console only shows
+`The file at 'http://…' was loaded over an insecure connection…` and the download
+bubble reports a blocked insecure download. `.pcap`, `.zip`, `.conf` and most
+other ops file types are outside that safe list, so **this is browser security
+policy, not a broken SFTP transfer**. Serving the page over HTTPS fixes it for
+good (https is a potentially trustworthy origin). The gateway supports both:
+
+```bash
+# Option 1: self-signed certificate, generated with openssl on first start
+# and stored in the data volume (/data/tls)
+AI_SSH_CLIENT_WEB_TLS=1 docker compose up -d --build
+# then browse https://<ip>:5080 and accept the certificate warning once
+```
+
+```yaml
+# Option 2: bring your own PEM certificate — no WEB_TLS=1 needed
+services:
+  ai-ssh-client-web:
+    volumes:
+      - ./certs:/certs:ro
+    environment:
+      WEB_TLS_CERT: /certs/fullchain.pem
+      WEB_TLS_KEY: /certs/privkey.pem
+```
+
+- `WEB_TLS=1` — generates a self-signed certificate when no certificate is
+  provided. The SAN always covers `localhost`, `127.0.0.1` and every non-loopback
+  IPv4 of the machine; add domains or fixed IPs with
+  `WEB_TLS_HOSTS=ssh.example.com,192.168.4.213`.
+- `WEB_TLS_REGENERATE=1` — force regeneration of the self-signed certificate
+  (for example after the accessed IP changed).
+- Certificates live in `DATA_DIR/tls/` (the `/data/tls` volume under Docker) and
+  are regenerated when deleted.
+- Running `node server/index.cjs` directly (no Docker) needs `openssl` on the
+  host for the self-signed mode; otherwise generate a local certificate with
+  [mkcert](https://github.com/FiloSottile/mkcert) and point `WEB_TLS_CERT` /
+  `WEB_TLS_KEY` at it.
+
+Temporary workarounds when you cannot enable HTTPS: allow "Insecure content" for
+the site in Chrome's site settings, or tunnel the port and use
+`http://localhost:5080`, which is a trustworthy origin.
 
 <details>
 <summary>Example: Caddy reverse proxy with automatic HTTPS</summary>

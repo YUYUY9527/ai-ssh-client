@@ -234,6 +234,8 @@ export interface SftpTransferTaskSnapshot {
   conflictPolicy: SftpConflictPolicy;
   conflict?: SftpTransferConflict;
   error?: SftpTransferError;
+  /** 非致命提示（例如 HTTP 页面下浏览器可能拦截该下载），仅用于 UI 展示。 */
+  notice?: string;
   commitGuarantee: SftpCommitGuarantee;
   createdAt: number;
   updatedAt: number;

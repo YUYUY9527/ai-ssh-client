@@ -46,6 +46,7 @@ import type {
   SSessionsResult,
   SSHConnectResult,
 } from '../../shared/ipc-types';
+import { t } from '../i18n';
 
 type ListenerCleanup = () => void;
 
@@ -1095,6 +1096,9 @@ const webApi: Window['electronAPI'] = {
       return result;
     }
     // handed-off：串行触发浏览器原生下载。
+    // 注意：http://<局域网IP> 属于非安全上下文，Chrome 会把非白名单扩展名（.pcap/.zip/...）
+    // 的下载判定为 insecure download 直接拦截（控制台只留一条 warning，任务看着"已完成"），
+    // 这里显式带上提示，并 bump sequence 让该快照覆盖服务端已推送的 handed-off 终态。
     for (const task of result.data.tasks) {
       if (!task.downloadUrl) continue;
       const anchor = document.createElement('a');
@@ -1104,6 +1108,13 @@ const webApi: Window['electronAPI'] = {
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
+    }
+    if (!window.isSecureContext) {
+      result.data.tasks = result.data.tasks.map((task) => ({
+        ...task,
+        notice: t('fileTransfer.insecureDownloadHint'),
+        sequence: task.sequence + 1,
+      }));
     }
     return result;
   },
