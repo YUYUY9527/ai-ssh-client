@@ -1520,7 +1520,7 @@ app.get('/api/sftp/:id/download', async (request, response) => {
   try {
     const remotePath = sftpProtocolPath(String(request.query.path || ''));
     const filename = posixPath.basename(String(request.query.path || remotePath));
-    const sftp = await getSftp(request.params.id, requireClientId(request));
+    const sftp = await getSftp(request.params.id, resolveClientId(request));
     // 尽量带上 content-length，并支持 Range 续传下载。
     let size = 0;
     try {
@@ -1595,6 +1595,26 @@ function requireClientId(request) {
     throw new Error('Missing SFTP client identity');
   }
   return clientId;
+}
+
+/**
+ * 下载接口的客户端标识解析：请求头优先，其次 URL 上的 clientId。
+ *
+ * handed-off 下载是浏览器下载管理器发起的顶层导航（<a download>），无法自定义请求头，
+ * 只能把 clientId 拼在 query 上（见 sftp-transfer.cjs 的 startDownload）。
+ * 该标识仅用于定位本客户端在服务端的 SFTP 会话，鉴权依旧依赖会话 Cookie，
+ * 因此在 URL 上传递不会带来额外权限（能改 URL 的调用方本来也能自定义请求头）。
+ */
+function resolveClientId(request) {
+  const header = request.get('x-sftp-client-id') || request.get('x-ssh-client-id');
+  if (header && header.length <= 200) {
+    return header;
+  }
+  const fromQuery = String(request.query?.clientId || '');
+  if (fromQuery && fromQuery.length <= 200) {
+    return fromQuery;
+  }
+  throw new Error('Missing SFTP client identity');
 }
 
 app.post('/api/sftp/transfers/upload', route((request) => {

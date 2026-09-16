@@ -500,7 +500,12 @@ function createSftpTransferService({ getSftp, emitEvent }) {
       emit(task);
       return {
         ...snapshot,
-        downloadUrl: `${downloadBasePath}/${encodeURIComponent(request.connectionId)}/download?path=${encodeURIComponent(normalizedPath)}`,
+        // handed-off 由浏览器下载管理器发起顶层导航，无法携带 x-sftp-client-id 请求头，
+        // 因此把客户端标识一并放进 URL，服务端据此定位本客户端的 SFTP 会话。
+        // 它只用于会话路由（鉴权仍由会话 Cookie 负责），与请求头等价、不额外提权。
+        downloadUrl: `${downloadBasePath}/${encodeURIComponent(request.connectionId)}/download`
+          + `?path=${encodeURIComponent(normalizedPath)}`
+          + `&clientId=${encodeURIComponent(clientId)}`,
       };
     });
     return { tasks: created };

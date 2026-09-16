@@ -322,4 +322,36 @@ describe('sftp-transfer', () => {
     expect(done.progress).toBe(100);
     expect(remoteFiles.get('/uploads/chunked.bin')!.toString()).toBe('helloworld');
   });
+
+  // 回归：handed-off 下载由浏览器顶层导航发起，带不了 x-sftp-client-id 请求头，
+  // 若 URL 里没有 clientId，GET /api/sftp/:id/download 会以 500 "Missing SFTP client identity" 失败。
+  it('embeds the client identity in handed-off download urls', () => {
+    const service = createSftpTransferService({
+      getSftp: async () => createSftp(new Map()),
+      emitEvent: () => {},
+    });
+
+    const handedOff = service.startDownload('client-a', {
+      connectionId: 'connection-a',
+      remotePaths: ['/home/zerui/nvr.pcap'],
+      conflictPolicy: 'ask',
+    }, '/api/sftp').tasks[0];
+
+    expect(handedOff.status).toBe('handed-off');
+    const url = new URL(handedOff.downloadUrl, 'https://example.test');
+    expect(url.pathname).toBe('/api/sftp/connection-a/download');
+    expect(url.searchParams.get('path')).toBe('/home/zerui/nvr.pcap');
+    expect(url.searchParams.get('clientId')).toBe('client-a');
+
+    // FSA 流式落盘走 fetch（带请求头），不需要 URL 上的 clientId，但保留也无害。
+    const streaming = service.startDownload('client-a', {
+      connectionId: 'connection-a',
+      remotePaths: ['/home/zerui/nvr.pcap'],
+      destination: { ref: 'web-dir:1', name: 'downloads' },
+      conflictPolicy: 'ask',
+    }, '/api/sftp').tasks[0];
+    expect(streaming.status).toBe('queued');
+    expect(new URL(streaming.downloadUrl, 'https://example.test').searchParams.get('clientId'))
+      .toBe('client-a');
+  });
 });
