@@ -209,9 +209,22 @@ good (https is a potentially trustworthy origin). The gateway supports both:
 ```bash
 # Option 1: self-signed certificate, generated with openssl on first start
 # and stored in the data volume (/data/tls)
-AI_SSH_CLIENT_WEB_TLS=1 docker compose up -d --build
-# then browse https://<ip>:5080 and accept the certificate warning once
+AI_SSH_CLIENT_WEB_TLS=1 docker compose up -d --build   # bash / zsh
 ```
+
+```powershell
+# Windows PowerShell: set the variable on its own line — `VAR=1 cmd` is bash syntax
+# and PowerShell reports it as an unrecognized command name
+$env:AI_SSH_CLIENT_WEB_TLS = '1'
+docker compose up -d --build
+```
+
+> Shell-free alternatives: put `AI_SSH_CLIENT_WEB_TLS=1` in a `.env` file next to
+> `docker-compose.yml` (Compose reads it automatically), or change
+> `WEB_TLS: ${AI_SSH_CLIENT_WEB_TLS:-}` to `WEB_TLS: "1"` in the compose file.
+
+The startup log should read `AI SSH Client web server listening on https://…`;
+browse `https://<ip>:5080` and accept the certificate warning once.
 
 ```yaml
 # Option 2: bring your own PEM certificate — no WEB_TLS=1 needed

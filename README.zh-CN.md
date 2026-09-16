@@ -155,9 +155,21 @@ SSH/SFTP 接口；未鉴权的访客只会看到登录页，而不是应用本�
 
 ```bash
 # 方式一：自签名证书（首次启动用 openssl 生成，保存在数据卷 /data/tls）
-AI_SSH_CLIENT_WEB_TLS=1 docker compose up -d --build
-# 之后改用 https://<IP>:5080 访问；浏览器首次会提示证书不可信，选“高级 → 继续前往”
+AI_SSH_CLIENT_WEB_TLS=1 docker compose up -d --build   # bash / zsh
 ```
+
+```powershell
+# Windows PowerShell：环境变量必须单独赋值，`VAR=1 cmd` 是 bash 写法会被当成命令名报错
+$env:AI_SSH_CLIENT_WEB_TLS = '1'
+docker compose up -d --build
+```
+
+> 也可以不依赖 shell：在 `docker-compose.yml` 同目录新建 `.env` 写入
+> `AI_SSH_CLIENT_WEB_TLS=1`，或直接把 `docker-compose.yml` 里的
+> `WEB_TLS: ${AI_SSH_CLIENT_WEB_TLS:-}` 改成 `WEB_TLS: "1"`。
+
+启动日志应打印 `AI SSH Client web server listening on https://…`，随后改用
+`https://<IP>:5080` 访问；浏览器首次会提示证书不可信，选「高级 → 继续前往」。
 
 ```yaml
 # 方式二：接入已有正式证书（PEM），挂载后指定路径即可，无需 WEB_TLS=1
