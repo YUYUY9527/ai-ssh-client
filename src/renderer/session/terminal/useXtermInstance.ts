@@ -13,7 +13,7 @@ import {
 } from './terminal-theme';
 import { resolveTerminalRuntimeSettings } from './terminal-settings';
 import { isOpenableHttpUrl, ShellIntegrationParser, type ShellIntegrationState } from './shell-integration';
-import { gateTerminalPaste } from './paste-safety';
+import { createClipboardPasteFallback, gateTerminalPaste } from './paste-safety';
 import { useSessionStore } from '../useSessionStore';
 
 interface XtermInstanceOptions {
@@ -279,6 +279,10 @@ export function useXtermInstance({
       return !isEditable && Boolean(liveConnectionIdRef.current) && terminalRef.current?.offsetParent !== null;
     };
 
+    // Ctrl+V 的唯一正常路径是浏览器原生 paste 事件（下面的捕获监听统一走粘贴门控）；
+    // Clipboard API 只在收不到 paste 事件时兜底，否则安全上下文（HTTPS/localhost）下会粘贴两遍。
+    const pasteFallback = createClipboardPasteFallback();
+
     const handleTerminalPaste = (event: ClipboardEvent) => {
       if (!shouldHandlePaste(event.target)) {
         return;
@@ -291,6 +295,7 @@ export function useXtermInstance({
 
       event.preventDefault();
       event.stopPropagation();
+      pasteFallback.markHandled();
       // 多行不直接 sshExecuteSync，统一走门控
       sendPasteText(text);
     };
@@ -306,12 +311,19 @@ export function useXtermInstance({
       }
 
       if (event.ctrlKey && key === 'v') {
+        // 只阻止 xterm 把 Ctrl+V 当作 \x16 发给远端，粘贴交给浏览器原生 paste 事件；
+        // 窗口期内没等到 paste 事件（个别 webview 不派发）才用 Clipboard API 兜底。
         if (event.type === 'keydown' && liveConnectionIdRef.current && window.electronAPI) {
-          void navigator.clipboard?.readText?.().then((text) => {
-            if (text && liveConnectionIdRef.current) {
-              sendPasteText(text);
+          pasteFallback.arm(() => {
+            if (!liveConnectionIdRef.current) {
+              return;
             }
-          }).catch(() => {});
+            void navigator.clipboard?.readText?.().then((text) => {
+              if (text && liveConnectionIdRef.current) {
+                sendPasteText(text);
+              }
+            }).catch(() => {});
+          });
         }
         return false;
       }
@@ -413,6 +425,8 @@ export function useXtermInstance({
       }
       terminalRef.current?.removeEventListener('paste', handleTerminalPaste, true);
       document.removeEventListener('paste', handleTerminalPaste, true);
+      // 实例销毁后不要再触发 Ctrl+V 的剪贴板兜底，避免把内容发到下一个会话。
+      pasteFallback.cancel();
       writeParsedDisposable.dispose();
       term.dispose();
       xtermRef.current = null;
