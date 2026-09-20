@@ -222,6 +222,15 @@ docker compose up -d --build
 > Shell-free alternatives: put `AI_SSH_CLIENT_WEB_TLS=1` in a `.env` file next to
 > `docker-compose.yml` (Compose reads it automatically), or change
 > `WEB_TLS: ${AI_SSH_CLIENT_WEB_TLS:-}` to `WEB_TLS: "1"` in the compose file.
+>
+> **To keep HTTPS on permanently, use `.env`.** `$env:XXX` only lasts for the
+> current shell session, while `docker compose up -d --build` recreates the
+> container and re-resolves the configuration every time — a fresh terminal
+> silently falls back to plain HTTP. `.env` is git-ignored, so `git pull` never
+> conflicts. The certificate is generated once and kept in the `/data/tls` volume,
+> so rebuilds do not rotate it and the browser only has to trust it once (unless
+> the volume is removed with `docker compose down -v`, or the browsed IP changes —
+> then regenerate with `WEB_TLS_REGENERATE=1`).
 
 The startup log should read `AI SSH Client web server listening on https://…`;
 browse `https://<ip>:5080` and accept the certificate warning once.

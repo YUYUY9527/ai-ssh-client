@@ -167,6 +167,12 @@ docker compose up -d --build
 > 也可以不依赖 shell：在 `docker-compose.yml` 同目录新建 `.env` 写入
 > `AI_SSH_CLIENT_WEB_TLS=1`，或直接把 `docker-compose.yml` 里的
 > `WEB_TLS: ${AI_SSH_CLIENT_WEB_TLS:-}` 改成 `WEB_TLS: "1"`。
+>
+> **想一直启用、不必每次设置，就用 `.env`**：`$env:XXX` 只在当前终端会话有效，而
+> `docker compose up -d --build` 每次都会重建容器并按当时的变量重新解析配置，新开一个
+> 终端就会悄悄退回 HTTP。`.env` 已被 `.gitignore` 忽略，`git pull` 不会冲突。
+> 证书生成一次后保存在数据卷 `/data/tls`，重建不影响，浏览器只需接受一次（除非用
+> `docker compose down -v` 删了数据卷，或换了访问 IP —— 那时用 `WEB_TLS_REGENERATE=1` 重签）。
 
 启动日志应打印 `AI SSH Client web server listening on https://…`，随后改用
 `https://<IP>:5080` 访问；浏览器首次会提示证书不可信，选「高级 → 继续前往」。
