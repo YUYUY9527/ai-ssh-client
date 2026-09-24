@@ -205,6 +205,7 @@ export function AppController() {
   const handleTabClick = (tabId: string) => {
     setActiveTabId(tabId);
     setActiveSession(tabId);
+    useAgentStore.getState().setActiveConnection(tabId);
   };
 
   const handleCloseTab = async (e: React.MouseEvent, tabId: string) => {
@@ -221,6 +222,7 @@ export function AppController() {
       if (remainingTabs.length > 0) {
         setActiveTabId(remainingTabs[0].id);
         setActiveSession(remainingTabs[0].id);
+        useAgentStore.getState().setActiveConnection(remainingTabs[0].id);
       } else {
         setActiveTabId(null);
         setActiveSession(null);
@@ -251,6 +253,7 @@ export function AppController() {
     setActiveTabId(connectionId);
     registerSession(fullConnection, { state: 'connecting', lastActiveAt: Date.now() });
     setActiveSession(connectionId);
+    useAgentStore.getState().setActiveConnection(connectionId);
 
     // 执行连接并检查返回值（初始 PTY 尺寸会被 Terminal 组件的 fit() 立即覆盖）
     const success = await connect(fullConnection, 200, 50, settings);
@@ -590,6 +593,7 @@ export function AppController() {
     setOpenTabs([]);
     setActiveTabId(null);
     setActiveSession(null);
+    useAgentStore.getState().setActiveConnection(null);
     setSftpSidebarOpen(false);
     setTabContextMenu(null);
   };
