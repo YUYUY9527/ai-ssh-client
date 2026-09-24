@@ -102,6 +102,7 @@ export function TerminalView({
   const isAlternateScreenRef = useRef(false);
   const agentFollowUpModeRef = useRef(false);
   const agentFirstInputModeRef = useRef(false);
+  const agentFirstInputConnectionRef = useRef<string | null>(null);
   const forceAgentPrefixAfterExitRef = useRef(false);
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
@@ -118,7 +119,9 @@ export function TerminalView({
 
   useEffect(() => {
     if (!sessionId || !hasCurrentAgentTask || (agentTaskConnectionId && agentTaskConnectionId !== sessionId)) {
-      if (!agentFirstInputModeRef.current) {
+      if (!agentFirstInputModeRef.current || agentFirstInputConnectionRef.current !== sessionId) {
+        agentFirstInputModeRef.current = false;
+        agentFirstInputConnectionRef.current = null;
         agentFollowUpModeRef.current = false;
       }
       return;
@@ -134,6 +137,7 @@ export function TerminalView({
       if (result.action.type === 'new-conversation') {
         agentFollowUpModeRef.current = true;
         agentFirstInputModeRef.current = true;
+        agentFirstInputConnectionRef.current = sessionId;
         forceAgentPrefixAfterExitRef.current = false;
         window.setTimeout(() => {
           xtermRef.current?.write(formatAgentTerminalText(t('terminal.agentNewConversation')));
@@ -141,6 +145,7 @@ export function TerminalView({
       } else {
         agentFollowUpModeRef.current = false;
         agentFirstInputModeRef.current = false;
+        agentFirstInputConnectionRef.current = null;
         forceAgentPrefixAfterExitRef.current = false;
       }
       if (result.action.type === 'approval') {
@@ -169,6 +174,7 @@ export function TerminalView({
     if (!agentFollowUpModeRef.current) return;
     agentFollowUpModeRef.current = false;
     agentFirstInputModeRef.current = false;
+    agentFirstInputConnectionRef.current = null;
     forceAgentPrefixAfterExitRef.current = true;
     xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
   }, [t, xtermRef]);
