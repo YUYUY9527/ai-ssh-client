@@ -6,6 +6,7 @@ import { useSessionStore } from '../useSessionStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useI18n } from '../../i18n';
 import { useSftpTransferStore } from '../../store/useSftpTransferStore';
+import { useAgentStore } from '../../store/useAgentStore';
 import { DEFAULT_REMOTE_PATH } from '../../transfer/transfer-types';
 import { useWorkspaceStore } from '../../workspace/useWorkspaceStore';
 import type { AppSettings } from '../../../shared/types';
@@ -133,6 +134,20 @@ export function TerminalView({
     xtermRef.current?.write(`\x1b[31m${formatAgentTerminalText(t(errorKeys[result.error]))}\x1b[0m`);
   }, [sessionId, t, xtermRef]);
 
+  const getAgentReplyMode = useCallback((): 'answer' | 'approval' | null => {
+    const state = useAgentStore.getState();
+    if (
+      !sessionId
+      || state.pendingTerminalPrompt
+      || (state.currentTask?.connectionId && state.currentTask.connectionId !== sessionId)
+    ) {
+      return null;
+    }
+    if (state.pendingApproval) return 'approval';
+    if (state.pendingQuestion) return 'answer';
+    return null;
+  }, [sessionId]);
+
   useTerminalAgentOutput({
     isAlternateScreen,
     sessionId,
@@ -194,7 +209,7 @@ export function TerminalView({
   } = useTerminalInputTracking({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
-    shellCommandRunning: shellState?.commandRunning,
+    getAgentReplyMode,
     syncAlternateScreenState,
     terminalInstanceVersion,
     xtermRef,
@@ -211,9 +226,8 @@ export function TerminalView({
     return isShellPromptReadyForAgent(
       bufferLine,
       getCurrentInput(),
-      shellState?.commandRunning,
     );
-  }, [getCurrentInput, shellState?.commandRunning, xtermRef]);
+  }, [getCurrentInput, xtermRef]);
 
   /** 写入本地字号并持久化（工具栏 +/- 与 Ctrl+/- 共用）。 */
   const commitFontSize = useCallback((nextSize: number) => {

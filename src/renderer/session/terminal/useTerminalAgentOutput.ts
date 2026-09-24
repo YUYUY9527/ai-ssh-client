@@ -21,10 +21,7 @@ function stateLabel(state: AgentState, t: Translate): string | null {
     case 'planning':
     case 'executing':
     case 'observing':
-      return t(`agent.states.${state}`);
     case 'paused':
-    case 'finished':
-    case 'error':
       return t(`agent.states.${state}`);
     default:
       return null;
@@ -91,7 +88,7 @@ export function useTerminalAgentOutput({
 
     if (taskIdRef.current !== currentTask.id) {
       taskIdRef.current = currentTask.id;
-      stateRef.current = agentState;
+      stateRef.current = 'idle';
       executionStepIdsRef.current.clear();
       promptRef.current = null;
       approvalRef.current = null;

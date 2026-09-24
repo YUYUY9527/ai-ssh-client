@@ -88,7 +88,7 @@ function extractCommandFromTerminalOutput(output: string): string | null {
 interface TerminalInputTrackingOptions {
   liveConnectionId: string | null;
   onAgentInput?: (text: string) => void;
-  shellCommandRunning?: boolean;
+  getAgentReplyMode?: () => 'answer' | 'approval' | null;
   syncAlternateScreenState: () => boolean | undefined;
   terminalInstanceVersion: number;
   xtermRef: RefObject<XTerm | null>;
@@ -98,14 +98,14 @@ interface TerminalInputTrackingOptions {
 export function useTerminalInputTracking({
   liveConnectionId,
   onAgentInput,
-  shellCommandRunning = false,
+  getAgentReplyMode,
   syncAlternateScreenState,
   terminalInstanceVersion,
   xtermRef,
 }: TerminalInputTrackingOptions) {
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const onAgentInputRef = useRef(onAgentInput);
-  const shellCommandRunningRef = useRef(shellCommandRunning);
+  const getAgentReplyModeRef = useRef(getAgentReplyMode);
   const inputTrackingReliableRef = useRef(true);
   const currentInputRef = useRef('');
   const cwdRef = useRef(DEFAULT_CWD);
@@ -143,8 +143,8 @@ export function useTerminalInputTracking({
 
   useEffect(() => {
     onAgentInputRef.current = onAgentInput;
-    shellCommandRunningRef.current = shellCommandRunning;
-  }, [onAgentInput, shellCommandRunning]);
+    getAgentReplyModeRef.current = getAgentReplyMode;
+  }, [getAgentReplyMode, onAgentInput]);
 
   const consumeOutputChunk = useCallback((chunk: string) => {
     outputTailRef.current = tailText(`${outputTailRef.current}${chunk}`, 4096);
@@ -197,7 +197,6 @@ export function useTerminalInputTracking({
       return isShellPromptReadyForAgent(
         bufferLine,
         currentInputRef.current,
-        shellCommandRunningRef.current,
       );
     };
 
@@ -254,10 +253,30 @@ export function useTerminalInputTracking({
         command = inputTrackingReliableRef.current
           ? currentInputRef.current.trim()
           : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
-        const agentCommand = parseTerminalAgentCommand(command);
         const agentPromptReady = isAgentPromptReady();
+        const replyMode = getAgentReplyModeRef.current?.();
+        const isShellEscape = /^@sh(?:\s|$)/i.test(command || '');
+        const agentCommand = isShellEscape
+          ? null
+          : replyMode && agentPromptReady
+            ? { text: command || '' }
+            : parseTerminalAgentCommand(command || '');
         inputTrackingReliableRef.current = true;
         currentInputRef.current = '';
+        if (isShellEscape) {
+          const shellCommand = (command || '').replace(/^@sh\s*/i, '');
+          if (window.electronAPI) {
+            try {
+              window.electronAPI.sshExecuteSync(connectionId, '\x15');
+              if (shellCommand) {
+                window.electronAPI.sshExecuteSync(connectionId, `${shellCommand}\r`);
+              }
+            } catch (error) {
+              console.warn('Failed to execute terminal Agent shell escape', error);
+            }
+          }
+          return;
+        }
         if (agentCommand && agentPromptReady) {
           // The remote shell has echoed the line but has not executed it. Clear
           // that pending shell input, then route the line to the local Agent.

@@ -61,9 +61,8 @@ export function isTerminalAgentCommand(input: string): boolean {
 export function isShellPromptReadyForAgent(
   bufferLine: string,
   currentInput: string,
-  commandRunning = false,
 ): boolean {
-  if (commandRunning || !bufferLine) {
+  if (!bufferLine) {
     return false;
   }
   let line = bufferLine.replace(/\s+$/, '');

@@ -48,7 +48,7 @@ describe('terminal @ai command parsing', () => {
     expect(isShellPromptReadyForAgent('user@host:~/src$', '@ai check disk')).toBe(true);
     expect(isShellPromptReadyForAgent('> @ai literal heredoc', '@ai literal heredoc')).toBe(false);
     expect(isShellPromptReadyForAgent('# @ai literal continuation', '@ai literal continuation')).toBe(false);
-    expect(isShellPromptReadyForAgent('user@host:~$ @ai check disk', '@ai check disk', true)).toBe(false);
+    expect(isShellPromptReadyForAgent('user@host:~$ @ai check disk', '@ai check disk')).toBe(true);
     expect(isShellPromptReadyForAgent('custom-prompt @ai check disk', '@ai check disk')).toBe(false);
   });
 
