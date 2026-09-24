@@ -251,7 +251,7 @@ describe('sftp-transfer', () => {
       destinationPath: '/uploads/resume.bin',
     })));
 
-    service.cancel('client-a', { taskId: resumeTask.taskId });
+    await service.cancel('client-a', { taskId: resumeTask.taskId });
     const retried = await service.retry('client-a', { taskId: resumeTask.taskId });
     expect(retried.resumedFrom).toBe(5);
     await service.upload('client-a', resumeTask.taskId, requestLike([Buffer.from('world')], {
@@ -352,7 +352,45 @@ describe('sftp-transfer', () => {
   });
 
 
-  // 若 URL 里没有 clientId，GET /api/sftp/:id/download 会以 500 "Missing SFTP client identity" 失败。
+  it('removes partial and checkpoint files when an active upload is canceled', async () => {
+    const remoteFiles = new Map<string, Buffer>();
+    const sftp = createSftp(remoteFiles);
+    const service = createSftpTransferService({
+      getSftp: async () => sftp,
+      emitEvent: () => {},
+    });
+    const task = service.startUpload('client-a', {
+      connectionId: 'connection-a',
+      remoteDirectory: '/uploads',
+      files: [{ name: 'cancel.bin', ref: 'web-file:cancel', size: 10 }],
+    }).tasks[0];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    async function* chunks() {
+      yield Buffer.from('hello');
+      await gate;
+      yield Buffer.from('world');
+    }
+    const request: any = Readable.from(chunks());
+    request.headers = {
+      'content-length': '10',
+      'x-sftp-source-size': '10',
+      'x-sftp-source-mtime': '1',
+    };
+
+    const upload = service.upload('client-a', task.taskId, request);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.cancel('client-a', { taskId: task.taskId });
+    release();
+    await upload;
+
+    const temporary = temporaryRemotePath('/uploads/cancel.bin', task.taskId);
+    expect(remoteFiles.has(temporary)).toBe(false);
+    expect(remoteFiles.has(checkpointRemotePath(temporary))).toBe(false);
+    expect(service.list('client-a').tasks[0].status).toBe('canceled');
+  });
+
+
   it('embeds the client identity in handed-off download urls', () => {
     const service = createSftpTransferService({
       getSftp: async () => createSftp(new Map()),

@@ -416,8 +416,14 @@ function createSftpTransferService({ getSftp, emitEvent }) {
         return finish(task, 'completed', undefined, exists ? 'best-effort-replace' : 'atomic-create');
       } catch (error) {
         await callSftp(sftp, 'close', handle).catch(() => undefined);
-        // 取消/失败时尽量落最终 checkpoint，便于重试续传。
-        if (offset > 0) {
+        const canceled = error instanceof TransferError && error.code === 'canceled';
+        if (canceled) {
+          // 取消代表用户明确放弃本次上传，不保留远端 partial/meta；
+          // 否则目录里会留下 .part 与 .meta 两个隐藏文件。
+          await removeRemoteQuiet(sftp, temporaryPath);
+          await removeRemoteQuiet(sftp, checkpointRemotePath(temporaryPath));
+        } else if (offset > 0) {
+          // 失败/网络中断尽量落最终 checkpoint，便于重试续传。
           await writeCheckpoint(sftp, temporaryPath, {
             taskId: snapshot.taskId,
             sourceSize,
@@ -429,7 +435,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
             destinationPath: destination,
           }).catch(() => undefined);
         }
-        if (error instanceof TransferError && error.code === 'canceled') {
+        if (canceled) {
           return finish(task, 'canceled');
         }
         if (error instanceof TransferError && error.code === 'conflict') throw error;

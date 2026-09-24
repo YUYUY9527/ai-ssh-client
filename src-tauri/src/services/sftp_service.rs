@@ -212,7 +212,7 @@ impl SftpService {
         Ok(SftpStartTransferResult { tasks: snapshots })
     }
 
-    /// Cancels a queued, waiting, or active task without removing its recovery metadata.
+    /// Cancels a queued, waiting, or active task; active upload artifacts are cleaned when possible.
     pub fn cancel(
         &self,
         app_handle: &AppHandle,
@@ -964,22 +964,11 @@ impl SftpService {
         let mut last_checkpoint_at = now_millis();
         loop {
             if self.task(task_id)?.canceled.load(Ordering::Acquire) {
-                let _ = write_remote_checkpoint(
-                    sftp,
-                    &meta_path,
-                    &TransferCheckpoint {
-                        task_id: task_id.to_string(),
-                        source_size: total,
-                        source_mtime_ms,
-                        source_head: source_head.clone(),
-                        source_tail: source_tail.clone(),
-                        total_bytes: total,
-                        confirmed_offset: transferred,
-                        destination_path: remote_path.clone(),
-                    },
-                )
-                .await;
                 let _ = remote_file.shutdown().await;
+                // 用户明确取消正在写入的上传时清理远端临时文件；
+                // 失败/中断仍保留 checkpoint 以支持续传。
+                let _ = sftp.remove_file(&temp_path).await;
+                let _ = sftp.remove_file(&meta_path).await;
                 self.complete_canceled(app_handle, task_id)?;
                 return Ok(());
             }
