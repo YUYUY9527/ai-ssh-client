@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   AlertCircle,
   CheckCircle,
@@ -10,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 
+import type { SftpConflictPolicy } from '../../shared/ipc-types';
 import type { SftpTransferTask } from '../store/useSftpTransferStore';
 import {
   isSftpTransferActive,
@@ -20,7 +22,14 @@ interface TransferTaskListProps {
   onCancelTask: (taskId: string) => void;
   onDiscardTask: (taskId: string) => void;
   onRemoveTask: (taskId: string) => void;
+  onResolveConflict: (
+    taskId: string,
+    policy: Exclude<SftpConflictPolicy, 'ask'>,
+    renamedPath?: string,
+    applyToBatch?: boolean,
+  ) => void;
   onRetryTask: (taskId: string) => void;
+  resolvingConflictTaskId?: string | null;
   tasks: SftpTransferTask[];
   translate: (key: string, params?: Record<string, string | number>) => string;
 }
@@ -52,10 +61,13 @@ export function TransferTaskList({
   onCancelTask,
   onDiscardTask,
   onRemoveTask,
+  onResolveConflict,
   onRetryTask,
+  resolvingConflictTaskId,
   tasks,
   translate,
 }: TransferTaskListProps) {
+  const [applyToBatch, setApplyToBatch] = useState(false);
   if (tasks.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -183,6 +195,59 @@ export function TransferTaskList({
                   style={{ width: `${progressValue}%` }}
                 />
               </div>
+
+              {task.status === 'waiting-conflict' && (
+                <div className="mt-3 rounded-sm border border-amber-500/35 bg-amber-500/10 p-2.5">
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    {translate('fileTransfer.conflictMessage', {
+                      name: task.name,
+                      path: task.conflict?.destinationPath || task.remotePath || '-',
+                    })}
+                  </p>
+                  {task.batchId && (
+                    <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                      <input
+                        type="checkbox"
+                        checked={applyToBatch}
+                        onChange={(event) => setApplyToBatch(event.target.checked)}
+                        disabled={resolvingConflictTaskId === task.taskId}
+                      />
+                      <span>{translate('fileTransfer.conflictApplyBatch')}</span>
+                    </label>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      className="industrial-button-secondary px-2 py-1 text-xs"
+                      disabled={resolvingConflictTaskId === task.taskId}
+                      onClick={() => onResolveConflict(task.taskId, 'overwrite', undefined, applyToBatch)}
+                    >
+                      {translate('fileTransfer.conflictOverwrite')}
+                    </button>
+                    <button
+                      type="button"
+                      className="industrial-button-secondary px-2 py-1 text-xs"
+                      disabled={resolvingConflictTaskId === task.taskId}
+                      onClick={() => onResolveConflict(task.taskId, 'skip', undefined, applyToBatch)}
+                    >
+                      {translate('fileTransfer.conflictSkip')}
+                    </button>
+                    <button
+                      type="button"
+                      className="industrial-button-secondary px-2 py-1 text-xs"
+                      disabled={resolvingConflictTaskId === task.taskId}
+                      onClick={() => onResolveConflict(
+                        task.taskId,
+                        'rename',
+                        task.conflict?.suggestedName,
+                        applyToBatch,
+                      )}
+                    >
+                      {translate('fileTransfer.conflictRename')}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {(task.remotePath || task.localPath) && (
                 <p

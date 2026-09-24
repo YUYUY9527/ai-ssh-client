@@ -31,7 +31,6 @@ import { Modal } from '../shared-ui/Modal';
 import {
   useSftpTransferStore,
 } from '../store/useSftpTransferStore';
-import { SftpConflictDialog } from '../transfer/SftpConflictDialog';
 import { SftpFileEditor } from '../transfer/SftpFileEditor';
 import { TransferTaskList } from '../transfer/TransferTaskList';
 import { useSftpTransferController } from '../transfer/useSftpTransferController';
@@ -39,7 +38,7 @@ import {
   DEFAULT_REMOTE_PATH,
   type RemoteFileItem,
 } from '../transfer/transfer-types';
-import { MAX_SFTP_EDIT_BYTES } from '../../shared/ipc-types';
+import { MAX_SFTP_EDIT_BYTES, type SftpConflictPolicy } from '../../shared/ipc-types';
 
 interface FileTransferProps {
   connectionId: string;
@@ -240,7 +239,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const [mkdirName, setMkdirName] = useState('');
   const [mkdirError, setMkdirError] = useState<string | null>(null);
   const [isCreatingDir, setIsCreatingDir] = useState(false);
-  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+  const [resolvingConflictTaskId, setResolvingConflictTaskId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<RemoteFileItem | null>(null);
   /** 文件过大等提示：居中弹窗，避免顶栏错误需滚动才可见 */
   const [editAlert, setEditAlert] = useState<string | null>(null);
@@ -282,10 +281,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const orderedPaths = useMemo(() => files.map((file) => file.path), [files]);
   const allSelected = files.length > 0 && files.every((file) => selectedPaths.includes(file.path));
   const selectedHasDirectory = selectedFiles.some((file) => file.isDirectory);
-  const conflictTask = useMemo(
-    () => visibleTransferTasks.find((task) => task.status === 'waiting-conflict') ?? null,
-    [visibleTransferTasks],
-  );
 
   const loadDirectory = useCallback(async (path: string): Promise<boolean> => {
     const targetPath = normalizeRemoteBrowsePath(path);
@@ -949,6 +944,29 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     }
   };
 
+  const handleResolveConflict = async (
+    taskId: string,
+    policy: Exclude<SftpConflictPolicy, 'ask'>,
+    renamedPath?: string,
+    applyToBatch?: boolean,
+  ) => {
+    const task = transferTasks.find((item) => item.taskId === taskId);
+    if (!task || resolvingConflictTaskId) return;
+    setResolvingConflictTaskId(taskId);
+    try {
+      const errorMessage = await transferController.resolveConflict({
+        taskId,
+        attempt: task.attempt,
+        policy,
+        renamedPath,
+        applyToBatch,
+      });
+      if (errorMessage) setActionError(errorMessage);
+    } finally {
+      setResolvingConflictTaskId(null);
+    }
+  };
+
   useEffect(() => {
     const dropZone = dropZoneRef.current;
     if (!dropZone || !isLive) return;
@@ -1295,6 +1313,10 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             onRetryTask={(taskId) => void handleTaskAction('retry', taskId)}
             onDiscardTask={(taskId) => void handleTaskAction('discard', taskId)}
             onRemoveTask={(taskId) => void handleTaskAction('remove', taskId)}
+            onResolveConflict={(taskId, policy, renamedPath, applyToBatch) => {
+              void handleResolveConflict(taskId, policy, renamedPath, applyToBatch);
+            }}
+            resolvingConflictTaskId={resolvingConflictTaskId}
             translate={t}
           />
         ) : (
@@ -1819,32 +1841,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
           if (!isDeleting) {
             setDeleteTargets([]);
           }
-        }}
-      />
-
-      <SftpConflictDialog
-        isOpen={conflictTask != null}
-        isSubmitting={isResolvingConflict}
-        task={conflictTask}
-        translate={t}
-        onCancel={() => {
-          if (!conflictTask || isResolvingConflict) return;
-          void handleTaskAction('cancel', conflictTask.taskId);
-        }}
-        onResolve={(input) => {
-          if (!conflictTask) return;
-          setIsResolvingConflict(true);
-          void transferController.resolveConflict({
-            taskId: conflictTask.taskId,
-            attempt: conflictTask.attempt,
-            policy: input.policy,
-            renamedPath: input.renamedPath,
-            applyToBatch: input.applyToBatch,
-          }).then((errorMessage) => {
-            if (errorMessage) setActionError(errorMessage);
-          }).finally(() => {
-            setIsResolvingConflict(false);
-          });
         }}
       />
     </div>
