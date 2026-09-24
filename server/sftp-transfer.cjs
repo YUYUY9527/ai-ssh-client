@@ -285,7 +285,10 @@ function createSftpTransferService({ getSftp, emitEvent }) {
               suggestedName: suggestedRemotePath(remotePath, current.taskId),
             };
           });
-          throw new TransferError('Destination already exists', 'conflict', false);
+          const conflictError = new TransferError('Destination already exists', 'conflict', false);
+          // HTTP 409 也携带任务快照，避免 WebSocket 建连竞态导致前端卡在 transferring。
+          conflictError.task = snapshot;
+          throw conflictError;
         }
         if (snapshot.conflictPolicy === 'skip') {
           return finish(task, 'skipped');

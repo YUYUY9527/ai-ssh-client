@@ -197,7 +197,7 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
       const status = event.type === 'terminal'
         ? event.status
         : event.snapshot.status;
-      if (!['completed', 'handed-off', 'skipped', 'failed', 'canceled', 'interrupted'].includes(status)) {
+      if (!['completed', 'handed-off', 'skipped', 'failed', 'interrupted'].includes(status)) {
         return;
       }
 

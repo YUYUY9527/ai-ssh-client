@@ -258,9 +258,13 @@ async function streamSftpUpload(
       const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
 
       if (!result.success) {
-        // 冲突由服务端 snapshot 驱动；若 WS 尚未建连，HTTP 409 后主动补拉任务。
+        // 冲突响应优先使用服务端快照；若旧网关没有携带快照，再补拉任务列表。
         if (result.code === 'conflict' || response.status === 409) {
-          await refreshWebTransferTask(taskId);
+          if (result.task) {
+            publishTaskSnapshot(result.task);
+          } else {
+            await refreshWebTransferTask(taskId);
+          }
           return makeError(result.error || 'Destination already exists', 'conflict');
         }
         publishUploadFailure(

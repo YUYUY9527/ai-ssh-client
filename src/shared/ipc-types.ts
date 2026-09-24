@@ -13,6 +13,8 @@ export interface ErrorResult {
   success: false;
   error: string;
   code?: string;
+  /** 冲突等需要前端恢复任务状态的错误可携带最新任务快照。 */
+  task?: SftpTransferTaskSnapshot;
 }
 
 export function success(): SuccessResult<void>;

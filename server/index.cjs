@@ -124,6 +124,9 @@ function failure(error) {
   if (error && typeof error === 'object' && error.code != null && error.code !== '') {
     payload.code = String(error.code);
   }
+  if (error?.task) {
+    payload.task = error.task;
+  }
   return payload;
 }
 
