@@ -236,6 +236,13 @@ export function submitAgentInput(
   }
 
   if (result.action.type === 'new-conversation') {
+    if (
+      agent.currentTask
+      && agent.currentTask.state !== 'finished'
+      && agent.currentTask.state !== 'error'
+    ) {
+      agent.cancelTask();
+    }
     agent.startNewConversation();
   } else if (result.action.type === 'approval') {
     agent.setApprovalResult(result.action.result);

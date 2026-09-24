@@ -101,6 +101,7 @@ export function TerminalView({
   const [shellState, setShellState] = useState<ShellIntegrationState | null>(null);
   const isAlternateScreenRef = useRef(false);
   const agentFollowUpModeRef = useRef(false);
+  const agentFirstInputModeRef = useRef(false);
   const forceAgentPrefixAfterExitRef = useRef(false);
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
@@ -117,7 +118,9 @@ export function TerminalView({
 
   useEffect(() => {
     if (!sessionId || !hasCurrentAgentTask || (agentTaskConnectionId && agentTaskConnectionId !== sessionId)) {
-      agentFollowUpModeRef.current = false;
+      if (!agentFirstInputModeRef.current) {
+        agentFollowUpModeRef.current = false;
+      }
       return;
     }
     if (agentState === 'finished' || agentState === 'error') {
@@ -128,11 +131,19 @@ export function TerminalView({
   const handleTerminalAgentInput = useCallback((text: string) => {
     const result = submitAgentInput(text, sessionId);
     if (result.ok) {
-      agentFollowUpModeRef.current = false;
-      forceAgentPrefixAfterExitRef.current = false;
       if (result.action.type === 'new-conversation') {
-        xtermRef.current?.write(formatAgentTerminalText(t('terminal.agentNewConversation')));
-      } else if (result.action.type === 'approval') {
+        agentFollowUpModeRef.current = true;
+        agentFirstInputModeRef.current = true;
+        forceAgentPrefixAfterExitRef.current = false;
+        window.setTimeout(() => {
+          xtermRef.current?.write(formatAgentTerminalText(t('terminal.agentNewConversation')));
+        }, 50);
+      } else {
+        agentFollowUpModeRef.current = false;
+        agentFirstInputModeRef.current = false;
+        forceAgentPrefixAfterExitRef.current = false;
+      }
+      if (result.action.type === 'approval') {
         xtermRef.current?.write(formatAgentTerminalText(t(
           result.action.result === 'approved'
             ? 'terminal.agentApprovalAccepted'
@@ -157,6 +168,7 @@ export function TerminalView({
   const handleExitAgentFollowUp = useCallback(() => {
     if (!agentFollowUpModeRef.current) return;
     agentFollowUpModeRef.current = false;
+    agentFirstInputModeRef.current = false;
     forceAgentPrefixAfterExitRef.current = true;
     xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
   }, [t, xtermRef]);
@@ -172,6 +184,7 @@ export function TerminalView({
     }
     if (state.pendingApproval) return 'approval';
     if (state.pendingQuestion) return 'answer';
+    if (agentFirstInputModeRef.current) return 'follow-up';
     if (
       state.currentTask
       && state.currentTask.state !== 'finished'
