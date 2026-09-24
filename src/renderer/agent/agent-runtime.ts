@@ -218,32 +218,49 @@ export const parseAgentResponse = (content: string): AgentResponse | null => {
 function normalizeAgentResponse(value: unknown): AgentResponse | null {
   if (!value || typeof value !== 'object') return null;
 
-  const parsed = value as Partial<AgentResponse> & {
+  const source = value as Partial<AgentResponse> & {
     thought?: AgentResponse['thought'] | string;
     reasoning?: string;
     observation?: string;
+    action?: string | { type?: string; command?: string };
+    cmd?: string;
+    finish_reason?: string;
   };
-  if (!parsed.decision || !['execute', 'finish', 'ask'].includes(parsed.decision)) {
+  const rawDecision = typeof source.decision === 'string'
+    ? source.decision
+    : typeof source.action === 'string'
+      ? source.action
+      : source.action?.type;
+  const decision = String(rawDecision || '').toLowerCase();
+  if (!['execute', 'finish', 'ask'].includes(decision)) {
     return null;
   }
 
-  const fallbackReason = parsed.finishReason
-    || parsed.question
-    || parsed.command
-    || parsed.reasoning
+  const command = source.command
+    || source.cmd
+    || (typeof source.action === 'object' ? source.action.command : undefined);
+  const finishReason = source.finishReason || source.finish_reason;
+  const question = source.question;
+  const fallbackReason = finishReason
+    || question
+    || command
+    || source.reasoning
     || '';
-  const thought = typeof parsed.thought === 'string'
-    ? { reasoning: parsed.thought, observation: parsed.observation || '' }
+  const thought = typeof source.thought === 'string'
+    ? { reasoning: source.thought, observation: source.observation || '' }
     : {
-      reasoning: parsed.thought?.reasoning || fallbackReason,
-      observation: parsed.thought?.observation || parsed.observation || '',
+      reasoning: source.thought?.reasoning || fallbackReason,
+      observation: source.thought?.observation || source.observation || '',
     };
 
   return {
-    ...parsed,
+    ...source,
     thought,
-    decision: parsed.decision,
-  };
+    decision: decision as AgentResponse['decision'],
+    ...(command ? { command } : {}),
+    ...(finishReason ? { finishReason } : {}),
+    ...(question ? { question } : {}),
+  } as AgentResponse;
 }
 
 /**
@@ -349,6 +366,26 @@ function inferResponseFromText(text: string): AgentResponse | null {
       thought: { reasoning: '需要用户确认', observation: '' },
       decision: 'ask',
       question: text.slice(0, 300),
+    };
+  }
+
+  const meaningfulText = text.trim();
+  if (meaningfulText.length >= 12) {
+    const asksForMore = /(?:请(?:提供|告诉|说明|确认)|需要(?:更多|进一步)|what.*need|need.*information)/i.test(meaningfulText);
+    if (asksForMore || /[?？]\s*$/.test(meaningfulText)) {
+      return {
+        thought: { reasoning: '需要用户补充信息', observation: '' },
+        decision: 'ask',
+        question: meaningfulText.slice(0, 1000),
+      };
+    }
+
+    // 部分 OpenAI-compatible 模型会忽略“纯 JSON”要求而直接返回可读答复。
+    // 将这类答复作为正常完成结果展示，避免把有效回答误报为“AI 响应无效”。
+    return {
+      thought: { reasoning: meaningfulText.slice(0, 500), observation: '' },
+      decision: 'finish',
+      finishReason: meaningfulText.slice(0, 2000),
     };
   }
 

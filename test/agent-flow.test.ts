@@ -4,6 +4,7 @@ import {
   runAgentExecutionGraph,
   runAgentRoundGraph,
 } from '../src/renderer/agent/agent-flow';
+import { parseAgentResponse } from '../src/renderer/agent/agent-runtime';
 import type { AgentResponse, Message } from '../src/shared/types';
 
 /**
@@ -25,6 +26,28 @@ const FALLBACK = {
   noCommand: '未给出命令',
   duplicateCommand: (command: string) => `重复命令:${command}`,
 };
+
+describe('Agent response parser compatibility', () => {
+  it('accepts uppercase decisions and command aliases', () => {
+    expect(parseAgentResponse(JSON.stringify({
+      thought: { reasoning: '检查服务' },
+      decision: 'EXECUTE',
+      cmd: 'docker ps',
+    }))).toMatchObject({ decision: 'execute', command: 'docker ps' });
+  });
+
+  it('treats a substantive plain-text provider reply as a completed answer', () => {
+    expect(parseAgentResponse('我可以帮你检查系统信息、磁盘和服务状态。')).toMatchObject({
+      decision: 'finish',
+    });
+  });
+
+  it('keeps a plain-text request for more information as an ask response', () => {
+    expect(parseAgentResponse('请告诉我具体要检查哪个服务？')).toMatchObject({
+      decision: 'ask',
+    });
+  });
+});
 
 const MESSAGES: Message[] = [
   { id: 'm1', role: 'user', content: '列出当前目录', timestamp: 1 },
