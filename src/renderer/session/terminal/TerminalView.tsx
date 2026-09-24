@@ -116,20 +116,36 @@ export function TerminalView({
   const agentState = useAgentStore((state) => state.agentState);
   const agentTaskConnectionId = useAgentStore((state) => state.currentTask?.connectionId || null);
   const hasCurrentAgentTask = useAgentStore((state) => Boolean(state.currentTask));
+  const activeConversationId = useAgentStore((state) => state.activeConversationId);
+  const hasConversationHistory = useAgentStore((state) => state.taskHistory.some(
+    (task) => task.connectionId === sessionId
+      && (task.conversationId || task.id) === state.activeConversationId,
+  ));
 
   useEffect(() => {
     if (!sessionId || !hasCurrentAgentTask || (agentTaskConnectionId && agentTaskConnectionId !== sessionId)) {
-      if (!agentFirstInputModeRef.current || agentFirstInputConnectionRef.current !== sessionId) {
+      if (agentFirstInputModeRef.current && agentFirstInputConnectionRef.current === sessionId) {
+        agentFollowUpModeRef.current = true;
+        forceAgentPrefixAfterExitRef.current = false;
+        return;
+      }
+      if (hasConversationHistory && sessionId) {
+        agentFirstInputModeRef.current = true;
+        agentFirstInputConnectionRef.current = sessionId;
+        agentFollowUpModeRef.current = true;
+        forceAgentPrefixAfterExitRef.current = false;
+      } else {
         agentFirstInputModeRef.current = false;
         agentFirstInputConnectionRef.current = null;
         agentFollowUpModeRef.current = false;
+        forceAgentPrefixAfterExitRef.current = Boolean(sessionId);
       }
       return;
     }
     if (agentState === 'finished' || agentState === 'error') {
       agentFollowUpModeRef.current = true;
     }
-  }, [agentState, agentTaskConnectionId, hasCurrentAgentTask, sessionId]);
+  }, [activeConversationId, agentState, agentTaskConnectionId, hasConversationHistory, hasCurrentAgentTask, sessionId]);
 
   const handleTerminalAgentInput = useCallback((text: string) => {
     const result = submitAgentInput(text, sessionId);
