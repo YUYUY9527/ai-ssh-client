@@ -3,6 +3,7 @@ import {
   formatAgentTerminalText,
   isShellPromptReadyForAgent,
   isTerminalAgentCommand,
+  normalizeAgentTerminalText,
   parseTerminalAgentCommand,
   parseTerminalAgentPaste,
   resolveAgentSubmission,
@@ -51,6 +52,12 @@ describe('terminal @ai command parsing', () => {
     expect(isShellPromptReadyForAgent('# @ai literal continuation', '@ai literal continuation')).toBe(false);
     expect(isShellPromptReadyForAgent('user@host:~$ @ai check disk', '@ai check disk')).toBe(true);
     expect(isShellPromptReadyForAgent('custom-prompt @ai check disk', '@ai check disk')).toBe(false);
+  });
+
+  it('collapses model alignment padding for readable terminal output', () => {
+    expect(normalizeAgentTerminalText('1. 系统信息     2. 文件管理\n\n\n3.  网络排障')).toBe(
+      '1. 系统信息 2. 文件管理\n\n3. 网络排障',
+    );
   });
 
   it('removes terminal control bytes before writing Agent output', () => {

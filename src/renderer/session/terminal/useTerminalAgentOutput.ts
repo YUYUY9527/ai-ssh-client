@@ -3,7 +3,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 import type { AgentState, AgentTask } from '../../../shared/types';
 import { useAgentStore } from '../../store/useAgentStore';
 import { useSessionStore } from '../useSessionStore';
-import { formatAgentTerminalText, sanitizeAgentTerminalText } from '../../agent/terminal-agent-chat';
+import { formatAgentTerminalText, normalizeAgentTerminalText, sanitizeAgentTerminalText } from '../../agent/terminal-agent-chat';
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -36,7 +36,7 @@ function commandFromStep(content: string): string {
 }
 
 function writeLine(term: XTerm, text: string, color?: string): void {
-  const safeText = sanitizeAgentTerminalText(text);
+  const safeText = normalizeAgentTerminalText(text);
   const label = color ? `\x1b[${color}m${safeText}\x1b[0m` : safeText;
   term.write(`\r\n${label}\r\n`);
 }

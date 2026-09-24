@@ -140,9 +140,20 @@ export function sanitizeAgentTerminalText(value: string): string {
     .replace(/\t/g, '  ');
 }
 
+/** Normalize model prose for a terminal without preserving Markdown alignment padding. */
+export function normalizeAgentTerminalText(value: string): string {
+  const normalized = sanitizeAgentTerminalText(value)
+    .replace(/\u00a0/g, ' ')
+    .split('\n')
+    .map(line => line.replace(/[ \t]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n');
+  return normalized;
+}
+
 /** Convert plain terminal-agent text to safe xterm output. */
 export function formatAgentTerminalText(value: string): string {
-  const normalized = sanitizeAgentTerminalText(value).replace(/\n/g, '\r\n');
+  const normalized = normalizeAgentTerminalText(value).replace(/\n/g, '\r\n');
   return normalized ? `${normalized}\r\n` : '';
 }
 
