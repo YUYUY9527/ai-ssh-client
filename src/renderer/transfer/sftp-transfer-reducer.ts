@@ -57,8 +57,15 @@ export function upsertSftpTransferSnapshot(
   }
 
   const version = compareEventVersion(current, snapshot.attempt, snapshot.sequence);
-  if (version <= 0) {
+  if (version < 0) {
     return current;
+  }
+  if (version === 0) {
+    // Web 端会在真正请求前乐观显示“传输中”，该本地快照可能与后端
+    // waiting-conflict 使用同一个 sequence。后端同序快照应覆盖这个临时状态。
+    if (snapshot.status === current.status || snapshot.updatedAt < current.updatedAt) {
+      return current;
+    }
   }
 
   // 同一 attempt 已进入终态后不再接受状态回退；新 attempt 代表重试，可替换旧终态。
