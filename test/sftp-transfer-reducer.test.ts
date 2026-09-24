@@ -41,10 +41,10 @@ describe('sftp transfer snapshot reducer', () => {
     expect(upsertSftpTransferSnapshot(current, conflict)).toBe(conflict);
   });
 
-  it('does not replace a newer local state with an older same-sequence snapshot', () => {
+  it('accepts a backend status change even when its timestamp is slightly older', () => {
     const current = task({ status: 'transferring', updatedAt: 102 });
-    const stale = task({ status: 'waiting-conflict', updatedAt: 101 });
+    const conflict = task({ status: 'waiting-conflict', updatedAt: 101 });
 
-    expect(upsertSftpTransferSnapshot(current, stale)).toBe(current);
+    expect(upsertSftpTransferSnapshot(current, conflict)).toBe(conflict);
   });
 });

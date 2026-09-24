@@ -63,7 +63,8 @@ export function upsertSftpTransferSnapshot(
   if (version === 0) {
     // Web 端会在真正请求前乐观显示“传输中”，该本地快照可能与后端
     // waiting-conflict 使用同一个 sequence。后端同序快照应覆盖这个临时状态。
-    if (snapshot.status === current.status || snapshot.updatedAt < current.updatedAt) {
+    // 不能用 updatedAt 判定：浏览器和网关时钟/事件到达顺序可能让本地时间更大。
+    if (snapshot.status === current.status) {
       return current;
     }
   }
