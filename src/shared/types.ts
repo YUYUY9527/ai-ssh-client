@@ -228,6 +228,8 @@ export interface AgentExecution {
 export interface AgentTask {
   id: string;
   conversationId?: string;
+  /** 发起任务时绑定的 SSH 会话；终端内对话输出只投影到该会话。 */
+  connectionId?: string;
   userInput: string;
   state: AgentState;
   thinkingSteps: ThinkingStep[];

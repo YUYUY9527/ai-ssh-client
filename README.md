@@ -83,7 +83,7 @@ npm run build
 2. Enter host, port, username, and either a password or private key.
 3. Connect to open a terminal tab.
 4. Configure and activate an AI provider from the AI panel settings.
-5. Ask the assistant for Linux command help, or use agent mode to execute a task through guarded command steps.
+5. Ask for Linux command help, or type `@ai your task` in the terminal to chat with the Agent and execute a task through guarded command steps.
 6. Once connected, open the SFTP sidebar to browse and transfer remote files.
 
 ## Keyboard Shortcuts

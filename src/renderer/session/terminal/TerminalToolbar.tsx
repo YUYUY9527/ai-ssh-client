@@ -1,4 +1,4 @@
-import { Download, Palette, Search, Settings2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Bot, Download, Palette, Search, Settings2, ZoomIn, ZoomOut } from 'lucide-react';
 import type { TerminalCursorStyle } from './terminal-settings';
 import {
   MAX_TERMINAL_SCROLLBACK,
@@ -74,6 +74,13 @@ export function TerminalToolbar({
         <ZoomOut className="w-4 h-4" />
       </button>
       <span className="terminal-toolbar-badge">{fontSize}px</span>
+      <span
+        className="terminal-agent-prefix-hint"
+        title={translate('terminal.agentPrefixHint')}
+      >
+        <Bot className="h-3.5 w-3.5" />
+        @ai
+      </span>
       <button
         onClick={onIncreaseFontSize}
         className="terminal-control"

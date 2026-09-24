@@ -3,9 +3,12 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 
 import { t } from '../../i18n';
 import { gateTerminalPaste, prepareTerminalPaste } from './paste-safety';
+import { parseTerminalAgentCommand } from '../../agent/terminal-agent-chat';
 
 interface TerminalClipboardOptions {
   liveConnectionId: string | null;
+  canSubmitPastedAgentInput?: () => boolean;
+  onAgentInput?: (text: string) => void;
   onPasteToAI?: (text: string) => void;
   xtermRef: RefObject<XTerm | null>;
   /** 多行粘贴需确认；单行直接发送 */
@@ -28,7 +31,14 @@ function sendGatedPaste(
   connectionId: string | null,
   text: string,
   onMultilinePasteRequest?: (previewText: string, preparedText: string) => void,
+  onAgentInput?: (text: string) => void,
+  canSubmitPastedAgentInput?: () => boolean,
 ): void {
+  const agentCommand = parseTerminalAgentCommand(text);
+  if (agentCommand && canSubmitPastedAgentInput?.()) {
+    onAgentInput?.(agentCommand.text);
+    return;
+  }
   const gated = gateTerminalPaste(text, false);
   if (gated.action === 'skip') {
     return;
@@ -75,13 +85,19 @@ function promptPasteText(): string {
 /** Handles terminal context-menu clipboard actions. */
 export function useTerminalClipboard({
   liveConnectionId,
+  canSubmitPastedAgentInput,
+  onAgentInput,
   onPasteToAI,
   xtermRef,
   onMultilinePasteRequest,
 }: TerminalClipboardOptions) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
+  const onAgentInputRef = useRef(onAgentInput);
+  const canSubmitPastedAgentInputRef = useRef(canSubmitPastedAgentInput);
   onMultilinePasteRequestRef.current = onMultilinePasteRequest;
+  onAgentInputRef.current = onAgentInput;
+  canSubmitPastedAgentInputRef.current = canSubmitPastedAgentInput;
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -100,7 +116,13 @@ export function useTerminalClipboard({
   const pasteToInput = useCallback((text: string) => {
     const cleanText = text.replace(/[\r\n]+$/, '');
     if (cleanText) {
-      sendGatedPaste(liveConnectionId, cleanText, onMultilinePasteRequestRef.current);
+      sendGatedPaste(
+        liveConnectionId,
+        cleanText,
+        onMultilinePasteRequestRef.current,
+        onAgentInputRef.current,
+        canSubmitPastedAgentInputRef.current,
+      );
     }
   }, [liveConnectionId]);
 
@@ -116,11 +138,23 @@ export function useTerminalClipboard({
     }
 
     readClipboardText().then((text) => {
-      sendGatedPaste(liveConnectionId, text, onMultilinePasteRequestRef.current);
+      sendGatedPaste(
+        liveConnectionId,
+        text,
+        onMultilinePasteRequestRef.current,
+        onAgentInputRef.current,
+        canSubmitPastedAgentInputRef.current,
+      );
       closeContextMenu();
     }).catch((error) => {
       console.error('Failed to read clipboard:', error);
-      sendGatedPaste(liveConnectionId, promptPasteText(), onMultilinePasteRequestRef.current);
+      sendGatedPaste(
+        liveConnectionId,
+        promptPasteText(),
+        onMultilinePasteRequestRef.current,
+        onAgentInputRef.current,
+        canSubmitPastedAgentInputRef.current,
+      );
       xtermRef.current?.focus();
       closeContextMenu();
     });
@@ -146,7 +180,13 @@ export function useTerminalClipboard({
       closeContextMenu();
     }).catch((error) => {
       console.error('Failed to read clipboard:', error);
-      sendGatedPaste(liveConnectionId, promptPasteText(), onMultilinePasteRequestRef.current);
+      sendGatedPaste(
+        liveConnectionId,
+        promptPasteText(),
+        onMultilinePasteRequestRef.current,
+        onAgentInputRef.current,
+        canSubmitPastedAgentInputRef.current,
+      );
       xtermRef.current?.focus();
       closeContextMenu();
     });

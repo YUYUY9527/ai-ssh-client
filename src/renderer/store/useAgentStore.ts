@@ -105,7 +105,7 @@ interface AgentStore {
   addExecution: (execution: AgentExecution) => void;
 
   // 婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柣鎾虫捣椤旀捇鎮楅獮鍨姎閻庢凹鍠氱划?
-  startTask: (userInput: string) => AgentTask;
+  startTask: (userInput: string, connectionId?: string) => AgentTask;
   completeTask: (success: boolean, error?: string, finishReason?: string) => void;
   pauseTask: () => void;
   resumeTask: () => void;
@@ -245,11 +245,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   }),
 
   // 闂佽瀛╅鏍窗閹烘纾婚柟鐐灱閺€鑺ャ亜閺冨倵鎷￠柛搴￠叄閺岀喖鐛崹顔句紙閻?
-  startTask: (userInput) => {
+  startTask: (userInput, connectionId) => {
     const conversationId = get().activeConversationId || createConversationId();
     const task: AgentTask = {
       id: Date.now().toString(),
       conversationId,
+      ...(connectionId ? { connectionId } : {}),
       userInput,
       state: 'thinking',
       thinkingSteps: [],

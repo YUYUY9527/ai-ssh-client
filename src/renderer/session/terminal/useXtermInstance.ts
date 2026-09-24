@@ -13,6 +13,7 @@ import {
 } from './terminal-theme';
 import { resolveTerminalRuntimeSettings } from './terminal-settings';
 import { isOpenableHttpUrl, ShellIntegrationParser, type ShellIntegrationState } from './shell-integration';
+import { parseTerminalAgentCommand } from '../../agent/terminal-agent-chat';
 import { createClipboardPasteFallback, gateTerminalPaste } from './paste-safety';
 import { useSessionStore } from '../useSessionStore';
 
@@ -20,6 +21,8 @@ interface XtermInstanceOptions {
   copyTerminalSelectionToClipboard: () => boolean;
   fontSize: number;
   liveConnectionId: string | null;
+  canSubmitPastedAgentInput?: () => boolean;
+  onAgentInput?: (text: string) => void;
   onInstanceVersionChange: () => void;
   /** 多行粘贴需确认时回调；单行不会触发。 */
   onMultilinePasteRequest?: (previewText: string, preparedText: string) => void;
@@ -61,6 +64,8 @@ export function useXtermInstance({
   copyTerminalSelectionToClipboard,
   fontSize,
   liveConnectionId,
+  canSubmitPastedAgentInput,
+  onAgentInput,
   onInstanceVersionChange,
   onMultilinePasteRequest,
   resetInputTracking,
@@ -83,6 +88,8 @@ export function useXtermInstance({
   const resizeRafRef = useRef<number | null>(null);
   const liveConnectionIdRef = useRef(liveConnectionId);
   const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
+  const onAgentInputRef = useRef(onAgentInput);
+  const canSubmitPastedAgentInputRef = useRef(canSubmitPastedAgentInput);
   const onShellIntegrationStateChangeRef = useRef(onShellIntegrationStateChange);
   const copyOnSelectRef = useRef(false);
   const shellIntegrationEnabledRef = useRef(true);
@@ -103,6 +110,11 @@ export function useXtermInstance({
   useEffect(() => {
     onMultilinePasteRequestRef.current = onMultilinePasteRequest;
   }, [onMultilinePasteRequest]);
+
+  useEffect(() => {
+    onAgentInputRef.current = onAgentInput;
+    canSubmitPastedAgentInputRef.current = canSubmitPastedAgentInput;
+  }, [canSubmitPastedAgentInput, onAgentInput]);
 
   useEffect(() => {
     onShellIntegrationStateChangeRef.current = onShellIntegrationStateChange;
@@ -187,6 +199,11 @@ export function useXtermInstance({
 
   /** 经粘贴门控后发送；多行走确认回调。 */
   const sendPasteText = useCallback((text: string) => {
+    const agentCommand = parseTerminalAgentCommand(text);
+    if (agentCommand && canSubmitPastedAgentInputRef.current?.()) {
+      onAgentInputRef.current?.(agentCommand.text);
+      return;
+    }
     const gated = gateTerminalPaste(text, false);
     if (gated.action === 'skip') {
       return;

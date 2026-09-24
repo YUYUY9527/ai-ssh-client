@@ -10,6 +10,7 @@ import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
 import { useConnectionStore } from '../../store/useConnectionStore';
 import { useSessionStore } from '../useSessionStore';
 import type { CommandHistoryItem } from '../../../shared/types';
+import { parseTerminalAgentCommand, parseTerminalAgentPaste } from '../../agent/terminal-agent-chat';
 import {
   extractCwdFromTerminalOutput,
   shouldReplaceCwd,
@@ -82,6 +83,7 @@ function extractCommandFromTerminalOutput(output: string): string | null {
 
 interface TerminalInputTrackingOptions {
   liveConnectionId: string | null;
+  onAgentInput?: (text: string) => void;
   syncAlternateScreenState: () => boolean | undefined;
   terminalInstanceVersion: number;
   xtermRef: RefObject<XTerm | null>;
@@ -90,11 +92,13 @@ interface TerminalInputTrackingOptions {
 /** Tracks user input, cwd hints and command history writes for one terminal instance. */
 export function useTerminalInputTracking({
   liveConnectionId,
+  onAgentInput,
   syncAlternateScreenState,
   terminalInstanceVersion,
   xtermRef,
 }: TerminalInputTrackingOptions) {
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const onAgentInputRef = useRef(onAgentInput);
   const inputTrackingReliableRef = useRef(true);
   const currentInputRef = useRef('');
   const cwdRef = useRef(DEFAULT_CWD);
@@ -129,6 +133,10 @@ export function useTerminalInputTracking({
     cwdRef.current = normalizeHistoryPath(sessionCwd || DEFAULT_CWD);
     outputTailRef.current = '';
   }, [liveConnectionId]);
+
+  useEffect(() => {
+    onAgentInputRef.current = onAgentInput;
+  }, [onAgentInput]);
 
   const consumeOutputChunk = useCallback((chunk: string) => {
     outputTailRef.current = tailText(`${outputTailRef.current}${chunk}`, 4096);
@@ -190,6 +198,61 @@ export function useTerminalInputTracking({
         }
       }
 
+      if (syncAlternateScreenState()) {
+        if (window.electronAPI) {
+          try {
+            window.electronAPI.sshExecuteSync(connectionId, data);
+          } catch (error) {
+            console.warn('sshExecuteSync failed', error);
+          }
+        }
+        currentInputRef.current = '';
+        return;
+      }
+
+      if (data !== '\r') {
+        const pastedAgentCommand = parseTerminalAgentPaste(data, currentInputRef.current);
+        if (pastedAgentCommand) {
+          const hadForwardedInput = currentInputRef.current.length > 0;
+          inputTrackingReliableRef.current = true;
+          currentInputRef.current = '';
+          if (window.electronAPI) {
+            try {
+              if (hadForwardedInput) {
+                window.electronAPI.sshExecuteSync(connectionId, '\x15');
+              }
+              onAgentInputRef.current?.(pastedAgentCommand.text);
+            } catch (error) {
+              console.warn('Failed to submit pasted terminal Agent input', error);
+            }
+          }
+          return;
+        }
+      }
+
+      let command: string | null = null;
+      if (data === '\r') {
+        command = inputTrackingReliableRef.current
+          ? currentInputRef.current.trim()
+          : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
+        const agentCommand = parseTerminalAgentCommand(command);
+        inputTrackingReliableRef.current = true;
+        currentInputRef.current = '';
+        if (agentCommand) {
+          // The remote shell has echoed the line but has not executed it. Clear
+          // that pending shell input, then route the line to the local Agent.
+          if (window.electronAPI) {
+            try {
+              window.electronAPI.sshExecuteSync(connectionId, '\x15');
+              onAgentInputRef.current?.(agentCommand.text);
+            } catch (error) {
+              console.warn('Failed to submit terminal Agent input', error);
+            }
+          }
+          return;
+        }
+      }
+
       if (window.electronAPI) {
         try {
           window.electronAPI.sshExecuteSync(connectionId, data);
@@ -198,15 +261,7 @@ export function useTerminalInputTracking({
         }
       }
 
-      if (syncAlternateScreenState()) {
-        currentInputRef.current = '';
-        return;
-      }
-
       if (data === '\r') {
-        const command = inputTrackingReliableRef.current
-          ? currentInputRef.current.trim()
-          : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
         if (command) {
           const currentCwd = normalizeHistoryPath(cwdRef.current || DEFAULT_CWD);
           // cd 追踪：提示符弱/无 OSC7 时仍能跟着跳目录；打开传输时 live 提示符优先可纠正误输入
@@ -310,6 +365,9 @@ export function useTerminalInputTracking({
     forceResumeInputForward();
   }, [forceResumeInputForward, liveConnectionId, terminalInstanceVersion]);
 
+  /** 当前普通 shell 输入行；粘贴路由用它避免截断已有命令。 */
+  const getCurrentInput = useCallback(() => currentInputRef.current, []);
+
   /** 打开传输时读取最新追踪快照（避免 React state 滞后）。 */
   const getCwdTrackingSnapshot = useCallback(() => ({
     cwd: cwdRef.current,
@@ -322,6 +380,7 @@ export function useTerminalInputTracking({
     beginSuspendInputForward,
     endSuspendInputForward,
     forceResumeInputForward,
+    getCurrentInput,
     getCwdTrackingSnapshot,
   };
 }

@@ -42,6 +42,13 @@ import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
 import { useTerminalSearch } from './useTerminalSearch';
 import { useXtermInstance } from './useXtermInstance';
+import { useTerminalAgentOutput } from './useTerminalAgentOutput';
+import {
+  formatAgentTerminalText,
+  parseTerminalAgentCommand,
+  submitAgentInput,
+  type AgentSubmissionError,
+} from '../../agent/terminal-agent-chat';
 
 interface TerminalProps {
   liveConnectionId: string | null;
@@ -98,6 +105,33 @@ export function TerminalView({
   const { theme: hookTheme } = useTheme();
   const { t } = useI18n();
   const theme = themeProp ?? hookTheme;
+
+  const handleTerminalAgentInput = useCallback((text: string) => {
+    const result = submitAgentInput(text);
+    if (result.ok) {
+      if (result.action.type === 'approval') {
+        xtermRef.current?.write(formatAgentTerminalText(t(
+          result.action.result === 'approved'
+            ? 'terminal.agentApprovalAccepted'
+            : 'terminal.agentApprovalRejected',
+        )));
+      }
+      return;
+    }
+
+    const errorKeys: Record<AgentSubmissionError, string> = {
+      empty: 'terminal.agentInputEmpty',
+      disabled: 'agent.errors.disabled',
+      noProvider: 'agent.errors.noProvider',
+      noConnection: 'agent.errors.noConnection',
+      taskRunning: 'agent.errors.taskRunning',
+      approvalResponseRequired: 'terminal.agentApprovalReplyRequired',
+    };
+    xtermRef.current?.write(`\x1b[31m${formatAgentTerminalText(t(errorKeys[result.error]))}\x1b[0m`);
+  }, [t, xtermRef]);
+
+  useTerminalAgentOutput({ sessionId, translate: t, xtermRef });
+
   const activeSession = useSessionStore((state) => (
     sessionId ? state.sessions[sessionId] : null
   ));
@@ -143,13 +177,20 @@ export function TerminalView({
     resetInputTracking,
     beginSuspendInputForward,
     endSuspendInputForward,
+    getCurrentInput,
     getCwdTrackingSnapshot,
   } = useTerminalInputTracking({
     liveConnectionId,
+    onAgentInput: handleTerminalAgentInput,
     syncAlternateScreenState,
     terminalInstanceVersion,
     xtermRef,
   });
+
+  const canSubmitPastedAgentInput = useCallback(
+    () => getCurrentInput().trim().length === 0,
+    [getCurrentInput],
+  );
 
   /** 写入本地字号并持久化（工具栏 +/- 与 Ctrl+/- 共用）。 */
   const commitFontSize = useCallback((nextSize: number) => {
@@ -216,6 +257,8 @@ export function TerminalView({
     setContextMenu,
   } = useTerminalClipboard({
     liveConnectionId,
+    onAgentInput: handleTerminalAgentInput,
+    canSubmitPastedAgentInput,
     onPasteToAI,
     xtermRef,
     onMultilinePasteRequest: handleMultilinePasteRequest,
@@ -225,6 +268,8 @@ export function TerminalView({
     copyTerminalSelectionToClipboard,
     fontSize,
     liveConnectionId,
+    onAgentInput: handleTerminalAgentInput,
+    canSubmitPastedAgentInput,
     onInstanceVersionChange: handleTerminalInstanceVersionChange,
     onMultilinePasteRequest: handleMultilinePasteRequest,
     resetInputTracking,
@@ -351,10 +396,15 @@ export function TerminalView({
     }
     const text = pastePreview.preparedText;
     setPastePreview(null);
+    const agentCommand = parseTerminalAgentCommand(text);
+    if (agentCommand && canSubmitPastedAgentInput()) {
+      handleTerminalAgentInput(agentCommand.text);
+      return;
+    }
     if (text && liveConnectionId && window.electronAPI) {
       window.electronAPI.sshExecuteSync(liveConnectionId, text);
     }
-  }, [liveConnectionId, pastePreview]);
+  }, [canSubmitPastedAgentInput, handleTerminalAgentInput, liveConnectionId, pastePreview]);
 
   const handleCancelPaste = useCallback(() => {
     // 取消不发送任何内容

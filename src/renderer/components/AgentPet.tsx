@@ -8,6 +8,7 @@ import { useSessionStore } from '../session/useSessionStore';
 import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
 import { useI18n, t } from '../i18n';
 import type { AgentTask, ThinkingStep } from '../../shared/types';
+import { submitAgentInput, type AgentSubmissionError } from '../agent/terminal-agent-chat';
 
 const AgentExecutor = lazy(async () => {
   const module = await import('./AgentExecutor');
@@ -527,7 +528,6 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     pendingQuestion,
     pendingTerminalPrompt,
     taskHistory,
-    config,
     startTask,
     reset,
     activeConversationId,
@@ -538,7 +538,6 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     resumeTask,
     cancelTask,
     setApprovalResult,
-    setPendingInput,
   } = useAgentStore();
 
   const activeProvider = providers.find((provider) => provider.id === activeProviderId);
@@ -668,7 +667,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     onInputChange('');
     shouldAutoScrollRef.current = true;
     reset();
-    setTimeout(() => startTask(task.userInput), 0);
+    setTimeout(() => startTask(task.userInput, activeConnectionId || task.connectionId), 0);
   };
 
   useEffect(() => {
@@ -794,18 +793,17 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     const text = input.trim();
     if (!text) return;
 
-    if (!config.enabled) {
-      setLocalError(t('agent.errors.disabled'));
-      return;
-    }
-
-    if (!activeProviderId) {
-      setLocalError(t('agent.errors.noProvider'));
-      return;
-    }
-
-    if (!activeConnectionId) {
-      setLocalError(t('agent.errors.noConnection'));
+    const result = submitAgentInput(text);
+    if (!result.ok) {
+      const errorKeys: Record<AgentSubmissionError, string> = {
+        empty: 'agent.input.placeholder',
+        disabled: 'agent.errors.disabled',
+        noProvider: 'agent.errors.noProvider',
+        noConnection: 'agent.errors.noConnection',
+        taskRunning: 'agent.errors.taskRunning',
+        approvalResponseRequired: 'terminal.agentApprovalReplyRequired',
+      };
+      setLocalError(t(errorKeys[result.error]));
       return;
     }
 
@@ -813,19 +811,6 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     setIsHistoryVisible(false);
     onInputChange('');
     shouldAutoScrollRef.current = true;
-
-    if (pendingQuestion) {
-      setPendingInput(text);
-      return;
-    }
-
-    if (!currentTask || agentState === 'finished' || agentState === 'error') {
-      reset();
-      setTimeout(() => startTask(text), 0);
-      return;
-    }
-
-    setLocalError(t('agent.errors.taskRunning'));
   };
 
   const handleNewConversation = () => {
