@@ -166,6 +166,17 @@ function publishTaskSnapshot(snapshot: SftpTransferTaskSnapshot): void {
   emitTransferSnapshot(snapshot);
 }
 
+/**
+ * 冲突响应可能先于 WebSocket 建连而丢失 waiting-conflict 事件。
+ * 通过任务列表补拉一次，确保 UI 能进入冲突处理状态而不是停在“传输中”。
+ */
+async function refreshWebTransferTask(taskId: string): Promise<void> {
+  const result = await sftpRequest<SftpListTransfersResult>('/api/sftp/transfers');
+  if (!result.success) return;
+  const snapshot = result.data.tasks.find((task) => task.taskId === taskId);
+  if (snapshot) publishTaskSnapshot(snapshot);
+}
+
 /** 单次 PUT 分片大小：避免整文件超 Node/代理超时（默认 5 分钟约只能传到数百 MB）。 */
 const WEB_UPLOAD_CHUNK_BYTES = 32 * 1024 * 1024;
 
@@ -247,8 +258,9 @@ async function streamSftpUpload(
       const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
 
       if (!result.success) {
-        // 冲突由服务端 WS snapshot(waiting-conflict) 驱动，勿覆盖成 failed
+        // 冲突由服务端 snapshot 驱动；若 WS 尚未建连，HTTP 409 后主动补拉任务。
         if (result.code === 'conflict' || response.status === 409) {
+          await refreshWebTransferTask(taskId);
           return makeError(result.error || 'Destination already exists', 'conflict');
         }
         publishUploadFailure(
