@@ -100,6 +100,7 @@ export function TerminalView({
   const [pastePreview, setPastePreview] = useState<{ previewText: string; preparedText: string } | null>(null);
   const [shellState, setShellState] = useState<ShellIntegrationState | null>(null);
   const isAlternateScreenRef = useRef(false);
+  const agentFollowUpModeRef = useRef(false);
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
 
@@ -109,10 +110,24 @@ export function TerminalView({
   const { theme: hookTheme } = useTheme();
   const { t } = useI18n();
   const theme = themeProp ?? hookTheme;
+  const agentState = useAgentStore((state) => state.agentState);
+  const agentTaskConnectionId = useAgentStore((state) => state.currentTask?.connectionId || null);
+  const hasCurrentAgentTask = useAgentStore((state) => Boolean(state.currentTask));
+
+  useEffect(() => {
+    if (!sessionId || !hasCurrentAgentTask || (agentTaskConnectionId && agentTaskConnectionId !== sessionId)) {
+      agentFollowUpModeRef.current = false;
+      return;
+    }
+    if (agentState === 'finished' || agentState === 'error') {
+      agentFollowUpModeRef.current = true;
+    }
+  }, [agentState, agentTaskConnectionId, hasCurrentAgentTask, sessionId]);
 
   const handleTerminalAgentInput = useCallback((text: string) => {
     const result = submitAgentInput(text, sessionId);
     if (result.ok) {
+      agentFollowUpModeRef.current = false;
       if (result.action.type === 'approval') {
         xtermRef.current?.write(formatAgentTerminalText(t(
           result.action.result === 'approved'
@@ -135,7 +150,13 @@ export function TerminalView({
     xtermRef.current?.write(`\x1b[31m${formatAgentTerminalText(t(errorKeys[result.error]))}\x1b[0m`);
   }, [sessionId, t, xtermRef]);
 
-  const getAgentReplyMode = useCallback((): 'answer' | 'approval' | null => {
+  const handleExitAgentFollowUp = useCallback(() => {
+    if (!agentFollowUpModeRef.current) return;
+    agentFollowUpModeRef.current = false;
+    xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
+  }, [t, xtermRef]);
+
+  const getAgentReplyMode = useCallback((): 'answer' | 'approval' | 'follow-up' | null => {
     const state = useAgentStore.getState();
     if (
       !sessionId
@@ -146,6 +167,9 @@ export function TerminalView({
     }
     if (state.pendingApproval) return 'approval';
     if (state.pendingQuestion) return 'answer';
+    if (agentFollowUpModeRef.current && (state.agentState === 'finished' || state.agentState === 'error')) {
+      return 'follow-up';
+    }
     return null;
   }, [sessionId]);
 
@@ -211,6 +235,7 @@ export function TerminalView({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
     getAgentReplyMode,
+    onExitAgentFollowUp: handleExitAgentFollowUp,
     syncAlternateScreenState,
     terminalInstanceVersion,
     xtermRef,
@@ -308,6 +333,11 @@ export function TerminalView({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
     canSubmitPastedAgentInput,
+    onExitAgentFollowUp: () => {
+      if (!agentFollowUpModeRef.current) return false;
+      handleExitAgentFollowUp();
+      return true;
+    },
     onInstanceVersionChange: handleTerminalInstanceVersionChange,
     onMultilinePasteRequest: handleMultilinePasteRequest,
     resetInputTracking,

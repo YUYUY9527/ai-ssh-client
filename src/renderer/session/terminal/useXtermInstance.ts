@@ -23,6 +23,7 @@ interface XtermInstanceOptions {
   liveConnectionId: string | null;
   canSubmitPastedAgentInput?: () => boolean;
   onAgentInput?: (text: string) => void;
+  onExitAgentFollowUp?: () => boolean;
   onInstanceVersionChange: () => void;
   /** 多行粘贴需确认时回调；单行不会触发。 */
   onMultilinePasteRequest?: (previewText: string, preparedText: string) => void;
@@ -66,6 +67,7 @@ export function useXtermInstance({
   liveConnectionId,
   canSubmitPastedAgentInput,
   onAgentInput,
+  onExitAgentFollowUp,
   onInstanceVersionChange,
   onMultilinePasteRequest,
   resetInputTracking,
@@ -89,6 +91,7 @@ export function useXtermInstance({
   const liveConnectionIdRef = useRef(liveConnectionId);
   const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
   const onAgentInputRef = useRef(onAgentInput);
+  const onExitAgentFollowUpRef = useRef(onExitAgentFollowUp);
   const canSubmitPastedAgentInputRef = useRef(canSubmitPastedAgentInput);
   const onShellIntegrationStateChangeRef = useRef(onShellIntegrationStateChange);
   const copyOnSelectRef = useRef(false);
@@ -113,8 +116,9 @@ export function useXtermInstance({
 
   useEffect(() => {
     onAgentInputRef.current = onAgentInput;
+    onExitAgentFollowUpRef.current = onExitAgentFollowUp;
     canSubmitPastedAgentInputRef.current = canSubmitPastedAgentInput;
-  }, [canSubmitPastedAgentInput, onAgentInput]);
+  }, [canSubmitPastedAgentInput, onAgentInput, onExitAgentFollowUp]);
 
   useEffect(() => {
     onShellIntegrationStateChangeRef.current = onShellIntegrationStateChange;
@@ -322,6 +326,10 @@ export function useXtermInstance({
 
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
+
+      if (event.key === 'Escape' && event.type === 'keydown' && onExitAgentFollowUpRef.current?.()) {
+        return false;
+      }
 
       if (event.ctrlKey && key === 'c' && event.type === 'keydown') {
         return !copyTerminalSelectionToClipboard();

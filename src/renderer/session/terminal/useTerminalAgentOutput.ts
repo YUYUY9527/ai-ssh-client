@@ -159,6 +159,9 @@ export function useTerminalAgentOutput({
         : currentTask.finishReason || t('agent.states.finished');
       writeLine(term, '', undefined);
       term.write(`\x1b[${agentState === 'error' ? '31' : '32'}m${formatAgentTerminalText(summary)}\x1b[0m`);
+      if (agentState === 'finished') {
+        writeLine(term, t('terminal.agentContinuationHint'), '90');
+      }
     }
   }, [
     activeSessionId,

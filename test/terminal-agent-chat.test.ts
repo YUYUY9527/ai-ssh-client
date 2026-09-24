@@ -6,6 +6,7 @@ import {
   parseTerminalAgentCommand,
   parseTerminalAgentPaste,
   resolveAgentSubmission,
+  resolveTerminalAgentLineAction,
   sanitizeAgentTerminalText,
   type AgentSubmissionState,
 } from '../src/renderer/agent/terminal-agent-chat';
@@ -55,6 +56,28 @@ describe('terminal @ai command parsing', () => {
   it('removes terminal control bytes before writing Agent output', () => {
     expect(sanitizeAgentTerminalText('safe\u001b[31mred\u0007\u009b32mgreen\nnext')).toBe('saferedgreen\nnext');
     expect(formatAgentTerminalText('line 1\nline 2')).toBe('line 1\r\nline 2\r\n');
+  });
+});
+
+describe('terminal Agent follow-up routing', () => {
+  it('routes a direct next question while follow-up mode is active', () => {
+    expect(resolveTerminalAgentLineAction('继续检查内存', 'follow-up')).toEqual({
+      type: 'agent',
+      text: '继续检查内存',
+    });
+  });
+
+  it('exits follow-up mode on an empty Enter or @sh shell escape', () => {
+    expect(resolveTerminalAgentLineAction('', 'follow-up')).toEqual({ type: 'exit-follow-up' });
+    expect(resolveTerminalAgentLineAction('@sh free -h', 'follow-up')).toEqual({
+      type: 'shell-escape',
+      text: 'free -h',
+    });
+  });
+
+  it('keeps ordinary shell commands in the shell', () => {
+    expect(resolveTerminalAgentLineAction('free -h', null)).toEqual({ type: 'shell' });
+    expect(resolveTerminalAgentLineAction('', null)).toEqual({ type: 'shell' });
   });
 });
 

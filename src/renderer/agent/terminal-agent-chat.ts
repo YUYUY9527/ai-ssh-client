@@ -48,6 +48,42 @@ export function parseTerminalAgentCommand(input: string): { text: string } | nul
   return { text: sanitizeAgentTerminalText(match[1]).trim() };
 }
 
+export type TerminalAgentReplyMode = 'answer' | 'approval' | 'follow-up';
+
+export type TerminalAgentLineAction =
+  | { type: 'agent'; text: string }
+  | { type: 'shell-escape'; text: string }
+  | { type: 'exit-follow-up' }
+  | { type: 'shell' };
+
+/**
+ * Decide how a submitted terminal line participates in the current Agent
+ * conversation. Follow-up mode accepts the next question directly; @sh always
+ * escapes to the normal shell, and an empty line exits follow-up mode.
+ */
+export function resolveTerminalAgentLineAction(
+  rawInput: string,
+  replyMode: TerminalAgentReplyMode | null,
+): TerminalAgentLineAction {
+  const input = rawInput.trim();
+  if (/^@sh(?:\s|$)/i.test(input)) {
+    return { type: 'shell-escape', text: input.replace(/^@sh\s*/i, '') };
+  }
+  if (!input) {
+    return replyMode === 'follow-up'
+      ? { type: 'exit-follow-up' }
+      : { type: 'shell' };
+  }
+  if (replyMode) {
+    const parsed = parseTerminalAgentCommand(input);
+    return { type: 'agent', text: parsed?.text || input };
+  }
+  const parsed = parseTerminalAgentCommand(input);
+  return parsed
+    ? { type: 'agent', text: parsed.text }
+    : { type: 'shell' };
+}
+
 export function isTerminalAgentCommand(input: string): boolean {
   return parseTerminalAgentCommand(input) !== null;
 }

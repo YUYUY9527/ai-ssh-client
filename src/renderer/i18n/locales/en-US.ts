@@ -162,6 +162,8 @@ const enUS: DeepStringify<typeof zhCN> = {
     agentApprovalAccepted: 'Command approved. The Agent will continue.',
     agentApprovalRejected: 'Command rejected. The Agent will stop this execution.',
     agentQuestionHint: 'Type your answer directly and press Enter; use @sh <shell command> for a normal shell command.',
+    agentContinuationHint: 'Type the next question and press Enter; press Esc or Enter on an empty line to exit, or use @sh for Shell.',
+    agentContinuationExited: 'Exited Agent conversation mode.',
     saveLog: 'Save session log',
     logSaved: 'Session log saved',
     logEmpty: 'No terminal output to save',

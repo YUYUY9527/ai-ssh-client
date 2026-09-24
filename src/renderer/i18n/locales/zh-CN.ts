@@ -156,6 +156,8 @@ const zhCN = {
     agentApprovalAccepted: '已批准命令，智能体将继续执行。',
     agentApprovalRejected: '已拒绝命令，智能体将停止该执行。',
     agentQuestionHint: '直接输入回答并按 Enter；输入 @sh <shell命令> 可执行普通 Shell。',
+    agentContinuationHint: '继续输入下一个问题并回车；按 Esc 或直接回车退出连续对话，输入 @sh 可执行 Shell。',
+    agentContinuationExited: '已退出 Agent 连续对话。',
     saveLog: '保存会话日志',
     logSaved: '会话日志已保存',
     logEmpty: '当前没有可保存的终端输出',
