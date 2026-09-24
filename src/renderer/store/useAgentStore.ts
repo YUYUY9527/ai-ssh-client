@@ -61,7 +61,10 @@ interface AgentStore {
   // 闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ铏癸紞妞も晝鍏橀幃褰掑炊閵娿儳绁峰?
   currentTask: AgentTask | null;
   setCurrentTask: (task: AgentTask | null) => void;
+  activeConnectionId: string | null;
   activeConversationId: string;
+  conversationByConnection: Record<string, string>;
+  setActiveConnection: (connectionId: string | null) => void;
   startNewConversation: () => void;
   selectConversation: (conversationId: string) => void;
 
@@ -127,19 +130,79 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   // 闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ铏癸紞妞も晝鍏橀幃褰掑炊閵娿儳绁峰?
   currentTask: null,
   setCurrentTask: (task) => set({ currentTask: task }),
+  activeConnectionId: null,
   activeConversationId: createConversationId(),
-  startNewConversation: () => set({
-    activeConversationId: createConversationId(),
-    currentTask: null,
-    agentState: 'idle',
-    pendingApproval: null,
-    pendingQuestion: null,
-    pendingInput: null,
-    pendingTerminalPrompt: null,
-    approvalResult: null,
+  conversationByConnection: {},
+  setActiveConnection: (connectionId) => set((state) => {
+    if (state.activeConnectionId === connectionId) return state;
+    const nextConversation = connectionId
+      ? state.conversationByConnection[connectionId]
+        || state.taskHistory.find((task) => task.connectionId === connectionId)?.conversationId
+        || createConversationId()
+      : createConversationId();
+    const currentBelongsToNext = Boolean(
+      state.currentTask
+      && connectionId
+      && state.currentTask.connectionId === connectionId,
+    );
+    if (currentBelongsToNext) {
+      return {
+        activeConnectionId: connectionId,
+        activeConversationId: nextConversation,
+      };
+    }
+
+    const current = state.currentTask;
+    const cancelledTask = current && current.state !== 'finished' && current.state !== 'error'
+      ? normalizeAgentTask({
+        ...current,
+        state: 'finished',
+        endTime: Date.now(),
+        finishReason: 'Task cancelled because the active SSH session changed',
+      })
+      : null;
+    if (cancelledTask) persistAgentTask(cancelledTask);
+
+    return {
+      activeConnectionId: connectionId,
+      activeConversationId: nextConversation,
+      conversationByConnection: connectionId
+        ? { ...state.conversationByConnection, [connectionId]: nextConversation }
+        : state.conversationByConnection,
+      currentTask: null,
+      agentState: 'idle',
+      pendingApproval: null,
+      pendingQuestion: null,
+      pendingInput: null,
+      pendingTerminalPrompt: null,
+      approvalResult: null,
+      taskHistory: cancelledTask
+        ? [cancelledTask, ...state.taskHistory.filter((task) => task.id !== cancelledTask.id)]
+          .slice(0, MAX_AGENT_HISTORY_TASKS)
+        : state.taskHistory,
+    };
   }),
-  selectConversation: (conversationId) => set({
+  startNewConversation: () => set((state) => {
+    const conversationId = createConversationId();
+    return {
+      activeConversationId: conversationId,
+      conversationByConnection: state.activeConnectionId
+        ? { ...state.conversationByConnection, [state.activeConnectionId]: conversationId }
+        : state.conversationByConnection,
+      currentTask: null,
+      agentState: 'idle',
+      pendingApproval: null,
+      pendingQuestion: null,
+      pendingInput: null,
+      pendingTerminalPrompt: null,
+      approvalResult: null,
+    };
+  }),
+  selectConversation: (conversationId) => set((state) => ({
     activeConversationId: conversationId,
+    conversationByConnection: state.activeConnectionId
+      ? { ...state.conversationByConnection, [state.activeConnectionId]: conversationId }
+      : state.conversationByConnection,
     currentTask: null,
     agentState: 'idle',
     pendingApproval: null,
@@ -147,7 +210,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     pendingInput: null,
     pendingTerminalPrompt: null,
     approvalResult: null,
-  }),
+  })),
 
   // 婵犳鍠楃敮妤冪矙閹烘せ鈧箓宕奸妷顔芥櫍婵犵數濮电喊宥夋偂閳ь剟鎮楅獮鍨姎婵炲眰鍔戝?
   config: {
@@ -246,18 +309,32 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   // 闂佽瀛╅鏍窗閹烘纾婚柟鐐灱閺€鑺ャ亜閺冨倵鎷￠柛搴￠叄閺岀喖鐛崹顔句紙閻?
   startTask: (userInput, connectionId) => {
-    const conversationId = get().activeConversationId || createConversationId();
+    const state = get();
+    const ownerConnectionId = connectionId || state.activeConnectionId;
+    const conversationId = (ownerConnectionId
+      ? state.conversationByConnection[ownerConnectionId]
+      : state.activeConversationId)
+      || state.activeConversationId
+      || createConversationId();
     const task: AgentTask = {
       id: Date.now().toString(),
       conversationId,
-      ...(connectionId ? { connectionId } : {}),
+      ...(ownerConnectionId ? { connectionId: ownerConnectionId } : {}),
       userInput,
       state: 'thinking',
       thinkingSteps: [],
       executions: [],
       startTime: Date.now(),
     };
-    set({ activeConversationId: conversationId, currentTask: task, agentState: 'thinking' });
+    set({
+      activeConnectionId: ownerConnectionId ?? state.activeConnectionId,
+      activeConversationId: conversationId,
+      conversationByConnection: ownerConnectionId
+        ? { ...state.conversationByConnection, [ownerConnectionId]: conversationId }
+        : state.conversationByConnection,
+      currentTask: task,
+      agentState: 'thinking',
+    });
     return task;
   },
 

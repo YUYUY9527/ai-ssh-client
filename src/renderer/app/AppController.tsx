@@ -139,6 +139,10 @@ export function AppController() {
     useAgentStore.getState().syncFromSettings(settings);
   }, [settings]);
 
+  useEffect(() => {
+    useAgentStore.getState().setActiveConnection(activeTabId);
+  }, [activeTabId]);
+
   // Web 部署：查询登录状态，仍使用默认密码时提示尽快修改。
   useEffect(() => {
     const getAuthStatus = window.electronAPI?.getAuthStatus;
