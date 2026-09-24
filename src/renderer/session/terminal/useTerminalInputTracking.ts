@@ -10,7 +10,11 @@ import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
 import { useConnectionStore } from '../../store/useConnectionStore';
 import { useSessionStore } from '../useSessionStore';
 import type { CommandHistoryItem } from '../../../shared/types';
-import { parseTerminalAgentCommand, parseTerminalAgentPaste } from '../../agent/terminal-agent-chat';
+import {
+  isShellPromptReadyForAgent,
+  parseTerminalAgentCommand,
+  parseTerminalAgentPaste,
+} from '../../agent/terminal-agent-chat';
 import {
   extractCwdFromTerminalOutput,
   shouldReplaceCwd,
@@ -84,6 +88,7 @@ function extractCommandFromTerminalOutput(output: string): string | null {
 interface TerminalInputTrackingOptions {
   liveConnectionId: string | null;
   onAgentInput?: (text: string) => void;
+  shellCommandRunning?: boolean;
   syncAlternateScreenState: () => boolean | undefined;
   terminalInstanceVersion: number;
   xtermRef: RefObject<XTerm | null>;
@@ -93,12 +98,14 @@ interface TerminalInputTrackingOptions {
 export function useTerminalInputTracking({
   liveConnectionId,
   onAgentInput,
+  shellCommandRunning = false,
   syncAlternateScreenState,
   terminalInstanceVersion,
   xtermRef,
 }: TerminalInputTrackingOptions) {
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const onAgentInputRef = useRef(onAgentInput);
+  const shellCommandRunningRef = useRef(shellCommandRunning);
   const inputTrackingReliableRef = useRef(true);
   const currentInputRef = useRef('');
   const cwdRef = useRef(DEFAULT_CWD);
@@ -136,7 +143,8 @@ export function useTerminalInputTracking({
 
   useEffect(() => {
     onAgentInputRef.current = onAgentInput;
-  }, [onAgentInput]);
+    shellCommandRunningRef.current = shellCommandRunning;
+  }, [onAgentInput, shellCommandRunning]);
 
   const consumeOutputChunk = useCallback((chunk: string) => {
     outputTailRef.current = tailText(`${outputTailRef.current}${chunk}`, 4096);
@@ -181,6 +189,17 @@ export function useTerminalInputTracking({
 
     const term = xtermRef.current;
     const connectionId = liveConnectionId;
+    const isAgentPromptReady = () => {
+      const activeBuffer = term.buffer.active;
+      const bufferLine = activeBuffer
+        .getLine(activeBuffer.cursorY)
+        ?.translateToString(true) || '';
+      return isShellPromptReadyForAgent(
+        bufferLine,
+        currentInputRef.current,
+        shellCommandRunningRef.current,
+      );
+    };
 
     const onDataDisposable = term.onData((data: string) => {
       if (data === '\x16') {
@@ -212,7 +231,7 @@ export function useTerminalInputTracking({
 
       if (data !== '\r') {
         const pastedAgentCommand = parseTerminalAgentPaste(data, currentInputRef.current);
-        if (pastedAgentCommand) {
+        if (pastedAgentCommand && isAgentPromptReady()) {
           const hadForwardedInput = currentInputRef.current.length > 0;
           inputTrackingReliableRef.current = true;
           currentInputRef.current = '';
@@ -236,9 +255,10 @@ export function useTerminalInputTracking({
           ? currentInputRef.current.trim()
           : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
         const agentCommand = parseTerminalAgentCommand(command);
+        const agentPromptReady = isAgentPromptReady();
         inputTrackingReliableRef.current = true;
         currentInputRef.current = '';
-        if (agentCommand) {
+        if (agentCommand && agentPromptReady) {
           // The remote shell has echoed the line but has not executed it. Clear
           // that pending shell input, then route the line to the local Agent.
           if (window.electronAPI) {

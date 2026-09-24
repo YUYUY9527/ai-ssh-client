@@ -11,7 +11,8 @@ export type AgentSubmissionError =
   | 'noProvider'
   | 'noConnection'
   | 'taskRunning'
-  | 'approvalResponseRequired';
+  | 'approvalResponseRequired'
+  | 'wrongSession';
 
 export type AgentSubmissionAction =
   | { type: 'start'; text: string }
@@ -26,6 +27,8 @@ export interface AgentSubmissionState {
   agentEnabled: boolean;
   hasProvider: boolean;
   hasConnection: boolean;
+  expectedConnectionId: string | null;
+  currentTaskConnectionId: string | null;
   currentTaskActive: boolean;
   pendingQuestion: string | null;
   pendingApproval: PendingApproval | null;
@@ -47,6 +50,35 @@ export function parseTerminalAgentCommand(input: string): { text: string } | nul
 
 export function isTerminalAgentCommand(input: string): boolean {
   return parseTerminalAgentCommand(input) !== null;
+}
+
+/**
+ * Require a conventional PS1 prompt before treating @ai as an Agent request.
+ * This prevents a line such as `cat <<EOF` / `@ai literal` from being
+ * intercepted as a heredoc body. Custom prompts without a recognized marker
+ * can still use the floating Agent panel.
+ */
+export function isShellPromptReadyForAgent(
+  bufferLine: string,
+  currentInput: string,
+  commandRunning = false,
+): boolean {
+  if (commandRunning || !bufferLine) {
+    return false;
+  }
+  let line = bufferLine.replace(/\s+$/, '');
+  const typedInput = currentInput.trimEnd();
+  if (typedInput) {
+    if (line.endsWith(typedInput)) {
+      line = line.slice(0, -typedInput.length).replace(/\s+$/, '');
+    } else if (!/(?:[$#%]|[❯➜λ])$/u.test(line)) {
+      return false;
+    }
+  }
+  if (!line || line === '#' || line.endsWith('>')) {
+    return false;
+  }
+  return /(?:[$#%]|[❯➜λ])$/u.test(line);
 }
 
 /**
@@ -96,6 +128,14 @@ export function resolveAgentSubmission(
   if (!state.hasConnection) {
     return { ok: false, error: 'noConnection' };
   }
+  if (
+    state.currentTaskActive
+    && state.currentTaskConnectionId
+    && state.expectedConnectionId
+    && state.currentTaskConnectionId !== state.expectedConnectionId
+  ) {
+    return { ok: false, error: 'wrongSession' };
+  }
   if (state.pendingApproval) {
     if (/^(?:y|yes|approve|批准|同意)$/i.test(text)) {
       return { ok: true, action: { type: 'approval', result: 'approved' } };
@@ -116,14 +156,20 @@ export function resolveAgentSubmission(
 }
 
 /** Shared submission path for the floating panel and terminal @ai input. */
-export function submitAgentInput(rawText: string): AgentSubmissionResult {
+export function submitAgentInput(
+  rawText: string,
+  expectedConnectionId?: string | null,
+): AgentSubmissionResult {
   const agent = useAgentStore.getState();
   const ai = useAIStore.getState();
   const session = useSessionStore.getState();
+  const connectionId = expectedConnectionId || session.activeSessionId;
   const result = resolveAgentSubmission(rawText, {
     agentEnabled: agent.config.enabled,
     hasProvider: Boolean(ai.activeProviderId),
-    hasConnection: Boolean(session.activeSessionId),
+    hasConnection: Boolean(connectionId),
+    expectedConnectionId: connectionId,
+    currentTaskConnectionId: agent.currentTask?.connectionId || null,
     currentTaskActive: Boolean(
       agent.currentTask
       && agent.currentTask.state !== 'finished'
@@ -145,7 +191,7 @@ export function submitAgentInput(rawText: string): AgentSubmissionResult {
     agent.setPendingInput(result.action.text);
   } else {
     agent.reset();
-    agent.startTask(result.action.text, session.activeSessionId || undefined);
+    agent.startTask(result.action.text, connectionId || undefined);
   }
 
   return result;

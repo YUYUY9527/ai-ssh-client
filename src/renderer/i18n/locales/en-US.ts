@@ -547,6 +547,8 @@ const enUS: DeepStringify<typeof zhCN> = {
       noProvider: 'Please configure and activate an AI provider in settings',
       noConnection: 'Please connect to an SSH session first',
       taskRunning: 'A task is still running. Please wait or cancel it first.',
+      useApprovalButtons: 'Use the Approve or Reject buttons on the command card to confirm this action.',
+      wrongSession: 'This Agent task belongs to another SSH session. Switch back to its original session to continue.',
     },
     notifications: {
       taskCompleted: 'AI Task Completed',

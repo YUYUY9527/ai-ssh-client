@@ -8,7 +8,9 @@ import { formatAgentTerminalText, sanitizeAgentTerminalText } from '../../agent/
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 interface TerminalAgentOutputOptions {
+  isAlternateScreen: boolean;
   sessionId: string | null;
+  terminalInstanceVersion: number;
   translate: Translate;
   xtermRef: RefObject<XTerm | null>;
 }
@@ -44,7 +46,9 @@ function writeLine(term: XTerm, text: string, color?: string): void {
 
 /** Projects Agent store transitions into the active xterm without a chat panel. */
 export function useTerminalAgentOutput({
+  isAlternateScreen,
   sessionId,
+  terminalInstanceVersion,
   translate: t,
   xtermRef,
 }: TerminalAgentOutputOptions): void {
@@ -63,7 +67,7 @@ export function useTerminalAgentOutput({
   const terminalRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!sessionId || activeSessionId !== sessionId) {
+    if (isAlternateScreen || !sessionId || activeSessionId !== sessionId) {
       return;
     }
     const term = xtermRef.current;
@@ -125,18 +129,24 @@ export function useTerminalAgentOutput({
       }
     }
 
-    if (pendingApproval && approvalRef.current !== pendingApproval.command) {
+    if (!pendingApproval) {
+      approvalRef.current = null;
+    } else if (approvalRef.current !== pendingApproval.command) {
       approvalRef.current = pendingApproval.command;
       writeLine(term, t('terminal.agentApproval', { command: pendingApproval.command }), '33');
       writeLine(term, t('terminal.agentApprovalReplyHint'), '90');
     }
 
-    if (pendingTerminalPrompt && terminalRef.current !== pendingTerminalPrompt) {
+    if (!pendingTerminalPrompt) {
+      terminalRef.current = null;
+    } else if (terminalRef.current !== pendingTerminalPrompt) {
       terminalRef.current = pendingTerminalPrompt;
       writeLine(term, t('agent.task.terminalWaitingHint', { prompt: pendingTerminalPrompt }), '33');
     }
 
-    if (pendingQuestion && promptRef.current !== pendingQuestion) {
+    if (!pendingQuestion) {
+      promptRef.current = null;
+    } else if (promptRef.current !== pendingQuestion) {
       promptRef.current = pendingQuestion;
       writeLine(term, pendingQuestion, '33');
       writeLine(term, t('terminal.agentQuestionHint'), '90');
@@ -157,10 +167,12 @@ export function useTerminalAgentOutput({
     activeSessionId,
     agentState,
     currentTask,
+    isAlternateScreen,
     pendingApproval,
     pendingQuestion,
     pendingTerminalPrompt,
     sessionId,
+    terminalInstanceVersion,
     t,
     xtermRef,
   ]);

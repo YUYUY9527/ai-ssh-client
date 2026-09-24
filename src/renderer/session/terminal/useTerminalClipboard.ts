@@ -3,7 +3,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 
 import { t } from '../../i18n';
 import { gateTerminalPaste, prepareTerminalPaste } from './paste-safety';
-import { parseTerminalAgentCommand } from '../../agent/terminal-agent-chat';
+import { parseTerminalAgentPaste } from '../../agent/terminal-agent-chat';
 
 interface TerminalClipboardOptions {
   liveConnectionId: string | null;
@@ -34,17 +34,17 @@ function sendGatedPaste(
   onAgentInput?: (text: string) => void,
   canSubmitPastedAgentInput?: () => boolean,
 ): void {
-  const agentCommand = parseTerminalAgentCommand(text);
-  if (agentCommand && canSubmitPastedAgentInput?.()) {
-    onAgentInput?.(agentCommand.text);
-    return;
-  }
+  const agentCommand = parseTerminalAgentPaste(text);
   const gated = gateTerminalPaste(text, false);
   if (gated.action === 'skip') {
     return;
   }
   if (gated.action === 'confirm') {
     onMultilinePasteRequest?.(gated.previewText, gated.preparedText);
+    return;
+  }
+  if (agentCommand && canSubmitPastedAgentInput?.()) {
+    onAgentInput?.(agentCommand.text);
     return;
   }
   inputTerminalText(connectionId, gated.text);

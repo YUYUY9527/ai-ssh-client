@@ -792,8 +792,12 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const handleSend = () => {
     const text = input.trim();
     if (!text) return;
+    if (pendingApproval) {
+      setLocalError(t('agent.errors.useApprovalButtons'));
+      return;
+    }
 
-    const result = submitAgentInput(text);
+    const result = submitAgentInput(text, activeConnectionId);
     if (!result.ok) {
       const errorKeys: Record<AgentSubmissionError, string> = {
         empty: 'agent.input.placeholder',
@@ -802,6 +806,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
         noConnection: 'agent.errors.noConnection',
         taskRunning: 'agent.errors.taskRunning',
         approvalResponseRequired: 'terminal.agentApprovalReplyRequired',
+        wrongSession: 'agent.errors.wrongSession',
       };
       setLocalError(t(errorKeys[result.error]));
       return;

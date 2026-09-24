@@ -45,7 +45,8 @@ import { useXtermInstance } from './useXtermInstance';
 import { useTerminalAgentOutput } from './useTerminalAgentOutput';
 import {
   formatAgentTerminalText,
-  parseTerminalAgentCommand,
+  isShellPromptReadyForAgent,
+  parseTerminalAgentPaste,
   submitAgentInput,
   type AgentSubmissionError,
 } from '../../agent/terminal-agent-chat';
@@ -93,6 +94,7 @@ export function TerminalView({
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [terminalTheme, setTerminalTheme] = useState(settings?.terminalTheme || 'dark');
   const [terminalInstanceVersion, setTerminalInstanceVersion] = useState(0);
+  const [isAlternateScreen, setIsAlternateScreen] = useState(false);
   const [pastePreview, setPastePreview] = useState<{ previewText: string; preparedText: string } | null>(null);
   const [shellState, setShellState] = useState<ShellIntegrationState | null>(null);
   const isAlternateScreenRef = useRef(false);
@@ -107,7 +109,7 @@ export function TerminalView({
   const theme = themeProp ?? hookTheme;
 
   const handleTerminalAgentInput = useCallback((text: string) => {
-    const result = submitAgentInput(text);
+    const result = submitAgentInput(text, sessionId);
     if (result.ok) {
       if (result.action.type === 'approval') {
         xtermRef.current?.write(formatAgentTerminalText(t(
@@ -126,11 +128,18 @@ export function TerminalView({
       noConnection: 'agent.errors.noConnection',
       taskRunning: 'agent.errors.taskRunning',
       approvalResponseRequired: 'terminal.agentApprovalReplyRequired',
+      wrongSession: 'agent.errors.wrongSession',
     };
     xtermRef.current?.write(`\x1b[31m${formatAgentTerminalText(t(errorKeys[result.error]))}\x1b[0m`);
-  }, [t, xtermRef]);
+  }, [sessionId, t, xtermRef]);
 
-  useTerminalAgentOutput({ sessionId, translate: t, xtermRef });
+  useTerminalAgentOutput({
+    isAlternateScreen,
+    sessionId,
+    terminalInstanceVersion,
+    translate: t,
+    xtermRef,
+  });
 
   const activeSession = useSessionStore((state) => (
     sessionId ? state.sessions[sessionId] : null
@@ -147,11 +156,14 @@ export function TerminalView({
     const isAlternateScreen = xtermRef.current?.buffer.active.type === 'alternate';
     if (isAlternateScreenRef.current !== isAlternateScreen) {
       isAlternateScreenRef.current = isAlternateScreen;
+      setIsAlternateScreen(isAlternateScreen);
     }
     return isAlternateScreen;
   }, []);
 
   const handleTerminalInstanceVersionChange = useCallback(() => {
+    isAlternateScreenRef.current = false;
+    setIsAlternateScreen(false);
     setTerminalInstanceVersion((version) => version + 1);
   }, []);
 
@@ -182,15 +194,26 @@ export function TerminalView({
   } = useTerminalInputTracking({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
+    shellCommandRunning: shellState?.commandRunning,
     syncAlternateScreenState,
     terminalInstanceVersion,
     xtermRef,
   });
 
-  const canSubmitPastedAgentInput = useCallback(
-    () => getCurrentInput().trim().length === 0,
-    [getCurrentInput],
-  );
+  const canSubmitPastedAgentInput = useCallback(() => {
+    const activeBuffer = xtermRef.current?.buffer.active;
+    if (!activeBuffer || activeBuffer.type === 'alternate') {
+      return false;
+    }
+    const bufferLine = activeBuffer
+      .getLine(activeBuffer.cursorY)
+      ?.translateToString(true) || '';
+    return isShellPromptReadyForAgent(
+      bufferLine,
+      getCurrentInput(),
+      shellState?.commandRunning,
+    );
+  }, [getCurrentInput, shellState?.commandRunning, xtermRef]);
 
   /** 写入本地字号并持久化（工具栏 +/- 与 Ctrl+/- 共用）。 */
   const commitFontSize = useCallback((nextSize: number) => {
@@ -396,7 +419,7 @@ export function TerminalView({
     }
     const text = pastePreview.preparedText;
     setPastePreview(null);
-    const agentCommand = parseTerminalAgentCommand(text);
+    const agentCommand = parseTerminalAgentPaste(text);
     if (agentCommand && canSubmitPastedAgentInput()) {
       handleTerminalAgentInput(agentCommand.text);
       return;

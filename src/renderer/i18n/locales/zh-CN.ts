@@ -541,6 +541,8 @@ const zhCN = {
       noProvider: '请先在设置里配置并激活 AI 供应商',
       noConnection: '请先连接一个 SSH 会话',
       taskRunning: '当前任务仍在运行，请先等待完成或取消任务',
+      useApprovalButtons: '请使用命令卡片中的“批准”或“拒绝”按钮确认操作',
+      wrongSession: '当前智能体任务属于另一个 SSH 会话，请切回原会话后操作',
     },
     notifications: {
       taskCompleted: 'AI 任务执行完成',

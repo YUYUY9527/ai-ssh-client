@@ -13,7 +13,7 @@ import {
 } from './terminal-theme';
 import { resolveTerminalRuntimeSettings } from './terminal-settings';
 import { isOpenableHttpUrl, ShellIntegrationParser, type ShellIntegrationState } from './shell-integration';
-import { parseTerminalAgentCommand } from '../../agent/terminal-agent-chat';
+import { parseTerminalAgentPaste } from '../../agent/terminal-agent-chat';
 import { createClipboardPasteFallback, gateTerminalPaste } from './paste-safety';
 import { useSessionStore } from '../useSessionStore';
 
@@ -199,17 +199,17 @@ export function useXtermInstance({
 
   /** 经粘贴门控后发送；多行走确认回调。 */
   const sendPasteText = useCallback((text: string) => {
-    const agentCommand = parseTerminalAgentCommand(text);
-    if (agentCommand && canSubmitPastedAgentInputRef.current?.()) {
-      onAgentInputRef.current?.(agentCommand.text);
-      return;
-    }
+    const agentCommand = parseTerminalAgentPaste(text);
     const gated = gateTerminalPaste(text, false);
     if (gated.action === 'skip') {
       return;
     }
     if (gated.action === 'confirm') {
       onMultilinePasteRequestRef.current?.(gated.previewText, gated.preparedText);
+      return;
+    }
+    if (agentCommand && canSubmitPastedAgentInputRef.current?.()) {
+      onAgentInputRef.current?.(agentCommand.text);
       return;
     }
     if (liveConnectionIdRef.current && window.electronAPI) {

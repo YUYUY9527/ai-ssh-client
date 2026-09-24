@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatAgentTerminalText,
+  isShellPromptReadyForAgent,
   isTerminalAgentCommand,
   parseTerminalAgentCommand,
   parseTerminalAgentPaste,
@@ -13,6 +14,8 @@ const READY_STATE: AgentSubmissionState = {
   agentEnabled: true,
   hasProvider: true,
   hasConnection: true,
+  expectedConnectionId: 'session-a',
+  currentTaskConnectionId: null,
   currentTaskActive: false,
   pendingQuestion: null,
   pendingApproval: null,
@@ -37,6 +40,16 @@ describe('terminal @ai command parsing', () => {
     expect(parseTerminalAgentPaste('@ai 检查磁盘\r')).toEqual({ text: '检查磁盘' });
     expect(parseTerminalAgentPaste('检查磁盘\r', '@ai ')).toEqual({ text: '检查磁盘' });
     expect(parseTerminalAgentPaste('@ai 还没有回车')).toBeNull();
+  });
+
+  it('only enables @ai at a conventional top-level shell prompt', () => {
+    expect(isShellPromptReadyForAgent('user@host:~/src$ @ai check disk', '@ai check disk')).toBe(true);
+    expect(isShellPromptReadyForAgent('user@host:~/src% @ai check disk', '@ai check disk')).toBe(true);
+    expect(isShellPromptReadyForAgent('user@host:~/src$', '@ai check disk')).toBe(true);
+    expect(isShellPromptReadyForAgent('> @ai literal heredoc', '@ai literal heredoc')).toBe(false);
+    expect(isShellPromptReadyForAgent('# @ai literal continuation', '@ai literal continuation')).toBe(false);
+    expect(isShellPromptReadyForAgent('user@host:~$ @ai check disk', '@ai check disk', true)).toBe(false);
+    expect(isShellPromptReadyForAgent('custom-prompt @ai check disk', '@ai check disk')).toBe(false);
   });
 
   it('removes terminal control bytes before writing Agent output', () => {
@@ -82,6 +95,16 @@ describe('shared Agent submission routing', () => {
       ok: false,
       error: 'approvalResponseRequired',
     });
+  });
+
+  it('does not answer or approve a task from another terminal session', () => {
+    expect(resolveAgentSubmission('yes', {
+      ...READY_STATE,
+      expectedConnectionId: 'session-b',
+      currentTaskActive: true,
+      currentTaskConnectionId: 'session-a',
+      pendingApproval: { command: 'rm -rf old', riskLevel: 'high' },
+    })).toEqual({ ok: false, error: 'wrongSession' });
   });
 
   it('rejects a second task while the current task is still running', () => {
