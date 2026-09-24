@@ -42,6 +42,38 @@ const PORT = Number(process.env.WEB_PORT || 5080);
 const HOST = process.env.WEB_HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'config.json');
+const AI_DEBUG_LOG_FILE = process.env.AI_DEBUG_LOG_FILE || '';
+const AI_DEBUG_LOG_STDOUT = process.env.AI_DEBUG_LOG === '1';
+
+function redactAiDebugText(value) {
+  return String(value || '')
+    .replace(/(api[_-]?key|token|password|secret|authorization)\s*[:=]\s*["']?[^"'\s,}]+/gi, '$1=[redacted]')
+    .slice(0, 4000);
+}
+
+function writeAiDebug(kind, requestId, providerId, content, extra = {}) {
+  if (!AI_DEBUG_LOG_FILE && !AI_DEBUG_LOG_STDOUT) return;
+  const line = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    kind,
+    requestId: requestId || '',
+    providerId: providerId || '',
+    content: redactAiDebugText(content),
+    ...extra,
+  });
+  if (AI_DEBUG_LOG_STDOUT) console.warn(`[ai-debug] ${line}`);
+  if (AI_DEBUG_LOG_FILE) {
+    const file = path.isAbsolute(AI_DEBUG_LOG_FILE)
+      ? AI_DEBUG_LOG_FILE
+      : path.join(DATA_DIR, AI_DEBUG_LOG_FILE);
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, `${line}\n`);
+    } catch (error) {
+      console.warn(`[ai-debug] failed to write log: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
 const STATIC_DIR = path.join(__dirname, '..', 'dist', 'renderer');
 // HTTPS（可选）：浏览器会拦截纯 HTTP 页面上的不安全下载（.pcap/.zip 等），
 // 局域网部署建议用 WEB_TLS=1 自签名证书或 WEB_TLS_CERT/WEB_TLS_KEY 接入正式证书。
@@ -333,7 +365,7 @@ async function chatWithProvider(provider, messages, requestId) {
       throw new Error('AI 响应格式无效');
     }
 
-    return {
+    const result = {
       content: choice.message.content || '',
       model: data.model || defaultModel(provider),
       finishReason: choice.finish_reason,
@@ -346,6 +378,11 @@ async function chatWithProvider(provider, messages, requestId) {
           }
         : undefined,
     };
+    writeAiDebug('response', effectiveRequestId, provider.id, result.content, {
+      model: result.model,
+      finishReason: result.finishReason,
+    });
+    return result;
   } finally {
     activeAiRequests.delete(effectiveRequestId);
   }
@@ -388,6 +425,7 @@ async function streamChatWithProvider(provider, messages, requestId, sendEvent) 
     let model = defaultModel(provider);
     let finishReason;
     let usage;
+    let responseContent = '';
     let providerDone = false;
     while (!providerDone) {
       const { value, done } = await reader.read();
@@ -408,6 +446,7 @@ async function streamChatWithProvider(provider, messages, requestId, sendEvent) 
         model = chunk.model || model;
         const choice = chunk.choices?.[0];
         if (typeof choice?.delta?.content === 'string' && choice.delta.content) {
+          responseContent += choice.delta.content;
           sendEvent({ type: 'delta', requestId, delta: choice.delta.content });
         }
         if (choice?.finish_reason) finishReason = choice.finish_reason;
@@ -422,6 +461,11 @@ async function streamChatWithProvider(provider, messages, requestId, sendEvent) 
       if (done) break;
     }
     if (!providerDone) throw new Error('AI stream disconnected before completion');
+    writeAiDebug('stream_response', requestId, provider.id, responseContent, {
+      model,
+      finishReason,
+      usage,
+    });
     sendEvent({ type: 'done', requestId, model, finishReason, usage });
   } catch (error) {
     if (controller.signal.aborted) sendEvent({ type: 'canceled', requestId });

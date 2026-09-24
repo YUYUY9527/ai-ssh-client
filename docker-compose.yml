@@ -12,6 +12,10 @@ services:
       # 可选：启用 HTTPS。Chrome 会拦截纯 HTTP 页面上的"不安全下载"（.pcap/.zip/... 都不在
       # 安全扩展名白名单里），表现为 SFTP 下载静默失败。置 1 后首次启动会用 openssl 生成
       # 自签名证书（含本机所有 IPv4，存于数据卷 /data/tls），改用 https://<IP>:5080 访问。
+      # 可选：启用 AI 调试日志。示例：/data/agent-ai-debug.log（会记录脱敏后的模型响应）
+      AI_DEBUG_LOG_FILE: ${AI_DEBUG_LOG_FILE:-}
+      # 设置为 1 时同时把 AI 调试日志输出到 docker logs
+      AI_DEBUG_LOG: ${AI_DEBUG_LOG:-}
       WEB_TLS: ${AI_SSH_CLIENT_WEB_TLS:-}
       # 可选：自签名证书额外附加的主机名/IP（逗号分隔），例如反向代理域名。
       # WEB_TLS_HOSTS: ssh.example.com
