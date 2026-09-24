@@ -90,6 +90,7 @@ interface TerminalInputTrackingOptions {
   liveConnectionId: string | null;
   onAgentInput?: (text: string) => void;
   getAgentReplyMode?: () => TerminalAgentReplyMode | null;
+  shouldForceAgentPrefix?: () => boolean;
   onExitAgentFollowUp?: () => void;
   syncAlternateScreenState: () => boolean | undefined;
   terminalInstanceVersion: number;
@@ -101,6 +102,7 @@ export function useTerminalInputTracking({
   liveConnectionId,
   onAgentInput,
   getAgentReplyMode,
+  shouldForceAgentPrefix,
   onExitAgentFollowUp,
   syncAlternateScreenState,
   terminalInstanceVersion,
@@ -109,6 +111,7 @@ export function useTerminalInputTracking({
   const onDataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const onAgentInputRef = useRef(onAgentInput);
   const getAgentReplyModeRef = useRef(getAgentReplyMode);
+  const shouldForceAgentPrefixRef = useRef(shouldForceAgentPrefix);
   const onExitAgentFollowUpRef = useRef(onExitAgentFollowUp);
   const inputTrackingReliableRef = useRef(true);
   const currentInputRef = useRef('');
@@ -148,8 +151,9 @@ export function useTerminalInputTracking({
   useEffect(() => {
     onAgentInputRef.current = onAgentInput;
     getAgentReplyModeRef.current = getAgentReplyMode;
+    shouldForceAgentPrefixRef.current = shouldForceAgentPrefix;
     onExitAgentFollowUpRef.current = onExitAgentFollowUp;
-  }, [getAgentReplyMode, onAgentInput, onExitAgentFollowUp]);
+  }, [getAgentReplyMode, onAgentInput, onExitAgentFollowUp, shouldForceAgentPrefix]);
 
   const consumeOutputChunk = useCallback((chunk: string) => {
     outputTailRef.current = tailText(`${outputTailRef.current}${chunk}`, 4096);
@@ -292,7 +296,7 @@ export function useTerminalInputTracking({
         }
         if (
           lineAction.type === 'agent'
-          && (agentPromptReady || replyMode !== null)
+          && (agentPromptReady || replyMode !== null || shouldForceAgentPrefixRef.current?.())
         ) {
           // The remote shell has echoed the line but has not executed it. Clear
           // that pending shell input, then route the line to the local Agent.
