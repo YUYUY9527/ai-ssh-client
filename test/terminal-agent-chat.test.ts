@@ -96,6 +96,13 @@ describe('terminal Agent follow-up routing', () => {
 });
 
 describe('shared Agent submission routing', () => {
+  it('opens a new conversation for the @ai new command', () => {
+    expect(resolveAgentSubmission('new', READY_STATE)).toEqual({
+      ok: true,
+      action: { type: 'new-conversation' },
+    });
+  });
+
   it('starts a task when the Agent is idle', () => {
     expect(resolveAgentSubmission(' 检查磁盘 ', READY_STATE)).toEqual({
       ok: true,

@@ -130,7 +130,9 @@ export function TerminalView({
     if (result.ok) {
       agentFollowUpModeRef.current = false;
       forceAgentPrefixAfterExitRef.current = false;
-      if (result.action.type === 'approval') {
+      if (result.action.type === 'new-conversation') {
+        xtermRef.current?.write(formatAgentTerminalText(t('terminal.agentNewConversation')));
+      } else if (result.action.type === 'approval') {
         xtermRef.current?.write(formatAgentTerminalText(t(
           result.action.result === 'approved'
             ? 'terminal.agentApprovalAccepted'

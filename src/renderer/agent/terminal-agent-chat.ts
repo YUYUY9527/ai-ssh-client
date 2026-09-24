@@ -17,6 +17,7 @@ export type AgentSubmissionError =
 export type AgentSubmissionAction =
   | { type: 'start'; text: string }
   | { type: 'answer'; text: string }
+  | { type: 'new-conversation' }
   | { type: 'approval'; result: 'approved' | 'rejected' };
 
 export type AgentSubmissionResult =
@@ -165,6 +166,9 @@ export function resolveAgentSubmission(
   if (!text) {
     return { ok: false, error: 'empty' };
   }
+  if (/^new$/i.test(text)) {
+    return { ok: true, action: { type: 'new-conversation' } };
+  }
   if (!state.agentEnabled) {
     return { ok: false, error: 'disabled' };
   }
@@ -231,7 +235,9 @@ export function submitAgentInput(
     return result;
   }
 
-  if (result.action.type === 'approval') {
+  if (result.action.type === 'new-conversation') {
+    agent.startNewConversation();
+  } else if (result.action.type === 'approval') {
     agent.setApprovalResult(result.action.result);
   } else if (result.action.type === 'answer') {
     agent.setPendingInput(result.action.text);

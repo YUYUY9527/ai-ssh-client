@@ -77,9 +77,13 @@ export function TerminalToolbar({
         className="terminal-agent-prefix-hint"
         title={translate('terminal.agentPrefixHint')}
         aria-label={translate('terminal.agentInsertPrefix')}
+        data-tooltip={translate('terminal.agentPrefixGuide')}
       >
         <Bot className="h-3.5 w-3.5" />
         @ai
+        <span className="terminal-agent-prefix-tooltip" role="tooltip">
+          {translate('terminal.agentPrefixGuide')}
+        </span>
       </button>
       <button
         onClick={onDecreaseFontSize}
