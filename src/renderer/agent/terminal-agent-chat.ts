@@ -48,7 +48,7 @@ export function parseTerminalAgentCommand(input: string): { text: string } | nul
   return { text: sanitizeAgentTerminalText(match[1]).trim() };
 }
 
-export type TerminalAgentReplyMode = 'answer' | 'approval' | 'follow-up';
+export type TerminalAgentReplyMode = 'answer' | 'approval' | 'follow-up' | 'busy';
 
 export type TerminalAgentLineAction =
   | { type: 'agent'; text: string }

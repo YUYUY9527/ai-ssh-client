@@ -292,7 +292,7 @@ export function useTerminalInputTracking({
         }
         if (
           lineAction.type === 'agent'
-          && (agentPromptReady || replyMode === 'follow-up')
+          && (agentPromptReady || replyMode === 'follow-up' || replyMode === 'busy')
         ) {
           // The remote shell has echoed the line but has not executed it. Clear
           // that pending shell input, then route the line to the local Agent.

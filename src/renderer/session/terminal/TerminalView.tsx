@@ -156,7 +156,7 @@ export function TerminalView({
     xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
   }, [t, xtermRef]);
 
-  const getAgentReplyMode = useCallback((): 'answer' | 'approval' | 'follow-up' | null => {
+  const getAgentReplyMode = useCallback((): 'answer' | 'approval' | 'follow-up' | 'busy' | null => {
     const state = useAgentStore.getState();
     if (
       !sessionId
@@ -167,6 +167,15 @@ export function TerminalView({
     }
     if (state.pendingApproval) return 'approval';
     if (state.pendingQuestion) return 'answer';
+    if (
+      state.currentTask
+      && state.currentTask.state !== 'finished'
+      && state.currentTask.state !== 'error'
+      && state.agentState !== 'finished'
+      && state.agentState !== 'error'
+    ) {
+      return 'busy';
+    }
     if (agentFollowUpModeRef.current && (state.agentState === 'finished' || state.agentState === 'error')) {
       return 'follow-up';
     }

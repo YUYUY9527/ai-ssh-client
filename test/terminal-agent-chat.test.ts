@@ -75,6 +75,13 @@ describe('terminal Agent follow-up routing', () => {
     });
   });
 
+  it('does not send ordinary text to the shell while the Agent is busy', () => {
+    expect(resolveTerminalAgentLineAction('继续检查内存', 'busy')).toEqual({
+      type: 'agent',
+      text: '继续检查内存',
+    });
+  });
+
   it('keeps ordinary shell commands in the shell', () => {
     expect(resolveTerminalAgentLineAction('free -h', null)).toEqual({ type: 'shell' });
     expect(resolveTerminalAgentLineAction('', null)).toEqual({ type: 'shell' });
