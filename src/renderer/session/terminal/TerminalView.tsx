@@ -49,6 +49,7 @@ import {
   isShellPromptReadyForAgent,
   parseTerminalAgentPaste,
   submitAgentInput,
+  TERMINAL_AGENT_PREFIX,
   type AgentSubmissionError,
 } from '../../agent/terminal-agent-chat';
 
@@ -331,6 +332,15 @@ export function TerminalView({
   const handleTerminalPointerDown = () => {
     xtermRef.current?.focus();
   };
+
+  const handleInsertAgentPrefix = useCallback(() => {
+    const term = xtermRef.current;
+    if (!term || !liveConnectionId) {
+      return;
+    }
+    term.focus();
+    term.input(`${TERMINAL_AGENT_PREFIX} `, true);
+  }, [liveConnectionId, xtermRef]);
 
   const handleOpenFileTransfer = useCallback(() => {
     if (!liveConnectionId) {
@@ -657,7 +667,9 @@ export function TerminalView({
         copyOnSelect={runtimeSettings.copyOnSelect}
         shellIntegration={runtimeSettings.shellIntegration}
         shellCwd={shellState?.cwd ?? null}
+        canInsertAgentPrefix={isLive}
         onDecreaseFontSize={() => commitFontSize(fontSizeRef.current - 2)}
+        onInsertAgentPrefix={handleInsertAgentPrefix}
         onIncreaseFontSize={() => commitFontSize(fontSizeRef.current + 2)}
         onToggleSearch={() => setShowSearch(prev => !prev)}
         onToggleThemeSelector={() => {

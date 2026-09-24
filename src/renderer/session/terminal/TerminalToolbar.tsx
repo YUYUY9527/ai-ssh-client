@@ -21,7 +21,9 @@ interface TerminalToolbarProps {
   copyOnSelect: boolean;
   shellIntegration: boolean;
   shellCwd: string | null;
+  canInsertAgentPrefix: boolean;
   onDecreaseFontSize: () => void;
+  onInsertAgentPrefix: () => void;
   onIncreaseFontSize: () => void;
   onToggleSearch: () => void;
   onToggleThemeSelector: () => void;
@@ -51,7 +53,9 @@ export function TerminalToolbar({
   copyOnSelect,
   shellIntegration,
   shellCwd,
+  canInsertAgentPrefix,
   onDecreaseFontSize,
+  onInsertAgentPrefix,
   onIncreaseFontSize,
   onToggleSearch,
   onToggleThemeSelector,
@@ -67,6 +71,17 @@ export function TerminalToolbar({
   return (
     <div className="terminal-toolbar">
       <button
+        type="button"
+        onClick={onInsertAgentPrefix}
+        disabled={!canInsertAgentPrefix}
+        className="terminal-agent-prefix-hint"
+        title={translate('terminal.agentPrefixHint')}
+        aria-label={translate('terminal.agentInsertPrefix')}
+      >
+        <Bot className="h-3.5 w-3.5" />
+        @ai
+      </button>
+      <button
         onClick={onDecreaseFontSize}
         className="terminal-control"
         title={translate('terminal.zoomOut')}
@@ -74,13 +89,6 @@ export function TerminalToolbar({
         <ZoomOut className="w-4 h-4" />
       </button>
       <span className="terminal-toolbar-badge">{fontSize}px</span>
-      <span
-        className="terminal-agent-prefix-hint"
-        title={translate('terminal.agentPrefixHint')}
-      >
-        <Bot className="h-3.5 w-3.5" />
-        @ai
-      </span>
       <button
         onClick={onIncreaseFontSize}
         className="terminal-control"
