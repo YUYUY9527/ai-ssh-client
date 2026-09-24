@@ -5,6 +5,9 @@ const { sftpProtocolPath } = require('./sftp-items.cjs');
 const CHUNK_SIZE = 64 * 1024;
 const CHECKPOINT_BYTES = 4 * 1024 * 1024;
 const CHECKPOINT_MS = 2000;
+// Progress is advisory UI data. Throttle snapshots so a fast multi-file upload
+// cannot flood the browser WebSocket and starve rendering/input handling.
+const PROGRESS_EMIT_MS = 200;
 const TERMINAL_STATUSES = new Set([
   'completed', 'skipped', 'canceled', 'interrupted', 'failed', 'handed-off',
 ]);
@@ -177,11 +180,11 @@ function createSftpTransferService({ getSftp, emitEvent }) {
     });
   }
 
-  function update(task, change) {
+  function update(task, change, notify = true) {
     change(task.snapshot);
     task.snapshot.sequence += 1;
     task.snapshot.updatedAt = now();
-    emit(task);
+    if (notify) emit(task);
     return task.snapshot;
   }
 
@@ -323,6 +326,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
       const handle = await callSftp(sftp, 'open', temporaryPath, offset > 0 ? 'r+' : 'w');
       let lastCheckpointAt = now();
       let lastCheckpointBytes = offset;
+      let lastProgressEmitAt = 0;
       const persistCheckpoint = async () => {
         await writeCheckpoint(sftp, temporaryPath, {
           taskId: snapshot.taskId,
@@ -348,6 +352,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
             : 0;
           current.error = undefined;
         });
+        lastProgressEmitAt = now();
         if (offset > 0) {
           await persistCheckpoint();
         }
@@ -376,7 +381,12 @@ function createSftpTransferService({ getSftp, emitEvent }) {
               current.progress = current.totalBytes
                 ? Math.min(99, Math.round((offset / current.totalBytes) * 100))
                 : 0;
-            });
+            }, false);
+            const progressNow = now();
+            if (progressNow - lastProgressEmitAt >= PROGRESS_EMIT_MS) {
+              lastProgressEmitAt = progressNow;
+              emit(task);
+            }
             if (
               offset - lastCheckpointBytes >= CHECKPOINT_BYTES
               || now() - lastCheckpointAt >= CHECKPOINT_MS

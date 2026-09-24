@@ -267,7 +267,8 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const visibleTransferTasks = useMemo(
     () => transferTasks
       .filter((task) => task.connectionId === connectionId)
-      .sort((left, right) => right.updatedAt - left.updatedAt),
+      // 任务创建后保持稳定顺序；不能用 updatedAt 排序，否则每个进度事件都会让卡片跳位。
+      .sort((left, right) => left.createdAt - right.createdAt || left.taskId.localeCompare(right.taskId)),
     [connectionId, transferTasks],
   );
   const activeTaskCount = visibleTransferTasks.filter(

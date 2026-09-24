@@ -47,6 +47,7 @@ import type {
   SSHConnectResult,
 } from '../../shared/ipc-types';
 import { t } from '../i18n';
+import { createAsyncTaskQueue } from '../transfer/async-task-queue';
 
 type ListenerCleanup = () => void;
 
@@ -64,6 +65,9 @@ const selectedFiles = new Map<string, File>();
 const selectedDirs = new Map<string, FileSystemDirectoryHandle>();
 const webSftpTaskSources = new Map<string, string>();
 const downloadAbortControllers = new Map<string, AbortController>();
+/** 浏览器上行与 SSH/SFTP 共用带宽；限制并发，避免大文件批量上传拖死页面。 */
+const WEB_UPLOAD_CONCURRENCY = 1;
+const webUploadQueue = createAsyncTaskQueue<unknown>(WEB_UPLOAD_CONCURRENCY);
 const listeners = new Map<keyof EventMap, Set<(payload: any) => void>>();
 const sftpClientId = (() => {
   const key = 'ai-ssh-client.sftp-client-id';
@@ -294,6 +298,18 @@ async function streamSftpUpload(
     publishUploadFailure(latestTask || baselinetask, message, 'io-error', offset);
     return makeError(message);
   }
+}
+
+/** 将上传任务放入受控队列，避免同一批次的大文件同时占满上行。 */
+function enqueueWebUpload(
+  taskId: string,
+  resumeOffset = 0,
+  baselineTask?: SftpTransferTaskSnapshot,
+): void {
+  webUploadQueue.enqueue({
+    key: taskId,
+    run: () => streamSftpUpload(taskId, resumeOffset, baselineTask),
+  });
 }
 
 /** FSA 目录流式下载：边下边写，支持 Range 续传与 AbortController 取消。 */
@@ -1068,7 +1084,7 @@ const webApi: Window['electronAPI'] = {
         return;
       }
       webSftpTaskSources.set(task.taskId, source);
-      void streamSftpUpload(task.taskId, 0, task);
+      enqueueWebUpload(task.taskId, 0, task);
     });
     return created;
   },
@@ -1130,13 +1146,14 @@ const webApi: Window['electronAPI'] = {
         : [request.taskId];
       taskIds.forEach((taskId) => {
         if (webSftpTaskSources.has(taskId)) {
-          void streamSftpUpload(taskId, 0);
+          enqueueWebUpload(taskId, 0);
         }
       });
     }
     return result;
   },
   cancelSftpTransfer: async (request: SftpTransferTaskRequest) => {
+    webUploadQueue.remove(request.taskId);
     downloadAbortControllers.get(request.taskId)?.abort();
     return sftpRequest<void>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/cancel`,
@@ -1149,11 +1166,12 @@ const webApi: Window['electronAPI'] = {
       { method: 'POST', body: '{}' },
     );
     if (result.success && result.data.direction === 'upload') {
-      void streamSftpUpload(request.taskId, result.data.resumedFrom || 0, result.data);
+      enqueueWebUpload(request.taskId, result.data.resumedFrom || 0, result.data);
     }
     return result;
   },
   discardSftpTransfer: async (request: SftpTransferTaskRequest) => {
+    webUploadQueue.remove(request.taskId);
     const result = await sftpRequest<void>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}`,
       { method: 'DELETE' },

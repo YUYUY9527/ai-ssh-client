@@ -323,7 +323,35 @@ describe('sftp-transfer', () => {
     expect(remoteFiles.get('/uploads/chunked.bin')!.toString()).toBe('helloworld');
   });
 
-  // 回归：handed-off 下载由浏览器顶层导航发起，带不了 x-sftp-client-id 请求头，
+  it('throttles intermediate transfer snapshots for fast large writes', async () => {
+    const events: { clientId: string; type: string; payload: unknown }[] = [];
+    const sftp = createSftp(new Map());
+    const service = createSftpTransferService({
+      getSftp: async () => sftp,
+      emitEvent: (clientId: string, type: string, payload: unknown) => events.push({ clientId, type, payload }),
+    });
+    const size = 2 * 1024 * 1024;
+    const task = service.startUpload('client-a', {
+      connectionId: 'connection-a',
+      remoteDirectory: '/uploads',
+      files: [{ name: 'throttled.bin', ref: 'web-file:throttled', size }],
+    }).tasks[0];
+
+    await service.upload('client-a', task.taskId, requestLike([Buffer.alloc(size, 3)], {
+      'content-length': String(size),
+      'x-sftp-source-size': String(size),
+      'x-sftp-source-mtime': '1',
+    }));
+
+    const transferringSnapshots = events.filter((event) => {
+      const payload = event.payload as { snapshot?: { taskId: string; status: string } };
+      return payload.snapshot?.taskId === task.taskId && payload.snapshot.status === 'transferring';
+    });
+    expect(transferringSnapshots.length).toBeLessThanOrEqual(2);
+    expect(service.list('client-a').tasks[0].status).toBe('completed');
+  });
+
+
   // 若 URL 里没有 clientId，GET /api/sftp/:id/download 会以 500 "Missing SFTP client identity" 失败。
   it('embeds the client identity in handed-off download urls', () => {
     const service = createSftpTransferService({
