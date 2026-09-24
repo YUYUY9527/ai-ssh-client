@@ -79,8 +79,7 @@ export function TerminalToolbar({
         aria-label={translate('terminal.agentInsertPrefix')}
         data-tooltip={translate('terminal.agentPrefixGuide')}
       >
-        <Bot className="h-3.5 w-3.5" />
-        @ai
+        <Bot className="h-4 w-4" />
         <span className="terminal-agent-prefix-tooltip" role="tooltip">
           {translate('terminal.agentPrefixGuide')}
         </span>
