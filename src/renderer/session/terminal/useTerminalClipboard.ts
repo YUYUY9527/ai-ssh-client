@@ -13,6 +13,8 @@ interface TerminalClipboardOptions {
   xtermRef: RefObject<XTerm | null>;
   /** 多行粘贴需确认；单行直接发送 */
   onMultilinePasteRequest?: (previewText: string, preparedText: string) => void;
+  /** 粘贴文本已直接写入远端 shell：补记进本地输入行，否则回车提交会丢内容。 */
+  recordPastedInput?: (text: string) => void;
 }
 
 function inputTerminalText(connectionId: string | null, text: string): void {
@@ -33,6 +35,7 @@ function sendGatedPaste(
   onMultilinePasteRequest?: (previewText: string, preparedText: string) => void,
   onAgentInput?: (text: string) => void,
   canSubmitPastedAgentInput?: () => boolean,
+  recordPastedInput?: (text: string) => void,
 ): void {
   const agentCommand = parseTerminalAgentPaste(text);
   const gated = gateTerminalPaste(text, false);
@@ -47,6 +50,8 @@ function sendGatedPaste(
     onAgentInput?.(agentCommand.text);
     return;
   }
+  // 补记进输入行追踪：粘贴不走 onData，否则紧接着的回车只会提交手打的部分
+  recordPastedInput?.(gated.text);
   inputTerminalText(connectionId, gated.text);
 }
 
@@ -90,14 +95,17 @@ export function useTerminalClipboard({
   onPasteToAI,
   xtermRef,
   onMultilinePasteRequest,
+  recordPastedInput,
 }: TerminalClipboardOptions) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
   const onAgentInputRef = useRef(onAgentInput);
   const canSubmitPastedAgentInputRef = useRef(canSubmitPastedAgentInput);
+  const recordPastedInputRef = useRef(recordPastedInput);
   onMultilinePasteRequestRef.current = onMultilinePasteRequest;
   onAgentInputRef.current = onAgentInput;
   canSubmitPastedAgentInputRef.current = canSubmitPastedAgentInput;
+  recordPastedInputRef.current = recordPastedInput;
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -122,6 +130,7 @@ export function useTerminalClipboard({
         onMultilinePasteRequestRef.current,
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
+        recordPastedInputRef.current,
       );
     }
   }, [liveConnectionId]);
@@ -144,6 +153,7 @@ export function useTerminalClipboard({
         onMultilinePasteRequestRef.current,
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
+        recordPastedInputRef.current,
       );
       closeContextMenu();
     }).catch((error) => {
@@ -154,6 +164,7 @@ export function useTerminalClipboard({
         onMultilinePasteRequestRef.current,
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
+        recordPastedInputRef.current,
       );
       xtermRef.current?.focus();
       closeContextMenu();
@@ -186,6 +197,7 @@ export function useTerminalClipboard({
         onMultilinePasteRequestRef.current,
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
+        recordPastedInputRef.current,
       );
       xtermRef.current?.focus();
       closeContextMenu();

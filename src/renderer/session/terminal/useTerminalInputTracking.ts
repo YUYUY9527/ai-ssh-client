@@ -21,6 +21,13 @@ import {
   shouldReplaceCwd,
   stripTerminalControlSequences,
 } from './terminal-cwd';
+import { trackPastedInput } from './paste-safety';
+import {
+  isPromptLineReady,
+  readLogicalBufferLine,
+  resolveSubmittedInput,
+  stripPromptPrefix,
+} from './terminal-input-line';
 
 function tailText(input: string, maxChars: number): string {
   if (input.length <= maxChars) {
@@ -198,15 +205,47 @@ export function useTerminalInputTracking({
 
     const term = xtermRef.current;
     const connectionId = liveConnectionId;
-    const isAgentPromptReady = () => {
+    /** 光标所在**逻辑行**（折行已拼回）的原始内容，含提示符与正在输入的部分。 */
+    const readLogicalLine = (): string => {
       const activeBuffer = term.buffer.active;
-      const bufferLine = activeBuffer
-        .getLine(activeBuffer.cursorY)
-        ?.translateToString(true) || '';
-      return isShellPromptReadyForAgent(
-        bufferLine,
-        currentInputRef.current,
+      return readLogicalBufferLine(
+        (index) => activeBuffer.getLine(index),
+        activeBuffer.cursorY,
       );
+    };
+
+    /**
+     * 光标是否停在 shell 提示符上。
+     *
+     * 折行后光标所在视觉行只有输入的尾段，必须先拼回逻辑行再判定；否则长输入
+     * （粘贴或键入）会被当成「不在提示符上」，`@ai` 行会被误发给远端 shell。
+     */
+    const isAgentPromptReady = () => {
+      const logicalLine = readLogicalLine();
+      if (isShellPromptReadyForAgent(logicalLine, currentInputRef.current)) {
+        return true;
+      }
+      // 本地追踪不可用（粘贴未记录等）时退化为「行首能否识别出提示符」
+      return isPromptLineReady(logicalLine);
+    };
+
+    /**
+     * 回车时真正提交的内容。
+     *
+     * 追踪可靠（正在键入）时以追踪为准，仅在屏幕内容与其互为前后缀时补全
+     * （粘贴、折行、历史召回）；追踪失效时才退回输出尾部解析。
+     * 注意：空行回车必须保持为空，否则会把上一条命令当成新输入提交。
+     */
+    const resolveEnteredCommand = (): string => {
+      const logicalLine = readLogicalLine().replace(/\s+$/, '');
+      const stripped = stripPromptPrefix(logicalLine);
+      const screenInput = stripped.matched ? stripped.text.trim() : '';
+      if (inputTrackingReliableRef.current) {
+        return resolveSubmittedInput(currentInputRef.current, screenInput);
+      }
+      return screenInput
+        || extractCommandFromTerminalOutput(outputTailRef.current)
+        || currentInputRef.current.trim();
     };
 
     const onDataDisposable = term.onData((data: string) => {
@@ -259,9 +298,7 @@ export function useTerminalInputTracking({
 
       let command: string | null = null;
       if (data === '\r') {
-        command = inputTrackingReliableRef.current
-          ? currentInputRef.current.trim()
-          : (extractCommandFromTerminalOutput(outputTailRef.current) || currentInputRef.current.trim());
+        command = resolveEnteredCommand();
         const agentPromptReady = isAgentPromptReady();
         const replyMode = getAgentReplyModeRef.current?.() ?? null;
         const lineAction = resolveTerminalAgentLineAction(
@@ -424,6 +461,19 @@ export function useTerminalInputTracking({
     forceResumeInputForward();
   }, [forceResumeInputForward, liveConnectionId, terminalInstanceVersion]);
 
+  /**
+   * 粘贴文本直接下发到远端、不经过 onData，所以要在这里补记，否则回车提交的是残缺内容
+   * （粘贴不丢：见 `trackPastedInput` 的说明）。
+   */
+  const recordPastedInput = useCallback((text: string) => {
+    const next = trackPastedInput(
+      { input: currentInputRef.current, reliable: inputTrackingReliableRef.current },
+      text,
+    );
+    currentInputRef.current = next.input;
+    inputTrackingReliableRef.current = next.reliable;
+  }, []);
+
   /** 当前普通 shell 输入行；粘贴路由用它避免截断已有命令。 */
   const getCurrentInput = useCallback(() => currentInputRef.current, []);
 
@@ -441,5 +491,6 @@ export function useTerminalInputTracking({
     forceResumeInputForward,
     getCurrentInput,
     getCwdTrackingSnapshot,
+    recordPastedInput,
   };
 }

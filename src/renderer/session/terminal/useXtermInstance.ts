@@ -27,6 +27,8 @@ interface XtermInstanceOptions {
   onInstanceVersionChange: () => void;
   /** 多行粘贴需确认时回调；单行不会触发。 */
   onMultilinePasteRequest?: (previewText: string, preparedText: string) => void;
+  /** 粘贴文本已直接写入远端 shell：补记进本地输入行，否则回车提交会丢内容。 */
+  recordPastedInput?: (text: string) => void;
   resetInputTracking: () => void;
   searchAddonRef: MutableRefObject<SearchAddon | null>;
   sessionId: string | null;
@@ -70,6 +72,7 @@ export function useXtermInstance({
   onExitAgentFollowUp,
   onInstanceVersionChange,
   onMultilinePasteRequest,
+  recordPastedInput,
   resetInputTracking,
   searchAddonRef,
   sessionId,
@@ -90,6 +93,7 @@ export function useXtermInstance({
   const resizeRafRef = useRef<number | null>(null);
   const liveConnectionIdRef = useRef(liveConnectionId);
   const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
+  const recordPastedInputRef = useRef(recordPastedInput);
   const onAgentInputRef = useRef(onAgentInput);
   const onExitAgentFollowUpRef = useRef(onExitAgentFollowUp);
   const canSubmitPastedAgentInputRef = useRef(canSubmitPastedAgentInput);
@@ -112,7 +116,8 @@ export function useXtermInstance({
 
   useEffect(() => {
     onMultilinePasteRequestRef.current = onMultilinePasteRequest;
-  }, [onMultilinePasteRequest]);
+    recordPastedInputRef.current = recordPastedInput;
+  }, [onMultilinePasteRequest, recordPastedInput]);
 
   useEffect(() => {
     onAgentInputRef.current = onAgentInput;
@@ -217,6 +222,8 @@ export function useXtermInstance({
       return;
     }
     if (liveConnectionIdRef.current && window.electronAPI) {
+      // 补记进输入行追踪：粘贴不走 onData，否则紧接着的回车只会提交手打的部分
+      recordPastedInputRef.current?.(gated.text);
       window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, gated.text);
     }
   }, []);

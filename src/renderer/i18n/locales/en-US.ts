@@ -604,6 +604,7 @@ const enUS: DeepStringify<typeof zhCN> = {
       roundLimit: 'Maximum decision rounds reached ({count}); the task stopped.',
       timeLimit: 'The task exceeded its time limit ({minutes} min) and stopped.',
       tokenLimit: 'The task exceeded its token budget ({tokens}) and stopped.',
+      sessionReconnected: 'The SSH session was re-established; this Agent conversation has ended.',
     },
   },
   aiErrors: {

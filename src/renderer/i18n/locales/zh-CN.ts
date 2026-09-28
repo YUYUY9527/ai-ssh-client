@@ -598,6 +598,7 @@ const zhCN = {
       roundLimit: '已达到单任务最大决策轮数（{count} 轮），任务已停止。',
       timeLimit: '任务已超过时间上限（{minutes} 分钟），已停止。',
       tokenLimit: '任务已超过 token 预算（{tokens}），已停止。',
+      sessionReconnected: 'SSH 会话已重新建立，这一轮 Agent 会话已结束。',
     },
   },
   aiErrors: {

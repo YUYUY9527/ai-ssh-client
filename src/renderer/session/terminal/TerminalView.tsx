@@ -285,6 +285,7 @@ export function TerminalView({
     endSuspendInputForward,
     getCurrentInput,
     getCwdTrackingSnapshot,
+    recordPastedInput,
   } = useTerminalInputTracking({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
@@ -380,6 +381,7 @@ export function TerminalView({
     onPasteToAI,
     xtermRef,
     onMultilinePasteRequest: handleMultilinePasteRequest,
+    recordPastedInput,
   });
 
   const { renderedOutput, setRenderedOutput, consumeShellIntegration } = useXtermInstance({
@@ -395,6 +397,7 @@ export function TerminalView({
     },
     onInstanceVersionChange: handleTerminalInstanceVersionChange,
     onMultilinePasteRequest: handleMultilinePasteRequest,
+    recordPastedInput,
     resetInputTracking,
     searchAddonRef,
     sessionId,
@@ -534,9 +537,11 @@ export function TerminalView({
       return;
     }
     if (text && liveConnectionId && window.electronAPI) {
+      // 多行粘贴会被远端逐行执行：让输入行追踪失效，避免残留内容混进下一次提交
+      recordPastedInput(text);
       window.electronAPI.sshExecuteSync(liveConnectionId, text);
     }
-  }, [canSubmitPastedAgentInput, handleTerminalAgentInput, liveConnectionId, pastePreview]);
+  }, [canSubmitPastedAgentInput, handleTerminalAgentInput, liveConnectionId, pastePreview, recordPastedInput]);
 
   const handleCancelPaste = useCallback(() => {
     // 取消不发送任何内容

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { t } from '../i18n';
 import type { 
   AgentState, 
   ThinkingStep, 
@@ -60,6 +61,8 @@ interface AgentStore {
   conversationByConnection: Record<string, string>;
   setActiveConnection: (connectionId: string | null) => void;
   startNewConversation: () => void;
+  /** 为指定连接开一段新的 Agent 会话（(重新)连上服务器时调用）。 */
+  startNewConversationForConnection: (connectionId: string) => void;
   selectConversation: (conversationId: string) => void;
 
   // 闂傚倸鍊烽悞锕€顭垮Ο鑲╃煋闁割偅娲橀崑?
@@ -127,10 +130,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   conversationByConnection: {},
   setActiveConnection: (connectionId) => set((state) => {
     if (state.activeConnectionId === connectionId) return state;
+    // 会话只在本进程内复用（conversationByConnection）。**不再从 taskHistory 反查**：
+    // 那会把上次运行留给这台主机的会话重新挂上，用户明确要求「重连后不要加载历史会话」。
     const nextConversation = connectionId
-      ? state.conversationByConnection[connectionId]
-        || state.taskHistory.find((task) => task.connectionId === connectionId)?.conversationId
-        || createConversationId()
+      ? state.conversationByConnection[connectionId] || createConversationId()
       : createConversationId();
     const currentBelongsToNext = Boolean(
       state.currentTask
@@ -188,6 +191,60 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       pendingInput: null,
       pendingTerminalPrompt: null,
       approvalResult: null,
+    };
+  }),
+  /**
+   * 为指定连接开一段新的 Agent 会话 —— 每次（重新）连上服务器都会调用。
+   *
+   * 不复用上一次的会话，也不把它的历史任务当上下文：用户明确要求「重连后不要
+   * 加载历史会话」（否则刚重连就会接着上一次的话题聊）。旧会话仍在 taskHistory
+   * 里可查阅，只是不再自动激活。
+   */
+  startNewConversationForConnection: (connectionId) => set((state) => {
+    const conversationId = createConversationId();
+    const isActive = state.activeConnectionId === connectionId;
+    const current = state.currentTask;
+    const runningOnConnection = Boolean(
+      isActive
+      && current
+      && current.connectionId === connectionId
+      && current.state !== 'finished'
+      && current.state !== 'error',
+    );
+    // SSH 会话已重建：在途任务不可能再继续，按结束落库而不是凭空丢弃
+    const cancelledTask = runningOnConnection && current
+      ? normalizeAgentTask({
+        ...current,
+        state: 'finished',
+        endTime: Date.now(),
+        finishReason: t('agent.finishReasons.sessionReconnected'),
+      })
+      : null;
+    if (cancelledTask) persistAgentTask(cancelledTask);
+
+    return {
+      conversationByConnection: {
+        ...state.conversationByConnection,
+        [connectionId]: conversationId,
+      },
+      ...(isActive
+        ? {
+          activeConversationId: conversationId,
+          currentTask: null,
+          agentState: 'idle' as const,
+          pendingApproval: null,
+          pendingQuestion: null,
+          pendingInput: null,
+          pendingTerminalPrompt: null,
+          approvalResult: null,
+          taskHistory: cancelledTask
+            ? [
+              cancelledTask,
+              ...state.taskHistory.filter((task) => task.id !== cancelledTask.id),
+            ].slice(0, MAX_AGENT_HISTORY_TASKS)
+            : state.taskHistory,
+        }
+        : null),
     };
   }),
   selectConversation: (conversationId) => set((state) => ({

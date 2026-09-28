@@ -14,11 +14,30 @@ import {
 } from './session-scrollback';
 import { prepareWindowForReplay } from './terminal/terminal-alt';
 import type { SessionOutputRecord, SessionRecord } from './session-types';
+import { useAgentStore } from '../store/useAgentStore';
 
 const FALLBACK_PERSISTENCE_SETTINGS: SessionPersistenceSettings = {
   maxPersistedSessions: DEFAULT_SETTINGS.maxPersistedSessions,
   maxScrollbackBytesPerSession: DEFAULT_SETTINGS.maxScrollbackBytesPerSession,
 };
+
+/**
+ * 会话（重新）连上服务器时开一段新的 Agent 会话。
+ *
+ * 用户要求「每次重新连接服务器后新开一个 ai 会话，不要加载历史会话」——
+ * 否则重连后 AI 会带着上次的任务上下文继续聊。这里覆盖所有入口：
+ * 手动重连、自动重连、恢复重连与首次连接都走同一个状态跃迁。
+ */
+function startFreshAgentConversation(
+  sessionId: string,
+  previousState: Session['state'] | undefined,
+  nextState: Session['state'] | undefined,
+): void {
+  if (nextState !== 'connected' || previousState === 'connected') {
+    return;
+  }
+  useAgentStore.getState().startNewConversationForConnection(sessionId);
+}
 
 function deriveSessionState(
   state?: SSHSessionState,
@@ -213,6 +232,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   setSessionState: (sessionId, patch) => {
+    const previousState = get().sessions[sessionId]?.state;
     set((state) => {
       const current = state.sessions[sessionId];
       if (!current) {
@@ -230,9 +250,11 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         },
       };
     });
+    startFreshAgentConversation(sessionId, previousState, get().sessions[sessionId]?.state);
   },
 
   syncSessionStateFromSsh: (sessionId, sshState) => {
+    const previousState = get().sessions[sessionId]?.state;
     set((state) => {
       const current = state.sessions[sessionId];
       if (!current) {
@@ -253,6 +275,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         },
       };
     });
+    startFreshAgentConversation(sessionId, previousState, get().sessions[sessionId]?.state);
   },
 
   appendOutput: (sessionId, data) => {

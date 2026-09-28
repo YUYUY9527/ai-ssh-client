@@ -6,6 +6,7 @@ import {
   isMultiLinePaste,
   prepareTerminalPaste,
   resolvePasteConfirmation,
+  trackPastedInput,
 } from '../src/renderer/session/terminal/paste-safety';
 
 /** 手动调度的定时器替身：只在测试显式 flush 时执行。 */
@@ -63,6 +64,41 @@ describe('paste-safety', () => {
 
   it('skips empty paste', () => {
     expect(gateTerminalPaste('').action).toBe('skip');
+  });
+});
+
+describe('trackPastedInput — 粘贴文本不得丢失', () => {
+  /**
+   * 真实回归：粘贴「Portainer Agent」后再手打「是什么」并回车，`@ai` 只收到「是什么」。
+   * 原因是粘贴被浏览器 paste 事件拦截后直接下发远端 shell，绕过了输入行追踪。
+   */
+  it('单行粘贴并入当前输入行', () => {
+    expect(trackPastedInput({ input: '', reliable: true }, 'Portainer Agent'))
+      .toEqual({ input: 'Portainer Agent', reliable: true });
+    expect(trackPastedInput({ input: 'Portainer Agent', reliable: true }, '是什么'))
+      .toEqual({ input: 'Portainer Agent是什么', reliable: true });
+  });
+
+  it('已有键入内容时接在后面', () => {
+    expect(trackPastedInput({ input: 'grep ', reliable: true }, 'error /var/log/syslog'))
+      .toEqual({ input: 'grep error /var/log/syslog', reliable: true });
+  });
+
+  it('含换行的粘贴会被远端执行，视为已提交（清空并标记不可靠）', () => {
+    expect(trackPastedInput({ input: 'ls', reliable: true }, 'cmd1\ncmd2'))
+      .toEqual({ input: '', reliable: false });
+    expect(trackPastedInput({ input: 'ls', reliable: true }, 'cmd\r'))
+      .toEqual({ input: '', reliable: false });
+  });
+
+  it('追踪已不可靠（用过 ↑/Tab）时保持原状，交给提示符回退解析', () => {
+    const state = { input: '', reliable: false };
+    expect(trackPastedInput(state, 'pasted text')).toBe(state);
+  });
+
+  it('空粘贴不改动追踪', () => {
+    const state = { input: 'ls', reliable: true };
+    expect(trackPastedInput(state, '')).toBe(state);
   });
 });
 

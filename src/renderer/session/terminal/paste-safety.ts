@@ -8,6 +8,38 @@ export function isMultiLinePaste(text: string): boolean {
   return /[\r\n]/.test(text);
 }
 
+/** 当前输入行的本地追踪状态：input 是已知内容，reliable 表示它是否等于屏幕上的那一行。 */
+export interface PastedInputTracking {
+  input: string;
+  reliable: boolean;
+}
+
+/**
+ * 把「直接写入终端」的粘贴文本合并进本地输入行追踪。
+ *
+ * 粘贴不会经过 xterm 的 onData —— 浏览器 paste 事件先被安全门控拦截（preventDefault），
+ * 文本直接 `sshExecuteSync` 到远端。若不补记，紧随其后的回车只会把手打的那半截交给 Agent
+ * 与命令历史（真实回归：粘贴「Portainer Agent」＋手打「是什么」→ `@ai` 只收到「是什么」）。
+ *
+ * 含换行的粘贴会被远端逐行执行，不属于「当前输入行」，因此清空追踪；
+ * 追踪本已不可靠（用过 ↑/Tab 等）时保持原状，交给提示符回退解析，避免拼出错误命令行。
+ */
+export function trackPastedInput(
+  state: PastedInputTracking,
+  pastedText: string,
+): PastedInputTracking {
+  if (!pastedText) {
+    return state;
+  }
+  if (isMultiLinePaste(pastedText)) {
+    return { input: '', reliable: false };
+  }
+  if (!state.reliable) {
+    return state;
+  }
+  return { input: `${state.input}${pastedText}`, reliable: true };
+}
+
 export type PasteGateResult =
   | { action: 'send'; text: string }
   | { action: 'confirm'; previewText: string; preparedText: string }
