@@ -12,6 +12,8 @@ const DEFAULT_PASSWORD = 'admin';
 const CREDENTIAL_FILE = 'web-auth.json';
 // scrypt 派生密钥长度（字节）。
 const KEY_LEN = 32;
+const LOGIN_WINDOW_MS = 60 * 1000;
+const LOGIN_MAX_FAILURES = 10;
 
 /**
  * 解析请求头中的 Cookie 字符串，返回键值对。
@@ -24,7 +26,14 @@ function parseCookies(header) {
     if (index === -1) continue;
     const key = part.slice(0, index).trim();
     const value = part.slice(index + 1).trim();
-    if (key) cookies[key] = decodeURIComponent(value);
+    if (key) {
+      try {
+        cookies[key] = decodeURIComponent(value);
+      } catch {
+        // Malformed cookie values must not turn authentication into a 500.
+        cookies[key] = '';
+      }
+    }
   }
   return cookies;
 }
@@ -142,6 +151,39 @@ function createAuth(dataDir) {
   };
   const isEnvManaged = credential.source === 'env';
   let sessionValue = deriveSessionValue(current.hash);
+  const loginFailures = new Map();
+
+  function loginClientKey(request) {
+    const forwarded = request.headers?.['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.trim()) {
+      return forwarded.split(',')[0].trim().slice(0, 200);
+    }
+    return String(request.ip || request.socket?.remoteAddress || 'unknown');
+  }
+
+  function isLoginBlocked(request) {
+    const entry = loginFailures.get(loginClientKey(request));
+    if (!entry) return false;
+    if (entry.resetAt <= Date.now()) {
+      loginFailures.delete(loginClientKey(request));
+      return false;
+    }
+    return entry.count >= LOGIN_MAX_FAILURES;
+  }
+
+  function recordLoginFailure(request) {
+    const key = loginClientKey(request);
+    const currentEntry = loginFailures.get(key);
+    const entry = currentEntry && currentEntry.resetAt > Date.now()
+      ? currentEntry
+      : { count: 0, resetAt: Date.now() + LOGIN_WINDOW_MS };
+    entry.count += 1;
+    loginFailures.set(key, entry);
+  }
+
+  function clearLoginFailures(request) {
+    loginFailures.delete(loginClientKey(request));
+  }
 
   // 判断请求是否已通过鉴权。
   function isAuthed(request) {
@@ -187,11 +229,19 @@ function createAuth(dataDir) {
 
   // 处理登录：校验密码，通过后写入 HttpOnly 会话 Cookie。
   function handleLogin(request, response) {
+    if (isLoginBlocked(request)) {
+      response.status(429);
+      response.setHeader?.('Retry-After', '60');
+      response.json({ success: false, error: 'Too many failed login attempts', code: 'LOGIN_RATE_LIMITED' });
+      return;
+    }
     const submitted = (request.body && request.body.password) || '';
     if (!verifyPassword(submitted, current.salt, current.hash)) {
+      recordLoginFailure(request);
       response.status(401).json({ success: false, error: 'Invalid password' });
       return;
     }
+    clearLoginFailures(request);
     setSessionCookie(request, response);
     response.json({ success: true });
   }

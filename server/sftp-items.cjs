@@ -2,6 +2,8 @@ const posixPath = require('node:path').posix;
 
 const NO_SUCH_FILE = 2;
 const PROTECTED_PATHS = new Set(['', '/', '.', '~', '~/']);
+const MAX_DELETE_ITEMS = 10_000;
+const MAX_DELETE_DEPTH = 64;
 
 /** 将 shell 家目录记法转换为 SFTP 协议路径。/home 是真实目录，不得映射为家目录。 */
 function sftpProtocolPath(remotePath) {
@@ -82,10 +84,22 @@ async function renameSftpItem(sftp, remotePath, newName) {
 
 async function deleteSftpItem(sftp, remotePath) {
   validateItemPath(remotePath);
-  const stack = [{ remotePath: sftpProtocolPath(remotePath), visited: false }];
+  const stack = [{ remotePath: sftpProtocolPath(remotePath), visited: false, depth: 0 }];
+  let visitedCount = 0;
 
   while (stack.length > 0) {
     const item = stack.pop();
+    visitedCount += 1;
+    if (visitedCount > MAX_DELETE_ITEMS) {
+      const error = new Error(`SFTP delete exceeds ${MAX_DELETE_ITEMS} items`);
+      error.code = 'delete-limit';
+      throw error;
+    }
+    if (item.depth > MAX_DELETE_DEPTH) {
+      const error = new Error(`SFTP delete exceeds ${MAX_DELETE_DEPTH} directory levels`);
+      error.code = 'delete-limit';
+      throw error;
+    }
     if (item.visited) {
       await callSftp(sftp, 'rmdir', item.remotePath);
       continue;
@@ -99,11 +113,11 @@ async function deleteSftpItem(sftp, remotePath) {
     }
 
     const entries = await callSftp(sftp, 'readdir', item.remotePath);
-    stack.push({ remotePath: item.remotePath, visited: true });
+    stack.push({ remotePath: item.remotePath, visited: true, depth: item.depth });
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const name = entries[index].filename;
       if (name !== '.' && name !== '..') {
-        stack.push({ remotePath: posixPath.join(item.remotePath, name), visited: false });
+        stack.push({ remotePath: posixPath.join(item.remotePath, name), visited: false, depth: item.depth + 1 });
       }
     }
   }

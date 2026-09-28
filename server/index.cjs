@@ -193,7 +193,25 @@ function readStore() {
       ...stored,
       settings: normalizeSettings(stored.settings),
     });
-  } catch {
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      const backupPath = `${STORE_PATH}.bak`;
+      try {
+        const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+        console.warn(`[store] configuration is damaged; recovered from ${backupPath}`);
+        return secretStore.decryptStore({
+          connections: [], settings: defaultSettings, commandHistory: [],
+          quickCommands: [], quickCommandGroups: [], aiProviders: [],
+          agentTasks: [], hostTrustRecords: [], ...backup,
+          settings: normalizeSettings(backup.settings),
+        });
+      } catch (backupError) {
+        throw new Error(
+          `Unable to read configuration: ${error instanceof Error ? error.message : String(error)}; `
+          + `backup unavailable: ${backupError instanceof Error ? backupError.message : String(backupError)}`,
+        );
+      }
+    }
     return {
       connections: [],
       settings: defaultSettings,
@@ -211,7 +229,21 @@ function writeStore(store) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   // 落盘前加密 SSH 密码/私钥/passphrase 与 AI apiKey；历史明文字段在本次写入时被一并加密。
   const payload = secretStore.encryptStore(store);
-  fs.writeFileSync(STORE_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+  const tempPath = `${STORE_PATH}.${process.pid}.tmp`;
+  const backupPath = `${STORE_PATH}.bak`;
+  const serialized = `${JSON.stringify(payload, null, 2)}\n`;
+  // Replace by rename so a process/container interruption cannot leave a
+  // half-written config file. Keep one last known-good copy for recovery.
+  fs.writeFileSync(tempPath, serialized, { mode: 0o600 });
+  try {
+    if (fs.existsSync(STORE_PATH)) {
+      fs.copyFileSync(STORE_PATH, backupPath);
+    }
+    fs.renameSync(tempPath, STORE_PATH);
+  } catch (error) {
+    try { fs.rmSync(tempPath, { force: true }); } catch {}
+    throw error;
+  }
 }
 
 function updateStore(update) {
@@ -1096,7 +1128,15 @@ function route(handler) {
     try {
       response.json(await handler(request, response));
     } catch (error) {
-      response.json(failure(error));
+      const payload = failure(error);
+      const code = String(payload.code || '').toLowerCase();
+      const status = Number.isInteger(error?.statusCode) ? error.statusCode
+        : code === 'not-found' ? 404
+        : code === 'conflict' || code === 'already-exists' ? 409
+          : code === 'unauthorized' ? 401
+            : code === 'forbidden' ? 403
+              : code === 'io-error' || code === 'ssh-error' ? 500 : 400;
+      response.status(status).json(payload);
     }
   };
 }

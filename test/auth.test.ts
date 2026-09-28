@@ -46,6 +46,9 @@ class FakeRes {
     this.statusCode = code;
     return this;
   }
+  setHeader(_name: string, _value: string): this {
+    return this;
+  }
   json(body: unknown): this {
     this.jsonBody = body;
     return this;
@@ -119,6 +122,20 @@ describe('web auth — default password bootstrap', () => {
     auth.handleLogin({ path: '/api/login', headers: {}, body: { password: 'nope' } }, badRes);
     expect(badRes.statusCode).toBe(401);
     expect(badRes.cookies[COOKIE_NAME]).toBeUndefined();
+  });
+
+  it('does not throw on malformed cookies and rate-limits repeated failures', () => {
+    const auth = createAuth(tmpDir);
+    expect(() => auth.isAuthed({ path: '/api/x', headers: { cookie: `${COOKIE_NAME}=%ZZ` } })).not.toThrow();
+
+    for (let index = 0; index < 10; index += 1) {
+      const res = new FakeRes();
+      auth.handleLogin({ path: '/api/login', headers: { 'x-forwarded-for': '192.0.2.10' }, body: { password: 'wrong' } }, res);
+      expect(res.statusCode).toBe(401);
+    }
+    const blocked = new FakeRes();
+    auth.handleLogin({ path: '/api/login', headers: { 'x-forwarded-for': '192.0.2.10' }, body: { password: DEFAULT_PASSWORD } }, blocked);
+    expect(blocked.statusCode).toBe(429);
   });
 });
 
