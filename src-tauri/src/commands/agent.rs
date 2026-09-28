@@ -40,10 +40,24 @@ pub fn agent_stop_task(state: State<'_, AppState>, connection_id: String) -> Ipc
 }
 
 /// Pauses an agent task.
+///
+/// 只掐断**指定连接**上的在途命令；未提供 connectionId 时保持旧行为（取消全部），
+/// 以兼容尚未更新的调用方。
+///
+/// 历史缺陷：旧实现无条件 `cancel_all_execs()`，多标签页/多窗口下点一次「暂停」，
+/// 会把其它会话正在跑的 Agent 命令一并 Ctrl-C 掉。
 #[tauri::command]
-pub fn agent_pause_task(state: State<'_, AppState>) -> IpcResult<()> {
-    match state.agent.cancel_all_execs() {
-        Ok(_) => empty_success(),
+pub fn agent_pause_task(
+    state: State<'_, AppState>,
+    connection_id: Option<String>,
+) -> IpcResult<()> {
+    let result = match connection_id.as_deref() {
+        Some(connection_id) => state.agent.cancel_exec(connection_id).map(|_| ()),
+        None => state.agent.cancel_all_execs().map(|_| ()),
+    };
+
+    match result {
+        Ok(()) => empty_success(),
         Err(err) => error(err.to_string()),
     }
 }

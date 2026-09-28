@@ -1228,10 +1228,12 @@ const webApi: Window['electronAPI'] = {
     body: '{}',
   }),
   // 暂停：除前端 store 停止等待外，还要让网关掐断在途远端命令，
-  // 否则界面上已暂停、远端那条命令仍会跑完（与桌面端 cancel_all_execs 对齐）。
-  agentPauseTask: () => request<void>('/api/agent/pause', {
+  // 否则界面上已暂停、远端那条命令仍会跑完。
+  // 带上 connectionId 时只掐断该连接（多标签页下不会误伤其它会话正在跑的 Agent 命令）；
+  // 不传时保持旧行为（取消本客户端全部在途执行）。
+  agentPauseTask: (connectionId) => request<void>('/api/agent/pause', {
     method: 'POST',
-    body: '{}',
+    body: JSON.stringify(connectionId ? { connectionId } : {}),
   }),
   // 继续无需后端动作：恢复由前端 store 重新驱动流程（桌面端 agent_resume_task 同样为空实现）。
   agentResumeTask: () => Promise.resolve({ success: true }),

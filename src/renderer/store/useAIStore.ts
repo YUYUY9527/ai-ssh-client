@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { AIProviderConfig, AIProviderSummary, CommandSuggestion } from '../../shared/types';
-import { extractCommand, riskAnalysisToSuggestion } from '../ai';
+import { riskAnalysisToSuggestion } from '../ai';
 
 /**
  * AI provider + command risk helpers for the SSH Agent product surface.
@@ -15,7 +15,6 @@ interface AIState {
   deleteProvider: (providerId: string) => Promise<void>;
   setActiveProvider: (providerId: string | null) => void;
   analyzeCommand: (command: string) => CommandSuggestion;
-  extractCommand: (aiResponse: string) => string | null;
 }
 
 export const useAIStore = create<AIState>((set, get) => ({
@@ -57,9 +56,5 @@ export const useAIStore = create<AIState>((set, get) => ({
   // 命令风险分析，供 Agent / 审批弹窗使用
   analyzeCommand: (command: string): CommandSuggestion => {
     return riskAnalysisToSuggestion(command);
-  },
-
-  extractCommand: (aiResponse: string): string | null => {
-    return extractCommand(aiResponse);
   },
 }));

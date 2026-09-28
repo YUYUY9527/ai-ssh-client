@@ -1,6 +1,6 @@
 import type { CommandSuggestion } from '../../shared/types';
 import { useAIStore } from '../store/useAIStore';
-import { getAutoRejectForRisk, requiresCommandApproval } from './command-policy';
+import { isAutoRejected, requiresCommandApproval } from './command-policy';
 
 export interface CommandApprovalRequest {
   requiresApproval: boolean;
@@ -15,7 +15,7 @@ export function createCommandApprovalRequest(
 ): CommandApprovalRequest {
   const suggestion = useAIStore.getState().analyzeCommand(command);
   const rememberEnabled = options?.rememberEnabled !== false;
-  const autoRejected = getAutoRejectForRisk(suggestion.riskLevel, rememberEnabled);
+  const autoRejected = isAutoRejected(suggestion.command, suggestion.riskLevel, rememberEnabled);
 
   return {
     requiresApproval: !autoRejected && requiresCommandApproval(suggestion, 'medium', { rememberEnabled }),

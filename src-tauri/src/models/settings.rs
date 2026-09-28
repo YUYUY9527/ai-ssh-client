@@ -41,6 +41,9 @@ pub struct AppSettings {
     pub agent_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_semantic_summary_context_length: Option<u32>,
+    /// 只读模式：Agent 只允许执行不改动远端状态的命令
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_read_only_mode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_persisted_sessions: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,6 +73,7 @@ impl Default for AppSettings {
             terminal_shell_integration: Some(true),
             agent_enabled: None,
             agent_semantic_summary_context_length: Some(12_000),
+            agent_read_only_mode: Some(false),
             max_persisted_sessions: Some(8),
             max_scrollback_bytes_per_session: Some(150 * 1024),
         }

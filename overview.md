@@ -83,7 +83,7 @@ store/        Zustand stores（agent / ai / connection / sftpTransfer）
 i18n/         en-US、zh-CN
 lib/          native.ts、web.ts、native/*、version-check
 shared-ui/    Modal、ConfirmDialog、IndustrialSelect
-components/   早期扁平组件（FileTransfer、AgentPet、AgentThinking、
+components/   早期扁平组件（FileTransfer、AgentPet、
               ConnectionList、SettingsPanel、QuickCommandsPanel 等）
 ```
 

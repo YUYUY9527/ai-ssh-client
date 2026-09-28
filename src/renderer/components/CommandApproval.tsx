@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { AlertTriangle, Check, CheckCircle2, XCircle, ShieldAlert, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { CommandSuggestion } from '../../shared/types';
-import { rememberRiskDecision } from '../assistant/risk-approval-memory';
+import { rememberCommandDecision } from '../assistant/risk-approval-memory';
 import { Modal } from '../shared-ui/Modal';
 
 interface CommandApprovalProps {
@@ -85,16 +85,16 @@ export function CommandApproval({
   const colors = getRiskColor();
 
   const handleApprove = () => {
-    // 会话级记忆：后续同风险等级可跳过弹窗
+    // 会话级记忆：仅对这条具体命令生效（critical 不记忆）
     if (rememberEnabled && rememberChoice) {
-      rememberRiskDecision(command.riskLevel, 'approved');
+      rememberCommandDecision(command.command, command.riskLevel, 'approved');
     }
     onApprove();
   };
 
   const handleReject = () => {
     if (rememberEnabled && rememberChoice) {
-      rememberRiskDecision(command.riskLevel, 'rejected');
+      rememberCommandDecision(command.command, command.riskLevel, 'rejected');
     }
     onReject();
   };
@@ -149,7 +149,7 @@ export function CommandApproval({
             </div>
           )}
 
-          {rememberEnabled && (
+          {rememberEnabled && command.riskLevel !== 'critical' && (
             <div className="flex items-center gap-2 p-3 industrial-card">
               <button
                 type="button"
@@ -171,7 +171,7 @@ export function CommandApproval({
                   <Save className="w-3.5 h-3.5" />
                   {t('commandApproval.rememberChoice')}
                 </span>
-                <p className="text-xs text-slate-500">{t('commandApproval.rememberChoiceDesc')}</p>
+                <p className="text-xs text-slate-500">{t('commandApproval.rememberCommandChoiceDesc')}</p>
               </div>
             </div>
           )}

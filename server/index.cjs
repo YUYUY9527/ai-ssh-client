@@ -103,6 +103,7 @@ const defaultSettings = {
   terminalCopyOnSelect: false,
   terminalShellIntegration: true,
   agentSemanticSummaryContextLength: 12000,
+  agentReadOnlyMode: false,
   maxPersistedSessions: 8,
   maxScrollbackBytesPerSession: 150 * 1024,
 };
@@ -1839,11 +1840,19 @@ app.post('/api/agent/:id/exec-await', route((request) => (
 app.post('/api/agent/:id/cancel-exec', route((request) => success({
   canceled: cancelAgentExec(request.params.id, requestClientId(request)),
 })));
-// 暂停：中止该客户端全部在途远端执行（前端本地暂停由 agent store 驱动）。
-// 对应桌面端 agent_pause_task → cancel_all_execs()，避免"界面已暂停、远端命令仍在跑"。
-app.post('/api/agent/pause', route((request) => success({
-  canceled: cancelAgentExecsForClient(requestClientId(request)),
-})));
+// 暂停：中止在途远端执行（前端本地暂停由 agent store 驱动）。
+// 带 connectionId 时只掐断该连接，避免多标签页下误伤其它会话正在跑的 Agent 命令；
+// 不带时保持旧行为：取消该客户端全部在途执行。
+// 对应桌面端 agent_pause_task(connectionId?)。
+app.post('/api/agent/pause', route((request) => {
+  const connectionId = typeof request.body?.connectionId === 'string' ? request.body.connectionId : '';
+  const clientId = requestClientId(request);
+  return success({
+    canceled: connectionId
+      ? (cancelAgentExec(connectionId, clientId) ? 1 : 0)
+      : cancelAgentExecsForClient(clientId),
+  });
+}));
 app.get('/api/agent/tasks', route(() => success({ tasks: readStore().agentTasks })));
 app.post('/api/agent/tasks', route((request) => {
   updateStore((store) => {

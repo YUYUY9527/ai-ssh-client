@@ -123,7 +123,7 @@ type ElectronApiLike = {
   writeSftpTextFile: (connectionId: string, remotePath: string, content: string) => Promise<IPCResult>;
   agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
   agentStopTask: (connectionId: string) => Promise<IPCResult>;
-  agentPauseTask: () => Promise<IPCResult>;
+  agentPauseTask: (connectionId?: string) => Promise<IPCResult>;
   agentResumeTask: () => Promise<IPCResult>;
   agentExecAwait: (connectionId: string, command: string, options?: { runId?: string; timeoutMs?: number }) => Promise<IPCResult<AgentExecAwaitResult>>;
   agentCancelExec: (connectionId: string) => Promise<IPCResult>;
@@ -283,7 +283,7 @@ const nativeApi: ElectronApiLike = {
   ...createNativeSftpApi(tauriInvoke, createTauriListener),
   agentStartTask: (taskId, connectionId) => tauriInvoke<void>('agent_start_task', { taskId, connectionId }),
   agentStopTask: (connectionId) => tauriInvoke<void>('agent_stop_task', { connectionId }),
-  agentPauseTask: () => tauriInvoke<void>('agent_pause_task'),
+  agentPauseTask: (connectionId) => tauriInvoke<void>('agent_pause_task', { connectionId }),
   agentResumeTask: () => tauriInvoke<void>('agent_resume_task'),
   agentExecAwait: (connectionId, command, options) => tauriInvoke<AgentExecAwaitResult>('agent_exec_await', { connectionId, command, options }),
   agentCancelExec: (connectionId) => tauriInvoke<void>('agent_cancel_exec', { connectionId }),

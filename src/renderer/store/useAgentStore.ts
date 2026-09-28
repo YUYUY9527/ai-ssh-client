@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import type { 
-  AgentMode, 
   AgentState, 
   ThinkingStep, 
   AgentExecution, 
@@ -50,11 +49,6 @@ function normalizeAgentTask(task: AgentTask): AgentTask {
 }
 
 interface AgentStore {
-  // 濠电姷顣藉Σ鍛村垂椤忓牆鐒垫い鎺嗗亾缁剧虎鍘惧☉鐢稿焵椤掑嫭鈷戠紓浣癸供閻掗箖鏌涢埡鍌滃⒌闁糕斁鍋?
-  mode: AgentMode;
-  setMode: (mode: AgentMode) => void;
-
-  // 闂傚倷绀侀幖顐﹀箠濡偐纾芥慨妯挎硾缁€鍌涗繆椤栨粎甯涘┑顖涙尦閺岀喖骞戦幇顓犮€愮紒妤佸灴濮?
   agentState: AgentState;
   setAgentState: (state: AgentState) => void;
 
@@ -107,6 +101,9 @@ interface AgentStore {
   // 闂傚倷绀佸﹢閬嶆偡閹惰棄骞㈤柍鍝勫€归弶鎼佹⒑閼姐倕小闁绘帪绠戦…鍨熼懖鈺冾槸閻庡箍鍎遍ˇ顖滅不閼测斁鍋撻獮鍨姎閻庢凹鍠氱划?
   addExecution: (execution: AgentExecution) => void;
 
+  /** 累加任务 token 用量（provider 返回 usage 时）。 */
+  addTaskTokenUsage: (usage: number) => void;
+
   // 婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柣鎾虫捣椤旀捇鎮楅獮鍨姎閻庢凹鍠氱划?
   startTask: (userInput: string, connectionId?: string) => AgentTask;
   completeTask: (success: boolean, error?: string, finishReason?: string) => void;
@@ -119,11 +116,6 @@ interface AgentStore {
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  // 濠电姷顣藉Σ鍛村垂椤忓牆鐒垫い鎺嗗亾缁剧虎鍘惧☉鐢稿焵椤掑嫭鈷戠紓浣癸供閻掗箖鏌涢埡鍌滃⒌闁糕斁鍋?
-  mode: 'agent',
-  setMode: (mode) => set({ mode }),
-
-  // 闂傚倷绀侀幖顐﹀箠濡偐纾芥慨妯挎硾缁€鍌涗繆椤栨粎甯涘┑顖涙尦閺岀喖骞戦幇顓犮€愮紒妤佸灴濮?
   agentState: 'idle',
   setAgentState: (state) => set({ agentState: state }),
 
@@ -216,9 +208,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   config: {
     enabled: true,
     semanticSummaryContextLength: 12000,
-    requireApprovalForRisk: true,
     approveHighRisk: true,
     approveMediumRisk: true,
+    readOnlyMode: false,
   },
   updateConfig: (config) => set((state) => ({ 
     config: { ...state.config, ...config } 
@@ -228,10 +220,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     config: {
       ...state.config,
       enabled: settings.agentEnabled ?? true,
-      requireApprovalForRisk: true,
       approveHighRisk: settings.approveHighRisk ?? true,
       approveMediumRisk: settings.approveMediumRisk ?? true,
       semanticSummaryContextLength: settings.agentSemanticSummaryContextLength ?? 12000,
+      readOnlyMode: settings.agentReadOnlyMode ?? false,
     },
   })),
 
@@ -304,6 +296,16 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         ...state.currentTask,
         executions: [...state.currentTask.executions, execution]
       }
+    };
+  }),
+
+  addTaskTokenUsage: (usage) => set((state) => {
+    if (!state.currentTask || !Number.isFinite(usage) || usage <= 0) return state;
+    return {
+      currentTask: {
+        ...state.currentTask,
+        tokenUsage: (state.currentTask.tokenUsage ?? 0) + usage,
+      },
     };
   }),
 

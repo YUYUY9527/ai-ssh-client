@@ -511,6 +511,18 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       />
                     </div>
 
+                    <div className="industrial-setting-row">
+                      <div>
+                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.readOnlyMode')}</label>
+                        <p className="text-xs text-slate-500">{t('settings.agent.readOnlyModeDesc')}</p>
+                      </div>
+                      <ToggleButton
+                        enabled={localSettings.agentReadOnlyMode ?? false}
+                        label={t('settings.agent.readOnlyMode')}
+                        onChange={(value) => setLocalSettings({ ...localSettings, agentReadOnlyMode: value })}
+                      />
+                    </div>
+
                     <div>
                       <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.summaryContextLength')}</label>
                       <p className="text-xs text-slate-500 mb-2">{t('settings.agent.summaryContextLengthDesc')}</p>

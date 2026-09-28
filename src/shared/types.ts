@@ -69,6 +69,8 @@ export interface CommandSuggestion {
   isDangerous: boolean;
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
   riskDescription?: string;
+  /** 是否只读命令（不修改远端状态）；只读模式下只有这类命令可执行。 */
+  readOnly?: boolean;
 }
 
 // 命令历史记录
@@ -185,6 +187,8 @@ export interface AppSettings {
   terminalShellIntegration?: boolean;
   agentEnabled?: boolean;
   agentSemanticSummaryContextLength?: number;
+  /** 只读模式：Agent 只允许执行不改动远端状态的命令。 */
+  agentReadOnlyMode?: boolean;
   maxPersistedSessions?: number;
   maxScrollbackBytesPerSession?: number;
 }
@@ -200,8 +204,6 @@ export interface SFTPFileInfo {
   mtime: number;
   atime: number;
 }
-
-export type AgentMode = 'agent';
 
 export type AgentState = 'idle' | 'thinking' | 'planning' | 'executing' | 'observing' | 'paused' | 'finished' | 'error';
 
@@ -223,6 +225,12 @@ export interface AgentExecution {
   output: string;
   timestamp: number;
   success: boolean;
+  /** 哨兵捕获到的远端退出码；null 表示未捕获（超时/断线/仅按提示符判定结束）。 */
+  exitCode?: number | null;
+  /** 命令下发时刻（本地时间），用于计算真实执行耗时。 */
+  startedAt?: number;
+  /** 命令结束时刻（本地时间）。 */
+  completedAt?: number;
 }
 
 export interface AgentTask {
@@ -238,14 +246,17 @@ export interface AgentTask {
   endTime?: number;
   error?: string;
   finishReason?: string;
+  /** 本任务累计消耗的 token（provider 返回 usage 时才统计）。 */
+  tokenUsage?: number;
 }
 
 export interface AgentConfig {
   enabled: boolean;
   semanticSummaryContextLength: number;
-  requireApprovalForRisk: boolean;
   approveHighRisk: boolean;
   approveMediumRisk: boolean;
+  /** 只读模式：非只读命令一律不执行，并把原因回给模型换方案。 */
+  readOnlyMode: boolean;
 }
 
 export interface PendingApproval {
@@ -266,5 +277,4 @@ export interface AgentResponse {
   command?: string;
   finishReason?: string;
   question?: string;
-  needsMoreContext?: boolean;
 }

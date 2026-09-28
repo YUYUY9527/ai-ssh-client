@@ -3,11 +3,13 @@ import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, Messa
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useConnectionStore } from '../store/useConnectionStore';
-import { rememberRiskDecision } from '../assistant/risk-approval-memory';
+import { rememberCommandDecision, isRememberableRisk } from '../assistant/risk-approval-memory';
 import { useSessionStore } from '../session/useSessionStore';
 import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
+import { analyzeCommandRisk } from '../ai/analyze-command-risk';
+import { executionDurationMs, isExecutionFailure } from '../agent/agent-execution-metrics';
 import { useI18n, t } from '../i18n';
-import type { AgentTask, ThinkingStep } from '../../shared/types';
+import type { AgentExecution, AgentTask, ThinkingStep } from '../../shared/types';
 import { submitAgentInput, type AgentSubmissionError } from '../agent/terminal-agent-chat';
 
 const AgentExecutor = lazy(async () => {
@@ -316,8 +318,17 @@ function AgentThinkingStep({ step }: { step: ThinkingStep }) {
   );
 }
 
-function AgentExecutionStep({ step }: { step: ThinkingStep }) {
+function AgentExecutionStep({
+  step,
+  execution,
+}: {
+  step: ThinkingStep;
+  execution?: AgentExecution;
+}) {
   const { t } = useI18n();
+  const [showOutput, setShowOutput] = useState(false);
+  const durationMs = execution ? executionDurationMs(execution, step.timestamp) : 0;
+  const failed = execution ? isExecutionFailure(execution) : false;
 
   return (
     <div className="agent-chat-step agent-chat-step-execution">
@@ -327,6 +338,34 @@ function AgentExecutionStep({ step }: { step: ThinkingStep }) {
       <code className="agent-chat-command">
         {getStepCommand(step)}
       </code>
+      {execution && (
+        <>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+            <span className={failed ? 'text-danger' : 'text-success'}>
+              {execution.exitCode === null || execution.exitCode === undefined
+                ? (execution.success ? t('agent.execution.completed') : t('agent.execution.failed'))
+                : t('agent.execution.exitCode', { code: execution.exitCode })}
+            </span>
+            {durationMs > 0 && (
+              <span className="text-slate-500">
+                {t('agent.execution.duration', { seconds: (durationMs / 1000).toFixed(1) })}
+              </span>
+            )}
+            {execution.output.trim() && (
+              <button
+                type="button"
+                onClick={() => setShowOutput(!showOutput)}
+                className="agent-chat-step-detail-button"
+              >
+                {showOutput ? t('agent.execution.hideOutput') : t('agent.execution.viewOutput')}
+              </button>
+            )}
+          </div>
+          {showOutput && execution.output.trim() && (
+            <pre className="agent-chat-execution-output">{execution.output}</pre>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -387,6 +426,11 @@ function AgentTaskConversation({
                 {commandSteps.length} 命令
               </span>
             )}
+            {(task.tokenUsage ?? 0) > 0 && (
+              <span className="agent-chat-meta" title={t('agent.task.tokenUsage')}>
+                {t('agent.task.tokens', { count: task.tokenUsage ?? 0 })}
+              </span>
+            )}
           </div>
 
           <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-200">
@@ -423,7 +467,13 @@ function AgentTaskConversation({
             <div className="agent-chat-detail">
               {visibleSteps.map((step) => (
                 step.type === 'execution'
-                  ? <AgentExecutionStep key={step.id} step={step} />
+                  ? (
+                    <AgentExecutionStep
+                      key={step.id}
+                      step={step}
+                      execution={task.executions.find((item) => item.stepId === step.id)}
+                    />
+                  )
                   : <AgentThinkingStep key={step.id} step={step} />
               ))}
             </div>
@@ -518,6 +568,8 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
   const [rememberApprovalChoice, setRememberApprovalChoice] = useState(false);
+  const [isEditingApproval, setIsEditingApproval] = useState(false);
+  const [approvalDraft, setApprovalDraft] = useState('');
   const { providers, activeProviderId } = useAIStore();
   const activeConnectionId = useSessionStore((state) => state.activeSessionId);
   const { t } = useI18n();
@@ -538,6 +590,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
     resumeTask,
     cancelTask,
     setApprovalResult,
+    setPendingApproval,
   } = useAgentStore();
 
   const activeProvider = providers.find((provider) => provider.id === activeProviderId);
@@ -560,8 +613,29 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const shouldShowCompletionCue = agentState === 'finished' && !isCompletionViewed;
   const shouldShowCompletionEffects = shouldShowCompletionCue || isCompletionBurstVisible;
 
+  // 审批卡片的风险提示：展示等级与「为什么」被判为危险（analyzeCommandRisk 命中原因）
+  const effectiveApprovalCommand = (isEditingApproval ? approvalDraft : pendingApproval?.command) ?? '';
+  const approvalRiskTone = (() => {
+    if (!effectiveApprovalCommand) {
+      return { className: '', reason: '', riskLevel: 'low' as const };
+    }
+    const analysis = analyzeCommandRisk(effectiveApprovalCommand);
+    const className = analysis.riskLevel === 'critical'
+      ? 'border-red-500 text-danger bg-red-500/10'
+      : analysis.riskLevel === 'high'
+        ? 'border-orange-500 text-orange-500 bg-orange-500/10'
+        : analysis.riskLevel === 'medium'
+          ? 'border-yellow-500 text-warning bg-yellow-500/10'
+          : 'border-green-500 text-success bg-green-500/10';
+    return { className, reason: (analysis.reasons ?? []).slice(0, 2).join('；'), riskLevel: analysis.riskLevel };
+  })();
+  const approvalDraftEdited = Boolean(
+    approvalDraft.trim() && approvalDraft.trim() !== (pendingApproval?.command ?? '').trim(),
+  );
+
   const handlePauseTask = () => {
-    void window.electronAPI?.agentPauseTask?.();
+    // 只掐断当前任务所属连接的在途命令，避免多标签页下误伤其它会话
+    void window.electronAPI?.agentPauseTask?.(currentTask?.connectionId);
     pauseTask();
   };
 
@@ -571,13 +645,42 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   };
 
   const handleApproval = (result: 'approved' | 'rejected') => {
-    // 会话级记住选择：后续同 riskLevel 自动决策
-    if (rememberApprovalChoice && pendingApproval) {
-      rememberRiskDecision(pendingApproval.riskLevel, result);
+    // 用户可能在审批前改过命令：以编辑后的文本为准，并按新文本重新判定风险等级。
+    const editedCommand = approvalDraft.trim();
+    const effectiveCommand = (isEditingApproval && editedCommand) ? editedCommand : pendingApproval?.command;
+    const effectiveRiskLevel = (isEditingApproval && editedCommand)
+      ? analyzeCommandRisk(editedCommand).riskLevel
+      : pendingApproval?.riskLevel;
+
+    if (effectiveCommand && effectiveRiskLevel && effectiveCommand !== pendingApproval?.command) {
+      setPendingApproval({ command: effectiveCommand, riskLevel: effectiveRiskLevel });
     }
+
+    // 会话级记住选择：只对这条具体命令生效（critical 不记忆，必须每次确认）
+    if (rememberApprovalChoice && effectiveCommand && effectiveRiskLevel) {
+      rememberCommandDecision(effectiveCommand, effectiveRiskLevel, result);
+    }
+
+    setIsEditingApproval(false);
     setRememberApprovalChoice(false);
     setApprovalResult(result);
   };
+
+  const startEditingApproval = () => {
+    setApprovalDraft(pendingApproval?.command ?? '');
+    setIsEditingApproval(true);
+  };
+
+  const resetApprovalDraft = () => {
+    setApprovalDraft(pendingApproval?.command ?? '');
+    setIsEditingApproval(false);
+  };
+
+  // 换了一条待审批命令时丢弃上一条的编辑草稿，避免把旧命令带进新的审批
+  useEffect(() => {
+    setIsEditingApproval(false);
+    setApprovalDraft('');
+  }, [pendingApproval?.command]);
 
   const markCompletionViewed = () => {
     if (completionBurstTimerRef.current !== null) {
@@ -1039,28 +1142,70 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                 <div className="mb-2 flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-warning" />
                   <span className="text-sm font-semibold text-slate-900 dark:text-white">{t('agent.approval.title')}</span>
-                </div>
-                <code className="agent-pet-approval-command">
-                  {pendingApproval.command}
-                </code>
-                {getCommandDescription(pendingApproval.command) && (
-                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">{getCommandDescription(pendingApproval.command)}</p>
-                )}
-                <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-slate-500">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={rememberApprovalChoice}
-                    onChange={(event) => setRememberApprovalChoice(event.target.checked)}
-                  />
-                  <span className="inline-flex flex-col gap-0.5">
-                    <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300">
-                      <Save className="h-3 w-3" />
-                      {t('commandApproval.rememberChoice')}
-                    </span>
-                    <span>{t('commandApproval.rememberChoiceDesc')}</span>
+                  <span className={`ml-auto rounded-sm border px-1.5 py-0.5 text-[10px] font-medium ${approvalRiskTone.className}`}>
+                    {t(`commandApproval.riskLevels.${approvalRiskTone.riskLevel}`)}
                   </span>
-                </label>
+                </div>
+                {isEditingApproval ? (
+                  <>
+                    <textarea
+                      value={approvalDraft}
+                      onChange={(event) => setApprovalDraft(event.target.value)}
+                      rows={3}
+                      spellCheck={false}
+                      className="industrial-input w-full font-mono text-xs"
+                      aria-label={t('agent.approval.edit')}
+                    />
+                    <p className="mt-1 text-[11px] leading-4 text-slate-500">{t('agent.approval.editHint')}</p>
+                  </>
+                ) : (
+                  <code className="agent-pet-approval-command">
+                    {effectiveApprovalCommand}
+                  </code>
+                )}
+                {getCommandDescription(effectiveApprovalCommand) && (
+                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">{getCommandDescription(effectiveApprovalCommand)}</p>
+                )}
+                {approvalRiskTone.reason && (
+                  <p className="mt-1 text-xs leading-5 text-warning">{approvalRiskTone.reason}</p>
+                )}
+                {approvalDraftEdited && (
+                  <button
+                    type="button"
+                    onClick={resetApprovalDraft}
+                    className="agent-chat-step-detail-button"
+                  >
+                    {t('agent.approval.resetEdit')}
+                  </button>
+                )}
+                {!isEditingApproval && (
+                  <button
+                    type="button"
+                    onClick={startEditingApproval}
+                    className="agent-chat-step-detail-button"
+                  >
+                    {t('agent.approval.edit')}
+                  </button>
+                )}
+                {isRememberableRisk(approvalRiskTone.riskLevel) ? (
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={rememberApprovalChoice}
+                      onChange={(event) => setRememberApprovalChoice(event.target.checked)}
+                    />
+                    <span className="inline-flex flex-col gap-0.5">
+                      <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300">
+                        <Save className="h-3 w-3" />
+                        {t('commandApproval.rememberChoice')}
+                      </span>
+                      <span>{t('commandApproval.rememberCommandChoiceDesc')}</span>
+                    </span>
+                  </label>
+                ) : (
+                  <p className="mt-3 text-xs leading-5 text-slate-500">{t('commandApproval.criticalCannotRemember')}</p>
+                )}
                 <div className="mt-3 flex gap-2">
                   <button onClick={() => handleApproval('rejected')} className="industrial-button-secondary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.reject')}</button>
                   <button onClick={() => handleApproval('approved')} className="industrial-button-primary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.approve')}</button>

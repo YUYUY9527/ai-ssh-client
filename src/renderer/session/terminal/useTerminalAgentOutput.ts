@@ -100,6 +100,21 @@ export function useTerminalAgentOutput({
       term.write(`\x1b[36m└────────────────────────────────\x1b[0m\r\n`);
     }
 
+    // 同一任务被重新驱动（结束态 → 进行中）时重新武装结束输出：否则第二次结束时
+    // completedTaskIdRef 已命中，摘要不再打印，终端会永久停在最后一行状态标签上
+    //（真实回归：运行时被陈旧 sync 复活跑第二轮，见 agent-runtime 的 disposed 守卫）。
+    if (
+      completedTaskIdRef.current === currentTask.id
+      && (
+        agentState === 'thinking'
+        || agentState === 'planning'
+        || agentState === 'executing'
+        || agentState === 'observing'
+      )
+    ) {
+      completedTaskIdRef.current = null;
+    }
+
     if (stateRef.current !== agentState) {
       stateRef.current = agentState;
       const label = stateLabel(agentState, t);
@@ -131,6 +146,9 @@ export function useTerminalAgentOutput({
     } else if (approvalRef.current !== pendingApproval.command) {
       approvalRef.current = pendingApproval.command;
       writeLine(term, t('terminal.agentApproval', { command: pendingApproval.command }), '33');
+      writeLine(term, t('terminal.agentApprovalRiskLevel', {
+        risk: t(`commandApproval.riskLevels.${pendingApproval.riskLevel}`),
+      }), '33');
       writeLine(term, t('terminal.agentApprovalReplyHint'), '90');
     }
 

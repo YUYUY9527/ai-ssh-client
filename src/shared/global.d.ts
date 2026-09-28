@@ -139,7 +139,8 @@ declare global {
 
       agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
       agentStopTask: (connectionId: string) => Promise<IPCResult>;
-      agentPauseTask: () => Promise<IPCResult>;
+      /** 暂停：只掐断指定连接的在途命令；省略 connectionId 时取消本客户端全部在途执行。 */
+      agentPauseTask: (connectionId?: string) => Promise<IPCResult>;
       agentResumeTask: () => Promise<IPCResult>;
       agentExecAwait: (
         connectionId: string,

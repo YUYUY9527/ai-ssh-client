@@ -917,6 +917,14 @@
     background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
   }
 
+  .agent-chat-execution-output {
+    @apply mt-2 max-h-48 overflow-auto whitespace-pre-wrap border px-2 py-1.5 font-mono text-[11px] leading-4 text-slate-600 dark:text-slate-300;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-primary) 78%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--border-color) 60%, transparent);
+    word-break: break-word;
+  }
+
   .app-footer {
     @apply flex h-7 flex-shrink-0 items-center justify-between border-t px-3 text-xs;
     color: var(--text-muted);

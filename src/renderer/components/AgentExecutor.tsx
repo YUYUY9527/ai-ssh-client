@@ -17,6 +17,7 @@ export function AgentExecutor() {
     addThinkingStep,
     updateThinkingStep,
     addExecution,
+    addTaskTokenUsage,
     completeTask,
     setPendingApproval,
     setApprovalResult,
@@ -36,6 +37,7 @@ export function AgentExecutor() {
     addThinkingStep,
     updateThinkingStep,
     addExecution,
+    addTaskTokenUsage,
     completeTask,
     setPendingApproval,
     setApprovalResult,
@@ -47,6 +49,7 @@ export function AgentExecutor() {
     addThinkingStep,
     updateThinkingStep,
     addExecution,
+    addTaskTokenUsage,
     completeTask,
     setPendingApproval,
     setApprovalResult,
@@ -83,7 +86,10 @@ export function AgentExecutor() {
     agentExecAwait: window.electronAPI?.agentExecAwait,
     agentCancelExec: window.electronAPI?.agentCancelExec,
     onAgentTerminalOutput: window.electronAPI?.onAgentTerminalOutput,
-    notifyTaskCompletion: async () => {},
+    notifyTaskCompletion: async (success: boolean, reason: string) => {
+      const { notifyAgentTaskCompletion } = await import('../agent/agent-completion-notice');
+      await notifyAgentTaskCompletion(success, reason);
+    },
   }), []);
 
   const snapshot: AgentRuntimeSnapshot = {
@@ -111,6 +117,15 @@ export function AgentExecutor() {
       runtimeRef.current = null;
     };
   }, [actions, services]);
+
+  // 回到前台时清除「✓/✗ 任务完成」标题标记
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void import('../agent/agent-completion-notice').then(({ installCompletionTitleReset }) => {
+      dispose = installCompletionTitleReset();
+    });
+    return () => dispose?.();
+  }, []);
 
   useEffect(() => {
     runtimeRef.current?.sync(snapshot);
