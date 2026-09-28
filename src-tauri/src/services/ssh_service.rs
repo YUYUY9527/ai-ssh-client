@@ -448,19 +448,23 @@ async fn start_shell_task(
         .await?;
     channel.request_shell(true).await?;
 
-    let state = SshSessionState {
-        connection_id: session_id.clone(),
-        is_connected: true,
-        is_connecting: false,
-        reconnect_attempts: 0,
-        last_error: None,
-    };
-    emit_ssh_state(&app_handle, state.clone());
-    update_session_state(&sessions, state);
-    emit_ssh_data(&app_handle, &session_id, "\r\n".to_string());
-
     let task_session_id = session_id.clone();
+    let task_sessions = sessions.clone();
+    let task_app_handle = app_handle.clone();
     tauri::async_runtime::spawn(async move {
+        // Notify frontend that connection is ready ONLY after the input loop is about to start.
+        // This prevents a race where users can send input before the select loop begins processing.
+        let state = SshSessionState {
+            connection_id: task_session_id.clone(),
+            is_connected: true,
+            is_connecting: false,
+            reconnect_attempts: 0,
+            last_error: None,
+        };
+        emit_ssh_state(&task_app_handle, state.clone());
+        update_session_state(&task_sessions, state);
+        emit_ssh_data(&task_app_handle, &task_session_id, "\r\n".to_string());
+
         let mut visible_stripper = SentinelStripper::default();
         loop {
             tokio::select! {
@@ -468,13 +472,13 @@ async fn start_shell_task(
                     match control {
                         SshControl::Input(input) => {
                             if let Err(error) = channel.data(input.as_bytes()).await {
-                                emit_ssh_error(&app_handle, &task_session_id, &error.to_string());
+                                emit_ssh_error(&task_app_handle, &task_session_id, &error.to_string());
                                 break;
                             }
                         }
                         SshControl::Resize { cols, rows } => {
                             if let Err(error) = channel.window_change(cols, rows, 0, 0).await {
-                                emit_ssh_error(&app_handle, &task_session_id, &error.to_string());
+                                emit_ssh_error(&task_app_handle, &task_session_id, &error.to_string());
                                 break;
                             }
                         }
@@ -484,20 +488,20 @@ async fn start_shell_task(
                         }
                     }
                 }
-                msg = channel.wait() => {
+                 msg = channel.wait() => {
                     match msg {
                         Some(ChannelMsg::Data { data }) => {
                             let text = String::from_utf8_lossy(&data).to_string();
-                            broadcast_session_output(&sessions, &task_session_id, &text);
+                            broadcast_session_output(&task_sessions, &task_session_id, &text);
                             let visible_text = visible_stripper.feed(&text);
                             if !visible_text.is_empty() {
-                                emit_ssh_data(&app_handle, &task_session_id, visible_text);
+                                emit_ssh_data(&task_app_handle, &task_session_id, visible_text);
                             }
                         }
                         Some(ChannelMsg::ExtendedData { data, .. }) => {
                             let text = String::from_utf8_lossy(&data).to_string();
-                            broadcast_session_output(&sessions, &task_session_id, &text);
-                            emit_ssh_error(&app_handle, &task_session_id, &text);
+                            broadcast_session_output(&task_sessions, &task_session_id, &text);
+                            emit_ssh_error(&task_app_handle, &task_session_id, &text);
                         }
                         Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::Close) | None => {
                             break;
@@ -510,14 +514,14 @@ async fn start_shell_task(
 
         let visible_tail = visible_stripper.flush();
         if !visible_tail.is_empty() {
-            emit_ssh_data(&app_handle, &task_session_id, visible_tail);
+            emit_ssh_data(&task_app_handle, &task_session_id, visible_tail);
         }
 
         let _ = session
             .disconnect(Disconnect::ByApplication, "", "en")
             .await;
         update_session_state(
-            &sessions,
+            &task_sessions,
             SshSessionState {
                 connection_id: task_session_id.clone(),
                 is_connected: false,
@@ -526,8 +530,8 @@ async fn start_shell_task(
                 last_error: None,
             },
         );
-        remove_session(&sessions, &task_session_id);
-        let _ = app_handle.emit("ssh-close", task_session_id);
+        remove_session(&task_sessions, &task_session_id);
+        let _ = task_app_handle.emit("ssh-close", task_session_id);
     });
 
     Ok(())
