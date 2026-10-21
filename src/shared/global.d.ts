@@ -12,6 +12,9 @@ import type {
   SSHSessionState,
   HostTrustRecord,
   HostTrustPromptEvent,
+  McpPolicyConfig,
+  McpConfigSnapshot,
+  McpConfigSaveResult,
 } from './types';
 import type {
   IPCResult,
@@ -160,6 +163,10 @@ declare global {
       getAuthStatus?: () => Promise<IPCResult<{ authenticated: boolean; usingDefaultPassword: boolean; passwordManaged: boolean }>>;
       /** Web 部署专用：修改登录密码。 */
       webChangePassword?: (oldPassword: string, newPassword: string) => Promise<IPCResult>;
+      /** Web 部署专用：读取 MCP 服务端策略（data/mcp-policy.json）。 */
+      mcpGetConfig?: () => Promise<IPCResult<McpConfigSnapshot>>;
+      /** Web 部署专用：保存 MCP 服务端策略。 */
+      mcpSaveConfig?: (policy: McpPolicyConfig) => Promise<IPCResult<McpConfigSaveResult>>;
     };
     /** Web 部署下由 installWebApi 设置，桌面端为 undefined。 */
     __AISSH_WEB__?: boolean;

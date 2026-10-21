@@ -11,6 +11,9 @@ import type {
   AgentTask,
   HostTrustRecord,
   HostTrustPromptEvent,
+  McpConfigSaveResult,
+  McpConfigSnapshot,
+  McpPolicyConfig,
 } from '../../shared/types';
 import type {
   AIChatResult,
@@ -1274,6 +1277,12 @@ const webApi: Window['electronAPI'] = {
   webChangePassword: (oldPassword, newPassword) => request<void>('/api/change-password', {
     method: 'POST',
     body: JSON.stringify({ oldPassword, newPassword }),
+  }),
+  // Web 专用：MCP 服务端策略（data/mcp-policy.json）。
+  mcpGetConfig: () => request<McpConfigSnapshot>('/api/mcp/config'),
+  mcpSaveConfig: (policy: McpPolicyConfig) => request<McpConfigSaveResult>('/api/mcp/config', {
+    method: 'POST',
+    body: JSON.stringify({ policy }),
   }),
 };
 

@@ -130,7 +130,11 @@ sftp-items.cjs        目录列举、重命名、删除
 sftp-upload.cjs       上传
 shell-cwd-probe.cjs   工作目录探测
 sentinel.cjs          Agent 哨兵剥离
+mcp/                  独立 stdio MCP 服务（给 AI Agent，默认只读、可按连接开放执行；见 docs/mcp.md）
 ```
+
+> `server/mcp/` 是双运行时约束的**例外**：它面向外部 AI Agent，不实现 `window.electronAPI`，
+> 也不进渲染层，因此不需要桌面端镜像实现；代价是只能读 Web 数据目录，桌面端钥匙串凭据读不到。
 
 ---
 

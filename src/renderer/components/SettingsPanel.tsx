@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock } from 'lucide-react';
+import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock, Server } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
+import { McpSettings } from './McpSettings';
 import { clearRememberedRiskDecisions } from '../assistant/risk-approval-memory';
 import { useI18n, useI18nStore, localeNames } from '../i18n';
 import type { Locale } from '../i18n';
@@ -33,7 +34,7 @@ interface SettingsPanelProps {
   onPasswordChanged?: () => void;
 }
 
-type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'language' | 'password';
+type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password';
 
 // Web 部署下才提供修改登录密码入口（桌面端无 Web 登录概念）。
 const IS_WEB = typeof window !== 'undefined' && window.__AISSH_WEB__ === true;
@@ -209,6 +210,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
     { id: 'providers', label: t('settings.tabs.providers'), icon: KeyRound },
     { id: 'agent', label: t('settings.tabs.agent'), icon: Bot },
     { id: 'language', label: t('settings.tabs.language'), icon: Globe },
+    // MCP 只存在于 Web 部署，桌面端不展示对应配置页。
+    ...(IS_WEB ? [{ id: 'mcp' as SettingsTab, label: t('settings.tabs.mcp'), icon: Server }] : []),
     // 仅 Web 部署提供修改登录密码。
     ...(IS_WEB ? [{ id: 'password' as SettingsTab, label: t('settings.tabs.password'), icon: Lock }] : []),
   ];
@@ -600,6 +603,10 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
               <AIProviderSettings />
             )}
 
+            {activeTab === 'mcp' && (
+              <McpSettings />
+            )}
+
             {activeTab === 'language' && (
               <div className="space-y-5">
                 <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.language.title')}</h3>
@@ -705,13 +712,15 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
           >
             {t('common.cancel')}
           </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="industrial-button-primary"
-          >
-            {t('common.save')}
-          </button>
+          {activeTab !== 'mcp' && (
+            <button
+              type="button"
+              onClick={handleSave}
+              className="industrial-button-primary"
+            >
+              {t('common.save')}
+            </button>
+          )}
         </div>
       </div>
     </div>

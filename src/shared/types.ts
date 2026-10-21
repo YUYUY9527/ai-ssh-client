@@ -278,3 +278,57 @@ export interface AgentResponse {
   finishReason?: string;
   question?: string;
 }
+
+// ---------------------------------------------------------------------------
+// MCP 服务端策略（data/mcp-policy.json）
+// ---------------------------------------------------------------------------
+
+/** read-only：只允许列目录/读文件；exec：额外允许 ssh_exec。 */
+export type McpPolicyMode = 'read-only' | 'exec';
+
+export interface McpPolicyLimits {
+  maxOutputBytes: number;
+  execTimeoutMs: number;
+  maxCommandChars: number;
+  maxReadBytes: number;
+}
+
+export interface McpPolicyConfig {
+  defaultMode: McpPolicyMode;
+  trustOnFirstUse: boolean;
+  /** 按连接 id（或唯一名称）覆盖默认模式。 */
+  connections: Record<string, McpPolicyMode>;
+  commands: {
+    /** 追加到内置黑名单的正则（只收紧，不放松）。 */
+    deny: string[];
+    /** 精确匹配整条命令的例外，用于放行被内置规则拦下但确实需要的命令。 */
+    exceptions: string[];
+  };
+  limits: McpPolicyLimits;
+  audit: { enabled: boolean };
+}
+
+export interface McpPolicyConnection {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+}
+
+export interface McpConfigSnapshot {
+  policy: McpPolicyConfig;
+  defaults: McpPolicyConfig;
+  /** data/mcp-policy.json 的绝对路径。 */
+  path: string;
+  exists: boolean;
+  connections: McpPolicyConnection[];
+  /** 已设置、会覆盖策略文件的环境变量名。 */
+  envOverrides: string[];
+}
+
+export interface McpConfigSaveResult {
+  policy: McpPolicyConfig;
+  path: string;
+  exists: boolean;
+}

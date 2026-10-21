@@ -23,12 +23,14 @@
     "preweb": "npm run build:renderer",
     "web": "node server/index.cjs",
     "web:only": "node server/index.cjs",
+    "mcp": "node server/mcp/index.mjs",
     "tauri": "tauri",
     "preview": "vite preview",
     "dist": "tauri build",
     "dist:win": "tauri build"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@tauri-apps/api": "^2.11.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.15.0",
@@ -40,6 +42,7 @@
     "ssh2": "^1.17.0",
     "tailwind-merge": "^2.5.5",
     "ws": "^8.21.0",
+    "zod": "^3.25.76",
     "zustand": "^4.5.2"
   },
   "devDependencies": {

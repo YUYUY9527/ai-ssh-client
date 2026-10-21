@@ -22,6 +22,7 @@
 - [安装](#安装)
 - [快速开始](#快速开始)
 - [使用流程](#使用流程)
+- [给 AI Agent 用的 MCP](#给-ai-agent-用的-mcp)
 - [快捷键](#快捷键)
 - [Docker / Web 部署](#docker--web-部署)
 - [安全](#安全)
@@ -84,6 +85,27 @@ npm run build
 4. 在 AI 面板中配置并激活 AI 供应商。
 5. 在助手模式中咨询 Linux 命令，或在终端中输入 `@ai 你的任务`，让智能体通过受控命令步骤直接完成对话与任务。智能体追问时可直接输入回答；输入 `@sh <shell命令>` 可切回普通 Shell。
 6. 连接成功后，打开 SFTP 侧栏浏览和传输远程文件。
+
+## 给 AI Agent 用的 MCP
+
+`server/mcp/index.mjs` 是一个可选的 **stdio MCP 服务**，把 Web 模式里已保存的
+连接暴露给 Claude Code、Cursor、DSH 等 MCP 客户端：
+
+```bash
+npm run mcp
+```
+
+- **默认只读**：列连接、看目录、读文本文件；在 Web 部署的 **设置 → MCP** 里按连接开启
+  `ssh_exec`，或以 `MCP_ALLOW_EXEC=1` 启动。
+- **按连接配置**：MCP 设置页写入 `data/mcp-policy.json`，可以让一台机器可执行、其余保持只读。
+  精确例外可以放行被内置黑名单拦下的命令，但必须与整条命令完全一致，且只对可执行模式的连接生效。
+- **只认已保存连接**：agent 不能临时指定主机或自带凭据，「它能连哪台机器」始终由人在界面里决定。
+- **是护栏不是沙箱**：破坏性命令在建立连接前拦截，每次执行写入 `data/mcp-audit.log`；
+  但模式匹配可以被绕过，请用低权限 SSH 账号，不需要时别开执行。
+- **只覆盖 Web 数据目录**：桌面版凭据在系统钥匙串里，独立 Node 进程读不到，因此目前只读
+  `data/config.json`（`npm run web` / Docker 使用的那份）。
+
+客户端配置、完整工具列表、环境变量与已知限制见 [docs/mcp.md](docs/mcp.md)。
 
 ## 快捷键
 
@@ -298,7 +320,7 @@ ai-ssh-client/
 │   │   ├── agent/        # 智能体运行时
 │   │   └── store/        # Zustand 状态
 │   └── shared/           # 共享类型和常量
-├── server/               # 可选的 Node Web 网关（Docker）
+├── server/               # 可选的 Node Web 网关 + MCP 服务（Docker）
 ├── docs/                 # 架构说明
 └── scripts/              # Node 验证脚本
 ```
@@ -317,6 +339,7 @@ ai-ssh-client/
 | `npm run typecheck` | 类型检查渲染进程 |
 | `npm run check` | 类型检查 + 脚本测试 + 渲染进程构建 |
 | `npm run test:rust` | 运行 Rust 后端测试 |
+| `npm run mcp` | 启动给 AI Agent 用的 stdio MCP 服务 |
 | `npm run dist:win` | 构建 Windows 发布产物 |
 
 提交 Pull Request 前请先运行 `npm run check` 和 `npm run test:rust`。

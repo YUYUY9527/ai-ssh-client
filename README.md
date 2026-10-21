@@ -22,6 +22,7 @@ English | [简体中文](README.zh-CN.md)
 - [Install](#install)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
+- [MCP for AI Agents](#mcp-for-ai-agents)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Docker / Web Deployment](#docker--web-deployment)
 - [Security](#security)
@@ -85,6 +86,35 @@ npm run build
 4. Configure and activate an AI provider from the AI panel settings.
 5. Ask for Linux command help, or type `@ai your task` in the terminal to chat with the Agent and execute a task through guarded command steps. Answer Agent questions directly; use `@sh <shell command>` to return to the normal shell.
 6. Once connected, open the SFTP sidebar to browse and transfer remote files.
+
+## MCP for AI Agents
+
+`server/mcp/index.mjs` is an optional **stdio MCP server** that exposes saved
+Web-mode connections to MCP clients such as Claude Code, Cursor, and DSH:
+
+```bash
+npm run mcp
+```
+
+- **Read-only by default**: list connections, inspect directories, stat and read
+  text files. Enable `ssh_exec` per connection in **Settings → MCP** of the Web
+  deployment, or start the server with `MCP_ALLOW_EXEC=1`.
+- **Per-connection policy**: the MCP settings page writes
+  `data/mcp-policy.json`, where one host can be `exec` while others stay
+  `read-only`. Exact command exceptions can bypass the built-in denylist; they
+  must match the whole command and apply only to `exec` connections.
+- **Only saved connections**: the agent cannot invent a host or supply its own
+  credentials, so "which machines the agent can reach" stays a human decision.
+- **Guardrails, not a sandbox**: destructive commands are blocked before
+  connecting, and every execution is appended to `data/mcp-audit.log`. A
+  determined agent can still bypass pattern checks — use a least-privilege SSH
+  account and keep execution off unless you need it.
+- **Web data only**: desktop credentials live in the OS keyring and cannot be
+  read by a standalone Node process, so this currently targets
+  `data/config.json` from the Web gateway / Docker deployment.
+
+See [docs/mcp.md](docs/mcp.md) for client configuration, the full tool list,
+environment variables, and known limitations.
 
 ## Keyboard Shortcuts
 
@@ -363,7 +393,7 @@ ai-ssh-client/
 │   │   ├── agent/        # Agent runtime
 │   │   └── store/        # Zustand stores
 │   └── shared/           # Shared types and constants
-├── server/               # Optional Node web gateway (Docker)
+├── server/               # Optional Node web gateway + MCP server (Docker)
 ├── docs/                 # Architecture notes
 └── scripts/              # Node verification scripts
 ```
@@ -382,6 +412,7 @@ ai-ssh-client/
 | `npm run typecheck` | Type-check the renderer |
 | `npm run check` | Typecheck + script tests + renderer build |
 | `npm run test:rust` | Run the Rust backend tests |
+| `npm run mcp` | Start the stdio MCP server for AI agents |
 | `npm run dist:win` | Build Windows distributables |
 
 Run `npm run check` and `npm run test:rust` before opening a pull request.

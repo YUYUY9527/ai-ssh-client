@@ -31,6 +31,12 @@ const { createAuth } = require('./auth.cjs');
 const { createHostTrust } = require('./host-trust.cjs');
 const { createSecretStore } = require('./secret-store.cjs');
 const { sessionKeyOf, clientKeysOf } = require('./session-key.cjs');
+const {
+  createDefaultPolicy: createDefaultMcpPolicy,
+  overriddenEnvVars: mcpOverriddenEnvVars,
+  readPolicyFile: readMcpPolicyFile,
+  writePolicyFile: writeMcpPolicyFile,
+} = require('./mcp/policy-file.cjs');
 const { resolveTlsOptions } = require('./tls.cjs');
 const {
   probeInteractivePwd,
@@ -1339,6 +1345,47 @@ app.post('/api/settings', route((request) => {
     store.settings = normalizeSettings(request.body.settings);
   });
   return success();
+}));
+
+/** MCP 策略页用的连接摘要：只给定位信息，不带任何凭据。 */
+function mcpConnectionSummaries() {
+  return readStore().connections.map((connection) => ({
+    id: String(connection.id),
+    name: String(connection.name || ''),
+    host: String(connection.host || ''),
+    port: Number(connection.port) || 22,
+    username: String(connection.username || ''),
+  }));
+}
+
+app.get('/api/mcp/config', route(() => {
+  const snapshot = readMcpPolicyFile({ dataDir: DATA_DIR, env: process.env });
+  return success({
+    policy: snapshot.policy,
+    defaults: createDefaultMcpPolicy(),
+    path: snapshot.path,
+    exists: snapshot.exists,
+    connections: mcpConnectionSummaries(),
+    envOverrides: mcpOverriddenEnvVars(process.env),
+  });
+}));
+
+app.post('/api/mcp/config', route((request) => {
+  const policy = request.body?.policy;
+  // 缺省不能当成「全部用默认值」：否则一个坏请求会把执行权限悄悄收回/放开。
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
+    throw new Error('policy 必须是 JSON 对象');
+  }
+  const snapshot = writeMcpPolicyFile({
+    dataDir: DATA_DIR,
+    env: process.env,
+    policy,
+  });
+  return success({
+    policy: snapshot.policy,
+    path: snapshot.path,
+    exists: true,
+  });
 }));
 
 app.get('/api/command-history', route(() => success({ history: readStore().commandHistory })));
