@@ -90,10 +90,14 @@ npm run build
 ## MCP for AI Agents
 
 `server/mcp/index.mjs` is an optional **stdio MCP server** that exposes saved
-Web-mode connections to MCP clients such as Claude Code, Cursor, and DSH:
+Web-mode connections to MCP clients such as Claude Code, Cursor, and DSH. The Web
+gateway also serves a **Streamable HTTP endpoint at `/mcp`**
+(`Authorization: Bearer <web password>`), so a client only needs the URL while
+connections and policy stay server-side:
 
 ```bash
-npm run mcp
+npm run mcp          # local stdio (needs access to the data directory)
+npm run web          # gateway exposes http://<host>:5080/mcp
 ```
 
 - **Read-only by default**: list connections, inspect directories, stat and read
@@ -103,6 +107,8 @@ npm run mcp
   `data/mcp-policy.json`, where one host can be `exec` while others stay
   `read-only`. Exact command exceptions can bypass the built-in denylist; they
   must match the whole command and apply only to `exec` connections.
+- **HTTP mode reloads immediately**: over `/mcp` the policy file is re-read on
+  change, so no container restart is needed; stdio mode still needs a restart.
 - **Only saved connections**: the agent cannot invent a host or supply its own
   credentials, so "which machines the agent can reach" stays a human decision.
 - **Guardrails, not a sandbox**: destructive commands are blocked before

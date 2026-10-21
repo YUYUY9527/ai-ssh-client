@@ -1156,6 +1156,45 @@ const auth = createAuth(DATA_DIR);
 // 健康检查无需鉴权，供容器探针使用。
 app.get('/api/health', (_request, response) => response.json(success({ ok: true })));
 
+// MCP Streamable HTTP：客户端只连 URL，连接与策略都读本进程的 data 目录
+// （也就是 Web 设置页写的那份），不再依赖客户端传 AI_SSH_DATA_DIR。
+// 鉴权走 Bearer（Web 登录密码），与 Cookie 会话无关，因此必须挂在 auth.middleware 之前。
+let mcpHttpHandlerPromise = null;
+function getMcpHttpHandler() {
+  if (!mcpHttpHandlerPromise) {
+    mcpHttpHandlerPromise = import('./mcp/http.mjs')
+      .then(({ createMcpHttpHandler }) => createMcpHttpHandler({
+        dataDir: DATA_DIR,
+        env: process.env,
+        authorize: (request) => auth.verifyMcpToken(request),
+      }))
+      .catch((error) => {
+        // 初始化失败不缓存，下一次请求还能重试。
+        mcpHttpHandlerPromise = null;
+        throw error;
+      });
+  }
+  return mcpHttpHandlerPromise;
+}
+
+app.all('/mcp', (request, response) => {
+  getMcpHttpHandler()
+    .then((handler) => handler.handle(request, response))
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[mcp-http] 处理器初始化失败：${message}`);
+      if (response.headersSent || response.writableEnded) {
+        response.end();
+        return;
+      }
+      response.status(500).json({
+        success: false,
+        error: `MCP HTTP 初始化失败：${message}`,
+        code: 'MCP_HTTP_INIT_FAILED',
+      });
+    });
+});
+
 // 登录/登出/状态端点，登录页与前端调用它们建立或清除会话。
 app.post('/api/login', auth.handleLogin);
 app.post('/api/logout', auth.handleLogout);

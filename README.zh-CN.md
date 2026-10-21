@@ -89,16 +89,20 @@ npm run build
 ## 给 AI Agent 用的 MCP
 
 `server/mcp/index.mjs` 是一个可选的 **stdio MCP 服务**，把 Web 模式里已保存的
-连接暴露给 Claude Code、Cursor、DSH 等 MCP 客户端：
+连接暴露给 Claude Code、Cursor、DSH 等 MCP 客户端；Web 网关同时提供
+**Streamable HTTP 端点 `/mcp`**（`Authorization: Bearer <Web 登录密码>`），
+客户端只填 URL，连接与策略都由服务端一份数据决定：
 
 ```bash
-npm run mcp
+npm run mcp          # 本地 stdio（需要能读到 data 目录）
+npm run web          # 网关自带 http://<host>:5080/mcp
 ```
 
 - **默认只读**：列连接、看目录、读文本文件；在 Web 部署的 **设置 → MCP** 里按连接开启
   `ssh_exec`，或以 `MCP_ALLOW_EXEC=1` 启动。
 - **按连接配置**：MCP 设置页写入 `data/mcp-policy.json`，可以让一台机器可执行、其余保持只读。
   精确例外可以放行被内置黑名单拦下的命令，但必须与整条命令完全一致，且只对可执行模式的连接生效。
+- **HTTP 模式即时生效**：走网关 `/mcp` 时策略文件改动会被自动重载，不用重启容器；stdio 模式仍需重启进程。
 - **只认已保存连接**：agent 不能临时指定主机或自带凭据，「它能连哪台机器」始终由人在界面里决定。
 - **是护栏不是沙箱**：破坏性命令在建立连接前拦截，每次执行写入 `data/mcp-audit.log`；
   但模式匹配可以被绕过，请用低权限 SSH 账号，不需要时别开执行。

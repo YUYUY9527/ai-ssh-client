@@ -127,6 +127,47 @@ MCP 客户端配置示例（Windows 路径建议用 `/`，或把 `\` 写成 `\\`
 > 执行权限建议在 Web 设置 → MCP 里按连接配置；如果所有连接都要开，也可以临时加 `"MCP_ALLOW_EXEC": "1"`。
 > 配置里的 `env` 值必须写成字符串；JSON 数组类的变量需要转义，容易写错，建议优先用页面或默认值。
 
+### 3.3 走 Web 网关的 Streamable HTTP（推荐给 DSH 这类远程客户端）
+
+stdio 模式要求客户端能读到服务端的 data 目录（同一台机器，或把目录挂进来）。如果
+Web 网关已经跑在服务器 / 容器里，直接连它的 HTTP 端点更省事：**连接、策略、审计都在服务端，
+客户端配置里不再需要任何本地路径**。
+
+网关在 `http://<host>:<WEB_PORT>/mcp` 暴露 MCP（`server/index.cjs` 挂载，实现在
+`server/mcp/http.mjs`），传输为 **stateless**（无 session id），只接受 `POST`。
+
+鉴权复用 Web 登录密码，二选一：
+
+- `Authorization: Bearer <Web 登录密码>`
+- `x-mcp-token: <Web 登录密码>`
+
+鉴权失败返回 `401`，同一 IP 每分钟失败 10 次后返回 `429`；密码修改后旧令牌立即失效。
+
+MCP 客户端配置示例（DSH）：
+
+```yaml
+- id: mcp-aissh
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: aissh
+    transport: streamable-http
+    url: http://192.168.1.10:5080/mcp
+    headers:
+      Authorization: !!js '`Bearer ${process.env.AI_SSH_WEB_PASSWORD}`'
+```
+
+Claude Code / Cursor 等客户端同理，填 URL 与 `Authorization` 头即可。
+
+行为差异（相对 stdio）：
+
+- **策略热生效**：每次请求前比对 `mcp-policy.json` 的大小与 mtime，变化后自动重建工具层，
+  页面保存后无需重启容器；新文件解析失败时保留旧策略继续服务，并返回 `500` 说明原因。
+- **无服务端主动推送**：stateless 模式不支持 server-initiated 消息，本服务的工具也不需要。
+- **连接复用**：同一网关进程内按 `connectionId` 复用 SSH 连接，跨请求有效。
+
+> 走 HTTP 时 `AI_SSH_DATA_DIR` / `MCP_POLICY_FILE` 由网关进程自己的环境决定
+> （Docker 即 `DATA_DIR=/data`），客户端不再传这些变量。
+
 ---
 
 ## 4. 环境变量
@@ -228,7 +269,7 @@ MCP 客户端配置示例（Windows 路径建议用 `/`，或把 `\` 写成 `\\`
 
 - **桌面版不支持**：钥匙串凭据无法被独立 Node 进程读取，见上文。
 - **没有写工具**：`sftp_write` / 上传 / 下载尚未提供。需要时建议先在界面里操作。
-- **没有 HTTP 传输**：只有 stdio，一个 MCP 客户端对应一个进程；多个客户端各自拉起即可。
+- **HTTP 只有 stateless 模式**：`/mcp` 不维护 session，每个请求独立；不支持 server-initiated 通知。
 - **非交互**：`ssh_exec` 不分配 PTY。`sudo` 要密码、`vim`/`top` 这类全屏程序、需要 `y/n` 确认的命令会失败或超时；请用 `sudo -n`（已配置免密）或非交互参数。
 - **与应用内终端互不影响**：MCP 用独立的 SSH 连接，不会干扰你在界面里打开着的会话。
 - **并发**：同一进程内按 `connectionId` 复用一条连接；不同命令通过多个 `exec` 通道并发。
@@ -239,6 +280,8 @@ MCP 客户端配置示例（Windows 路径建议用 `/`，或把 `\` 写成 `\\`
 
 | 现象 | 原因与处理 |
 |---|---|
+| `401 UNAUTHORIZED`（HTTP） | `/mcp` 的 `Authorization: Bearer` 没带或密码不对；令牌就是 Web 登录密码。连续失败会先被 `429` 挡 60 秒。 |
+| `404`（HTTP） | 连到了旧构建：`/mcp` 由 `server/index.cjs` 挂载，需要重新部署网关（Docker 重新 build 镜像）。 |
 | `exec-disabled` | 该连接仍是只读。到 Web 设置 → MCP 把默认模式或这台机器改为「可执行」，保存后重启 MCP；或确认 `MCP_ALLOW_EXEC=1` 真的传给了 MCP 进程。用 `get_server_info` 看 `policyFile` / `envOverrides`。 |
 | `未知连接` / `unknown-connection` | 连接只存在于桌面端，或 `AI_SSH_DATA_DIR` 指错了目录。先调 `list_connections`。 |
 | 主机未信任 | 错误里会带 `SHA256:...` 指纹。到 Web 界面用同一 host/port 连一次并确认；或临时设 `MCP_TRUST_ON_FIRST_USE=1`。 |
@@ -253,7 +296,9 @@ MCP 客户端配置示例（Windows 路径建议用 `/`，或把 `\` 写成 `\\`
 
 ```text
 server/mcp/
-├── index.mjs      # stdio 入口、工具注册（唯一 ESM 文件，因为 MCP SDK 是 ESM-only）
+├── index.mjs      # stdio 入口（本地进程）
+├── http.mjs       # Streamable HTTP 端点（挂到 Web 网关的 /mcp，stateless + 策略热生效）
+├── server.mjs     # 工具注册（stdio 与 HTTP 共用）
 ├── services.cjs   # 工具层：策略检查、审计、结果组装
 ├── config.cjs     # 读取/解密 data/config.json，连接摘要与解析
 ├── policy.cjs     # 只读默认、按连接模式、命令黑名单/白名单、精确例外
@@ -281,6 +326,5 @@ npx vitest run mcp
 ## 9. 后续可做
 
 - SFTP 写入/上传/下载（需要单独的设计：是否允许覆盖、写到哪些目录、如何回滚）
-- Streamable HTTP 传输（供容器内或远程 MCP 客户端接入）
 - 桌面端 Rust MCP 端点（才能复用钥匙串凭据与应用内会话）
 - 更细的授权（例如按连接限制可执行命令前缀、可访问目录范围）

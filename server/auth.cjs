@@ -14,6 +14,10 @@ const CREDENTIAL_FILE = 'web-auth.json';
 const KEY_LEN = 32;
 const LOGIN_WINDOW_MS = 60 * 1000;
 const LOGIN_MAX_FAILURES = 10;
+// MCP HTTP 端点用 Bearer 令牌（即 Web 登录密码）鉴权。scrypt 每次约几十毫秒，
+// 而工具调用是高频请求，因此校验成功后缓存「令牌摘要 → 密码哈希」；
+// 改密后哈希变化，旧条目自动失配，无需逐条失效。
+const MCP_TOKEN_CACHE_LIMIT = 32;
 
 /**
  * 解析请求头中的 Cookie 字符串，返回键值对。
@@ -192,6 +196,58 @@ function createAuth(dataDir) {
     return Boolean(provided) && safeEqual(provided, sessionValue);
   }
 
+  // MCP 令牌缓存：sha256(令牌) → 校验时的密码哈希。
+  const mcpTokenCache = new Map();
+
+  function digestToken(token) {
+    return crypto.createHash('sha256').update(String(token)).digest('hex');
+  }
+
+  /** 从 Authorization: Bearer / x-mcp-token 中取出令牌。 */
+  function extractMcpToken(request) {
+    const authorization = request.headers?.authorization;
+    if (typeof authorization === 'string') {
+      const match = /^Bearer\s+(.+)$/i.exec(authorization.trim());
+      if (match && match[1].trim()) {
+        return match[1].trim();
+      }
+    }
+    const headerToken = request.headers?.['x-mcp-token'];
+    if (typeof headerToken === 'string' && headerToken.trim()) {
+      return headerToken.trim();
+    }
+    return '';
+  }
+
+  /**
+   * MCP HTTP 端点的鉴权：复用 Web 登录密码、登录失败限流与改密后的自动失效。
+   * 返回 { ok } 或 { ok:false, status, message }，由调用方决定 HTTP 状态码。
+   */
+  function verifyMcpToken(request) {
+    if (isLoginBlocked(request)) {
+      return { ok: false, status: 429, message: 'Too many failed authentication attempts' };
+    }
+    const token = extractMcpToken(request);
+    if (!token) {
+      recordLoginFailure(request);
+      return { ok: false, status: 401, message: 'Unauthorized' };
+    }
+    const digest = digestToken(token);
+    if (mcpTokenCache.get(digest) === current.hash) {
+      return { ok: true };
+    }
+    if (!verifyPassword(token, current.salt, current.hash)) {
+      recordLoginFailure(request);
+      return { ok: false, status: 401, message: 'Unauthorized' };
+    }
+    clearLoginFailures(request);
+    if (mcpTokenCache.size >= MCP_TOKEN_CACHE_LIMIT) {
+      mcpTokenCache.clear();
+    }
+    mcpTokenCache.set(digest, current.hash);
+    return { ok: true };
+  }
+
   // 是否仍在使用默认密码（用于前端提示尽快修改）。
   function isUsingDefaultPassword() {
     return current.isDefault === true;
@@ -275,6 +331,8 @@ function createAuth(dataDir) {
     const { salt, hash } = hashPassword(newPassword);
     current = { salt, hash, isDefault: newPassword === DEFAULT_PASSWORD };
     writeCredentialFile(credential.credentialPath, current);
+    // 改密后令牌缓存里的哈希已失配，直接清空，避免残留条目占内存。
+    mcpTokenCache.clear();
     // 刷新会话值：旧的其它会话失效，随即为当前请求重设 Cookie 以保持登录。
     sessionValue = deriveSessionValue(current.hash);
     setSessionCookie(request, response);
@@ -295,6 +353,7 @@ function createAuth(dataDir) {
     changePassword,
     verifyUpgrade,
     isAuthed,
+    verifyMcpToken,
     isUsingDefaultPassword,
   };
 }
