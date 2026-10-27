@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatAgentExitNotice,
   formatAgentTerminalText,
   isAgentTaskRunningInSession,
   isShellPromptReadyForAgent,
@@ -11,6 +12,7 @@ import {
   resolveTerminalAgentEscapeAction,
   resolveTerminalAgentLineAction,
   sanitizeAgentTerminalText,
+  TERMINAL_AGENT_EXIT_REPAINT,
   type AgentSubmissionState,
 } from '../src/renderer/agent/terminal-agent-chat';
 
@@ -240,5 +242,27 @@ describe('shared Agent submission routing', () => {
       ...READY_STATE,
       currentTaskActive: true,
     })).toEqual({ ok: false, error: 'taskRunning' });
+  });
+});
+
+describe('退出连续对话后的提示符重画', () => {
+  // 真实反馈：退出后能看到「已退出 Agent 连续对话。」，但看不到
+  // `[root@k8s-slave1 ~]# `，光标孤零零停在行首（可以打字，只是没有提示符）。
+  // 实测 bash 4.2 对 `^U` 只回一段退格 + `\x1b[K`，不会重画提示符。
+  it('重画序列同时清掉光标左边和右边', () => {
+    // 只发 `^U` 会留下光标右边的内容。实测光标退到 `ech` 后发 `^U\r`，
+    // bash 会把剩下的 `o MID` 当命令执行，回一句 `bash: o: 未找到命令`。
+    expect(TERMINAL_AGENT_EXIT_REPAINT).toBe('\x15\x0b\r');
+  });
+
+  it('提示行独占一行：回行首、清行、换行收尾', () => {
+    const notice = formatAgentExitNotice('已退出 Agent 连续对话。');
+    // 没有前导 `\r`，提示会拼在残留的 `@ai` 后面变成 `@ai 已退出 Agent 连续对话。`
+    expect(notice).toBe('\r\x1b[2K\x1b[90m已退出 Agent 连续对话。\x1b[0m\r\n');
+  });
+
+  it('空文案不产生任何输出', () => {
+    expect(formatAgentExitNotice('')).toBe('');
+    expect(formatAgentExitNotice('   ')).toBe('');
   });
 });

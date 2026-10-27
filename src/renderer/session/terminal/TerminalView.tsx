@@ -45,12 +45,14 @@ import { useTerminalSearch } from './useTerminalSearch';
 import { useXtermInstance } from './useXtermInstance';
 import { useTerminalAgentOutput } from './useTerminalAgentOutput';
 import {
+  formatAgentExitNotice,
   formatAgentTerminalText,
   isAgentTaskRunningInSession,
   isShellPromptReadyForAgent,
   parseTerminalAgentPaste,
   resolveTerminalAgentEscapeAction,
   submitAgentInput,
+  TERMINAL_AGENT_EXIT_REPAINT,
   TERMINAL_AGENT_PREFIX,
   type AgentSubmissionError,
 } from '../../agent/terminal-agent-chat';
@@ -216,25 +218,40 @@ export function TerminalView({
     clearTrackedInputRef.current();
   }, []);
 
-  const exitAgentFollowUp = useCallback(() => {
-    resetAgentInputOwnership();
-    if (liveConnectionId && window.electronAPI) {
+  /**
+   * 退出连续对话的统一收尾：清掉远端那行残留、把提示写成独占一行、
+   * 并（按需）让远端重新画一条提示符。
+   *
+   * 只发 `^U` 是不够的：bash 回完退格和 `\x1b[K` 就把光标停在空行行首，
+   * 不会重画提示符 —— 这正是「退出后看不到 `[root@k8s-slave1 ~]#`」的成因。
+   * Esc 路径因此补一次 `TERMINAL_AGENT_EXIT_REPAINT`。
+   */
+  const notifyAgentFollowUpExit = useCallback((repaintOnRemote: boolean) => {
+    if (repaintOnRemote && liveConnectionId && window.electronAPI) {
       try {
-        // `^U`（kill-line）：整行清掉，不发 `\x03`，避免在远端留下 `^C` 和中断提示
-        window.electronAPI.sshExecuteSync(liveConnectionId, '\x15');
+        window.electronAPI.sshExecuteSync(liveConnectionId, TERMINAL_AGENT_EXIT_REPAINT);
       } catch (error) {
-        console.warn('Failed to clear terminal line on Agent exit', error);
+        console.warn('Failed to repaint shell prompt on Agent exit', error);
       }
     }
-    xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
-  }, [liveConnectionId, resetAgentInputOwnership, t, xtermRef]);
+    xtermRef.current?.write(formatAgentExitNotice(t('terminal.agentContinuationExited')));
+  }, [liveConnectionId, t, xtermRef]);
 
-  /** 回车收到空行时的退出（远端已经吃掉了那个回车，无需再清行）。 */
+  const exitAgentFollowUp = useCallback(() => {
+    resetAgentInputOwnership();
+    notifyAgentFollowUpExit(true);
+  }, [notifyAgentFollowUpExit, resetAgentInputOwnership]);
+
+  /**
+   * 回车收到空行时的退出。
+   * 那个回车已经把空行交给远端，bash 会自己补一条新提示符，无需再要求重画
+   * （再发一次会多出一条重复的提示符）。
+   */
   const handleExitAgentFollowUp = useCallback(() => {
     if (!agentFollowUpModeRef.current) return;
     resetAgentInputOwnership();
-    xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
-  }, [resetAgentInputOwnership, t, xtermRef]);
+    notifyAgentFollowUpExit(false);
+  }, [notifyAgentFollowUpExit, resetAgentInputOwnership]);
 
   /**
    * 中断正在跑的任务。

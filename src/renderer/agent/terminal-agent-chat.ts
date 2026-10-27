@@ -172,6 +172,16 @@ export function parseTerminalAgentPaste(data: string, currentInput = ''): { text
   return parseTerminalAgentCommand(`${currentInput}${data.replace(/[\r\n]+$/, '')}`);
 }
 
+/**
+ * 退出连续对话时发给远端的字节：让 bash 重新画一条提示符。
+ *
+ * `^U` 只清光标左边、`^K` 清右边，两个一起才真的清空整行：
+ * 只发 `^U` 就补 `\r` 的话，光标停在行中间时后半截会被当成命令执行
+ * （实测 `echo MID` 光标退到 `ech` 后 `^U\r` 得到 `bash: o: 未找到命令`）。
+ * 最后的 `\r` 是空行回车，bash 会补一条 `\r\n<提示符>`；空行不进历史、也不改 `$?`。
+ */
+export const TERMINAL_AGENT_EXIT_REPAINT = '\x15\x0b\r';
+
 /** Remove terminal control bytes before model output is written into xterm. */
 export function sanitizeAgentTerminalText(value: string): string {
   return value
@@ -199,6 +209,19 @@ export function normalizeAgentTerminalText(value: string): string {
 export function formatAgentTerminalText(value: string): string {
   const normalized = normalizeAgentTerminalText(value).replace(/\n/g, '\r\n');
   return normalized ? `${normalized}\r\n` : '';
+}
+
+/**
+ * 退出连续对话时写进终端的那行灰字。
+ *
+ * 必须以 `\r` 开头、`\r\n` 结尾：远端对 `^U` 的回包（一串退格 + `\x1b[K`）
+ * 要等一个来回才到，若光标停在提示末尾，那些退格会把刚写的字吃掉
+ * （实测只剩「已退出 Agent 连」）；先回行首清行再换行，退格就落在空处，
+ * 也不会拼在残留的 `@ai` 后面的同一行里。
+ */
+export function formatAgentExitNotice(text: string): string {
+  const normalized = normalizeAgentTerminalText(text);
+  return normalized ? `\r\x1b[2K\x1b[90m${normalized}\x1b[0m\r\n` : '';
 }
 
 export function resolveAgentSubmission(
