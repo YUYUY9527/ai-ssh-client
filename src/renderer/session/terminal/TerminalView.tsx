@@ -45,11 +45,6 @@ import { useTerminalSearch } from './useTerminalSearch';
 import { useXtermInstance } from './useXtermInstance';
 import { useTerminalAgentOutput } from './useTerminalAgentOutput';
 import {
-  isTerminalAgentStatusVisible,
-  resolveTerminalAgentElapsedSeconds,
-  resolveTerminalAgentStatusPhase,
-} from './terminal-agent-status';
-import {
   formatAgentTerminalText,
   isAgentTaskRunningInSession,
   isShellPromptReadyForAgent,
@@ -128,8 +123,6 @@ export function TerminalView({
   const agentTaskConnectionId = useAgentStore((state) => state.currentTask?.connectionId || null);
   const agentTaskId = useAgentStore((state) => state.currentTask?.id || null);
   const hasCurrentAgentTask = useAgentStore((state) => Boolean(state.currentTask));
-  const agentTaskState = useAgentStore((state) => state.currentTask?.state ?? null);
-  const agentTaskStartTime = useAgentStore((state) => state.currentTask?.startTime ?? null);
   const activeConversationId = useAgentStore((state) => state.activeConversationId);
 
   useEffect(() => {
@@ -840,38 +833,6 @@ export function TerminalView({
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [terminalTheme, theme]);
 
-  /**
-   * 任务是否正在这个终端里跑。
-   * 判定条件都有具体的误显示场景，抽到 terminal-agent-status 里单独验。
-   */
-  const showAgentStatus = isTerminalAgentStatusVisible({
-    sessionId,
-    taskId: agentTaskId,
-    taskConnectionId: agentTaskConnectionId,
-    taskState: agentTaskState,
-    agentState,
-    isAlternateScreen,
-  });
-
-  // 状态条上的秒数：只在任务运行时按秒自增，其余时间不挂定时器。
-  const [agentElapsedSeconds, setAgentElapsedSeconds] = useState(0);
-  useEffect(() => {
-    if (!showAgentStatus || !agentTaskStartTime) {
-      setAgentElapsedSeconds(0);
-      return;
-    }
-    const tick = () => {
-      setAgentElapsedSeconds(resolveTerminalAgentElapsedSeconds(agentTaskStartTime, Date.now()));
-    };
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [agentTaskStartTime, showAgentStatus]);
-
-  // 状态条文案用 agentState（thinking/executing/observing 这些阶段名），
-  // 任务级 state 只有 running/paused，看不出「现在到底在干什么」。
-  const agentStatusPhase = resolveTerminalAgentStatusPhase(agentState);
-
   return (
     <div
       className="terminal-shell"
@@ -954,23 +915,6 @@ export function TerminalView({
           }}
         />
       </div>
-
-      {/* Agent 运行状态条：在 xterm 外面，不和远端输出抢光标，也不污染 buffer */}
-      {showAgentStatus && (
-        <div className="terminal-agent-status" role="status" aria-live="polite">
-          <span className="terminal-agent-status-dot" />
-          <span className="terminal-agent-status-state">
-            {t('terminal.agentStatusRunning', {
-              state: agentStatusPhase ? t(`agent.states.${agentStatusPhase}`) : t('agent.status.running'),
-              elapsed: agentElapsedSeconds,
-            })}
-          </span>
-          <span className="terminal-agent-status-sep">·</span>
-          <span className="terminal-agent-status-hint">{t('terminal.agentStatusEscapeHint')}</span>
-          <span className="terminal-agent-status-sep">·</span>
-          <span className="terminal-agent-status-hint">{t('terminal.agentStatusInputHint')}</span>
-        </div>
-      )}
 
       {/* 右键菜单 */}
       {contextMenu && (

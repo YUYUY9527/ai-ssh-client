@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { AlertCircle, FileText, FolderUp, Loader2 } from 'lucide-react';
 
+import { FooterAgentStatus } from './FooterAgentStatus';
+
 interface CommandStatus {
   command: string;
   status: 'pending' | 'success' | 'error';
@@ -52,6 +54,7 @@ export function AppFooter({
           {status.icon}
           <span>{status.text}</span>
         </div>
+        <FooterAgentStatus />
         {transferSummary && (
           <button
             type="button"
