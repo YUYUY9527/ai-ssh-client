@@ -84,7 +84,7 @@ npm run build
 2. Enter host, port, username, and either a password or private key.
 3. Connect to open a terminal tab.
 4. Configure and activate an AI provider from the AI panel settings.
-5. Ask for Linux command help, or type `@ai your task` in the terminal to chat with the Agent and execute a task through guarded command steps. Answer Agent questions directly; use `@sh <shell command>` to return to the normal shell.
+5. Ask for Linux command help, or type `@ai your task` in the terminal to chat with the Agent and execute a task through guarded command steps. Answer Agent questions directly; use `@sh <shell command>` to return to the normal shell. While a task runs, ordinary terminal input still goes to the shell — press `Esc` to interrupt the task, and prefix a line with `@ai` to send it to the Agent instead. A floating status bar shows the current phase and elapsed time.
 6. Once connected, open the SFTP sidebar to browse and transfer remote files.
 
 ## MCP for AI Agents
@@ -129,7 +129,7 @@ environment variables, and known limitations.
 | `Ctrl+F` | Search terminal output |
 | `Ctrl++` | Increase terminal font size |
 | `Ctrl+-` | Decrease terminal font size |
-| `Esc` | Close terminal search or autocomplete |
+| `Esc` | Close terminal search or autocomplete; in an Agent task, interrupt it or exit the Agent conversation |
 
 ## Docker / Web Deployment
 

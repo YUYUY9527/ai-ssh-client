@@ -45,9 +45,16 @@ import { useTerminalSearch } from './useTerminalSearch';
 import { useXtermInstance } from './useXtermInstance';
 import { useTerminalAgentOutput } from './useTerminalAgentOutput';
 import {
+  isTerminalAgentStatusVisible,
+  resolveTerminalAgentElapsedSeconds,
+  resolveTerminalAgentStatusPhase,
+} from './terminal-agent-status';
+import {
   formatAgentTerminalText,
+  isAgentTaskRunningInSession,
   isShellPromptReadyForAgent,
   parseTerminalAgentPaste,
+  resolveTerminalAgentEscapeAction,
   submitAgentInput,
   TERMINAL_AGENT_PREFIX,
   type AgentSubmissionError,
@@ -104,6 +111,10 @@ export function TerminalView({
   const agentFirstInputModeRef = useRef(false);
   const agentFirstInputConnectionRef = useRef<string | null>(null);
   const forceAgentPrefixAfterExitRef = useRef(false);
+  /** 用户按 Esc 中断过的任务 id：该任务进入结束态时不得再把输入接管回 Agent。 */
+  const agentFollowUpSuppressedTaskIdRef = useRef<string | null>(null);
+  /** `useTerminalInputTracking` 在 handleExitAgentFollowUp 之后才调用，用 ref 打通。 */
+  const clearTrackedInputRef = useRef<() => void>(() => {});
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
 
@@ -115,37 +126,46 @@ export function TerminalView({
   const theme = themeProp ?? hookTheme;
   const agentState = useAgentStore((state) => state.agentState);
   const agentTaskConnectionId = useAgentStore((state) => state.currentTask?.connectionId || null);
+  const agentTaskId = useAgentStore((state) => state.currentTask?.id || null);
   const hasCurrentAgentTask = useAgentStore((state) => Boolean(state.currentTask));
+  const agentTaskState = useAgentStore((state) => state.currentTask?.state ?? null);
+  const agentTaskStartTime = useAgentStore((state) => state.currentTask?.startTime ?? null);
   const activeConversationId = useAgentStore((state) => state.activeConversationId);
-  const hasConversationHistory = useAgentStore((state) => state.taskHistory.some(
-    (task) => task.connectionId === sessionId
-      && (task.conversationId || task.id) === state.activeConversationId,
-  ));
 
   useEffect(() => {
+    // 换任务就丢掉「被中断过」的标记：它只对当初那个任务有效，
+    // 留着会让后来者按 id 比较时出现意外命中。
+    if (agentTaskId && agentFollowUpSuppressedTaskIdRef.current && agentFollowUpSuppressedTaskIdRef.current !== agentTaskId) {
+      agentFollowUpSuppressedTaskIdRef.current = null;
+    }
     if (!sessionId || !hasCurrentAgentTask || (agentTaskConnectionId && agentTaskConnectionId !== sessionId)) {
       if (agentFirstInputModeRef.current && agentFirstInputConnectionRef.current === sessionId) {
         agentFollowUpModeRef.current = true;
         forceAgentPrefixAfterExitRef.current = false;
         return;
       }
-      if (hasConversationHistory && sessionId) {
-        agentFirstInputModeRef.current = true;
-        agentFirstInputConnectionRef.current = sessionId;
-        agentFollowUpModeRef.current = true;
-        forceAgentPrefixAfterExitRef.current = false;
-      } else {
-        agentFirstInputModeRef.current = false;
-        agentFirstInputConnectionRef.current = null;
-        agentFollowUpModeRef.current = false;
-        forceAgentPrefixAfterExitRef.current = Boolean(sessionId);
-      }
+      // 注意：这里不再「只要历史里有本会话的对话就自动进入连续对话」。
+      // 旧实现让它每轮 effect 都会重新武装连续对话，用户按 Esc 退出后下一次状态变更
+      // 又会把普通输入劫持给 Agent（真实反馈：「退出后进行普通输入还是会被当成 AI 对话」）。
+      // 现在只有显式发起（@ai / @ai new / 任务刚结束的那一轮）才进入连续对话。
+      agentFirstInputModeRef.current = false;
+      agentFirstInputConnectionRef.current = null;
+      agentFollowUpModeRef.current = false;
+      forceAgentPrefixAfterExitRef.current = Boolean(sessionId);
       return;
     }
     if (agentState === 'finished' || agentState === 'error') {
+      // 用户刚按 Esc 中断/退出过这个任务：结束态也不要把输入接管回去。
+      if (agentFollowUpSuppressedTaskIdRef.current === agentTaskId) {
+        agentFollowUpModeRef.current = false;
+        agentFirstInputModeRef.current = false;
+        agentFirstInputConnectionRef.current = null;
+        forceAgentPrefixAfterExitRef.current = Boolean(sessionId);
+        return;
+      }
       agentFollowUpModeRef.current = true;
     }
-  }, [activeConversationId, agentState, agentTaskConnectionId, hasConversationHistory, hasCurrentAgentTask, sessionId]);
+  }, [activeConversationId, agentState, agentTaskConnectionId, agentTaskId, hasCurrentAgentTask, sessionId]);
 
   const handleTerminalAgentInput = useCallback((text: string) => {
     const result = submitAgentInput(text, sessionId);
@@ -186,14 +206,95 @@ export function TerminalView({
     xtermRef.current?.write(`\x1b[31m${formatAgentTerminalText(t(errorKeys[result.error]))}\x1b[0m`);
   }, [sessionId, t, xtermRef]);
 
-  const handleExitAgentFollowUp = useCallback(() => {
-    if (!agentFollowUpModeRef.current) return;
+  /**
+   * 退出连续对话并「断得干净」。
+   *
+   * 两件事以前漏了，直接对应「按 Esc 退出后还得 Ctrl+C」和
+   * 「退出后随便打个字还是被当成 AI 对话」：
+   * 1. 远端那行还留着已回显的 `@ai ...`（xterm 只把 ESC 发给了 PTY，没清行）；
+   * 2. 本地 `currentInputRef` 也还留着同一行，于是下一次键入被拼在 `@ai` 后面，
+   *    `/^@ai/` 继续命中，输入又被送进 Agent。
+   */
+  const resetAgentInputOwnership = useCallback(() => {
     agentFollowUpModeRef.current = false;
     agentFirstInputModeRef.current = false;
     agentFirstInputConnectionRef.current = null;
     forceAgentPrefixAfterExitRef.current = true;
+    clearTrackedInputRef.current();
+  }, []);
+
+  const exitAgentFollowUp = useCallback(() => {
+    resetAgentInputOwnership();
+    if (liveConnectionId && window.electronAPI) {
+      try {
+        // `^U`（kill-line）：整行清掉，不发 `\x03`，避免在远端留下 `^C` 和中断提示
+        window.electronAPI.sshExecuteSync(liveConnectionId, '\x15');
+      } catch (error) {
+        console.warn('Failed to clear terminal line on Agent exit', error);
+      }
+    }
     xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
-  }, [t, xtermRef]);
+  }, [liveConnectionId, resetAgentInputOwnership, t, xtermRef]);
+
+  /** 回车收到空行时的退出（远端已经吃掉了那个回车，无需再清行）。 */
+  const handleExitAgentFollowUp = useCallback(() => {
+    if (!agentFollowUpModeRef.current) return;
+    resetAgentInputOwnership();
+    xtermRef.current?.write(`\x1b[90m${formatAgentTerminalText(t('terminal.agentContinuationExited'))}\x1b[0m`);
+  }, [resetAgentInputOwnership, t, xtermRef]);
+
+  /**
+   * 中断正在跑的任务。
+   *
+   * 顺序不能反：先让网关掐断远端在途命令（`agentPauseTask`），再让 store 进入结束态。
+   * 反过来运行时先看到「已结束」就直接 abortActiveWork 收工，远端那条命令仍会跑完 ——
+   * 用户看到「已中断」但服务器还在动。
+   */
+  const interruptAgentTask = useCallback(() => {
+    const state = useAgentStore.getState();
+    const task = state.currentTask;
+    // 结束态投影时据此跳过「继续追问」的提示，并把结论写成「已中断」
+    agentFollowUpSuppressedTaskIdRef.current = task?.id || null;
+    // 按任务的连接掐断：多标签页下不能把别的会话正在跑的命令也一起取消
+    void window.electronAPI?.agentPauseTask?.(task?.connectionId || sessionId || undefined);
+    state.cancelTask();
+    resetAgentInputOwnership();
+  }, [resetAgentInputOwnership, sessionId]);
+
+  const isAgentTaskRunningHere = useCallback(
+    () => isAgentTaskRunningInSession({
+      sessionId,
+      currentTaskState: useAgentStore.getState().currentTask?.state ?? null,
+      currentTaskConnectionId: useAgentStore.getState().currentTask?.connectionId ?? null,
+      agentState: useAgentStore.getState().agentState,
+    }),
+    [sessionId],
+  );
+
+  /**
+   * Esc 的统一入口：按当前状态决定含义，Agent 上下文内一律吞掉这次按键。
+   * 判定与语义都在 `resolveTerminalAgentEscapeAction` 里，便于单独验证。
+   */
+  const handleEscapeKey = useCallback((): boolean => {
+    // 全屏程序（vim/less/top）里 Esc 是它自己的命令：即便 Agent 在后台跑也不能抢，
+    // 否则用户在编辑器里按 Esc 会莫名其妙把任务中断掉。
+    if (isAlternateScreenRef.current) {
+      return false;
+    }
+    const action = resolveTerminalAgentEscapeAction({
+      isTaskRunningHere: isAgentTaskRunningHere(),
+      isFollowUpActive: agentFollowUpModeRef.current || agentFirstInputModeRef.current,
+    });
+    if (action === 'interrupt-task') {
+      interruptAgentTask();
+      return true;
+    }
+    if (action === 'exit-follow-up') {
+      exitAgentFollowUp();
+      return true;
+    }
+    return false;
+  }, [exitAgentFollowUp, interruptAgentTask, isAgentTaskRunningHere]);
 
   const getAgentReplyMode = useCallback((): 'answer' | 'approval' | 'follow-up' | 'busy' | null => {
     const state = useAgentStore.getState();
@@ -233,6 +334,7 @@ export function TerminalView({
     terminalInstanceVersion,
     translate: t,
     xtermRef,
+    isTaskInterrupted: (taskId) => agentFollowUpSuppressedTaskIdRef.current === taskId,
   });
 
   const activeSession = useSessionStore((state) => (
@@ -281,6 +383,7 @@ export function TerminalView({
   const {
     consumeOutputChunk,
     resetInputTracking,
+    clearTrackedInput,
     beginSuspendInputForward,
     endSuspendInputForward,
     getCurrentInput,
@@ -296,6 +399,10 @@ export function TerminalView({
     terminalInstanceVersion,
     xtermRef,
   });
+
+  // Esc 处理在 xterm 的键盘回调里同步执行，拿不到最新的 useCallback 引用；
+  // 用 ref 转发，避免出现「按了没反应」的一拍延迟。
+  clearTrackedInputRef.current = clearTrackedInput;
 
   const canSubmitPastedAgentInput = useCallback(() => {
     const activeBuffer = xtermRef.current?.buffer.active;
@@ -390,11 +497,7 @@ export function TerminalView({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
     canSubmitPastedAgentInput,
-    onExitAgentFollowUp: () => {
-      if (!agentFollowUpModeRef.current) return false;
-      handleExitAgentFollowUp();
-      return true;
-    },
+    onEscapeKey: handleEscapeKey,
     onInstanceVersionChange: handleTerminalInstanceVersionChange,
     onMultilinePasteRequest: handleMultilinePasteRequest,
     recordPastedInput,
@@ -737,6 +840,38 @@ export function TerminalView({
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [terminalTheme, theme]);
 
+  /**
+   * 任务是否正在这个终端里跑。
+   * 判定条件都有具体的误显示场景，抽到 terminal-agent-status 里单独验。
+   */
+  const showAgentStatus = isTerminalAgentStatusVisible({
+    sessionId,
+    taskId: agentTaskId,
+    taskConnectionId: agentTaskConnectionId,
+    taskState: agentTaskState,
+    agentState,
+    isAlternateScreen,
+  });
+
+  // 状态条上的秒数：只在任务运行时按秒自增，其余时间不挂定时器。
+  const [agentElapsedSeconds, setAgentElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (!showAgentStatus || !agentTaskStartTime) {
+      setAgentElapsedSeconds(0);
+      return;
+    }
+    const tick = () => {
+      setAgentElapsedSeconds(resolveTerminalAgentElapsedSeconds(agentTaskStartTime, Date.now()));
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [agentTaskStartTime, showAgentStatus]);
+
+  // 状态条文案用 agentState（thinking/executing/observing 这些阶段名），
+  // 任务级 state 只有 running/paused，看不出「现在到底在干什么」。
+  const agentStatusPhase = resolveTerminalAgentStatusPhase(agentState);
+
   return (
     <div
       className="terminal-shell"
@@ -819,6 +954,23 @@ export function TerminalView({
           }}
         />
       </div>
+
+      {/* Agent 运行状态条：在 xterm 外面，不和远端输出抢光标，也不污染 buffer */}
+      {showAgentStatus && (
+        <div className="terminal-agent-status" role="status" aria-live="polite">
+          <span className="terminal-agent-status-dot" />
+          <span className="terminal-agent-status-state">
+            {t('terminal.agentStatusRunning', {
+              state: agentStatusPhase ? t(`agent.states.${agentStatusPhase}`) : t('agent.status.running'),
+              elapsed: agentElapsedSeconds,
+            })}
+          </span>
+          <span className="terminal-agent-status-sep">·</span>
+          <span className="terminal-agent-status-hint">{t('terminal.agentStatusEscapeHint')}</span>
+          <span className="terminal-agent-status-sep">·</span>
+          <span className="terminal-agent-status-hint">{t('terminal.agentStatusInputHint')}</span>
+        </div>
+      )}
 
       {/* 右键菜单 */}
       {contextMenu && (

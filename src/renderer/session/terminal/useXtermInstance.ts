@@ -23,7 +23,11 @@ interface XtermInstanceOptions {
   liveConnectionId: string | null;
   canSubmitPastedAgentInput?: () => boolean;
   onAgentInput?: (text: string) => void;
-  onExitAgentFollowUp?: () => boolean;
+  /**
+   * Esc 的分发器：返回 `true` 表示这次按键已被 Agent 侧消化（中断任务 / 退出连续对话），
+   * xterm 不得再把它当 `\x1b` 写给 PTY。返回 `false` 时按终端原生行为放行。
+   */
+  onEscapeKey?: () => boolean;
   onInstanceVersionChange: () => void;
   /** 多行粘贴需确认时回调；单行不会触发。 */
   onMultilinePasteRequest?: (previewText: string, preparedText: string) => void;
@@ -69,7 +73,7 @@ export function useXtermInstance({
   liveConnectionId,
   canSubmitPastedAgentInput,
   onAgentInput,
-  onExitAgentFollowUp,
+  onEscapeKey,
   onInstanceVersionChange,
   onMultilinePasteRequest,
   recordPastedInput,
@@ -95,7 +99,7 @@ export function useXtermInstance({
   const onMultilinePasteRequestRef = useRef(onMultilinePasteRequest);
   const recordPastedInputRef = useRef(recordPastedInput);
   const onAgentInputRef = useRef(onAgentInput);
-  const onExitAgentFollowUpRef = useRef(onExitAgentFollowUp);
+  const onEscapeKeyRef = useRef(onEscapeKey);
   const canSubmitPastedAgentInputRef = useRef(canSubmitPastedAgentInput);
   const onShellIntegrationStateChangeRef = useRef(onShellIntegrationStateChange);
   const copyOnSelectRef = useRef(false);
@@ -121,9 +125,9 @@ export function useXtermInstance({
 
   useEffect(() => {
     onAgentInputRef.current = onAgentInput;
-    onExitAgentFollowUpRef.current = onExitAgentFollowUp;
+    onEscapeKeyRef.current = onEscapeKey;
     canSubmitPastedAgentInputRef.current = canSubmitPastedAgentInput;
-  }, [canSubmitPastedAgentInput, onAgentInput, onExitAgentFollowUp]);
+  }, [canSubmitPastedAgentInput, onAgentInput, onEscapeKey]);
 
   useEffect(() => {
     onShellIntegrationStateChangeRef.current = onShellIntegrationStateChange;
@@ -334,7 +338,9 @@ export function useXtermInstance({
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
 
-      if (event.key === 'Escape' && event.type === 'keydown' && onExitAgentFollowUpRef.current?.()) {
+      // Esc 先问 Agent 侧：任务运行中 = 中断任务，连续对话中 = 退出对话。
+      // 返回 false 才落到下面按终端原生行为发送 `\x1b`（vim / less / 菜单等依赖它）。
+      if (event.key === 'Escape' && event.type === 'keydown' && onEscapeKeyRef.current?.()) {
         return false;
       }
 

@@ -1135,6 +1135,37 @@
       0 22px 70px rgba(0, 0, 0, 0.3);
   }
 
+  /* Agent 任务运行时的浮动状态条。
+     放在左下角，避开顶部三个浮层（工具栏右、搜索左、连接状态左），
+     也不写进 xterm buffer：写进 buffer 的内容会跟远端输出抢光标，
+     任务结束后还得靠换行“擦”掉，用户滚动回看时又是脏数据。 */
+  .terminal-agent-status {
+    @apply pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[min(32rem,calc(100%-1.5rem))] items-center gap-2 rounded-md border px-3 py-2 text-xs shadow-lg;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+    color: var(--text-primary);
+    backdrop-filter: blur(14px);
+    animation: ui-fade-in var(--duration-chrome) var(--ease-chrome) both;
+  }
+
+  .terminal-agent-status-dot {
+    @apply h-2 w-2 flex-shrink-0 rounded-full;
+    background: var(--accent-primary);
+    animation: agent-status-pulse 1.4s ease-in-out infinite;
+  }
+
+  .terminal-agent-status-state {
+    @apply font-semibold tabular-nums;
+  }
+
+  .terminal-agent-status-hint {
+    @apply text-[11px] opacity-70;
+  }
+
+  .terminal-agent-status-sep {
+    @apply mx-1 opacity-30;
+  }
+
   .industrial-modal {
     border-radius: var(--radius-lg);
     border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
@@ -1735,6 +1766,12 @@
 @keyframes ui-toast-in {
   from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: none; }
+}
+
+/* 终端内 Agent 状态条的呼吸点：复用 1.4s 节奏与 status-dot-connecting 一致 */
+@keyframes agent-status-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 
 /* 版本更新提示条：检测到新构建后自动刷新前展示 */

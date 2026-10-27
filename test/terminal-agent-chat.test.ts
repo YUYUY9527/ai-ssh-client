@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatAgentTerminalText,
+  isAgentTaskRunningInSession,
   isShellPromptReadyForAgent,
   isTerminalAgentCommand,
   normalizeAgentTerminalText,
   parseTerminalAgentCommand,
   parseTerminalAgentPaste,
   resolveAgentSubmission,
+  resolveTerminalAgentEscapeAction,
   resolveTerminalAgentLineAction,
   sanitizeAgentTerminalText,
   type AgentSubmissionState,
@@ -82,8 +84,15 @@ describe('terminal Agent follow-up routing', () => {
     });
   });
 
-  it('does not send ordinary text to the shell while the Agent is busy', () => {
-    expect(resolveTerminalAgentLineAction('继续检查内存', 'busy')).toEqual({
+  // 行为按用户要求变更：Agent 正在跑任务（'busy'）时，终端里的普通输入回 shell 执行，
+  // 不再被整行吞进对话。要打断 Agent 用 Esc，要追问 Agent 需显式带 @ai。
+  it('sends ordinary text to the shell while the Agent is busy', () => {
+    expect(resolveTerminalAgentLineAction('继续检查内存', 'busy')).toEqual({ type: 'shell' });
+    expect(resolveTerminalAgentLineAction('free -h', 'busy')).toEqual({ type: 'shell' });
+  });
+
+  it('still accepts an explicit @ai question while the Agent is busy', () => {
+    expect(resolveTerminalAgentLineAction('@ai 继续检查内存', 'busy')).toEqual({
       type: 'agent',
       text: '继续检查内存',
     });
@@ -92,6 +101,81 @@ describe('terminal Agent follow-up routing', () => {
   it('keeps ordinary shell commands in the shell', () => {
     expect(resolveTerminalAgentLineAction('free -h', null)).toEqual({ type: 'shell' });
     expect(resolveTerminalAgentLineAction('', null)).toEqual({ type: 'shell' });
+  });
+});
+
+describe('终端 Esc 的语义', () => {
+  // 真实反馈：任务运行中按 Esc 什么都不发生，终端像卡死了，还得再按 Ctrl+C。
+  // 根因是 ESC 被原样发给 bash，readline 把裸 ESC 当 meta 前缀吃掉下一个键。
+  it('任务运行中按 Esc 中断任务', () => {
+    expect(resolveTerminalAgentEscapeAction({
+      isTaskRunningHere: true,
+      isFollowUpActive: false,
+    })).toBe('interrupt-task');
+  });
+
+  it('连续对话中按 Esc 退出对话', () => {
+    expect(resolveTerminalAgentEscapeAction({
+      isTaskRunningHere: false,
+      isFollowUpActive: true,
+    })).toBe('exit-follow-up');
+  });
+
+  it('纯 Shell 场景放行 Esc（vim / less / 补全菜单依赖它）', () => {
+    expect(resolveTerminalAgentEscapeAction({
+      isTaskRunningHere: false,
+      isFollowUpActive: false,
+    })).toBe('passthrough');
+  });
+});
+
+describe('Agent 任务是否在本会话运行', () => {
+  it('本会话有在跑的任务时成立', () => {
+    expect(isAgentTaskRunningInSession({
+      sessionId: 'session-a',
+      currentTaskState: 'thinking',
+      currentTaskConnectionId: 'session-a',
+      agentState: 'executing',
+    })).toBe(true);
+  });
+
+  it('任务属于其它标签页时不成立', () => {
+    expect(isAgentTaskRunningInSession({
+      sessionId: 'session-b',
+      currentTaskState: 'thinking',
+      currentTaskConnectionId: 'session-a',
+      agentState: 'executing',
+    })).toBe(false);
+  });
+
+  it('任务已结束时（哪怕阶段状态滞后）不成立', () => {
+    expect(isAgentTaskRunningInSession({
+      sessionId: 'session-a',
+      currentTaskState: 'finished',
+      currentTaskConnectionId: 'session-a',
+      agentState: 'executing',
+    })).toBe(false);
+    expect(isAgentTaskRunningInSession({
+      sessionId: 'session-a',
+      currentTaskState: 'error',
+      currentTaskConnectionId: 'session-a',
+      agentState: 'error',
+    })).toBe(false);
+  });
+
+  it('没有任务或没有会话时不成立', () => {
+    expect(isAgentTaskRunningInSession({
+      sessionId: 'session-a',
+      currentTaskState: null,
+      currentTaskConnectionId: null,
+      agentState: 'idle',
+    })).toBe(false);
+    expect(isAgentTaskRunningInSession({
+      sessionId: null,
+      currentTaskState: 'thinking',
+      currentTaskConnectionId: null,
+      agentState: 'thinking',
+    })).toBe(false);
   });
 });
 

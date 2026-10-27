@@ -1,4 +1,4 @@
-import type { PendingApproval } from '../../shared/types';
+import type { AgentState, PendingApproval } from '../../shared/types';
 import { useAgentStore } from '../store/useAgentStore';
 import { useAIStore } from '../store/useAIStore';
 import { useSessionStore } from '../session/useSessionStore';
@@ -75,7 +75,10 @@ export function resolveTerminalAgentLineAction(
       ? { type: 'exit-follow-up' }
       : { type: 'shell' };
   }
-  if (replyMode) {
+  // 'busy'（Agent 正在跑任务）不属于「对话进行中」：此时用户在终端敲的普通命令
+  // 就是给 shell 的。旧实现把 busy 当作任何非空行都送 Agent 的窗口，任务跑 45s~15min
+  // 期间连 `ls` 都被吞掉，用户还以为终端卡死了。要打断 Agent 请用 Esc，要问 Agent 请带 @ai。
+  if (replyMode && replyMode !== 'busy') {
     const parsed = parseTerminalAgentCommand(input);
     return { type: 'agent', text: parsed?.text || input };
   }
@@ -87,6 +90,46 @@ export function resolveTerminalAgentLineAction(
 
 export function isTerminalAgentCommand(input: string): boolean {
   return parseTerminalAgentCommand(input) !== null;
+}
+
+export interface AgentTaskActivityState {
+  sessionId: string | null;
+  currentTaskState: AgentState | null;
+  currentTaskConnectionId: string | null;
+  agentState: AgentState | 'idle';
+}
+
+/** 是否有 Agent 任务正在**这个会话**里跑（任务属于别的标签页时不算）。 */
+export function isAgentTaskRunningInSession(state: AgentTaskActivityState): boolean {
+  const { sessionId, currentTaskState, currentTaskConnectionId, agentState } = state;
+  if (!sessionId || !currentTaskState) return false;
+  if (currentTaskConnectionId && currentTaskConnectionId !== sessionId) return false;
+  if (currentTaskState === 'finished' || currentTaskState === 'error') return false;
+  return agentState !== 'finished' && agentState !== 'error';
+}
+
+export type TerminalAgentEscapeAction = 'interrupt-task' | 'exit-follow-up' | 'passthrough';
+
+/**
+ * 终端里按 Esc 该做什么。
+ *
+ * 旧实现只在连续对话里拦截 Esc，任务运行中直接放行 → 裸 ESC 落到 bash 上，
+ * readline 当它是 meta 前缀，下一个键被吃成 `M-x`，看起来就像终端卡住，
+ * 用户只能再按 Ctrl+C 才回来。所以「有 Agent 上下文」时必须自己消化这次按键。
+ *
+ * `passthrough` 用于纯 Shell 场景：vim / less / 补全菜单都依赖 Esc，不能抢。
+ */
+export function resolveTerminalAgentEscapeAction(input: {
+  isTaskRunningHere: boolean;
+  isFollowUpActive: boolean;
+}): TerminalAgentEscapeAction {
+  if (input.isTaskRunningHere) {
+    return 'interrupt-task';
+  }
+  if (input.isFollowUpActive) {
+    return 'exit-follow-up';
+  }
+  return 'passthrough';
 }
 
 /**

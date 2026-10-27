@@ -456,6 +456,18 @@ export function useTerminalInputTracking({
     // timer 到期时会按 generation 校验自行收敛，无需在此清理。
   }, []);
 
+  /**
+   * 只清「正在敲的这一行」，不动 cwd / outputTail。
+   *
+   * 用途：退出 Agent 连续对话或按 Esc 中断时，远端那行已经被 `\x15` 清掉，
+   * 本地追踪也必须同步清空，否则残留的 `@ai ...` 会继续和新输入拼在一起，
+   * 导致用户「退出后随便打点什么还是被当成 AI 对话」。
+   */
+  const clearTrackedInput = useCallback(() => {
+    inputTrackingReliableRef.current = true;
+    currentInputRef.current = '';
+  }, []);
+
   // 连接切换或终端实例重建时清掉挂起，避免上一轮回放泄漏
   useEffect(() => {
     forceResumeInputForward();
@@ -486,6 +498,7 @@ export function useTerminalInputTracking({
   return {
     consumeOutputChunk,
     resetInputTracking,
+    clearTrackedInput,
     beginSuspendInputForward,
     endSuspendInputForward,
     forceResumeInputForward,

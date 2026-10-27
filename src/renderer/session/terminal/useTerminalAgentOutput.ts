@@ -3,6 +3,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 import type { AgentState, AgentTask } from '../../../shared/types';
 import { useAgentStore } from '../../store/useAgentStore';
 import { useSessionStore } from '../useSessionStore';
+import { executionDurationMs, isExecutionFailure } from '../../agent/agent-execution-metrics';
 import { formatAgentTerminalText, normalizeAgentTerminalText, sanitizeAgentTerminalText } from '../../agent/terminal-agent-chat';
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -13,6 +14,15 @@ interface TerminalAgentOutputOptions {
   terminalInstanceVersion: number;
   translate: Translate;
   xtermRef: RefObject<XTerm | null>;
+  /**
+   * 这个任务是不是被用户按 Esc 中断掉的。
+   *
+   * 中断走的是 store 的 `cancelTask()`，它把 `finishReason` 写成英文
+   * `Task cancelled by user`，并且状态是 `finished`（绿色）。直接照着打会把
+   * 「被中断」显示成一条英文的成功结论，还顺带提示「继续输入下一个问题」——
+   * 而此时连续对话已经收起了，按提示敲字只会进 Shell。所以这里单独区分。
+   */
+  isTaskInterrupted?: (taskId: string) => boolean;
 }
 
 function stateLabel(state: AgentState, t: Translate): string | null {
@@ -48,6 +58,7 @@ export function useTerminalAgentOutput({
   terminalInstanceVersion,
   translate: t,
   xtermRef,
+  isTaskInterrupted,
 }: TerminalAgentOutputOptions): void {
   const currentTask = useAgentStore((state) => state.currentTask);
   const agentState = useAgentStore((state) => state.agentState);
@@ -58,10 +69,14 @@ export function useTerminalAgentOutput({
   const taskIdRef = useRef<string | null>(null);
   const stateRef = useRef<AgentState | 'idle'>('idle');
   const executionStepIdsRef = useRef<Set<string>>(new Set());
+  const executionResultIdsRef = useRef<Set<string>>(new Set());
   const promptRef = useRef<string | null>(null);
   const approvalRef = useRef<string | null>(null);
   const completedTaskIdRef = useRef<string | null>(null);
   const terminalRef = useRef<string | null>(null);
+  // 放进 ref：这个判断只影响结束那一行的写法，不该让它变化时重跑整个投影 effect
+  const isTaskInterruptedRef = useRef(isTaskInterrupted);
+  isTaskInterruptedRef.current = isTaskInterrupted;
 
   useEffect(() => {
     if (isAlternateScreen || !sessionId || activeSessionId !== sessionId) {
@@ -76,6 +91,7 @@ export function useTerminalAgentOutput({
       taskIdRef.current = null;
       stateRef.current = 'idle';
       executionStepIdsRef.current.clear();
+      executionResultIdsRef.current.clear();
       promptRef.current = null;
       approvalRef.current = null;
       completedTaskIdRef.current = null;
@@ -90,6 +106,7 @@ export function useTerminalAgentOutput({
       taskIdRef.current = currentTask.id;
       stateRef.current = 'idle';
       executionStepIdsRef.current.clear();
+      executionResultIdsRef.current.clear();
       promptRef.current = null;
       approvalRef.current = null;
       completedTaskIdRef.current = null;
@@ -141,6 +158,28 @@ export function useTerminalAgentOutput({
       }
     }
 
+    // 每条命令的结局（成功/失败 + 退出码 + 真实耗时）。
+    // 没有这一行时，终端里只剩一串 `$ cmd` 和它们的输出，用户看不出哪条失败了、
+    // 每条跑了多久 —— 也就是「看不到当前执行状态」的直接来源。
+    // 用执行记录 id 去重（不是 step id）：同一 step 重跑会产生新的 execution。
+    for (const execution of currentTask.executions) {
+      if (executionResultIdsRef.current.has(execution.id)) {
+        continue;
+      }
+      executionResultIdsRef.current.add(execution.id);
+      const step = currentTask.thinkingSteps.find((item) => item.id === execution.stepId);
+      const durationMs = executionDurationMs(execution, step?.timestamp ?? execution.timestamp);
+      const failed = isExecutionFailure(execution);
+      const status = execution.exitCode === undefined || execution.exitCode === null
+        ? (failed ? t('agent.execution.failed') : t('agent.execution.completed'))
+        : t('agent.execution.exitCode', { code: execution.exitCode });
+      writeLine(term, t('terminal.agentExecutionResult', {
+        mark: failed ? '✗' : '✓',
+        status,
+        duration: (durationMs / 1000).toFixed(1),
+      }), failed ? '31' : '32');
+    }
+
     if (!pendingApproval) {
       approvalRef.current = null;
     } else if (approvalRef.current !== pendingApproval.command) {
@@ -172,6 +211,12 @@ export function useTerminalAgentOutput({
       && completedTaskIdRef.current !== currentTask.id
     ) {
       completedTaskIdRef.current = currentTask.id;
+      const interrupted = isTaskInterruptedRef.current?.(currentTask.id) ?? false;
+      if (interrupted) {
+        writeLine(term, '', undefined);
+        term.write(`\x1b[33m${formatAgentTerminalText(t('terminal.agentInterrupted'))}\x1b[0m`);
+        return;
+      }
       const summary = agentState === 'error'
         ? currentTask.error || currentTask.finishReason || t('agent.states.error')
         : currentTask.finishReason || t('agent.states.finished');

@@ -244,3 +244,41 @@ describe('终端输入行追踪 — 长输入折行不得截断', () => {
     expect(onExitAgentFollowUp).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * 真实反馈：「按 Esc 退出后，随便打点什么还是被当成 AI 对话」。
+ *
+ * 退出连续对话时远端那行已经被 `^U` 清掉，但本地的 `currentInputRef` 还留着
+ * `@ai ...`；下一次键入被拼在它后面，`/^@ai/` 继续命中。
+ * `clearTrackedInput` 就是让本地追踪跟远端对齐的那一步。
+ */
+describe('终端输入行追踪 — 退出对话后输入归属', () => {
+  it('清掉追踪后，之前的 @ai 行不再污染下一次输入', () => {
+    replyMode = null;
+    act(() => { api?.recordPastedInput('@ai 检查磁盘'); });
+    setEchoedInput('@ai 检查磁盘');
+
+    act(() => { api?.clearTrackedInput(); });
+    // 远端 `^U` 之后行是干净的
+    setEchoedInput('');
+
+    type('ls');
+    pressEnter();
+
+    expect(onAgentInput).not.toHaveBeenCalled();
+    expect(sshExecuteSync).toHaveBeenCalledWith(CONNECTION_ID, '\r');
+  });
+
+  it('清掉追踪后重新带 @ai 仍能正常发起对话', () => {
+    replyMode = null;
+    act(() => { api?.recordPastedInput('@ai 旧的提问'); });
+    act(() => { api?.clearTrackedInput(); });
+    setEchoedInput('');
+
+    type('@ai 新的提问');
+    pressEnter();
+
+    expect(onAgentInput).toHaveBeenCalledTimes(1);
+    expect(onAgentInput).toHaveBeenCalledWith('新的提问');
+  });
+});
