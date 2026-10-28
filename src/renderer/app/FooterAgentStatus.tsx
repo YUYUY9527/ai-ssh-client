@@ -4,7 +4,11 @@ import { Loader2 } from 'lucide-react';
 import { isAgentTaskRunningInSession } from '../agent/terminal-agent-chat';
 import { useI18n } from '../i18n';
 import { useAgentStore } from '../store/useAgentStore';
-import { resolveFooterAgentElapsedSeconds, resolveFooterAgentPhase } from './footer-agent-status';
+import {
+  resolveFooterAgentElapsedSeconds,
+  resolveFooterAgentPhase,
+  resolveFooterAgentWaitingKind,
+} from './footer-agent-status';
 
 /**
  * 底栏里的 Agent 运行状态，紧挨着「已连接」。
@@ -23,6 +27,11 @@ export function FooterAgentStatus() {
   const taskState = useAgentStore((state) => state.currentTask?.state ?? null);
   const taskStartTime = useAgentStore((state) => state.currentTask?.startTime ?? null);
   const agentState = useAgentStore((state) => state.agentState);
+  // 在等人时不能说「观察中」：那会让人以为还在干活。见 resolveFooterAgentWaitingKind。
+  const waitingKind = useAgentStore((state) => resolveFooterAgentWaitingKind({
+    hasPendingApproval: Boolean(state.pendingApproval),
+    hasPendingQuestion: Boolean(state.pendingQuestion),
+  }));
 
   // 在跑的任务是否属于当前标签页：别的会话的任务不该在这里报进度
   const isRunning = isAgentTaskRunningInSession({
@@ -48,9 +57,15 @@ export function FooterAgentStatus() {
 
   if (!isRunning) return null;
 
-  // 阶段用 agentState（思考中/执行中/观察中），任务级 state 只有 running/paused，
-  // 看不出「现在到底在干什么」。
+  // 阶段优先：等人时必须说「等待回答 / 等待确认」，不能沿用 agentState 的「观察中」。
   const phase = resolveFooterAgentPhase(agentState);
+  const stateText = waitingKind === 'approval'
+    ? t('terminal.agentStatusAwaitingApproval')
+    : waitingKind === 'answer'
+      ? t('terminal.agentStatusAwaitingAnswer')
+      : phase
+        ? t(`agent.states.${phase}`)
+        : t('agent.status.running');
   const hints = `${t('terminal.agentStatusEscapeHint')} · ${t('terminal.agentStatusInputHint')}`;
 
   // 不挂 aria-live：这里每秒都在变，读屏会被念到停不下来。状态靠 title 可查。
@@ -62,7 +77,7 @@ export function FooterAgentStatus() {
       <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
       <span className="truncate">
         {t('terminal.agentStatusRunning', {
-          state: phase ? t(`agent.states.${phase}`) : t('agent.status.running'),
+          state: stateText,
           elapsed: elapsedSeconds,
         })}
       </span>

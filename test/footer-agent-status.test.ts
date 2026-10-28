@@ -19,6 +19,7 @@ import { FooterAgentStatus } from '../src/renderer/app/FooterAgentStatus';
 import {
   resolveFooterAgentElapsedSeconds,
   resolveFooterAgentPhase,
+  resolveFooterAgentWaitingKind,
 } from '../src/renderer/app/footer-agent-status';
 import { t } from '../src/renderer/i18n';
 import { useAgentStore } from '../src/renderer/store/useAgentStore';
@@ -60,6 +61,8 @@ beforeEach(() => {
     activeConnectionId: SESSION_ID,
     currentTask: null,
     agentState: 'idle',
+    pendingQuestion: null,
+    pendingApproval: null,
   } as never);
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -126,6 +129,47 @@ describe('FooterAgentStatus — 什么时候出现', () => {
 
     expect(text()).toContain(t('agent.states.paused'));
   });
+
+  it('等用户回答时显示「等待回答」，不显示「观察中」', () => {
+    // 真实反馈：Agent 回完一句问候后底栏一直挂「观察中」，用户以为它还在跑。
+    // 真相是 `ask` 分支把状态设成 observing，本质是在等你补充信息。
+    act(() => {
+      useAgentStore.setState({
+        currentTask: task(),
+        agentState: 'observing',
+        pendingQuestion: '你好！请告诉我你希望完成的具体任务。',
+      } as never);
+    });
+
+    expect(text()).toContain(t('terminal.agentStatusAwaitingAnswer'));
+    expect(text()).not.toContain(t('agent.states.observing'));
+  });
+
+  it('等用户确认命令时显示「等待确认」', () => {
+    act(() => {
+      useAgentStore.setState({
+        currentTask: task(),
+        agentState: 'observing',
+        pendingApproval: { command: 'rm -rf old', riskLevel: 'high' },
+      } as never);
+    });
+
+    expect(text()).toContain(t('terminal.agentStatusAwaitingApproval'));
+    expect(text()).not.toContain(t('agent.states.observing'));
+  });
+
+  it('无人可等时 observing 仍如实显示（兜底路径不受影响）', () => {
+    act(() => {
+      useAgentStore.setState({
+        currentTask: task(),
+        agentState: 'observing',
+        pendingQuestion: null,
+        pendingApproval: null,
+      } as never);
+    });
+
+    expect(text()).toContain(t('agent.states.observing'));
+  });
 });
 
 describe('AppFooter — Agent 状态的位置', () => {
@@ -172,6 +216,28 @@ describe('底栏 Agent 阶段名', () => {
     expect(resolveFooterAgentPhase('finished')).toBeNull();
     expect(resolveFooterAgentPhase('error')).toBeNull();
     expect(resolveFooterAgentPhase('idle')).toBeNull();
+  });
+});
+
+describe('底栏 Agent 等待态', () => {
+  it('有待回答问题 → 等待回答', () => {
+    expect(resolveFooterAgentWaitingKind({ hasPendingApproval: false, hasPendingQuestion: true }))
+      .toBe('answer');
+  });
+
+  it('有待审批命令 → 等待确认', () => {
+    expect(resolveFooterAgentWaitingKind({ hasPendingApproval: true, hasPendingQuestion: false }))
+      .toBe('approval');
+  });
+
+  it('两者同时存在时审批优先（只差一个 yes/no）', () => {
+    expect(resolveFooterAgentWaitingKind({ hasPendingApproval: true, hasPendingQuestion: true }))
+      .toBe('approval');
+  });
+
+  it('都没有 → 不是在等人，交给阶段名显示', () => {
+    expect(resolveFooterAgentWaitingKind({ hasPendingApproval: false, hasPendingQuestion: false }))
+      .toBeNull();
   });
 });
 

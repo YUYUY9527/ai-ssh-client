@@ -162,6 +162,8 @@ const zhCN = {
     agentContinuationExited: '已退出 Agent 连续对话。',
     agentNewConversation: '已开启新的 Agent 会话。',
     agentStatusRunning: 'Agent {state} · {elapsed}s',
+    agentStatusAwaitingAnswer: '等待回答',
+    agentStatusAwaitingApproval: '等待确认',
     agentStatusEscapeHint: 'Esc 中断',
     agentStatusInputHint: '终端输入照常发给 Shell',
     agentInterrupted: '已中断 Agent 任务。',

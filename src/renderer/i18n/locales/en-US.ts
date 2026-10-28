@@ -168,6 +168,8 @@ const enUS: DeepStringify<typeof zhCN> = {
     agentContinuationExited: 'Exited Agent conversation mode.',
     agentNewConversation: 'Started a new Agent conversation.',
     agentStatusRunning: 'Agent {state} · {elapsed}s',
+    agentStatusAwaitingAnswer: 'Waiting for your answer',
+    agentStatusAwaitingApproval: 'Waiting for approval',
     agentStatusEscapeHint: 'Esc to interrupt',
     agentStatusInputHint: 'Terminal input goes to the shell',
     agentInterrupted: 'Agent task interrupted.',

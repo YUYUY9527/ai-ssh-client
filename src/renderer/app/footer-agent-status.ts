@@ -22,6 +22,28 @@ export function resolveFooterAgentPhase(agentState: AgentState): AgentState | nu
   }
 }
 
+export type FooterAgentWaitingKind = 'answer' | 'approval';
+
+/**
+ * Agent 是不是在**等人**，而不是在干活。
+ *
+ * 真实反馈：Agent 回完一句问候，底栏一直挂「观察中」，用户以为它还在跑。
+ * 真相是 `agentState` 的 `observing` 在整个代码库里只在两处被设置
+ * （`agent-runtime` 的 `ask` 和 `approval` 分支），它从来不表示「观察命令输出」，
+ * 就是「在等用户回答 / 等用户确认」。所以底栏不能照搬「观察中」这个含混词，
+ * 得按 pending 状态显示「等待回答 / 等待确认」。
+ *
+ * 两者同时存在时审批优先：那时代码已经就绪，只差一个 yes/no，比补充信息更紧。
+ */
+export function resolveFooterAgentWaitingKind(input: {
+  hasPendingApproval: boolean;
+  hasPendingQuestion: boolean;
+}): FooterAgentWaitingKind | null {
+  if (input.hasPendingApproval) return 'approval';
+  if (input.hasPendingQuestion) return 'answer';
+  return null;
+}
+
 /** 任务已运行的整秒数。startTime 缺失或不合理时按 0 处理，不显示负数。 */
 export function resolveFooterAgentElapsedSeconds(startTime: number | null, now: number): number {
   if (!startTime || !Number.isFinite(startTime)) return 0;
