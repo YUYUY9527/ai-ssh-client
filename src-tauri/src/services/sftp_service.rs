@@ -993,16 +993,8 @@ impl SftpService {
             self.complete_canceled(app_handle, task_id)?;
             return Ok(());
         }
-        sftp.rename(&temp_path, &remote_path).await?;
+        let guarantee = commit_remote_temp(sftp, &temp_path, &remote_path, task_id).await?;
         let _ = sftp.remove_file(&meta_path).await;
-        let guarantee = if matches!(
-            record.snapshot.conflict_policy,
-            SftpConflictPolicy::Overwrite
-        ) {
-            SftpCommitGuarantee::BestEffortReplace
-        } else {
-            SftpCommitGuarantee::AtomicCreate
-        };
         self.finish(
             app_handle,
             task_id,
@@ -1914,6 +1906,57 @@ async fn read_remote_checkpoint(
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).await.ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+fn backup_remote_path(remote_path: &str, task_id: &str) -> String {
+    let path = Path::new(remote_path);
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("transfer");
+    let parent = path
+        .parent()
+        .and_then(|value| value.to_str())
+        .unwrap_or("/");
+    join_remote_path(parent, &format!(".{name}.{task_id}.backup"))
+}
+
+/// 用临时文件提交覆盖目标。
+///
+/// 普通 SFTP RENAME 不保证能覆盖已存在目标（OpenSSH 会直接返回
+/// SSH_FX_FAILURE / code 4），所以不能直接 rename(temp, destination)。
+/// 目标存在时先把目标改名为备份，再把临时文件改名为目标，最后删除备份；
+/// 中间任一步失败都尽量回滚，避免把原文件弄丢。
+async fn commit_remote_temp(
+    sftp: &russh_sftp::client::SftpSession,
+    temp_path: &str,
+    destination_path: &str,
+    task_id: &str,
+) -> AppResult<SftpCommitGuarantee> {
+    match sftp.symlink_metadata(destination_path).await {
+        Err(SftpError::Status(status)) if status.status_code == StatusCode::NoSuchFile => {
+            sftp.rename(temp_path, destination_path).await?;
+            Ok(SftpCommitGuarantee::AtomicCreate)
+        }
+        Err(error) => Err(error.into()),
+        Ok(_) => {
+            let backup_path = backup_remote_path(destination_path, task_id);
+            if sftp.symlink_metadata(&backup_path).await.is_ok() {
+                sftp.remove_file(&backup_path).await?;
+            }
+            sftp.rename(destination_path, &backup_path).await?;
+            if let Err(error) = sftp.rename(temp_path, destination_path).await {
+                let _ = sftp.rename(&backup_path, destination_path).await;
+                return Err(error.into());
+            }
+            if let Err(error) = sftp.remove_file(&backup_path).await {
+                let _ = sftp.remove_file(destination_path).await;
+                let _ = sftp.rename(&backup_path, destination_path).await;
+                return Err(error.into());
+            }
+            Ok(SftpCommitGuarantee::BestEffortReplace)
+        }
+    }
 }
 
 fn backup_local_path(path: &Path, task_id: &str) -> PathBuf {

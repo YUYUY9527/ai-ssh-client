@@ -74,6 +74,11 @@ function createSftp(files = new Map<string, Buffer>()) {
         callback(missing());
         return;
       }
+      // 对齐 OpenSSH sftp-server：普通 RENAME 不允许覆盖已存在目标，返回 code 4。
+      if (files.has(destination)) {
+        callback(Object.assign(new Error('Failure'), { code: 4 }));
+        return;
+      }
       files.set(destination, files.get(source)!);
       files.delete(source);
       callback(null);
@@ -198,6 +203,7 @@ describe('sftp-transfer', () => {
       'x-sftp-source-mtime': '1',
     }));
     expect(remoteFiles.get('/uploads/existing.txt')!.toString()).toBe('new');
+    expect([...remoteFiles.keys()].some((path) => path.endsWith('.backup'))).toBe(false);
     expect(
       service.list('client-a').tasks.find((item: any) => item.taskId === conflicted.taskId).commitGuarantee,
     ).toBe('best-effort-replace');

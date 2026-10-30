@@ -60,6 +60,45 @@ function temporaryRemotePath(remotePath, taskId) {
   return posixPath.join(parent, `.${name}.${taskId}.part`);
 }
 
+function backupRemotePath(remotePath, taskId) {
+  const parent = posixPath.dirname(remotePath);
+  const name = taskName(remotePath);
+  return posixPath.join(parent, `.${name}.${taskId}.backup`);
+}
+
+/**
+ * 用临时文件提交覆盖目标。
+ *
+ * 普通 SFTP RENAME 不保证能覆盖已存在目标（OpenSSH 会直接返回
+ * SSH_FX_FAILURE / code 4），所以不能直接 rename(temp, destination)。
+ * 目标存在时先把目标改名为备份，再把临时文件改名为目标，最后删除备份；
+ * 中间任一步失败都尽量回滚，避免把原文件弄丢。
+ */
+async function commitRemoteTemp(sftp, temporaryPath, destinationPath, taskId) {
+  if (!(await pathExists(sftp, destinationPath))) {
+    await callSftp(sftp, 'rename', temporaryPath, destinationPath);
+    return 'atomic-create';
+  }
+
+  const backupPath = backupRemotePath(destinationPath, taskId);
+  await removeRemoteQuiet(sftp, backupPath);
+  await callSftp(sftp, 'rename', destinationPath, backupPath);
+  try {
+    await callSftp(sftp, 'rename', temporaryPath, destinationPath);
+  } catch (error) {
+    await callSftp(sftp, 'rename', backupPath, destinationPath).catch(() => undefined);
+    throw error;
+  }
+  try {
+    await callSftp(sftp, 'unlink', backupPath);
+  } catch (error) {
+    await callSftp(sftp, 'unlink', destinationPath).catch(() => undefined);
+    await callSftp(sftp, 'rename', backupPath, destinationPath).catch(() => undefined);
+    throw error;
+  }
+  return 'best-effort-replace';
+}
+
 function checkpointRemotePath(temporaryPath) {
   return `${temporaryPath}.meta`;
 }
@@ -454,9 +493,14 @@ function createSftpTransferService({ getSftp, emitEvent }) {
         }
 
         update(task, (current) => { current.status = 'committing'; });
-        await callSftp(sftp, 'rename', temporaryPath, protocolDestination);
+        const commitGuarantee = await commitRemoteTemp(
+          sftp,
+          temporaryPath,
+          protocolDestination,
+          snapshot.taskId,
+        );
         await removeRemoteQuiet(sftp, checkpointRemotePath(temporaryPath));
-        return finish(task, 'completed', undefined, exists ? 'best-effort-replace' : 'atomic-create');
+        return finish(task, 'completed', undefined, commitGuarantee);
       } catch (error) {
         await callSftp(sftp, 'close', handle).catch(() => undefined);
         const canceled = error instanceof TransferError && error.code === 'canceled';
