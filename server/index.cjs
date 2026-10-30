@@ -33,6 +33,7 @@ const { createHostTrust } = require('./host-trust.cjs');
 const { createSecretStore } = require('./secret-store.cjs');
 const { normalizeImportData, applyImportData, importSummary } = require('./store-import.cjs');
 const { sessionKeyOf, clientKeysOf } = require('./session-key.cjs');
+const { createSessionCleanup } = require('./session-cleanup.cjs');
 const { deleteIfCurrent } = require('./agent-exec-registry.cjs');
 const {
   createDefaultPolicy: createDefaultMcpPolicy,
@@ -128,8 +129,6 @@ const activeAiRequests = new Map();
 // 后发起的执行会覆盖前一个的取消句柄，导致"取消/暂停"误伤别的客户端。
 const activeAgentExecs = new Map();
 const AGENT_INTERRUPT_SETTLE_MS = 250;
-// clientId → 延迟清理定时器（WS 断开后宽限期内可被重连取消）
-const pendingSessionCleanup = new Map();
 // 幽灵会话宽限期：WS 断开（关标签/崩溃/断网）后延迟释放 SSH 会话，
 // 同 clientId 的新 socket 重连（网络瞬断秒级恢复）可取消清理，不误杀 vim 等现场。
 const SESSION_CLEANUP_GRACE_MS = 20 * 1000;
@@ -140,17 +139,22 @@ const SESSION_CLEANUP_FAST_MS = 5 * 1000;
 const WS_HIGH_WATER = 512 * 1024;
 const WS_LOW_WATER = 128 * 1024;
 
+// 会话延迟清理：WS 断开后按 clientId 宽限释放；同 clientId 重连会取消。
+const sessionCleanup = createSessionCleanup({
+  sockets,
+  sessions,
+  closeSessionByKey,
+  graceMs: SESSION_CLEANUP_GRACE_MS,
+});
+
 /** SSH 路由的客户端标识：优先 x-ssh-client-id，兼容旧版 x-sftp-client-id。 */
 function requestClientId(request) {
   return String(request.get('x-ssh-client-id') || request.get('x-sftp-client-id') || '').slice(0, 200);
 }
 
-/** 关闭某连接配置下所有客户端的会话（删除连接时兜底清理）。 */
-function closeSessionsForConnection(connectionId) {
-  const prefix = `${connectionId}::`;
-  Array.from(sessions.keys())
-    .filter((key) => key.startsWith(prefix))
-    .forEach((key) => closeSessionByKey(key));
+/** 删除连接配置时只关闭发起请求的客户端自己的会话，不能波及其他在线客户端。 */
+function closeSessionsForConnection(connectionId, clientId) {
+  closeSessionByKey(sessionKeyOf(connectionId, clientId));
 }
 
 function success(data) {
@@ -859,34 +863,12 @@ function closeSession(connectionId, clientId) {
 }
 
 /** 延迟清理：WS 断开后按 clientId 宽限清理其全部会话；同 clientId 重连（瞬断）可取消。 */
-function scheduleSessionCleanup(clientId, graceMs = SESSION_CLEANUP_GRACE_MS) {
-  if (!clientId) {
-    return;
-  }
-  const existing = pendingSessionCleanup.get(clientId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-  const timer = setTimeout(() => {
-    pendingSessionCleanup.delete(clientId);
-    for (const [key, session] of sessions) {
-      if (session.clientId === clientId) {
-        closeSessionByKey(key);
-      }
-    }
-  }, graceMs);
-  pendingSessionCleanup.set(clientId, timer);
+function scheduleSessionCleanup(clientId, graceMs) {
+  sessionCleanup.schedule(clientId, graceMs);
 }
 
 function cancelSessionCleanup(clientId) {
-  if (!clientId) {
-    return;
-  }
-  const existing = pendingSessionCleanup.get(clientId);
-  if (existing) {
-    clearTimeout(existing);
-    pendingSessionCleanup.delete(clientId);
-  }
+  sessionCleanup.cancel(clientId);
 }
 
 /** 恢复该 client 下被背压暂停的 shell 输出流。 */
@@ -1387,7 +1369,7 @@ app.delete('/api/connections/:id', route((request) => {
   updateStore((store) => {
     store.connections = store.connections.filter((item) => item.id !== request.params.id);
   });
-  closeSessionsForConnection(request.params.id);
+  closeSessionsForConnection(request.params.id, requestClientId(request));
   return success();
 }));
 
