@@ -1,10 +1,43 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  connectionFingerprint,
   createBudget,
   createOutputCollector,
   describeAttributes,
 } from '../server/mcp/ssh.cjs';
+
+describe('connection fingerprint', () => {
+  const base = {
+    host: '10.0.0.9',
+    port: 22,
+    username: 'root',
+    password: 'pw',
+  };
+
+  it('is stable for identical config and changes whenever a connection field changes', () => {
+    expect(connectionFingerprint({ ...base })).toBe(connectionFingerprint({ ...base }));
+
+    const variants = [
+      { ...base, host: '10.0.0.10' },
+      { ...base, port: 2222 },
+      { ...base, username: 'admin' },
+      { ...base, password: 'other' },
+      { ...base, password: '', privateKey: '-----BEGIN KEY-----' },
+      { ...base, password: '', privateKey: '-----BEGIN KEY-----', passphrase: 'pp' },
+    ];
+    for (const variant of variants) {
+      expect(connectionFingerprint(variant)).not.toBe(connectionFingerprint(base));
+    }
+  });
+
+  it('never embeds raw credentials in the fingerprint', () => {
+    const fingerprint = connectionFingerprint({ ...base, password: 'super-secret' });
+    expect(fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(fingerprint).not.toContain('super-secret');
+    expect(fingerprint).not.toContain('root');
+  });
+});
 
 describe('mcp ssh output budget', () => {
   it('caps output at the configured byte budget', () => {

@@ -31,6 +31,43 @@ describe('commandDecisionKey', () => {
     expect(commandDecisionKey('  rm   report.txt ')).toBe('rm report.txt');
     expect(commandDecisionKey('rm /Data/x')).not.toBe(commandDecisionKey('rm /data/x'));
   });
+
+  it('引号内的空白原样保留（引号内连续空格不应被压缩）', () => {
+    // 回归 #4：`/tmp/report 1` 与 `/tmp/report  1` 是不同的文件，不能混同。
+    expect(commandDecisionKey('rm "/tmp/report 1"')).not.toBe(
+      commandDecisionKey('rm "/tmp/report  1"'),
+    );
+    // 完全相同的引号命令得到相同签名。
+    expect(commandDecisionKey('rm "/tmp/report 1"')).toBe(
+      commandDecisionKey('rm "/tmp/report 1"'),
+    );
+  });
+
+  it('引号外的空白仍然压缩，引号内首尾空格保留', () => {
+    // 引号外多空格压缩成一个。
+    expect(commandDecisionKey('rm   "/tmp/a b"')).toBe(commandDecisionKey('rm "/tmp/a b"'));
+    // 引号内首尾空格是语义的一部分，原样保留。
+    expect(commandDecisionKey('echo "  hi  "')).toBe('echo "  hi  "');
+    expect(commandDecisionKey('echo "  hi  "')).not.toBe(commandDecisionKey('echo " hi "'));
+  });
+
+  it('单引号内容字面保留其空白', () => {
+    expect(commandDecisionKey("rm '/tmp/a  b'")).toBe("rm '/tmp/a  b'");
+    expect(commandDecisionKey("rm   '/tmp/a  b'")).toBe(commandDecisionKey("rm '/tmp/a  b'"));
+  });
+
+  it('引号外被反斜杠转义的空格是字面空格，不参与压缩', () => {
+    expect(commandDecisionKey('rm a\\ b')).toBe('rm a\\ b');
+    expect(commandDecisionKey('rm a\\ b')).not.toBe(commandDecisionKey('rm a b'));
+  });
+
+  it('双引号内被反斜杠转义的引号不算闭合（按前置反斜杠奇偶判断）', () => {
+    const twoSpaces = commandDecisionKey('echo "a\\"  b"');
+    const oneSpace = commandDecisionKey('echo "a\\" b"');
+    // 转义引号没有闭合引号，后面的两个空格仍在引号内被保留。
+    expect(twoSpaces).toBe('echo "a\\"  b"');
+    expect(twoSpaces).not.toBe(oneSpace);
+  });
 });
 
 describe('审批记忆粒度', () => {
@@ -49,6 +86,15 @@ describe('审批记忆粒度', () => {
   it('空白差异视为同一条命令', () => {
     rememberCommandDecision('rm   report.txt', 'medium', 'approved');
     expect(getRememberedCommandDecision('rm report.txt', 'medium')).toBe('approved');
+  });
+
+  it('引号内空白不同视为不同命令，不会复用记忆批准（回归 #4）', () => {
+    rememberCommandDecision('rm "/tmp/report 1"', 'medium', 'approved');
+
+    // 完全相同的命令命中记忆
+    expect(getRememberedCommandDecision('rm "/tmp/report 1"', 'medium')).toBe('approved');
+    // 引号内多一个空格删除的是不同文件，绝不能自动放行
+    expect(getRememberedCommandDecision('rm "/tmp/report  1"', 'medium')).toBeNull();
   });
 
   it('记住拒绝时标记自动拒绝', () => {

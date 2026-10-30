@@ -50,6 +50,10 @@ describe('mcp policy', () => {
       'rm -rf --no-preserve-root /',
       'rm -rf ~/.ssh',
       'rm -rf /var/lib/mysql',
+      'rm -rf "$HOME/.ssh"',
+      'rm -rf ${HOME}/.aws',
+      'rm -rf "$HOME/.ssh/../.ssh"',
+      'rm -rf ../project',
       'sudo rm -rf /etc',
       'rm -rf .',
     ]) {
@@ -62,7 +66,63 @@ describe('mcp policy', () => {
       'rm -rf ./build',
       'rm -rf /tmp/build',
       'rm -rf ~/project',
+      'rm -rf "$HOME/project"',
       'rm -f notes.txt',
+    ]) {
+      expect(policy.evaluateCommand(command), command).toMatchObject({ allowed: true });
+    }
+  });
+
+  it('blocks find -delete on critical or default roots but allows scoped delete', () => {
+    const policy = policyWith();
+    for (const command of [
+      'find -delete',
+      'find . -delete',
+      'find .. -delete',
+      'find ~ -delete',
+      'find /root/.ssh -delete',
+      'find /var/lib/mysql -delete',
+      'find $HOME/.ssh -delete',
+      'find /tmp/.. -delete',
+    ]) {
+      expect(policy.evaluateCommand(command), command).toMatchObject({
+        allowed: false,
+        code: 'blocked',
+        rule: 'find-delete-critical',
+      });
+    }
+    // 未指定路径时默认从当前目录删，原因要单独说明。
+    expect(policy.evaluateCommand('find -delete')).toMatchObject({
+      reason: expect.stringContaining('未指定路径'),
+    });
+
+    for (const command of [
+      "find /tmp -name '*.tmp' -delete",
+      "find ~/project -name '*.log' -delete",
+    ]) {
+      expect(policy.evaluateCommand(command), command).toMatchObject({ allowed: true });
+    }
+  });
+
+  it('blocks destructive commands run through find -exec/-execdir but allows benign ones', () => {
+    const policy = policyWith();
+    for (const command of [
+      'find /root/.ssh -exec rm -rf /root/.ssh \\;',
+      'find /root/.ssh -exec rm -rf {} +',
+      'find /var/lib/mysql -execdir rm -rf {} +',
+      'find / -exec chmod -R 777 {} \\;',
+      'find . -exec rm -rf {} \\;',
+    ]) {
+      expect(policy.evaluateCommand(command), command).toMatchObject({
+        allowed: false,
+        code: 'blocked',
+        rule: 'find-exec-critical',
+      });
+    }
+
+    for (const command of [
+      'find /tmp -exec ls -l {} \\;',
+      'find ~/project -exec wc -l {} \\;',
     ]) {
       expect(policy.evaluateCommand(command), command).toMatchObject({ allowed: true });
     }

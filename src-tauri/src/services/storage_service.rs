@@ -1,5 +1,6 @@
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use base64::Engine;
@@ -25,11 +26,17 @@ struct StoredSshConnection {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StoreData {
+    #[serde(default)]
     settings: AppSettings,
+    #[serde(default)]
     ssh_connections: Vec<StoredSshConnection>,
+    #[serde(default)]
     ai_providers: Vec<AiProviderConfig>,
+    #[serde(default)]
     command_history: Vec<CommandHistoryItem>,
+    #[serde(default)]
     quick_commands: Vec<QuickCommand>,
+    #[serde(default)]
     quick_command_groups: Vec<QuickCommandGroup>,
     /// Trusted SSH host fingerprints (TOFU / future interactive verify).
     #[serde(default)]
@@ -76,17 +83,102 @@ fn get_secret(connection_id: &str, field: &str) -> Option<String> {
     entry.get_password().ok()
 }
 
-fn set_secret(connection_id: &str, field: &str, value: Option<&str>) {
-    let user = keyring_user(connection_id, field);
-    let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &user) else {
-        return;
-    };
-
-    if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
-        let _ = entry.set_password(value);
-    } else {
-        let _ = entry.delete_credential();
+fn secret_value(value: Option<&str>) -> Option<&str> {
+    match value {
+        Some(value) if !value.is_empty() => Some(value),
+        _ => None,
     }
+}
+
+fn store_backup_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    path.with_file_name(format!("{file_name}.bak"))
+}
+
+fn write_store_atomic(path: &Path, raw: &str) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    // Only back up content we know is valid JSON, so a corrupt store never
+    // overwrites a good backup.
+    if path.exists() {
+        if let Ok(existing) = fs::read_to_string(path) {
+            if serde_json::from_str::<serde_json::Value>(&existing).is_ok() {
+                let _ = fs::copy(path, store_backup_path(path));
+            }
+        }
+    }
+
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = path.with_file_name(format!("{file_name}.tmp"));
+
+    let write_result = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(raw.as_bytes())?;
+        file.sync_all()?;
+        Ok(())
+    })();
+
+    if let Err(err) = write_result {
+        let _ = fs::remove_file(&tmp);
+        return Err(err.into());
+    }
+
+    // fs::rename replaces an existing file on both Windows and Unix, giving us
+    // an atomic swap so a crash cannot leave a half-written store.json.
+    if let Err(err) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err.into());
+    }
+
+    Ok(())
+}
+
+fn load_store_from(path: &Path) -> AppResult<StoreData> {
+    let raw = fs::read_to_string(path)?;
+    match serde_json::from_str::<StoreData>(&raw) {
+        Ok(data) => Ok(data),
+        Err(primary) => {
+            let backup = store_backup_path(path);
+            if let Ok(backup_raw) = fs::read_to_string(&backup) {
+                if let Ok(data) = serde_json::from_str::<StoreData>(&backup_raw) {
+                    eprintln!(
+                        "警告：配置文件 store.json 解析失败（{primary}），已从备份 {} 恢复。",
+                        backup.display()
+                    );
+                    return Ok(data);
+                }
+            }
+
+            Err(app_error(format!(
+                "配置文件 store.json 解析失败且无可用备份：{primary}"
+            )))
+        }
+    }
+}
+
+fn set_secret(connection_id: &str, field: &str, value: Option<&str>) -> AppResult<()> {
+    let user = keyring_user(connection_id, field);
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &user)?;
+
+    if let Some(value) = secret_value(value) {
+        entry.set_password(value)?;
+    } else {
+        match entry.delete_credential() {
+            Ok(()) => {}
+            Err(keyring::Error::NoEntry) => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(())
 }
 
 fn get_ai_secret(provider_id: &str) -> Option<String> {
@@ -95,17 +187,21 @@ fn get_ai_secret(provider_id: &str) -> Option<String> {
     entry.get_password().ok()
 }
 
-fn set_ai_secret(provider_id: &str, value: Option<&str>) {
+fn set_ai_secret(provider_id: &str, value: Option<&str>) -> AppResult<()> {
     let user = ai_keyring_user(provider_id);
-    let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &user) else {
-        return;
-    };
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &user)?;
 
-    if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
-        let _ = entry.set_password(value);
+    if let Some(value) = secret_value(value) {
+        entry.set_password(value)?;
     } else {
-        let _ = entry.delete_credential();
+        match entry.delete_credential() {
+            Ok(()) => {}
+            Err(keyring::Error::NoEntry) => {}
+            Err(err) => return Err(err.into()),
+        }
     }
+
+    Ok(())
 }
 
 fn mask_api_key(api_key: &str) -> Option<String> {
@@ -124,24 +220,25 @@ fn mask_api_key(api_key: &str) -> Option<String> {
     ))
 }
 
-fn set_connection_secrets(connection: &SshConnection) {
-    set_secret(&connection.id, "password", connection.password.as_deref());
+fn set_connection_secrets(connection: &SshConnection) -> AppResult<()> {
+    set_secret(&connection.id, "password", connection.password.as_deref())?;
     set_secret(
         &connection.id,
         "privateKey",
         connection.private_key.as_deref(),
-    );
+    )?;
     set_secret(
         &connection.id,
         "passphrase",
         connection.passphrase.as_deref(),
-    );
+    )?;
+    Ok(())
 }
 
 fn delete_connection_secrets(connection_id: &str) {
-    set_secret(connection_id, "password", None);
-    set_secret(connection_id, "privateKey", None);
-    set_secret(connection_id, "passphrase", None);
+    let _ = set_secret(connection_id, "password", None);
+    let _ = set_secret(connection_id, "privateKey", None);
+    let _ = set_secret(connection_id, "passphrase", None);
 }
 
 impl StorageService {
@@ -154,15 +251,14 @@ impl StorageService {
         let path = data_dir.join("store.json");
 
         let mut data = if path.exists() {
-            let raw = fs::read_to_string(&path)?;
-            serde_json::from_str(&raw).unwrap_or_default()
+            load_store_from(&path)?
         } else {
             StoreData::default()
         };
 
         if Self::migrate_electron_store(&mut data) {
             let raw = serde_json::to_string_pretty(&data)?;
-            fs::write(&path, raw)?;
+            write_store_atomic(&path, &raw)?;
         }
 
         Ok(Self {
@@ -220,7 +316,7 @@ impl StorageService {
                             .as_deref()
                             .is_some_and(|value| !value.trim().is_empty())
                         {
-                            set_ai_secret(&provider.id, provider.api_key.as_deref());
+                            let _ = set_ai_secret(&provider.id, provider.api_key.as_deref());
                             data.legacy_ai_secrets_migrated = true;
                         }
                         provider.api_key = None;
@@ -283,99 +379,98 @@ impl StorageService {
     }
 
     fn migrate_legacy_ai_secrets_if_needed(&self) -> AppResult<()> {
+        if self.with_data(|data| data.legacy_ai_secrets_migrated)? {
+            return Ok(());
+        }
+
+        let Some(config_dir) = dirs::config_dir() else {
+            return self.mark_legacy_ai_secrets_migrated();
+        };
+        let legacy_path = config_dir.join("ai-ssh-client").join("ai-secrets.json");
+        let Ok(raw) = fs::read_to_string(legacy_path) else {
+            return self.mark_legacy_ai_secrets_migrated();
+        };
+        let Ok(legacy) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return self.mark_legacy_ai_secrets_migrated();
+        };
+
+        let Some(secret_map) = legacy
+            .get("aiProviderSecrets")
+            .and_then(serde_json::Value::as_object)
+        else {
+            return self.mark_legacy_ai_secrets_migrated();
+        };
+
+        for (provider_id, raw_value) in secret_map {
+            let Some(raw_value) = raw_value.as_str() else {
+                continue;
+            };
+            let Some(secret) = decode_legacy_secret(raw_value) else {
+                continue;
+            };
+            set_ai_secret(provider_id, Some(&secret))?;
+        }
+
+        self.mark_legacy_ai_secrets_migrated()
+    }
+
+    fn mark_legacy_ai_secrets_migrated(&self) -> AppResult<()> {
         self.update(|data| {
-            if data.legacy_ai_secrets_migrated {
-                return;
-            }
-
-            let Some(config_dir) = dirs::config_dir() else {
-                data.legacy_ai_secrets_migrated = true;
-                return;
-            };
-            let legacy_path = config_dir.join("ai-ssh-client").join("ai-secrets.json");
-            let Ok(raw) = fs::read_to_string(legacy_path) else {
-                data.legacy_ai_secrets_migrated = true;
-                return;
-            };
-            let Ok(legacy) = serde_json::from_str::<serde_json::Value>(&raw) else {
-                data.legacy_ai_secrets_migrated = true;
-                return;
-            };
-
-            let Some(secret_map) = legacy
-                .get("aiProviderSecrets")
-                .and_then(serde_json::Value::as_object)
-            else {
-                data.legacy_ai_secrets_migrated = true;
-                return;
-            };
-
-            for (provider_id, raw_value) in secret_map {
-                let Some(raw_value) = raw_value.as_str() else {
-                    continue;
-                };
-                let Some(secret_value) = decode_legacy_secret(raw_value) else {
-                    continue;
-                };
-                set_ai_secret(provider_id, Some(&secret_value));
-            }
-
             data.legacy_ai_secrets_migrated = true;
         })
     }
 
     fn migrate_legacy_ssh_secrets_if_needed(&self) -> AppResult<()> {
-        self.update(|data| {
-            if data.legacy_ssh_secrets_migrated {
-                return;
-            }
+        if self.with_data(|data| data.legacy_ssh_secrets_migrated)? {
+            return Ok(());
+        }
 
-            let Some(config_dir) = dirs::config_dir() else {
-                data.legacy_ssh_secrets_migrated = true;
-                return;
-            };
-            let legacy_path = config_dir.join("ai-ssh-client").join("ssh-secrets.json");
-            let Ok(raw) = fs::read_to_string(legacy_path) else {
-                data.legacy_ssh_secrets_migrated = true;
-                return;
-            };
-            let Ok(legacy) = serde_json::from_str::<serde_json::Value>(&raw) else {
-                data.legacy_ssh_secrets_migrated = true;
-                return;
+        let Some(config_dir) = dirs::config_dir() else {
+            return self.mark_legacy_ssh_secrets_migrated();
+        };
+        let legacy_path = config_dir.join("ai-ssh-client").join("ssh-secrets.json");
+        let Ok(raw) = fs::read_to_string(legacy_path) else {
+            return self.mark_legacy_ssh_secrets_migrated();
+        };
+        let Ok(legacy) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return self.mark_legacy_ssh_secrets_migrated();
+        };
+
+        let Some(secret_map) = legacy
+            .get("sshConnectionSecrets")
+            .and_then(serde_json::Value::as_object)
+        else {
+            return self.mark_legacy_ssh_secrets_migrated();
+        };
+
+        for (connection_id, fields) in secret_map {
+            let Some(fields) = fields.as_object() else {
+                continue;
             };
 
-            let Some(secret_map) = legacy
-                .get("sshConnectionSecrets")
-                .and_then(serde_json::Value::as_object)
-            else {
-                data.legacy_ssh_secrets_migrated = true;
-                return;
-            };
-
-            for (connection_id, fields) in secret_map {
-                let Some(fields) = fields.as_object() else {
+            for field in ["password", "privateKey", "passphrase"] {
+                let Some(raw_value) = fields.get(field).and_then(serde_json::Value::as_str) else {
                     continue;
                 };
-
-                for field in ["password", "privateKey", "passphrase"] {
-                    let Some(raw_value) = fields.get(field).and_then(serde_json::Value::as_str)
-                    else {
-                        continue;
-                    };
-                    let Some(secret_value) = decode_legacy_secret(raw_value) else {
-                        continue;
-                    };
-                    set_secret(connection_id, field, Some(&secret_value));
-                }
+                let Some(secret) = decode_legacy_secret(raw_value) else {
+                    continue;
+                };
+                set_secret(connection_id, field, Some(&secret))?;
             }
+        }
 
+        self.mark_legacy_ssh_secrets_migrated()
+    }
+
+    fn mark_legacy_ssh_secrets_migrated(&self) -> AppResult<()> {
+        self.update(|data| {
             data.legacy_ssh_secrets_migrated = true;
         })
     }
 
     fn persist(&self, data: &StoreData) -> AppResult<()> {
         let raw = serde_json::to_string_pretty(data)?;
-        fs::write(&self.path, raw)?;
+        write_store_atomic(&self.path, &raw)?;
         Ok(())
     }
 
@@ -433,7 +528,7 @@ impl StorageService {
 
     /// Saves an SSH connection and persists secrets in the OS credential store.
     pub fn save_connection(&self, connection: SshConnection) -> AppResult<()> {
-        set_connection_secrets(&connection);
+        set_connection_secrets(&connection)?;
         self.update(|data| {
             let normalized = StoredSshConnection {
                 id: connection.id,
@@ -504,7 +599,7 @@ impl StorageService {
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty())
         {
-            set_ai_secret(&provider.id, provider.api_key.as_deref());
+            set_ai_secret(&provider.id, provider.api_key.as_deref())?;
         }
 
         self.update(|data| {
@@ -531,7 +626,7 @@ impl StorageService {
 
     /// Deletes an AI provider config.
     pub fn delete_ai_provider(&self, provider_id: &str) -> AppResult<()> {
-        set_ai_secret(provider_id, None);
+        let _ = set_ai_secret(provider_id, None);
         self.update(|data| {
             data.ai_providers
                 .retain(|provider| provider.id != provider_id);
@@ -1008,4 +1103,58 @@ fn decode_legacy_secret(raw_value: &str) -> Option<String> {
     }
 
     Some(raw_value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_value_preserves_whitespace() {
+        assert_eq!(secret_value(Some(" secret ")), Some(" secret "));
+        assert_eq!(secret_value(Some("   ")), Some("   "));
+        assert_eq!(secret_value(Some("")), None);
+        assert_eq!(secret_value(None), None);
+    }
+
+    #[test]
+    fn write_store_atomic_round_trip_and_creates_backup() {
+        let dir = std::env::temp_dir().join(format!("ai-ssh-client-test-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("store.json");
+        let raw = serde_json::to_string(&StoreData::default()).unwrap();
+
+        write_store_atomic(&path, &raw).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), raw);
+        // First write has nothing to back up yet.
+        assert!(!store_backup_path(&path).exists());
+
+        // Second write backs up the previous known-good content.
+        write_store_atomic(&path, &raw).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), raw);
+        assert!(store_backup_path(&path).exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_store_from_recovers_from_backup() {
+        let dir = std::env::temp_dir().join(format!("ai-ssh-client-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.json");
+        let raw = serde_json::to_string(&StoreData::default()).unwrap();
+
+        write_store_atomic(&path, &raw).unwrap();
+        assert!(load_store_from(&path).is_ok());
+
+        // Corrupt the primary with no usable backup -> error, not a silent default.
+        fs::write(&path, "{ not json").unwrap();
+        let _ = fs::remove_file(store_backup_path(&path));
+        assert!(load_store_from(&path).is_err());
+
+        // With a valid backup the corrupt primary is recovered.
+        fs::write(store_backup_path(&path), &raw).unwrap();
+        assert!(load_store_from(&path).is_ok());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

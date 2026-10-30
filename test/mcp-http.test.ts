@@ -3,12 +3,12 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-import { createMcpHttpHandler } from '../server/mcp/http.mjs';
+import { createMcpHttpHandler, createServicesHolder } from '../server/mcp/http.mjs';
 
 /**
  * `/mcp` 端点的端到端测试：真实 HTTP + MCP SDK 客户端。
@@ -165,5 +165,55 @@ describe('mcp http endpoint', () => {
     } finally {
       await client.close();
     }
+  });
+
+  it('retires a replaced services instance only after its in-flight requests finish', () => {
+    const policyPath = path.join(dataDir, 'holder-policy.json');
+    fs.writeFileSync(policyPath, JSON.stringify({ defaultMode: 'read-only' }));
+
+    const made: Array<{ close: ReturnType<typeof vi.fn> }> = [];
+    const holder = createServicesHolder({
+      policyPath,
+      createServices: () => {
+        const instance = { close: vi.fn() };
+        made.push(instance);
+        return instance;
+      },
+      logger: { warn() {} } as any,
+    });
+
+    // 第一个请求拿到第一个实例。
+    const first = holder.acquire();
+    expect(made).toHaveLength(1);
+    expect(first.services).toBe(made[0]);
+
+    // 策略文件变化：第二个请求拿到新实例，旧实例被「退休」但仍在途，不能立即关闭。
+    fs.writeFileSync(policyPath, JSON.stringify({ defaultMode: 'exec', connections: {} }));
+    const second = holder.acquire();
+    expect(made).toHaveLength(2);
+    expect(second.services).toBe(made[1]);
+    expect(made[0].close).not.toHaveBeenCalled();
+
+    // 策略不变时，新请求继续用最新实例，不会又建一个。
+    const third = holder.acquire();
+    expect(made).toHaveLength(2);
+    expect(third.services).toBe(made[1]);
+    holder.release(third);
+
+    // 旧实例的最后一个在途请求结束 → 此时才关闭（且只关一次）。
+    holder.release(first);
+    expect(made[0].close).toHaveBeenCalledTimes(1);
+    holder.release(first);
+    expect(made[0].close).toHaveBeenCalledTimes(1);
+
+    // 当前实例仍有在途请求，不应被关闭。
+    holder.release(second);
+    expect(made[1].close).not.toHaveBeenCalled();
+
+    // 进程退出：关闭当前实例，重复 close 不会重复销毁。
+    holder.close();
+    expect(made[1].close).toHaveBeenCalledTimes(1);
+    holder.close();
+    expect(made[1].close).toHaveBeenCalledTimes(1);
   });
 });

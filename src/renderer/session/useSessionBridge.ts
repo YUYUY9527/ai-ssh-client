@@ -76,6 +76,14 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
     }
   }, [flushOutput]);
 
+  const clearReconnectTimer = useCallback((sessionId: string) => {
+    const timer = reconnectTimersRef.current.get(sessionId);
+    if (timer != null) {
+      clearTimeout(timer);
+      reconnectTimersRef.current.delete(sessionId);
+    }
+  }, []);
+
   const scheduleReconnect = useCallback((sessionId: string) => {
     if (!settings.autoReconnect || reconnectTimersRef.current.has(sessionId)) {
       return;
@@ -113,6 +121,11 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
 
     const timer = setTimeout(async () => {
       reconnectTimersRef.current.delete(sessionId);
+      // 等待期间标签页可能已关闭、会话被移除：此时再 connect 会给已关闭的会话
+      // 建立 SSH 连接（#2）。必须在真正发起连接前再次确认会话仍然存在。
+      if (!useSessionStore.getState().sessions[sessionId]) {
+        return;
+      }
       const success = await useConnectionStore.getState().connect(
         connection,
         undefined,
@@ -183,6 +196,8 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
       onSessionClosed?.(connectionId, isIntentional);
 
       if (isIntentional) {
+        // 主动关闭会话时清掉可能挂起的自动重连定时器，避免关闭后又被重新拉起（#2）。
+        clearReconnectTimer(connectionId);
         return;
       }
 
@@ -282,6 +297,7 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
       cleanupSystemResume?.();
     };
   }, [
+    clearReconnectTimer,
     connections,
     flushOutput,
     onTransferToast,
@@ -292,6 +308,19 @@ export function useSessionBridge(options: UseSessionBridgeOptions): void {
     settings,
     translate,
   ]);
+
+  // 会话被移除（关标签页）后必须清掉其挂起的自动重连定时器：否则定时器到点
+  // 仍会给已删除的会话发起连接（#2）。用 store 订阅监听 sessions 变化。
+  useEffect(() => {
+    const unsubscribe = useSessionStore.subscribe((state) => {
+      reconnectTimersRef.current.forEach((_timer, sessionId) => {
+        if (!state.sessions[sessionId]) {
+          clearReconnectTimer(sessionId);
+        }
+      });
+    });
+    return unsubscribe;
+  }, [clearReconnectTimer]);
 
   // 回到页面（标签页重新可见 / 窗口聚焦）时校准会话状态：
   // - 后台放置期间会话在服务端死亡，但 ssh-close 因 WS 断开而丢失 →

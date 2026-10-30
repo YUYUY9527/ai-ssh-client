@@ -72,6 +72,9 @@ function createServices({ env = process.env, deps = {} } = {}) {
     emitPrompt: () => 0,
     trustOnFirstUse: policy.trustOnFirstUse,
   });
+  // getConnection 每次 connect 都会被调用，且 config.read() 每次都读盘：
+  // 因此用户在 Web 设置里改了 host/port/凭据后，无需重建 services，
+  // 下一次请求就会按最新配置连接（连接池内部用配置指纹判断是否需要重连）。
   const pool = deps.pool || createSshPool({
     getConnection: (connectionId) => resolveConnection(config.read(), connectionId),
     hostTrust,

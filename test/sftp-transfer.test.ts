@@ -420,4 +420,255 @@ describe('sftp-transfer', () => {
     expect(new URL(streaming.downloadUrl, 'https://example.test').searchParams.get('clientId'))
       .toBe('client-a');
   });
+
+  it('rejects uploads whose claimed resume offset exceeds the server trusted offset', async () => {
+    const remoteFiles = new Map<string, Buffer>();
+    const sftp = createSftp(remoteFiles);
+    const service = createSftpTransferService({
+      getSftp: async () => sftp,
+      emitEvent: () => {},
+    });
+    const task = service.startUpload('client-a', {
+      connectionId: 'connection-a',
+      remoteDirectory: '/uploads',
+      files: [{ name: 'reset.bin', ref: 'web-file:reset', size: 10 }],
+    }).tasks[0];
+    const tempPath = temporaryRemotePath('/uploads/reset.bin', task.taskId);
+    const metaPath = checkpointRemotePath(tempPath);
+    // partial 已有 5 字节，但 checkpoint 只确认到 0（可信偏移 0）。
+    remoteFiles.set(tempPath, Buffer.from('hello'));
+    remoteFiles.set(metaPath, Buffer.from(JSON.stringify({
+      taskId: task.taskId,
+      sourceSize: 10,
+      sourceMtime: 42,
+      totalBytes: 10,
+      confirmedOffset: 0,
+      destinationPath: '/uploads/reset.bin',
+    })));
+
+    let caught: any;
+    try {
+      await service.upload('client-a', task.taskId, requestLike([Buffer.from('world')], {
+        'x-sftp-source-size': '10',
+        'x-sftp-source-mtime': '42',
+        'x-sftp-resume-offset': '5',
+        'x-sftp-upload-complete': '1',
+      }));
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeTruthy();
+    expect(caught.code).toBe('resume-offset-reset');
+    expect(caught.confirmedOffset).toBe(0);
+    expect(caught.task?.status).toBe('queued');
+    expect(caught.task?.resumedFrom).toBe(0);
+    // 不能把 “world” 写到偏移 0 并提交；目标文件不得被创建。
+    expect(remoteFiles.has('/uploads/reset.bin')).toBe(false);
+    expect(
+      service.list('client-a').tasks.find((item: any) => item.taskId === task.taskId).status,
+    ).toBe('queued');
+
+    // 按服务端确认的偏移 0 用完整内容重传应成功（helloworld，而不是 world）。
+    await service.upload('client-a', task.taskId, requestLike([Buffer.from('helloworld')], {
+      'x-sftp-source-size': '10',
+      'x-sftp-source-mtime': '42',
+      'x-sftp-resume-offset': '0',
+      'x-sftp-upload-complete': '1',
+    }));
+    expect(remoteFiles.get('/uploads/reset.bin')!.toString()).toBe('helloworld');
+    expect(
+      service.list('client-a').tasks.find((item: any) => item.taskId === task.taskId).status,
+    ).toBe('completed');
+  });
+
+  it('keeps a valid upload resume (hello + world -> helloworld)', async () => {
+    const remoteFiles = new Map<string, Buffer>();
+    const sftp = createSftp(remoteFiles);
+    const service = createSftpTransferService({
+      getSftp: async () => sftp,
+      emitEvent: () => {},
+    });
+    const task = service.startUpload('client-a', {
+      connectionId: 'connection-a',
+      remoteDirectory: '/uploads',
+      files: [{ name: 'valid.bin', ref: 'web-file:valid', size: 10 }],
+    }).tasks[0];
+    const tempPath = temporaryRemotePath('/uploads/valid.bin', task.taskId);
+    remoteFiles.set(tempPath, Buffer.from('hello'));
+    remoteFiles.set(checkpointRemotePath(tempPath), Buffer.from(JSON.stringify({
+      taskId: task.taskId,
+      sourceSize: 10,
+      sourceMtime: 7,
+      totalBytes: 10,
+      confirmedOffset: 5,
+      destinationPath: '/uploads/valid.bin',
+    })));
+
+    const done = await service.upload('client-a', task.taskId, requestLike([Buffer.from('world')], {
+      'x-sftp-source-size': '10',
+      'x-sftp-source-mtime': '7',
+      'x-sftp-resume-offset': '5',
+      'x-sftp-upload-complete': '1',
+    }));
+    expect(done.status).toBe('completed');
+    expect(remoteFiles.get('/uploads/valid.bin')!.toString()).toBe('helloworld');
+  });
+
+  it('reports browser-managed download status and allows retry after failure', async () => {
+    const service = createSftpTransferService({
+      getSftp: async () => createSftp(new Map()),
+      emitEvent: () => {},
+    });
+
+    const started = service.startDownload('client-a', {
+      connectionId: 'connection-a',
+      remotePaths: ['/home/zero/a.bin'],
+      destination: { ref: 'web-dir:1', name: 'downloads' },
+      conflictPolicy: 'ask',
+    }, '/api/sftp').tasks[0];
+    expect(started.status).toBe('queued');
+    expect(started.direction).toBe('download');
+
+    // transferring 更新字节与进度
+    const transferring = service.reportDownload('client-a', {
+      taskId: started.taskId,
+      attempt: started.attempt,
+      status: 'transferring',
+      transferredBytes: 50,
+      totalBytes: 100,
+    });
+    expect(transferring.status).toBe('transferring');
+    expect(transferring.transferredBytes).toBe(50);
+    expect(transferring.progress).toBe(50);
+
+    // completed 由浏览器代为完成，标记 browser-managed
+    const completed = service.reportDownload('client-a', {
+      taskId: started.taskId,
+      attempt: started.attempt,
+      status: 'completed',
+      transferredBytes: 100,
+      totalBytes: 100,
+    });
+    expect(completed.status).toBe('completed');
+    expect(completed.progress).toBe(100);
+    expect(completed.transferredBytes).toBe(100);
+    expect(completed.commitGuarantee).toBe('browser-managed');
+
+    // 已终态的任务忽略迟到的回报
+    const ignored = service.reportDownload('client-a', {
+      taskId: started.taskId,
+      attempt: started.attempt,
+      status: 'failed',
+      error: { message: 'late report' },
+    });
+    expect(ignored.status).toBe('completed');
+
+    // committed 状态的失败回报：status failed + retry 允许
+    const failing = service.startDownload('client-a', {
+      connectionId: 'connection-a',
+      remotePaths: ['/home/zero/b.bin'],
+      destination: { ref: 'web-dir:1', name: 'downloads' },
+    }, '/api/sftp').tasks[0];
+    const failed = service.reportDownload('client-a', {
+      taskId: failing.taskId,
+      attempt: failing.attempt,
+      status: 'failed',
+      transferredBytes: 10,
+      totalBytes: 100,
+      error: { code: 'io-error', message: 'network broke', retryable: true },
+    });
+    expect(failed.status).toBe('failed');
+    expect(failed.error?.message).toBe('network broke');
+    expect(failed.error?.retryable).toBe(true);
+
+    const retried = await service.retry('client-a', { taskId: failing.taskId });
+    expect(retried.status).toBe('queued');
+    expect(retried.attempt).toBe(2);
+    expect(retried.error).toBeUndefined();
+
+    // 仍在 queued 的任务不可重试
+    await expect(service.retry('client-a', { taskId: failing.taskId }))
+      .rejects.toThrow(/not retryable/);
+
+    // skipped 终态
+    const skipping = service.startDownload('client-a', {
+      connectionId: 'connection-a',
+      remotePaths: ['/home/zero/c.bin'],
+      destination: { ref: 'web-dir:1', name: 'downloads' },
+    }, '/api/sftp').tasks[0];
+    expect(service.reportDownload('client-a', { taskId: skipping.taskId, attempt: skipping.attempt, status: 'skipped' }).status)
+      .toBe('skipped');
+
+    // 非下载任务不能回报下载状态
+    const upload = service.startUpload('client-a', {
+      connectionId: 'connection-a',
+      remoteDirectory: '/uploads',
+      files: [{ name: 'u.txt', ref: 'web-file:u', size: 1 }],
+    }).tasks[0];
+    expect(() => service.reportDownload('client-a', { taskId: upload.taskId, attempt: upload.attempt, status: 'transferring' }))
+      .toThrow(/not a download/);
+
+    // 不属于该客户端的任务不能回报
+    expect(() => service.reportDownload('client-b', { taskId: failing.taskId, attempt: failing.attempt, status: 'transferring' }))
+      .toThrow(/not found/);
+  });
+
+  it('ignores stale download reports from a previous attempt after retry', async () => {
+    const service = createSftpTransferService({
+      getSftp: async () => createSftp(new Map()),
+      emitEvent: () => {},
+    });
+    const task = service.startDownload('client-a', {
+      connectionId: 'connection-a',
+      remotePaths: ['/home/zero/stale.bin'],
+      destination: { ref: 'web-dir:1', name: 'downloads' },
+    }, '/api/sftp').tasks[0];
+
+    // attempt 1 失败 -> 可重试
+    const failed = service.reportDownload('client-a', {
+      taskId: task.taskId,
+      attempt: task.attempt,
+      status: 'failed',
+      error: { message: 'boom' },
+    });
+    expect(failed.status).toBe('failed');
+
+    const retried = await service.retry('client-a', { taskId: task.taskId });
+    expect(retried.status).toBe('queued');
+    expect(retried.attempt).toBe(2);
+
+    // attempt 1 的迟到 canceled 不得影响 attempt 2
+    const staleCanceled = service.reportDownload('client-a', {
+      taskId: task.taskId,
+      attempt: 1,
+      status: 'canceled',
+    });
+    expect(staleCanceled.status).toBe('queued');
+    expect(staleCanceled.attempt).toBe(2);
+
+    // attempt 1 的迟到 transferring 也不能改写 attempt 2
+    const staleTransferring = service.reportDownload('client-a', {
+      taskId: task.taskId,
+      attempt: 1,
+      status: 'transferring',
+      transferredBytes: 50,
+      totalBytes: 100,
+    });
+    expect(staleTransferring.status).toBe('queued');
+    expect(staleTransferring.transferredBytes).toBe(0);
+
+    // 缺失 attempt 的回报同样忽略
+    expect(service.reportDownload('client-a', { taskId: task.taskId, status: 'canceled' }).status)
+      .toBe('queued');
+
+    // 匹配 attempt 2 的 canceled 才真正取消
+    const canceled = service.reportDownload('client-a', {
+      taskId: task.taskId,
+      attempt: 2,
+      status: 'canceled',
+    });
+    expect(canceled.status).toBe('canceled');
+    expect(canceled.attempt).toBe(2);
+  });
 });

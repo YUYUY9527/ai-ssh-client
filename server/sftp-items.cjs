@@ -29,6 +29,9 @@ function validateItemPath(remotePath) {
     typeof remotePath !== 'string'
     || PROTECTED_PATHS.has(normalized)
     || PROTECTED_PATHS.has(String(remotePath || '').trim())
+    // 拒绝相对路径逃逸出当前/家目录（.. 或 ../...）
+    || normalized === '..'
+    || normalized.startsWith('../')
   ) {
     throw new Error('Protected SFTP path');
   }
@@ -191,7 +194,7 @@ async function readSftpTextFile(sftp, remotePath, maxBytes = MAX_SFTP_EDIT_BYTES
     throw error;
   }
 
-  const content = await new Promise((resolve, reject) => {
+  const buffer = await new Promise((resolve, reject) => {
     const chunks = [];
     let total = 0;
     const stream = sftp.createReadStream(protocolPath);
@@ -208,16 +211,22 @@ async function readSftpTextFile(sftp, remotePath, maxBytes = MAX_SFTP_EDIT_BYTES
     });
     stream.on('error', reject);
     stream.on('end', () => {
-      const buffer = Buffer.concat(chunks);
-      try {
-        resolve(buffer.toString('utf8'));
-      } catch (error) {
-        reject(error);
-      }
+      resolve(Buffer.concat(chunks));
     });
   });
 
-  // 粗检：含大量空字节视为二进制
+  // 严格 UTF-8 解码：fatal 遇到非法字节直接抛错，避免静默替换为 U+FFFD 后保存损坏原文件；
+  // ignoreBOM 保留开头的 BOM（U+FEFF），保证往返无损。
+  let content;
+  try {
+    content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
+  } catch (error) {
+    const decodeError = new Error('File is not valid UTF-8 text and cannot be edited in-app');
+    decodeError.code = 'unsupported-encoding';
+    throw decodeError;
+  }
+
+  // 附加粗检：含空字节视为二进制
   if (content.includes('\u0000')) {
     throw new Error('File is not valid UTF-8 text and cannot be edited in-app');
   }

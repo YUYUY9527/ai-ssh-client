@@ -51,6 +51,14 @@ import type {
 } from '../../shared/ipc-types';
 import { t } from '../i18n';
 import { createAsyncTaskQueue } from '../transfer/async-task-queue';
+import {
+  decideWebDownloadConflict,
+  decideWebDownloadResume,
+  localNameWithSuffix,
+  suggestedLocalName,
+  webDownloadPartMetaName,
+} from './web-download-resume';
+import type { WebDownloadPartMeta } from './web-download-resume';
 
 type ListenerCleanup = () => void;
 
@@ -68,6 +76,21 @@ const selectedFiles = new Map<string, File>();
 const selectedDirs = new Map<string, FileSystemDirectoryHandle>();
 const webSftpTaskSources = new Map<string, string>();
 const downloadAbortControllers = new Map<string, AbortController>();
+
+/** FSA 流式下载的上下文：重试时据此重新发起 streamWebDownload。 */
+interface WebDownloadContext {
+  dirHandle: FileSystemDirectoryHandle;
+  downloadUrl: string;
+  conflictPolicy: SftpTransferTaskSnapshot['conflictPolicy'];
+}
+const webSftpDownloadContexts = new Map<string, WebDownloadContext>();
+
+/** 等待用户裁决的本地下载冲突（按 taskId 索引），由 resolveSftpConflict 拦截唤醒。 */
+interface PendingWebDownloadConflict {
+  resolve: (resolution: { policy: 'overwrite' | 'skip' | 'rename'; renamedPath?: string }) => void;
+  reject: (error: unknown) => void;
+}
+const webDownloadConflictResolvers = new Map<string, PendingWebDownloadConflict>();
 /** 浏览器上行与 SSH/SFTP 共用带宽；限制并发，避免大文件批量上传拖死页面。 */
 const WEB_UPLOAD_CONCURRENCY = 1;
 const webUploadQueue = createAsyncTaskQueue<unknown>(WEB_UPLOAD_CONCURRENCY);
@@ -261,6 +284,28 @@ async function streamSftpUpload(
       const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
 
       if (!result.success) {
+        // 服务端认为客户端声明的续传起点超过其可确认偏移：按服务端确认偏移重传该片，
+        // 绝不能把“从 claimedOffset 切片的尾巴”当作已完成的剩余内容。
+        if (result.code === 'resume-offset-reset') {
+          const confirmed = Number(
+            (result as { confirmedOffset?: number }).confirmedOffset
+              ?? result.task?.resumedFrom
+              ?? 0,
+          );
+          const nextOffset = Number.isFinite(confirmed) ? Math.max(0, confirmed) : 0;
+          if (nextOffset < offset) {
+            offset = nextOffset;
+            if (result.task) publishTaskSnapshot(result.task);
+            continue;
+          }
+          publishUploadFailure(
+            latestTask || baselinetask,
+            result.error || 'Server reset the resume offset',
+            'io-error',
+            offset,
+          );
+          return makeError(result.error || 'Server reset the resume offset', 'io-error');
+        }
         // 冲突响应优先使用服务端快照；若旧网关没有携带快照，再补拉任务列表。
         if (result.code === 'conflict' || response.status === 409) {
           if (result.task) {
@@ -290,8 +335,10 @@ async function streamSftpUpload(
 
       latestTask = result.data.task;
       publishTaskSnapshot(latestTask);
-      // 以服务端确认偏移为准（可能因 checkpoint 校正与客户端切片不完全一致）
-      offset = Math.max(chunkStart, Number(latestTask.transferredBytes || end));
+      // 以服务端确认偏移为准。注意不能用 Math.max 抬高：服务端可能因 checkpoint
+      // 校正而把偏移向下修正，此时必须采用服务端的较小值，否则会跳字节。
+      const serverBytes = Number(latestTask.transferredBytes);
+      offset = Number.isFinite(serverBytes) && serverBytes >= 0 ? serverBytes : end;
 
       if (isComplete || latestTask.status === 'completed' || latestTask.status === 'skipped') {
         return { success: true, data: { task: latestTask } };
@@ -331,7 +378,147 @@ function enqueueWebUpload(
   });
 }
 
-/** FSA 目录流式下载：边下边写，支持 Range 续传与 AbortController 取消。 */
+/** 下载 checkpoint 刷新节奏：已写字节或时间任一达到即刷新，中断后最多丢一小段。 */
+const WEB_DOWNLOAD_CHECKPOINT_BYTES = 4 * 1024 * 1024;
+const WEB_DOWNLOAD_CHECKPOINT_MS = 2000;
+
+/** 读取任务专属下载 checkpoint；不存在或损坏时返回 null（视为不可续传）。 */
+async function readWebDownloadPartMeta(
+  dirHandle: FileSystemDirectoryHandle,
+  metaName: string,
+): Promise<WebDownloadPartMeta | null> {
+  try {
+    const handle = await dirHandle.getFileHandle(metaName);
+    const file = await handle.getFile();
+    const parsed = JSON.parse(await file.text()) as Partial<WebDownloadPartMeta>;
+    if (
+      typeof parsed.taskId === 'string'
+      && typeof parsed.name === 'string'
+      && typeof parsed.etag === 'string'
+      && typeof parsed.size === 'number'
+      && typeof parsed.bytesWritten === 'number'
+    ) {
+      return parsed as WebDownloadPartMeta;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 写入/刷新下载 checkpoint（best-effort：失败只影响续传，不影响本次下载）。 */
+async function writeWebDownloadPartMeta(
+  dirHandle: FileSystemDirectoryHandle,
+  metaName: string,
+  meta: WebDownloadPartMeta,
+): Promise<void> {
+  try {
+    const handle = await dirHandle.getFileHandle(metaName, { create: true });
+    const writable = await handle.createWritable({ keepExistingData: false });
+    await writable.write(JSON.stringify(meta));
+    await writable.close();
+  } catch {
+    // checkpoint 只是加速续传的辅助数据，写失败不应中断下载。
+  }
+}
+
+/** 下载成功后删除 checkpoint。 */
+async function deleteWebDownloadPartMeta(
+  dirHandle: FileSystemDirectoryHandle,
+  metaName: string,
+): Promise<void> {
+  try {
+    await dirHandle.removeEntry(metaName);
+  } catch {
+    // 已不存在或被浏览器拒绝时忽略。
+  }
+}
+
+/**
+ * 把 FSA 流式下载的进度/终态回报给服务端，让任务记录不再永远停在 queued（可重试）。
+ * 本地 emit 仍是 UI 真相来源；回报失败只记日志，不能中断正在进行的下载。
+ */
+async function reportWebSftpDownloadStatus(
+  taskId: string,
+  update: {
+    attempt: number;
+    status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped';
+    transferredBytes?: number;
+    totalBytes?: number;
+    error?: { code?: string; message?: string; retryable?: boolean };
+  },
+): Promise<void> {
+  const result = await sftpRequest<{ task: SftpTransferTaskSnapshot }>(
+    `/api/sftp/transfers/${encodeURIComponent(taskId)}/download-status`,
+    { method: 'PUT', body: JSON.stringify(update) },
+  );
+  if (!result.success) {
+    console.warn('[web] failed to report download status', taskId, result.error);
+  }
+}
+
+/** 目标目录里是否已存在同名条目（不创建）。 */
+async function localNameExists(
+  dirHandle: FileSystemDirectoryHandle,
+  name: string,
+): Promise<boolean> {
+  try {
+    await dirHandle.getFileHandle(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 从 name 开始找一个不存在的文件名：`base (1).ext`、`base (2).ext`…… */
+async function findAvailableLocalName(
+  dirHandle: FileSystemDirectoryHandle,
+  name: string,
+): Promise<string> {
+  if (!(await localNameExists(dirHandle, name))) return name;
+  for (let index = 1; index < 10000; index += 1) {
+    const candidate = localNameWithSuffix(name, index);
+    if (!(await localNameExists(dirHandle, candidate))) return candidate;
+  }
+  throw new Error('Unable to find an available local filename');
+}
+
+/**
+ * 等待用户对本地下载冲突做出裁决；取消（AbortController）时以 AbortError 退出，
+ * 让上层统一走 canceled 分支。
+ */
+function waitForWebDownloadConflict(
+  taskId: string,
+  signal: AbortSignal,
+): Promise<{ policy: 'overwrite' | 'skip' | 'rename'; renamedPath?: string }> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const cleanup = () => {
+      webDownloadConflictResolvers.delete(taskId);
+      signal.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    webDownloadConflictResolvers.set(taskId, {
+      resolve: (resolution) => {
+        cleanup();
+        resolve(resolution);
+      },
+      reject: (error) => {
+        cleanup();
+        reject(error);
+      },
+    });
+  });
+}
+
+/** FSA 目录流式下载：边下边写，支持 Range 续传、冲突策略与 AbortController 取消。 */
 async function streamWebDownload(
   task: SftpTransferTaskSnapshot & { downloadUrl?: string },
   dirHandle: FileSystemDirectoryHandle,
@@ -356,35 +543,140 @@ async function streamWebDownload(
     emitTransferSnapshot(snapshot);
   };
 
+  // 目标名可能因冲突改名，checkpoint 文件名随之变化。
+  let targetName = task.name;
+  let metaName = webDownloadPartMetaName(targetName, task.taskId);
+  let writable: FileSystemWritableFileStream | undefined;
+  let metaInfo: WebDownloadPartMeta | null = null;
+  let transferred = 0;
+  const policy = task.conflictPolicy || 'ask';
+  const report = (
+    status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped',
+    extra: {
+      transferredBytes?: number;
+      totalBytes?: number;
+      error?: { code?: string; message?: string; retryable?: boolean };
+    } = {},
+  ) => {
+    void reportWebSftpDownloadStatus(task.taskId, { attempt: task.attempt, status, ...extra });
+  };
+
   try {
     push({ status: 'transferring', progress: 0 });
-    const fileHandle = await dirHandle.getFileHandle(task.name, { create: true });
-    const existing = await fileHandle.getFile().catch(() => null);
-    let offset = 0;
-    // 简单续传：若本地已有 partial 且小于远端，则 Range 续写。
-    if (existing && existing.size > 0) {
-      offset = existing.size;
+    report('transferring', { transferredBytes: 0, totalBytes: task.totalBytes });
+
+    // 先探测目标文件是否存在，但绝不在此处创建它（避免因探测而“制造”冲突）。
+    let existingHandle: FileSystemFileHandle | null = null;
+    try {
+      existingHandle = await dirHandle.getFileHandle(task.name);
+    } catch {
+      existingHandle = null;
     }
-    const writable = await fileHandle.createWritable({ keepExistingData: offset > 0 });
-    if (offset > 0) {
-      await writable.seek(offset);
+    let existingSize = 0;
+    if (existingHandle) {
+      const existingFile = await existingHandle.getFile().catch(() => null);
+      existingSize = existingFile?.size ?? 0;
+    }
+
+    // 只有存在“本任务专属”的 checkpoint 且与本地文件大小匹配时才尝试续传，
+    // 否则按冲突策略处理——绝不把新内容追加到无关的同名旧文件后面。
+    const metadata = await readWebDownloadPartMeta(dirHandle, metaName);
+    const resumeDecision = decideWebDownloadResume({
+      taskId: task.taskId,
+      metadata,
+      existingSize,
+    });
+
+    let action = decideWebDownloadConflict({
+      exists: existingHandle != null,
+      resume: resumeDecision.resume,
+      policy,
+    });
+
+    if (action === 'ask') {
+      // 本地同名文件无法续传：复用统一冲突弹窗裁决，等待 resolveSftpConflict 拦截唤醒。
+      push({
+        status: 'waiting-conflict',
+        conflict: {
+          sourcePath: task.remotePath || task.name,
+          destinationPath: task.name,
+          suggestedName: suggestedLocalName(task.name),
+        },
+      });
+      const resolution = await waitForWebDownloadConflict(task.taskId, controller.signal);
+      action = resolution.policy;
+      if (resolution.policy === 'rename') {
+        targetName = await findAvailableLocalName(
+          dirHandle,
+          resolution.renamedPath?.trim() || task.name,
+        );
+      }
+    } else if (action === 'rename') {
+      targetName = await findAvailableLocalName(dirHandle, task.name);
+    }
+
+    if (action === 'skip') {
+      // 保留本地原文件，任务记为跳过并回报服务端。
+      push({
+        status: 'skipped',
+        progress: 0,
+        transferredBytes: 0,
+        commitGuarantee: 'browser-managed',
+        completedAt: Date.now(),
+      });
+      report('skipped', { transferredBytes: 0, totalBytes: task.totalBytes });
+      return;
+    }
+
+    if (targetName !== task.name) {
+      metaName = webDownloadPartMetaName(targetName, task.taskId);
+    }
+
+    const requestHeaders: Record<string, string> = {};
+    if (action === 'resume') {
+      requestHeaders.Range = `bytes=${resumeDecision.offset}-`;
+      if (resumeDecision.ifRange) requestHeaders['If-Range'] = resumeDecision.ifRange;
     }
 
     const response = await fetch(task.downloadUrl, {
       signal: controller.signal,
-      headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined,
+      headers: action === 'resume' ? requestHeaders : undefined,
     });
     if (!response.ok && response.status !== 206) {
       throw new Error(await response.text() || `Download failed (${response.status})`);
     }
-    const totalHeader = Number(response.headers.get('content-length') || 0);
-    const total = offset > 0 && totalHeader > 0 ? offset + totalHeader : totalHeader || undefined;
+    const responseEtag = response.headers.get('etag') || '';
+    // 只有 206 且响应校验器与 checkpoint 一致才算续传成功；200/416 都视为
+    // 服务端要求重下（例如 If-Range 校验失败），从 0 覆盖旧文件。
+    const confirmedResume = action === 'resume'
+      && response.status === 206
+      && (!responseEtag || !metadata?.etag || responseEtag === metadata.etag);
+    const offset = confirmedResume ? Math.min(resumeDecision.offset, existingSize) : 0;
+
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    const total = offset > 0 && contentLength > 0 ? offset + contentLength : contentLength || undefined;
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error('Download stream unavailable');
     }
 
-    let transferred = offset;
+    const fileHandle = await dirHandle.getFileHandle(targetName, { create: true });
+    writable = await fileHandle.createWritable({ keepExistingData: offset > 0 });
+    if (offset > 0) {
+      await writable.seek(offset);
+    }
+    metaInfo = {
+      taskId: task.taskId,
+      name: targetName,
+      etag: responseEtag || metadata?.etag || '',
+      size: total ?? 0,
+      bytesWritten: offset,
+    };
+    await writeWebDownloadPartMeta(dirHandle, metaName, metaInfo);
+
+    transferred = offset;
+    let lastMetaBytes = offset;
+    let lastMetaAt = Date.now();
     push({
       resumedFrom: offset,
       transferredBytes: transferred,
@@ -403,8 +695,22 @@ async function streamWebDownload(
         totalBytes: total,
         progress: total ? Math.min(99, Math.round((transferred / total) * 100)) : 0,
       });
+      if (
+        transferred - lastMetaBytes >= WEB_DOWNLOAD_CHECKPOINT_BYTES
+        || Date.now() - lastMetaAt >= WEB_DOWNLOAD_CHECKPOINT_MS
+      ) {
+        lastMetaBytes = transferred;
+        lastMetaAt = Date.now();
+        await writeWebDownloadPartMeta(dirHandle, metaName, {
+          ...metaInfo,
+          size: total ?? metaInfo.size,
+          bytesWritten: transferred,
+        });
+      }
     }
     await writable.close();
+    writable = undefined;
+    await deleteWebDownloadPartMeta(dirHandle, metaName);
     push({
       status: 'completed',
       progress: 100,
@@ -413,17 +719,37 @@ async function streamWebDownload(
       commitGuarantee: 'browser-managed',
       completedAt: Date.now(),
     });
+    report('completed', { transferredBytes: transferred, totalBytes: total || transferred });
+    // 成功后清理重试上下文；失败/取消保留以便重试。
+    webSftpDownloadContexts.delete(task.taskId);
   } catch (error) {
     const canceled = controller.signal.aborted
       || (error instanceof DOMException && error.name === 'AbortError');
+    // 中断时尽量把已写字节提交并刷新 checkpoint，便于下次续传；失败不遮挡原始错误。
+    if (writable) {
+      await writable.close().catch(() => undefined);
+      writable = undefined;
+    }
+    if (metaInfo && transferred > 0) {
+      await writeWebDownloadPartMeta(dirHandle, metaName, {
+        ...metaInfo,
+        bytesWritten: transferred,
+      });
+    }
+    const message = error instanceof Error ? error.message : String(error);
     push({
       status: canceled ? 'canceled' : 'failed',
       error: {
         code: canceled ? 'canceled' : 'io-error',
-        message: error instanceof Error ? error.message : String(error),
+        message,
         retryable: !canceled,
       },
       completedAt: Date.now(),
+    });
+    report(canceled ? 'canceled' : 'failed', {
+      transferredBytes: transferred,
+      totalBytes: metaInfo?.size || task.totalBytes,
+      error: canceled ? undefined : { code: 'io-error', message, retryable: true },
     });
   } finally {
     downloadAbortControllers.delete(task.taskId);
@@ -1125,7 +1451,14 @@ const webApi: Window['electronAPI'] = {
     const dirHandle = dirRef ? selectedDirs.get(dirRef) : undefined;
     if (dirHandle) {
       // FSA：并行启动流式下载（各任务独立 AbortController）。
-      result.data.tasks.forEach((task) => {
+      result.data.tasks.forEach((task: SftpTransferTaskSnapshot & { downloadUrl?: string }) => {
+        if (task.downloadUrl) {
+          webSftpDownloadContexts.set(task.taskId, {
+            dirHandle,
+            downloadUrl: task.downloadUrl,
+            conflictPolicy: task.conflictPolicy,
+          });
+        }
         void streamWebDownload(task, dirHandle);
       });
       return result;
@@ -1154,6 +1487,12 @@ const webApi: Window['electronAPI'] = {
     return result;
   },
   resolveSftpConflict: async (request: SftpResolveConflictRequest) => {
+    // 本地 FSA 下载冲突：服务端没有 waiting-conflict 记录，直接唤醒等待中的落盘逻辑。
+    const pendingLocal = webDownloadConflictResolvers.get(request.taskId);
+    if (pendingLocal) {
+      pendingLocal.resolve({ policy: request.policy, renamedPath: request.renamedPath });
+      return { success: true };
+    }
     const result = await sftpRequest<void>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/conflict`,
       { method: 'POST', body: JSON.stringify(request) },
@@ -1173,6 +1512,8 @@ const webApi: Window['electronAPI'] = {
   },
   cancelSftpTransfer: async (request: SftpTransferTaskRequest) => {
     webUploadQueue.remove(request.taskId);
+    // 取消时让仍在等冲突裁决的下载立即以 AbortError 退出。
+    webDownloadConflictResolvers.get(request.taskId)?.reject(new DOMException('Aborted', 'AbortError'));
     downloadAbortControllers.get(request.taskId)?.abort();
     return sftpRequest<void>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/cancel`,
@@ -1186,11 +1527,26 @@ const webApi: Window['electronAPI'] = {
     );
     if (result.success && result.data.direction === 'upload') {
       enqueueWebUpload(request.taskId, result.data.resumedFrom || 0, result.data);
+    } else if (result.success && result.data.direction === 'download') {
+      // 服务端已把下载任务状态重置为 queued；重新驱动本地 FSA 流式落盘（可续传 checkpoint）。
+      const ctx = webSftpDownloadContexts.get(request.taskId);
+      if (!ctx) {
+        return makeError<SftpTransferTaskSnapshot>(
+          'Download cannot be resumed: the local destination is no longer available',
+          'not-found',
+        );
+      }
+      void streamWebDownload({
+        ...result.data,
+        downloadUrl: ctx.downloadUrl,
+        conflictPolicy: ctx.conflictPolicy ?? result.data.conflictPolicy,
+      }, ctx.dirHandle);
     }
     return result;
   },
   discardSftpTransfer: async (request: SftpTransferTaskRequest) => {
     webUploadQueue.remove(request.taskId);
+    webDownloadConflictResolvers.get(request.taskId)?.reject(new DOMException('Aborted', 'AbortError'));
     const result = await sftpRequest<void>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}`,
       { method: 'DELETE' },
@@ -1199,6 +1555,7 @@ const webApi: Window['electronAPI'] = {
       const source = webSftpTaskSources.get(request.taskId);
       if (source) selectedFiles.delete(source);
       webSftpTaskSources.delete(request.taskId);
+      webSftpDownloadContexts.delete(request.taskId);
     }
     return result;
   },
@@ -1206,6 +1563,10 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/transfers${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ''}`,
   ),
   onSftpTransferEvent: (callback) => on('sftp-transfer-event', callback),
+  reportSftpDownloadStatus: async (taskId, update) => {
+    await reportWebSftpDownloadStatus(taskId, update);
+    return { success: true };
+  },
   renameItem: (connectionId, remotePath, newName) => sftpApiRequest<void>(
     connectionId,
     `/api/sftp/${connectionId}/rename`,

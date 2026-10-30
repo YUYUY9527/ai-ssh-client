@@ -129,7 +129,8 @@ function createSecretStore({ dataDir, passphrase } = {}) {
       console.warn(
         `[secret-store] 凭据解密失败（${reason}）。`
         + '常见原因：改用/更换了 WEB_AUTH_PASSWORD，或 secret.key 丢失或被替换。'
-        + '受影响连接的密码会显示为空，需在界面上重新填写。',
+        + '受影响字段的原始密文会被保留（不会被写成空值），换回正确密钥后仍可恢复；'
+        + '在密钥修复前这些凭据暂不可用。',
       );
     }
     return null;
@@ -166,6 +167,21 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     };
   }
 
+  /**
+   * 解密单个字段；解密失败（返回 null）且原值是密文时，保留原始密文。
+   *
+   * 关键：整份 store 读出来后再写回时，绝不能把“解不开的密文”变成 null——
+   * 否则一次设置保存就会永久抹掉密码/私钥/API Key。保留密文后，只要换回正确
+   * 密钥仍能恢复明文。
+   */
+  function decryptPreserving(value) {
+    const plain = decrypt(value);
+    if (plain === null && isEncrypted(value)) {
+      return value;
+    }
+    return plain;
+  }
+
   /** 读盘后：解密（历史明文原样保留，等待下次写盘时加密）。 */
   function decryptStore(store) {
     if (!store || typeof store !== 'object') {
@@ -173,8 +189,8 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     }
     return {
       ...store,
-      connections: mapFields(store.connections, CONNECTION_SECRET_FIELDS, decrypt),
-      aiProviders: mapFields(store.aiProviders, PROVIDER_SECRET_FIELDS, decrypt),
+      connections: mapFields(store.connections, CONNECTION_SECRET_FIELDS, decryptPreserving),
+      aiProviders: mapFields(store.aiProviders, PROVIDER_SECRET_FIELDS, decryptPreserving),
     };
   }
 

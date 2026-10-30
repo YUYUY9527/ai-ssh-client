@@ -1,10 +1,13 @@
+import { Readable } from 'node:stream';
 import { describe, it, expect } from 'vitest';
 import {
   collapseDescendants,
   createSftpDirectory,
   deleteSftpItem,
   deleteSftpItems,
+  MAX_SFTP_EDIT_BYTES,
   parsePermissionMode,
+  readSftpTextFile,
   renameSftpItem,
   setSftpPermissions,
   siblingPath,
@@ -31,9 +34,11 @@ describe('sftp-items', () => {
   });
 
   it('rejects protected paths', () => {
-    for (const remotePath of ['', '/', '//', '/./', '.', '~', '~/']) {
+    for (const remotePath of ['', '/', '//', '/./', '.', '~', '~/', '..', '~/..', '~/../..', 'a/../../b']) {
       expect(() => validateItemPath(remotePath)).toThrow(/Protected SFTP path/);
     }
+    expect(() => validateItemPath('~/project')).not.toThrow();
+    expect(() => validateItemPath('/tmp/file')).not.toThrow();
   });
 
   it('renames an item to a free destination', async () => {
@@ -182,5 +187,47 @@ describe('sftp-items', () => {
       },
     }, '/tmp/a.txt', '644');
     expect(chmodArgs).toEqual({ remotePath: '/tmp/a.txt', mode: 0o644 });
+  });
+});
+
+/** 构造只读文本文件的最小 sftp 桩：stat 报大小，createReadStream 回放给定字节。 */
+function fakeTextSftp(buffer: Buffer) {
+  return {
+    stat(_remotePath: string, callback: Function) {
+      callback(null, { isDirectory: () => false, size: buffer.length });
+    },
+    createReadStream(_remotePath: string) {
+      return Readable.from([buffer]);
+    },
+  };
+}
+
+describe('readSftpTextFile', () => {
+  it('decodes valid UTF-8 text including Chinese exactly', async () => {
+    const text = 'hello 世界\n第二行\tEND';
+    const result = await readSftpTextFile(fakeTextSftp(Buffer.from(text, 'utf8')), '/tmp/a.txt');
+    expect(result.content).toBe(text);
+    expect(result.encoding).toBe('utf-8');
+    expect(result.size).toBe(Buffer.byteLength(text, 'utf8'));
+    expect(result.maxBytes).toBe(MAX_SFTP_EDIT_BYTES);
+  });
+
+  it('rejects invalid UTF-8 bytes instead of silently replacing them', async () => {
+    const invalid = Buffer.from([0x63, 0x61, 0x66, 0xe9]);
+    await expect(readSftpTextFile(fakeTextSftp(invalid), '/tmp/bad.txt')).rejects.toThrow(/not valid UTF-8/);
+    await expect(readSftpTextFile(fakeTextSftp(invalid), '/tmp/bad.txt')).rejects.toMatchObject({
+      code: 'unsupported-encoding',
+    });
+  });
+
+  it('rejects content containing a NUL byte', async () => {
+    const withNul = Buffer.from('a\u0000b', 'utf8');
+    await expect(readSftpTextFile(fakeTextSftp(withNul), '/tmp/nul.txt')).rejects.toThrow(/not valid UTF-8/);
+  });
+
+  it('rejects files larger than maxBytes', async () => {
+    await expect(readSftpTextFile(fakeTextSftp(Buffer.from('hello', 'utf8')), '/tmp/big.txt', 3)).rejects.toMatchObject({
+      code: 'file-too-large',
+    });
   });
 });

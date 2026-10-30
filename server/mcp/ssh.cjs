@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const { Client } = require('ssh2');
 
 const { fingerprintOf, algorithmOf } = require('../host-trust.cjs');
@@ -59,6 +60,26 @@ function createOutputCollector(budget) {
   };
 }
 
+/**
+ * 计算连接配置的指纹（sha256）。
+ *
+ * 连接池按 connectionId 复用，但用户可能在 Web 设置里改了 host/port/凭据后
+ * 复用同一个连接 id。只看 id 会把请求继续发到旧主机，所以必须把「真正决定
+ * 连到哪里、以谁的身份连」的字段一起纳入指纹。凭据参与哈希，但结果不可逆，
+ * 不会泄漏明文（错误日志里也不要打印原文）。
+ */
+function connectionFingerprint(connection) {
+  const material = JSON.stringify({
+    host: String(connection?.host ?? ''),
+    port: Number(connection?.port) || 22,
+    username: String(connection?.username ?? ''),
+    password: connection?.password ? String(connection.password) : '',
+    privateKey: connection?.privateKey ? String(connection.privateKey) : '',
+    passphrase: connection?.passphrase ? String(connection.passphrase) : '',
+  });
+  return `sha256:${crypto.createHash('sha256').update(material).digest('hex')}`;
+}
+
 /** ssh2 的 attrs 是带方法的对象，转成可 JSON 化的普通对象。 */
 function describeAttributes(attrs) {
   const isDirectory = typeof attrs?.isDirectory === 'function'
@@ -110,20 +131,35 @@ function createSshPool({
   }
 
   function connect(connectionId) {
+    // 先按最新配置解析连接：config.read() 每次都读盘，用户改完配置后
+    // 下一次 connect 就能拿到新值（不需要等 services 重建）。
+    let connection;
+    try {
+      connection = getConnection(connectionId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const fingerprint = connectionFingerprint(connection);
+
     const existing = clients.get(connectionId);
+    if (existing && existing.fingerprint === fingerprint) {
+      return existing.promise;
+    }
     if (existing) {
-      return existing;
+      // 配置变了：旧的 client 与新配置无关，等它结算后断开，再用新配置重建。
+      // 该 entry 随后会被新 entry 取代，下面的 isCurrent 守卫确保旧连接的
+      // 迟到事件不会删掉新 entry 或覆盖新主机指纹。
+      existing.promise.then((client) => {
+        try { client.end(); } catch {}
+      }).catch(() => {});
+      fingerprints.delete(connectionId);
     }
 
-    const promise = new Promise((resolve, reject) => {
-      let connection;
-      try {
-        connection = getConnection(connectionId);
-      } catch (error) {
-        reject(error);
-        return;
-      }
+    // entry 先建出来，供事件回调判断「自己还是不是当前生效的那条连接」。
+    const entry = { fingerprint, promise: null };
+    const isCurrent = () => clients.get(connectionId) === entry;
 
+    const promise = new Promise((resolve, reject) => {
       const client = new Client();
       let settled = false;
       let observed = null;
@@ -144,18 +180,25 @@ function createSshPool({
       }, connectTimeoutMs);
 
       client.once('ready', () => {
-        fingerprints.set(connectionId, observed);
+        // 只有仍是当前 entry 才记录指纹；被替换的连接不能污染新主机的观察结果。
+        if (isCurrent()) {
+          fingerprints.set(connectionId, observed);
+        }
         settle(resolve, client);
       });
       client.once('error', (error) => {
-        clients.delete(connectionId);
+        if (isCurrent()) {
+          clients.delete(connectionId);
+        }
         const hint = trustHint(connection, observed);
         const message = hint ? `${error.message}；${hint}` : error.message;
         settle(reject, toolError(message, 'ssh-connect-failed'));
       });
       client.on('close', () => {
-        clients.delete(connectionId);
-        fingerprints.delete(connectionId);
+        if (isCurrent()) {
+          clients.delete(connectionId);
+          fingerprints.delete(connectionId);
+        }
         settle(reject, toolError(
           `连接 ${connection.name || connection.id} 在建立前已关闭`,
           'ssh-closed',
@@ -196,9 +239,10 @@ function createSshPool({
       }
     });
 
-    clients.set(connectionId, promise);
+    entry.promise = promise;
+    clients.set(connectionId, entry);
     promise.catch(() => {
-      if (clients.get(connectionId) === promise) {
+      if (clients.get(connectionId) === entry) {
         clients.delete(connectionId);
       }
     });
@@ -315,10 +359,10 @@ function createSshPool({
   }
 
   function closeAll() {
-    for (const [connectionId, promise] of clients) {
+    for (const [connectionId, entry] of clients) {
       clients.delete(connectionId);
       fingerprints.delete(connectionId);
-      promise.then((client) => {
+      entry.promise.then((client) => {
         try { client.end(); } catch {}
       }).catch(() => {});
     }
@@ -337,6 +381,7 @@ function createSshPool({
 
 module.exports = {
   createSshPool,
+  connectionFingerprint,
   createBudget,
   createOutputCollector,
   describeAttributes,

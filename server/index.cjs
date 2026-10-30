@@ -27,10 +27,13 @@ const {
   writeSftpTextFile,
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
+const { buildDownloadEtag, readSftpFileEdges } = require('./sftp-download-validator.cjs');
 const { createAuth } = require('./auth.cjs');
 const { createHostTrust } = require('./host-trust.cjs');
 const { createSecretStore } = require('./secret-store.cjs');
+const { normalizeImportData, applyImportData, importSummary } = require('./store-import.cjs');
 const { sessionKeyOf, clientKeysOf } = require('./session-key.cjs');
+const { deleteIfCurrent } = require('./agent-exec-registry.cjs');
 const {
   createDefaultPolicy: createDefaultMcpPolicy,
   overriddenEnvVars: mcpOverriddenEnvVars,
@@ -257,39 +260,6 @@ function updateStore(update) {
   update(store);
   writeStore(store);
   return store;
-}
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function normalizeConnections(input) {
-  return asArray(input).map((connection) => ({
-    id: String(connection.id || Date.now()),
-    name: String(connection.name || connection.host || 'SSH Connection'),
-    host: String(connection.host || ''),
-    port: Number(connection.port || 22),
-    username: String(connection.username || ''),
-    password: connection.password || undefined,
-    privateKey: connection.privateKey || connection.private_key || undefined,
-    passphrase: connection.passphrase || undefined,
-  })).filter((connection) => connection.host && connection.username);
-}
-
-function normalizeImportData(input) {
-  const data = input?.data || input || {};
-
-  return {
-    connections: normalizeConnections(
-      data.connections || data.sshConnections || data.ssh_connections,
-    ),
-    settings: data.settings,
-    commandHistory: asArray(data.commandHistory || data.command_history),
-    quickCommands: asArray(data.quickCommands || data.quick_commands),
-    quickCommandGroups: asArray(data.quickCommandGroups || data.quick_command_groups),
-    aiProviders: asArray(data.aiProviders || data.ai_providers),
-    hostTrustRecords: asArray(data.hostTrustRecords || data.host_trust_records),
-  };
 }
 
 function maskSecret(secret) {
@@ -530,6 +500,13 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
     // 被中断的 shell 往往会紧接着打印 sentinel（退出码 130），若让 handleData
     // 抢先结算就会报成 "done"，与桌面端"取消即 canceled"的语义不一致。
     let interruptReason = null;
+    // 本次执行专属的 UTF-8 解码器：SSH 分片可能把一个多字节字符截断在两个包里，
+    // 直接 data.toString('utf8') 会解出乱码（见 #5）。close/finish 时 flush 残余字节。
+    // 注意不要复用 session.outputDecoder：它已经被通用输出处理器喂过一遍，共享会重复喂数据。
+    const decoder = new StringDecoder('utf8');
+    // 本次执行的取消句柄。必须保存到局部变量：若后续 run 覆盖了 map 里的句柄，
+    // 本次迟到的 finish 只能删自己那把，不能误删新执行登记的句柄（见 #3）。
+    let thisHandle = null;
 
     const finish = (reason, exitCode = null) => {
       if (settled) {
@@ -541,14 +518,19 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
       }
       stream.off('data', handleData);
       stream.off('close', handleClose);
-      activeAgentExecs.delete(execKey);
+      // flush 解码器里残留的半个多字节字符，避免末尾字符丢失；
+      // 必须在 sentinel 解析/剥离之前并入 buffer。
+      const trailing = decoder.end();
+      if (trailing) {
+        buffer += trailing;
+      }
+      deleteIfCurrent(activeAgentExecs, execKey, thisHandle);
       const output = stripCompleteSentinelArtifacts(buffer);
       resolve(success({ output, exitCode, reason: interruptReason || reason }));
     };
 
     const handleData = (data) => {
-      const text = data.toString('utf8');
-      buffer += text;
+      buffer += decoder.write(data);
       const parsed = parseSentinel(buffer, marker);
       if (parsed) {
         buffer = parsed.output;
@@ -563,8 +545,9 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
       setTimeout(() => finish(reason), AGENT_INTERRUPT_SETTLE_MS);
     };
 
+    thisHandle = () => interruptAndFinish('canceled');
     activeAgentExecs.get(execKey)?.();
-    activeAgentExecs.set(execKey, () => interruptAndFinish('canceled'));
+    activeAgentExecs.set(execKey, thisHandle);
 
     stream.on('data', handleData);
     stream.on('close', handleClose);
@@ -621,6 +604,24 @@ function emitToClient(clientId, type, payload) {
     }
   });
   return delivered;
+}
+
+/**
+ * 撤销所有现存 WebSocket 授权并关闭连接（改密后调用）。
+ * 旧 socket 在升级握手时只鉴权一次，改密不会自动使其失效；必须主动关闭，
+ * 否则用泄露密码建立的旧连接仍可继续发送 ssh-write 等操作。
+ * 同时标记 revoked 作为兜底：close 完成前若有在途消息，消息处理会直接忽略。
+ * 前端会凭新 Cookie 自动重连，会话本身由宽限期清理逻辑保活。
+ */
+function revokeAllWebSocketSessions() {
+  for (const socket of sockets) {
+    socket.revoked = true;
+    try {
+      socket.close(1008, 'Session invalidated');
+    } catch {
+      // 已关闭或正在关闭的 socket 忽略
+    }
+  }
 }
 
 /**
@@ -817,17 +818,38 @@ function applySessionResize(session, cols, rows) {
   }
 }
 
-/** 按复合 key 关闭会话，仅通知该会话归属的客户端。 */
-function closeSessionByKey(key) {  const session = sessions.get(key);
+/**
+ * 释放一个已登记的会话资源（不发送任何事件），返回被移除的 session 或 null。
+ * 用于重连时静默替换旧会话：旧连接稍后触发的 close/error 不应再影响新会话。
+ */
+function disposeSessionByKey(key) {
+  const session = sessions.get(key);
   if (!session) {
-    return;
+    return null;
   }
-
   sessions.delete(key);
-  session.sftp?.end?.();
-  session.stream?.end();
-  session.client.end();
-  if (session.clientId) {
+  try {
+    session.sftp?.end?.();
+  } catch {
+    // 忽略已断开连接的清理错误
+  }
+  try {
+    session.stream?.end();
+  } catch {
+    // 忽略已断开连接的清理错误
+  }
+  try {
+    session.client.end();
+  } catch {
+    // 忽略已断开连接的清理错误
+  }
+  return session;
+}
+
+/** 按复合 key 关闭会话，仅通知该会话归属的客户端。 */
+function closeSessionByKey(key) {
+  const session = disposeSessionByKey(key);
+  if (session?.clientId) {
     emitToClient(session.clientId, 'ssh-close', session.connectionId);
   }
 }
@@ -867,7 +889,7 @@ function cancelSessionCleanup(clientId) {
   }
 }
 
-/** WS 发送缓冲排空后，恢复该 client 下被背压暂停的 shell 输出流。 */
+/** 恢复该 client 下被背压暂停的 shell 输出流。 */
 function resumeStreamsForClient(clientId) {
   if (!clientId) {
     return;
@@ -880,18 +902,57 @@ function resumeStreamsForClient(clientId) {
   }
 }
 
-function emitSessionClose(connectionId, clientId) {
-  const key = sessionKeyOf(connectionId, clientId);
-  const session = sessions.get(key);
-  if (sessions.delete(key)) {
-    emitToClient(session?.clientId || clientId, 'ssh-close', connectionId);
+/**
+ * 低水位恢复：该 client 的 WS 发送缓冲全部回落到 WS_LOW_WATER（或已无在线 socket）时，
+ * 恢复被背压暂停的输出流。ws 的 WebSocket 不会触发 'drain' 事件，因此只能靠
+ * send 完成回调 + bufferedAmount 检查来可靠恢复，否则一次暂停后终端会永久停止刷新。
+ * 无在线 socket 时恢复输出，让数据继续进入 outputBuffer 供重连回放。
+ */
+function maybeResumeBackpressured(clientId) {
+  if (!clientId) {
+    return;
+  }
+  for (const socket of sockets) {
+    const matches = socket.clientId === clientId || socket.sshClientId === clientId;
+    if (!matches || socket.readyState !== socket.OPEN) {
+      continue;
+    }
+    if (socket.bufferedAmount > WS_LOW_WATER) {
+      return; // 仍有积压，保持暂停
+    }
+  }
+  resumeStreamsForClient(clientId);
+}
+
+/** 仅当会话表中存的仍是这个 session 实例时才删除，避免旧连接的迟到事件删掉重连后的新会话。 */
+function deleteSessionIfCurrent(key, session) {
+  if (sessions.get(key) === session) {
+    sessions.delete(key);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 处理「当前 session 自己的流/连接关闭」：只有它仍是会话表中的活跃实例时才清理并通知客户端。
+ * 被新连接替换或已清理的旧会话会自行忽略，防止误删新会话或重复发送 ssh-close。
+ */
+function emitSessionClose(session) {
+  if (!session) {
+    return;
+  }
+  const key = sessionKeyOf(session.connectionId, session.clientId);
+  if (deleteSessionIfCurrent(key, session)) {
+    emitToClient(session.clientId, 'ssh-close', session.connectionId);
   }
 }
 
 function connectSsh(connection, cols, rows, settings = defaultSettings, clientId = '') {
   return new Promise((resolve, reject) => {
-    // 只关闭自己 clientId 的旧会话，绝不顶掉其他客户端的会话
-    closeSession(connection.id, clientId);
+    // 只静默替换自己 clientId 的旧会话，绝不顶掉其他客户端的会话。
+    // 用 disposeSessionByKey（不发 ssh-close）：重连时旧会话被替换不应通知前端"已断开"，
+    // 否则会触发多余的重连循环。
+    disposeSessionByKey(sessionKeyOf(connection.id, clientId));
 
     const client = new Client();
     const session = {
@@ -928,7 +989,8 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
       } catch {
         // ignore
       }
-      sessions.delete(sessionKeyOf(connection.id, clientId));
+      // 只在仍是当前会话时清理，避免超时兜底误删同 key 的新会话。
+      deleteSessionIfCurrent(sessionKeyOf(connection.id, clientId), session);
       reject(new Error('SSH connect timed out'));
     }, hardTimeoutMs);
     const finish = (result) => {
@@ -963,10 +1025,13 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
       );
       for (const socket of targets) {
         socket.send(frameAgent);
-        socket.send(frameData);
+        // 用发送完成回调做低水位恢复：ws 的 WebSocket 不会触发 'drain'，
+        // 只靠它会导致暂停后终端永久不再刷新。
+        socket.send(frameData, () => maybeResumeBackpressured(clientId));
       }
-      // 背压：目标 WS 缓冲超水位 → 暂停 shell 输出；排空后由 drain 事件恢复。
-      // 无目标 socket（WS 全断）时不 pause：输出继续进 outputBuffer，重连后回放。
+      // 背压：目标 WS 缓冲超水位 → 暂停 shell 输出；缓冲回落到低水位后由
+      // send 完成回调（maybeResumeBackpressured）恢复。无目标 socket（WS 全断）时
+      // 不 pause：输出继续进 outputBuffer，重连后回放。
       if (targets.length === 0) {
         return;
       }
@@ -1022,7 +1087,7 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
                 if (tail) {
                   publishShellOutput(tail);
                 }
-                emitSessionClose(connection.id, clientId);
+                emitSessionClose(session);
               })
               .stderr.on('data', (data) => {
                 emitToClient(clientId, 'ssh-error', {
@@ -1048,15 +1113,17 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
         );
       })
       .on('error', (error) => {
-        sessions.delete(sessionKeyOf(connection.id, clientId));
-        emitToClient(clientId, 'ssh-error', { connectionId: connection.id, error: error.message });
+        // 只有仍是当前会话实例时才清理并通知；旧会话的迟到 error 不影响重连后的新会话。
+        if (deleteSessionIfCurrent(sessionKeyOf(connection.id, clientId), session)) {
+          emitToClient(clientId, 'ssh-error', { connectionId: connection.id, error: error.message });
+        }
         if (!settled) {
           clearTimeout(hardTimeout);
           reject(error);
         }
       })
       .on('close', () => {
-        emitSessionClose(connection.id, clientId);
+        emitSessionClose(session);
       })
       .connect({
         host: connection.host,
@@ -1148,10 +1215,21 @@ function route(handler) {
 }
 
 const app = express();
+// 反向代理信任边界（#6）：默认不信任任何代理转发的 X-Forwarded-For，
+// 登录/MCP 限流因此使用真实 socket 地址，伪造该请求头无法绕过限流。
+// 仅在 WEB_TRUSTED_PROXIES 显式列出可信代理（逗号分隔 IP/CIDR）时才采用其转发地址。
+const trustedProxies = String(process.env.WEB_TRUSTED_PROXIES || '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
+if (trustedProxies.length > 0) {
+  app.set('trust proxy', trustedProxies);
+}
 app.use(express.json({ limit: '2mb' }));
 
 // 初始化密码鉴权：所有 /api 与页面请求都需通过校验。
-const auth = createAuth(DATA_DIR);
+// 改密成功后回调撤销所有既有 WebSocket，防止旧连接继续操作 SSH。
+const auth = createAuth(DATA_DIR, { onPasswordChanged: revokeAllWebSocketSessions });
 
 // 健康检查无需鉴权，供容器探针使用。
 app.get('/api/health', (_request, response) => response.json(success({ ok: true })));
@@ -1261,77 +1339,12 @@ app.post('/api/import', route((request) => {
   const merge = request.query.merge !== 'false';
 
   updateStore((store) => {
-    store.connections = merge
-      ? [
-          ...store.connections.filter((item) => (
-            !imported.connections.some((next) => next.id === item.id)
-          )),
-          ...imported.connections,
-        ]
-      : imported.connections;
-
-    if (imported.settings && Object.keys(imported.settings).length > 0) {
-      store.settings = { ...defaultSettings, ...store.settings, ...imported.settings };
-    }
-
-    if (imported.commandHistory.length > 0) {
-      store.commandHistory = merge
-        ? [...imported.commandHistory, ...store.commandHistory].slice(0, 500)
-        : imported.commandHistory.slice(0, 500);
-    }
-    if (imported.quickCommands.length > 0) {
-      store.quickCommands = merge
-        ? [
-            ...store.quickCommands.filter((item) => (
-              !imported.quickCommands.some((next) => next.id === item.id)
-            )),
-            ...imported.quickCommands,
-          ]
-        : imported.quickCommands;
-    }
-    if (imported.quickCommandGroups.length > 0) {
-      store.quickCommandGroups = merge
-        ? [
-            ...store.quickCommandGroups.filter((item) => (
-              !imported.quickCommandGroups.some((next) => next.id === item.id)
-            )),
-            ...imported.quickCommandGroups,
-          ]
-        : imported.quickCommandGroups;
-    }
-    if (imported.aiProviders.length > 0) {
-      store.aiProviders = merge
-        ? [
-            ...store.aiProviders.filter((item) => (
-              !imported.aiProviders.some((next) => next.id === item.id)
-            )),
-            ...imported.aiProviders,
-          ]
-        : imported.aiProviders;
-    }
-    if (imported.hostTrustRecords.length > 0) {
-      store.hostTrustRecords = merge
-        ? [
-            ...(store.hostTrustRecords || []).filter((item) => (
-              !imported.hostTrustRecords.some((next) => (
-                next.host === item.host && Number(next.port) === Number(item.port)
-              ))
-            )),
-            ...imported.hostTrustRecords,
-          ]
-        : imported.hostTrustRecords;
-    }
+    // 统一由纯函数处理：区分“字段缺失”与“显式空数组”，覆盖模式下显式空数组会清空集合。
+    applyImportData(store, imported, merge, defaultSettings);
   });
 
   return success({
-    imported: {
-      connections: imported.connections.length,
-      aiProviders: imported.aiProviders.length,
-      settings: imported.settings ? 1 : 0,
-      quickCommands: imported.quickCommands.length,
-      quickCommandGroups: imported.quickCommandGroups.length,
-      hostTrustRecords: imported.hostTrustRecords.length,
-    },
+    imported: importSummary(imported),
     skipped: [],
   });
 }));
@@ -1695,8 +1708,9 @@ app.get('/api/sftp/:id/download', async (request, response) => {
     const remotePath = sftpProtocolPath(String(request.query.path || ''));
     const filename = posixPath.basename(String(request.query.path || remotePath));
     const sftp = await getSftp(request.params.id, resolveClientId(request));
-    // 尽量带上 content-length，并支持 Range 续传下载。
+    // 尽量带上 content-length，并支持带校验器（ETag/Last-Modified）的 Range 续传下载。
     let size = 0;
+    let mtime = 0;
     try {
       const stats = await new Promise((resolve, reject) => {
         sftp.stat(remotePath, (error, attrs) => {
@@ -1708,15 +1722,35 @@ app.get('/api/sftp/:id/download', async (request, response) => {
         });
       });
       size = Number(stats.size || 0);
+      mtime = Number(stats.mtime || 0);
     } catch {
       size = 0;
     }
+
+    // 内容感知的强校验器：size+mtime 之外混入头/尾内容哈希，避免“同秒同大小重写”
+    // 让过期的 If-Range 误判为可续传；读取边缘哈希失败时不下发 ETag（etag='')。
+    let etag = '';
+    if (size > 0) {
+      try {
+        const edges = await readSftpFileEdges(sftp, remotePath, size);
+        etag = buildDownloadEtag(size, mtime, edges.head, edges.tail);
+      } catch {
+        etag = '';
+      }
+    }
+    const lastModified = mtime > 0 ? new Date(mtime * 1000).toUTCString() : '';
+    if (etag) response.setHeader('ETag', etag);
+    if (lastModified) response.setHeader('Last-Modified', lastModified);
 
     let start = 0;
     let end = size > 0 ? size - 1 : undefined;
     const rangeHeader = String(request.headers.range || '');
     const rangeMatch = /^bytes=(\d+)-(\d+)?$/i.exec(rangeHeader);
-    if (rangeMatch && size > 0) {
+    // If-Range：只接受强 ETag；Last-Modified 只有秒级精度，同秒重写会碰撞，
+    // 不能作为续传校验器（不匹配时忽略 Range，返回完整 200）。
+    const ifRange = String(request.headers['if-range'] || '').trim();
+    const ifRangeMatches = !ifRange || (etag !== '' && ifRange === etag);
+    if (rangeMatch && size > 0 && ifRangeMatches) {
       start = Number(rangeMatch[1]);
       end = rangeMatch[2] != null ? Number(rangeMatch[2]) : size - 1;
       if (Number.isNaN(start) || start < 0 || start >= size) {
@@ -1821,6 +1855,15 @@ app.post('/api/sftp/transfers/:taskId/cancel', route((request) => {
 app.post('/api/sftp/transfers/:taskId/retry', route(async (request) => {
   const clientId = requireClientId(request);
   return success(await sftpTransfers.retry(clientId, { taskId: request.params.taskId }));
+}));
+
+// 浏览器 FSA 流式下载把进度/终态回报给服务端，供重试与列表状态保持一致。
+app.put('/api/sftp/transfers/:taskId/download-status', route((request) => {
+  const clientId = requireClientId(request);
+  return success(sftpTransfers.reportDownload(clientId, {
+    ...request.body,
+    taskId: request.params.taskId,
+  }));
 }));
 
 app.delete('/api/sftp/transfers/:taskId', route(async (request) => {
@@ -2073,6 +2116,10 @@ server.on('upgrade', (request, socket, head) => {
 wss.on('connection', (socket) => {
   sockets.add(socket);
   socket.on('message', (raw) => {
+    // 改密后被撤销的旧连接：close 完成前可能仍有在途消息，一律忽略，禁止再操作 SSH。
+    if (socket.revoked) {
+      return;
+    }
     try {
       const message = JSON.parse(raw.toString());
       if (message.type === 'sftp-identify') {
@@ -2127,12 +2174,11 @@ wss.on('connection', (socket) => {
       socket.send(JSON.stringify({ type: 'error', payload: failure(error) }));
     }
   });
-  socket.on('drain', () => {
-    // 发送缓冲排空：恢复被背压暂停的 shell 输出流（该 client 的全部会话）
-    resumeStreamsForClient(socket.sshClientId || socket.clientId);
-  });
   socket.on('close', () => {
     sockets.delete(socket);
+    // 最后一个目标 socket 断开后，若该 client 的输出流因背压被暂停，需立即恢复，
+    // 让后续输出继续进入 outputBuffer 供重连回放（否则会一直暂停到会话被清理）。
+    maybeResumeBackpressured(socket.sshClientId || socket.clientId || '');
     // WS 断开 ≠ 用户意图断开：宽限期内同 clientId 重连可取消清理，
     // 真关闭标签/崩溃/断网后 20s 内释放 SSH 会话，避免幽灵 vim 占文件、连接泄漏。
     scheduleSessionCleanup(socket.sshClientId || socket.clientId || '');

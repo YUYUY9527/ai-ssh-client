@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -36,6 +37,10 @@ struct SshSession {
     state: SshSessionState,
     control: mpsc::UnboundedSender<SshControl>,
     output_subscribers: Vec<mpsc::UnboundedSender<String>>,
+    /// 单调递增的实例代号：每次 connect 生成一个新值，用来区分「同 connection_id 的
+    /// 旧会话」和「重连后的新会话」。所有按 id 对 map 的写操作都必须先校验它，
+    /// 否则旧任务的清理会把新会话误删/误标为断开。
+    generation: u64,
 }
 
 pub(crate) type PendingTrustMap = Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>;
@@ -131,6 +136,8 @@ pub struct SshService {
     sessions: Arc<Mutex<HashMap<String, SshSession>>>,
     storage: Arc<StorageService>,
     pending_trust: PendingTrustMap,
+    /// Monotonic session-instance counter assigned on every insert.
+    next_generation: Arc<AtomicU64>,
 }
 
 impl SshService {
@@ -140,6 +147,7 @@ impl SshService {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             storage,
             pending_trust: Arc::new(Mutex::new(HashMap::new())),
+            next_generation: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -169,7 +177,7 @@ impl SshService {
         let (control_tx, control_rx) = mpsc::unbounded_channel::<SshControl>();
 
         self.disconnect(&session_id).ok();
-        self.insert_session(
+        let generation = self.insert_session(
             session_id.clone(),
             connection.clone(),
             SshSessionState {
@@ -191,6 +199,7 @@ impl SshService {
             storage,
             pending_trust,
             session_id.clone(),
+            generation,
             connection,
             cols,
             rows,
@@ -200,7 +209,9 @@ impl SshService {
         .await;
 
         if let Err(error) = setup_result {
-            remove_session(&sessions, &session_id);
+            // Only clean up when the stored session is still this generation: a newer
+            // connect may already have replaced it, and removing it would kill the new one.
+            remove_session_if_generation(&sessions, &session_id, generation);
             return Err(error);
         }
 
@@ -325,11 +336,12 @@ impl SshService {
         connection: SshConnection,
         state: SshSessionState,
         control: mpsc::UnboundedSender<SshControl>,
-    ) -> AppResult<()> {
+    ) -> AppResult<u64> {
         let mut sessions = self
             .sessions
             .lock()
             .map_err(|_| app_error("SSH 状态锁已损坏"))?;
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         sessions.insert(
             connection_id,
             SshSession {
@@ -337,9 +349,10 @@ impl SshService {
                 state,
                 control,
                 output_subscribers: Vec::new(),
+                generation,
             },
         );
-        Ok(())
+        Ok(generation)
     }
 }
 
@@ -369,16 +382,30 @@ pub(crate) fn validate_sftp_item_name(name: &str) -> AppResult<()> {
 pub(crate) fn validate_sftp_item_path(path: &str) -> AppResult<()> {
     let trimmed = path.trim();
     let compact = trimmed.trim_end_matches('/');
-    let absolute_depth = trimmed.strip_prefix('/').map(|relative| {
-        relative.split('/').fold(0_usize, |depth, part| match part {
-            "" | "." => depth,
-            ".." => depth.saturating_sub(1),
-            _ => depth + 1,
-        })
-    });
+    // 在协议路径上按段计算深度，兼容 `~`（映射为 `.`）等相对路径写法。
+    let protocol = sftp_protocol_path(trimmed);
+    let is_absolute = protocol.starts_with('/');
+    let mut depth = 0_usize;
+    let mut escaped = false;
+    for part in protocol.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if depth == 0 {
+                    if !is_absolute {
+                        escaped = true;
+                    }
+                } else {
+                    depth -= 1;
+                }
+            }
+            _ => depth += 1,
+        }
+    }
     if compact.is_empty()
         || matches!(compact, "." | "~")
-        || absolute_depth.is_some_and(|depth| depth == 0)
+        || (is_absolute && depth == 0)
+        || (!is_absolute && (escaped || depth == 0))
     {
         return Err(app_error("Protected SFTP path"));
     }
@@ -420,6 +447,7 @@ async fn start_shell_task(
     storage: Arc<StorageService>,
     pending_trust: PendingTrustMap,
     session_id: String,
+    generation: u64,
     connection: SshConnection,
     cols: u32,
     rows: u32,
@@ -434,6 +462,15 @@ async fn start_shell_task(
         pending_trust,
     )
     .await?;
+
+    // A newer connect for the same connection_id may have replaced this session while the
+    // handshake was in flight. Never leave an orphan russh connection behind: drop it and
+    // return without spawning a shell loop that would fight the new session.
+    if !is_current_generation(&sessions, &session_id, generation) {
+        let _ = session.disconnect(Disconnect::ByApplication, "", "en").await;
+        return Ok(());
+    }
+
     let mut channel = session.channel_open_session().await?;
     channel
         .request_pty(
@@ -451,21 +488,28 @@ async fn start_shell_task(
     let task_session_id = session_id.clone();
     let task_sessions = sessions.clone();
     let task_app_handle = app_handle.clone();
+    let task_generation = generation;
     tauri::async_runtime::spawn(async move {
         // Notify frontend that connection is ready ONLY after the input loop is about to start.
         // This prevents a race where users can send input before the select loop begins processing.
-        let state = SshSessionState {
-            connection_id: task_session_id.clone(),
-            is_connected: true,
-            is_connecting: false,
-            reconnect_attempts: 0,
-            last_error: None,
-        };
-        emit_ssh_state(&task_app_handle, state.clone());
-        update_session_state(&task_sessions, state);
-        emit_ssh_data(&task_app_handle, &task_session_id, "\r\n".to_string());
+        // Guarded by generation: a superseding connect must not let this task announce readiness
+        // (or overwrite state) for the new instance that already took the id.
+        if is_current_generation(&task_sessions, &task_session_id, task_generation) {
+            let state = SshSessionState {
+                connection_id: task_session_id.clone(),
+                is_connected: true,
+                is_connecting: false,
+                reconnect_attempts: 0,
+                last_error: None,
+            };
+            emit_ssh_state(&task_app_handle, state.clone());
+            update_session_state_if_generation(&task_sessions, task_generation, state);
+            emit_ssh_data(&task_app_handle, &task_session_id, "\r\n".to_string());
+        }
 
         let mut visible_stripper = SentinelStripper::default();
+        let mut stdout_decoder = Utf8ChunkDecoder::new();
+        let mut stderr_decoder = Utf8ChunkDecoder::new();
         loop {
             tokio::select! {
                 Some(control) = control_rx.recv() => {
@@ -491,17 +535,33 @@ async fn start_shell_task(
                  msg = channel.wait() => {
                     match msg {
                         Some(ChannelMsg::Data { data }) => {
-                            let text = String::from_utf8_lossy(&data).to_string();
-                            broadcast_session_output(&task_sessions, &task_session_id, &text);
-                            let visible_text = visible_stripper.feed(&text);
-                            if !visible_text.is_empty() {
-                                emit_ssh_data(&task_app_handle, &task_session_id, visible_text);
+                            let text = stdout_decoder.push(&data);
+                            if !text.is_empty()
+                                && broadcast_session_output_if_generation(
+                                    &task_sessions,
+                                    &task_session_id,
+                                    task_generation,
+                                    &text,
+                                )
+                            {
+                                let visible_text = visible_stripper.feed(&text);
+                                if !visible_text.is_empty() {
+                                    emit_ssh_data(&task_app_handle, &task_session_id, visible_text);
+                                }
                             }
                         }
                         Some(ChannelMsg::ExtendedData { data, .. }) => {
-                            let text = String::from_utf8_lossy(&data).to_string();
-                            broadcast_session_output(&task_sessions, &task_session_id, &text);
-                            emit_ssh_error(&task_app_handle, &task_session_id, &text);
+                            let text = stderr_decoder.push(&data);
+                            if !text.is_empty()
+                                && broadcast_session_output_if_generation(
+                                    &task_sessions,
+                                    &task_session_id,
+                                    task_generation,
+                                    &text,
+                                )
+                            {
+                                emit_ssh_error(&task_app_handle, &task_session_id, &text);
+                            }
                         }
                         Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::Close) | None => {
                             break;
@@ -512,16 +572,47 @@ async fn start_shell_task(
             }
         }
 
+        // Drain any bytes held back by the incremental decoders so a trailing multi-byte
+        // character split across the last packet is not silently dropped.
+        let stdout_tail = stdout_decoder.finish();
+        if !stdout_tail.is_empty()
+            && broadcast_session_output_if_generation(
+                &task_sessions,
+                &task_session_id,
+                task_generation,
+                &stdout_tail,
+            )
+        {
+            let visible = visible_stripper.feed(&stdout_tail);
+            if !visible.is_empty() {
+                emit_ssh_data(&task_app_handle, &task_session_id, visible);
+            }
+        }
+        let stderr_tail = stderr_decoder.finish();
+        if !stderr_tail.is_empty()
+            && broadcast_session_output_if_generation(
+                &task_sessions,
+                &task_session_id,
+                task_generation,
+                &stderr_tail,
+            )
+        {
+            emit_ssh_error(&task_app_handle, &task_session_id, &stderr_tail);
+        }
+
         let visible_tail = visible_stripper.flush();
-        if !visible_tail.is_empty() {
+        if !visible_tail.is_empty()
+            && is_current_generation(&task_sessions, &task_session_id, task_generation)
+        {
             emit_ssh_data(&task_app_handle, &task_session_id, visible_tail);
         }
 
         let _ = session
             .disconnect(Disconnect::ByApplication, "", "en")
             .await;
-        update_session_state(
+        update_session_state_if_generation(
             &task_sessions,
+            task_generation,
             SshSessionState {
                 connection_id: task_session_id.clone(),
                 is_connected: false,
@@ -530,8 +621,11 @@ async fn start_shell_task(
                 last_error: None,
             },
         );
-        remove_session(&task_sessions, &task_session_id);
-        let _ = task_app_handle.emit("ssh-close", task_session_id);
+        // Only emit ssh-close when we actually retired the current instance; a stale task
+        // must not tell the frontend that the freshly reconnected session closed.
+        if remove_session_if_generation(&task_sessions, &task_session_id, task_generation) {
+            let _ = task_app_handle.emit("ssh-close", task_session_id);
+        }
     });
 
     Ok(())
@@ -566,13 +660,9 @@ async fn connect_authenticated_session(
     };
     let mut session = client::connect(Arc::new(config), addrs, handler).await?;
 
-    if let Some(password) = connection
-        .password
-        .as_ref()
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    // Only trim to TEST emptiness; authenticate with the ORIGINAL password so leading/trailing
+    // spaces (which the storage layer and forms preserve) are sent verbatim.
+    if let Some(password) = non_empty_secret(connection.password.as_ref()) {
         let auth = session
             .authenticate_password(&connection.username, password)
             .await?;
@@ -676,35 +766,162 @@ fn ensure_auth_success(auth: AuthResult) -> AppResult<()> {
     }
 }
 
-fn update_session_state(
+/// Returns the original secret string when it is not blank after trimming.
+///
+/// Trimming is used ONLY to decide whether a secret is present; the returned value is the
+/// untouched input so meaningful leading/trailing spaces survive authentication.
+fn non_empty_secret(value: Option<&String>) -> Option<&str> {
+    value
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+}
+
+/// Stateful UTF-8 decoder for a byte stream delivered in arbitrary chunks.
+///
+/// `String::from_utf8_lossy` per chunk corrupts a multi-byte character that straddles a TCP
+/// packet boundary. This decoder keeps the incomplete trailing bytes until the next chunk and
+/// only substitutes U+FFFD for bytes that are truly invalid.
+#[derive(Default)]
+struct Utf8ChunkDecoder {
+    pending: Vec<u8>,
+}
+
+impl Utf8ChunkDecoder {
+    fn new() -> Self {
+        Self {
+            pending: Vec::new(),
+        }
+    }
+
+    /// Decodes as much of `chunk` as possible, retaining any incomplete trailing sequence.
+    fn push(&mut self, chunk: &[u8]) -> String {
+        if chunk.is_empty() {
+            return String::new();
+        }
+
+        let mut bytes = std::mem::take(&mut self.pending);
+        bytes.extend_from_slice(chunk);
+
+        let mut output = String::with_capacity(bytes.len());
+        let mut cursor = 0usize;
+        while cursor < bytes.len() {
+            match std::str::from_utf8(&bytes[cursor..]) {
+                Ok(valid) => {
+                    output.push_str(valid);
+                    cursor = bytes.len();
+                }
+                Err(error) => {
+                    let valid_up_to = error.valid_up_to();
+                    if valid_up_to > 0 {
+                        // Safe: `from_utf8` proved this prefix is valid UTF-8.
+                        output.push_str(
+                            std::str::from_utf8(&bytes[cursor..cursor + valid_up_to])
+                                .expect("valid UTF-8 prefix"),
+                        );
+                        cursor += valid_up_to;
+                    }
+                    match error.error_len() {
+                        Some(len) => {
+                            // Truly invalid bytes: emit a replacement char and skip them.
+                            output.push('\u{FFFD}');
+                            cursor += len;
+                        }
+                        None => {
+                            // Incomplete trailing sequence: keep it for the next chunk.
+                            self.pending.extend_from_slice(&bytes[cursor..]);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        output
+    }
+
+    /// Flushes any held incomplete tail, replacing it with U+FFFD where invalid.
+    fn finish(&mut self) -> String {
+        if self.pending.is_empty() {
+            return String::new();
+        }
+        let pending = std::mem::take(&mut self.pending);
+        String::from_utf8_lossy(&pending).into_owned()
+    }
+}
+
+/// True only while `connection_id` is still mapped to the given `generation`.
+///
+/// Every mutation of session state / removal / output broadcast goes through this check so a
+/// stale shell task (from an older connect that lost the race) can never clobber the session
+/// that currently owns the id.
+fn is_current_generation(
     sessions: &Arc<Mutex<HashMap<String, SshSession>>>,
+    connection_id: &str,
+    generation: u64,
+) -> bool {
+    sessions
+        .lock()
+        .map(|guard| {
+            guard
+                .get(connection_id)
+                .map(|session| session.generation == generation)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+/// Updates stored state only when the id still belongs to `generation`.
+fn update_session_state_if_generation(
+    sessions: &Arc<Mutex<HashMap<String, SshSession>>>,
+    generation: u64,
     state: SshSessionState,
 ) {
     if let Ok(mut guard) = sessions.lock() {
         if let Some(session) = guard.get_mut(&state.connection_id) {
-            session.state = state;
+            if session.generation == generation {
+                session.state = state;
+            }
         }
     }
 }
 
-fn remove_session(sessions: &Arc<Mutex<HashMap<String, SshSession>>>, connection_id: &str) {
-    if let Ok(mut guard) = sessions.lock() {
-        guard.remove(connection_id);
-    }
-}
-
-fn broadcast_session_output(
+/// Removes the session only when it still belongs to `generation`; returns whether it removed.
+fn remove_session_if_generation(
     sessions: &Arc<Mutex<HashMap<String, SshSession>>>,
     connection_id: &str,
-    data: &str,
-) {
+    generation: u64,
+) -> bool {
     if let Ok(mut guard) = sessions.lock() {
-        if let Some(session) = guard.get_mut(connection_id) {
-            session
-                .output_subscribers
-                .retain(|subscriber| subscriber.send(data.to_string()).is_ok());
+        let owned_by_caller = guard
+            .get(connection_id)
+            .map(|session| session.generation == generation)
+            .unwrap_or(false);
+        if owned_by_caller {
+            guard.remove(connection_id);
+            return true;
         }
     }
+    false
+}
+
+/// Broadcasts to output subscribers only while `generation` is current; returns whether the
+/// session was current (so callers can skip emitting to the frontend as well).
+fn broadcast_session_output_if_generation(
+    sessions: &Arc<Mutex<HashMap<String, SshSession>>>,
+    connection_id: &str,
+    generation: u64,
+    data: &str,
+) -> bool {
+    if let Ok(mut guard) = sessions.lock() {
+        if let Some(session) = guard.get_mut(connection_id) {
+            if session.generation == generation {
+                session
+                    .output_subscribers
+                    .retain(|subscriber| subscriber.send(data.to_string()).is_ok());
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn emit_ssh_state(app_handle: &AppHandle, state: SshSessionState) {
@@ -739,8 +956,8 @@ fn emit_ssh_error(app_handle: &AppHandle, connection_id: &str, error: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        sftp_child_path, sftp_protocol_path, sftp_sibling_path, validate_sftp_item_name,
-        validate_sftp_item_path,
+        non_empty_secret, sftp_child_path, sftp_protocol_path, sftp_sibling_path,
+        validate_sftp_item_name, validate_sftp_item_path, Utf8ChunkDecoder,
     };
 
     #[test]
@@ -760,10 +977,26 @@ mod tests {
         }
         assert!(validate_sftp_item_name("report.txt").is_ok());
 
-        for path in ["", "/", "//", "/./", "/tmp/..", ".", "~", "~/"] {
+        for path in [
+            "",
+            "/",
+            "//",
+            "/./",
+            "/tmp/..",
+            ".",
+            "~",
+            "~/",
+            "..",
+            "~/..",
+            "~/../..",
+            "../x",
+            "a/../../b",
+            "foo/..",
+        ] {
             assert!(validate_sftp_item_path(path).is_err());
         }
         assert!(validate_sftp_item_path("~/project").is_ok());
+        assert!(validate_sftp_item_path("/tmp/file").is_ok());
     }
 
     #[test]
@@ -778,5 +1011,58 @@ mod tests {
         );
         assert_eq!(sftp_child_path("/", "tmp"), "/tmp");
         assert_eq!(sftp_child_path("./project", "src"), "./project/src");
+    }
+
+    #[test]
+    fn utf8_decoder_reassembles_char_split_across_chunks() {
+        // "中" = E4 B8 AD, "文" = E6 96 87. Split inside "中" so the first chunk's trailing
+        // bytes are an incomplete sequence.
+        let bytes = "中文".as_bytes();
+        let mut decoder = Utf8ChunkDecoder::new();
+        let first = decoder.push(&bytes[..1]); // just E4
+        assert_eq!(first, "", "incomplete head must not be emitted");
+        let second = decoder.push(&bytes[1..]);
+        assert_eq!(first + &second, "中文");
+    }
+
+    #[test]
+    fn utf8_decoder_handles_arbitrary_boundaries_and_ascii() {
+        let mut decoder = Utf8ChunkDecoder::new();
+        let mut out = String::new();
+        out.push_str(&decoder.push(b"hello "));
+        // break "文" (E6 96 87) after its first byte
+        out.push_str(&decoder.push(&[0xE6]));
+        out.push_str(&decoder.push(&[0x96, 0x87]));
+        out.push_str(&decoder.push(b"!"));
+        assert_eq!(out, "hello 文!");
+        assert!(decoder.pending.is_empty());
+    }
+
+    #[test]
+    fn utf8_decoder_replaces_invalid_bytes() {
+        let mut decoder = Utf8ChunkDecoder::new();
+        // 0xFF is never a valid UTF-8 start byte.
+        let out = decoder.push(&[b'a', 0xFF, b'b']);
+        assert_eq!(out, "a\u{FFFD}b");
+    }
+
+    #[test]
+    fn utf8_decoder_finish_flushes_tail_and_clears_pending() {
+        let mut decoder = Utf8ChunkDecoder::new();
+        assert_eq!(decoder.push(&[0xE4]), "");
+        assert!(!decoder.pending.is_empty());
+        let tail = decoder.finish();
+        assert_eq!(tail, "\u{FFFD}", "incomplete tail becomes a replacement char");
+        assert!(decoder.pending.is_empty());
+        assert_eq!(decoder.finish(), "", "finish is idempotent once drained");
+    }
+
+    #[test]
+    fn non_empty_secret_preserves_surrounding_spaces() {
+        let value = "  secret  ".to_string();
+        assert_eq!(non_empty_secret(Some(&value)), Some("  secret  "));
+        let blank = "   ".to_string();
+        assert_eq!(non_empty_secret(Some(&blank)), None);
+        assert_eq!(non_empty_secret(None), None);
     }
 }

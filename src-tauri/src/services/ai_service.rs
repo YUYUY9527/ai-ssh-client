@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -18,10 +19,22 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const STREAM_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_RETRIES: usize = 1;
 
+/// A single in-flight AI request's cancel handle plus its identity token.
+///
+/// The token makes cleanup idempotent-and-scoped: an old request finishing (or being
+/// cancelled) must only remove the map entry it actually registered, never a newer
+/// request that reused the same request_id.
+struct ActiveRequest {
+    cancel: oneshot::Sender<()>,
+    token: u64,
+}
+
 /// AI provider transport and cancellation registry.
 pub struct AiService {
     client: reqwest::Client,
-    active_requests: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+    active_requests: Arc<Mutex<HashMap<String, ActiveRequest>>>,
+    /// Monotonic per-registration identity token.
+    next_request_token: Arc<AtomicU64>,
 }
 
 impl AiService {
@@ -30,6 +43,7 @@ impl AiService {
         Self {
             client: reqwest::Client::new(),
             active_requests: Arc::new(Mutex::new(HashMap::new())),
+            next_request_token: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -128,7 +142,7 @@ impl AiService {
             .ok_or_else(|| app_error(format!("Provider {provider_id} not found or not active")))?;
         validate_provider(&provider)?;
         let (cancel_tx, cancel_rx) = oneshot::channel();
-        self.register_request(request_id.clone(), cancel_tx)?;
+        let token = self.register_request(request_id.clone(), cancel_tx)?;
         let client = self.client.clone();
         let active_requests = Arc::clone(&self.active_requests);
         tauri::async_runtime::spawn(async move {
@@ -142,7 +156,8 @@ impl AiService {
             )
             .await;
             if let Ok(mut requests) = active_requests.lock() {
-                requests.remove(&request_id);
+                // Only remove our own registration: a newer request may have reused this id.
+                remove_request_if_token(&mut requests, &request_id, token);
             }
         });
         Ok(())
@@ -157,7 +172,7 @@ impl AiService {
 
         Ok(active_requests
             .remove(request_id)
-            .map(|cancel| cancel.send(()).is_ok())
+            .map(|request| request.cancel.send(()).is_ok())
             .unwrap_or(false))
     }
 
@@ -172,7 +187,7 @@ impl AiService {
         let request_id =
             request_id.unwrap_or_else(|| format!("{}-{}", provider.id, uuid::Uuid::new_v4()));
         let (cancel_tx, mut cancel_rx) = oneshot::channel();
-        self.register_request(request_id.clone(), cancel_tx)?;
+        let token = self.register_request(request_id.clone(), cancel_tx)?;
 
         let result = async {
             let mut last_error = None;
@@ -198,7 +213,7 @@ impl AiService {
         }
         .await;
 
-        self.unregister_request(&request_id);
+        self.unregister_request(&request_id, token);
         result
     }
 
@@ -206,7 +221,7 @@ impl AiService {
         &self,
         request_id: String,
         cancel_tx: oneshot::Sender<()>,
-    ) -> AppResult<()> {
+    ) -> AppResult<u64> {
         let mut active_requests = self
             .active_requests
             .lock()
@@ -214,13 +229,20 @@ impl AiService {
         if active_requests.contains_key(&request_id) {
             return Err(app_error("AI request ID is already active"));
         }
-        active_requests.insert(request_id, cancel_tx);
-        Ok(())
+        let token = self.next_request_token.fetch_add(1, Ordering::Relaxed);
+        active_requests.insert(
+            request_id,
+            ActiveRequest {
+                cancel: cancel_tx,
+                token,
+            },
+        );
+        Ok(token)
     }
 
-    fn unregister_request(&self, request_id: &str) {
+    fn unregister_request(&self, request_id: &str, token: u64) {
         if let Ok(mut active_requests) = self.active_requests.lock() {
-            active_requests.remove(request_id);
+            remove_request_if_token(&mut active_requests, request_id, token);
         }
     }
 
@@ -290,6 +312,25 @@ impl Default for AiService {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Removes the request entry only when it still carries `token`; returns whether it removed.
+///
+/// Prevents an old request's cleanup (or a cancel racing a re-registration) from deleting a
+/// newer request that reused the same id.
+fn remove_request_if_token(
+    map: &mut HashMap<String, ActiveRequest>,
+    id: &str,
+    token: u64,
+) -> bool {
+    let owned_by_caller = map
+        .get(id)
+        .map(|request| request.token == token)
+        .unwrap_or(false);
+    if owned_by_caller {
+        map.remove(id);
+    }
+    owned_by_caller
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -590,4 +631,41 @@ fn mask_api_key(api_key: &str) -> Option<String> {
         &api_key[..4],
         &api_key[api_key.len() - 4..]
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{remove_request_if_token, ActiveRequest};
+    use std::collections::HashMap;
+    use tokio::sync::oneshot;
+
+    fn request(token: u64) -> ActiveRequest {
+        let (cancel, _rx) = oneshot::channel();
+        ActiveRequest { cancel, token }
+    }
+
+    #[test]
+    fn stale_token_does_not_remove_newer_entry() {
+        // Old request (token 6) finishes after a newer one (token 7) reused the same id.
+        let mut map = HashMap::new();
+        map.insert("req-1".to_string(), request(7));
+
+        assert!(!remove_request_if_token(&mut map, "req-1", 6));
+        assert!(map.contains_key("req-1"), "newer handle must survive stale cleanup");
+    }
+
+    #[test]
+    fn matching_token_removes_entry() {
+        let mut map = HashMap::new();
+        map.insert("req-1".to_string(), request(7));
+
+        assert!(remove_request_if_token(&mut map, "req-1", 7));
+        assert!(!map.contains_key("req-1"));
+    }
+
+    #[test]
+    fn missing_id_returns_false() {
+        let mut map: HashMap<String, ActiveRequest> = HashMap::new();
+        assert!(!remove_request_if_token(&mut map, "absent", 1));
+    }
 }

@@ -221,44 +221,75 @@ function createSftpTransferService({ getSftp, emitEvent }) {
     });
   }
 
-  /** 根据 sidecar + partial 大小决定续传起点；源变化时抛 source-changed。 */
+  /**
+   * 根据 sidecar + partial 大小决定续传起点；源变化时抛 source-changed。
+   *
+   * 关键不变量：客户端声明的续传起点 claimedOffset 绝不能超过服务端可确认的
+   * serverOffset。否则客户端会只发送“从 claimedOffset 切片的尾巴”，而服务端若把
+   * 它写到另一个偏移，就会静默得到截断文件并被标记为 completed。因此这里在打开/
+   * 写入任何内容之前抛出 resume-offset-reset，要求客户端按 serverOffset 重传。
+   */
   async function resolveResumeOffset(sftp, temporaryPath, task, sourceSize, sourceMtime, claimedOffset) {
     const metaPath = checkpointRemotePath(temporaryPath);
     const checkpoint = await readRemoteJson(sftp, metaPath);
     const partSize = await remoteFileSize(sftp, temporaryPath);
+    let serverOffset = 0;
+    let discardPartial = false;
     if (!checkpoint) {
-      if (partSize > 0) {
-        // 无可信 checkpoint 的 partial 不可续传，截断重来。
+      // 无可信 checkpoint 的 partial 不可续传，服务端只能确认到 0。
+      discardPartial = partSize > 0;
+      serverOffset = 0;
+    } else {
+      const sourceHead = String(task._sourceHead || '');
+      const sourceTail = String(task._sourceTail || '');
+      if (
+        checkpoint.taskId !== task.snapshot.taskId
+        || Number(checkpoint.sourceSize) !== sourceSize
+        || Number(checkpoint.sourceMtime) !== sourceMtime
+        || (checkpoint.sourceHead && sourceHead && checkpoint.sourceHead !== sourceHead)
+        || (checkpoint.sourceTail && sourceTail && checkpoint.sourceTail !== sourceTail)
+      ) {
         await removeRemoteQuiet(sftp, temporaryPath);
+        await removeRemoteQuiet(sftp, metaPath);
+        throw new TransferError('Source file changed; restart required', 'source-changed', false);
       }
-      return 0;
+      const trusted = Math.min(
+        Number(checkpoint.confirmedOffset || 0),
+        partSize,
+        sourceSize || Number.MAX_SAFE_INTEGER,
+      );
+      if (partSize > trusted) {
+        // partial 比 checkpoint 长：多出的字节无法信任，服务端只能确认到 0。
+        discardPartial = true;
+        serverOffset = 0;
+      } else {
+        serverOffset = trusted;
+      }
     }
-    const sourceHead = String(task._sourceHead || '');
-    const sourceTail = String(task._sourceTail || '');
-    if (
-      checkpoint.taskId !== task.snapshot.taskId
-      || Number(checkpoint.sourceSize) !== sourceSize
-      || Number(checkpoint.sourceMtime) !== sourceMtime
-      || (checkpoint.sourceHead && sourceHead && checkpoint.sourceHead !== sourceHead)
-      || (checkpoint.sourceTail && sourceTail && checkpoint.sourceTail !== sourceTail)
-    ) {
+
+    if (claimedOffset > serverOffset) {
+      // 不消费 body、不打开/写入/提交远端文件，交由上层请求排空 body 后返回错误。
+      const error = new TransferError('Resume offset reset by server', 'resume-offset-reset', true);
+      error.confirmedOffset = serverOffset;
+      error.task = {
+        ...task.snapshot,
+        status: 'queued',
+        resumedFrom: serverOffset,
+        transferredBytes: serverOffset,
+        progress: task.snapshot.totalBytes
+          ? Math.min(99, Math.round((serverOffset / task.snapshot.totalBytes) * 100))
+          : 0,
+        updatedAt: now(),
+      };
+      throw error;
+    }
+
+    if (discardPartial) {
       await removeRemoteQuiet(sftp, temporaryPath);
       await removeRemoteQuiet(sftp, metaPath);
-      throw new TransferError('Source file changed; restart required', 'source-changed', false);
     }
-    const trusted = Math.min(
-      Number(checkpoint.confirmedOffset || 0),
-      partSize,
-      sourceSize || Number.MAX_SAFE_INTEGER,
-    );
-    // partial 比 checkpoint 长则截断到可信 offset（通过重写策略：仅从 trusted 继续写）。
-    if (partSize > trusted) {
-      // SFTP 无法轻松 truncate，删除并要求完整重传。
-      await removeRemoteQuiet(sftp, temporaryPath);
-      await removeRemoteQuiet(sftp, metaPath);
-      return 0;
-    }
-    const offset = Math.min(claimedOffset || trusted, trusted);
+
+    const offset = Math.min(claimedOffset || serverOffset, serverOffset);
     return offset > 0 ? offset : 0;
   }
 
@@ -316,14 +347,23 @@ function createSftpTransferService({ getSftp, emitEvent }) {
       // 缺省视为整包完成（兼容旧客户端）；分片上传显式传 0/false
       const completeRaw = String(request.headers?.['x-sftp-upload-complete'] ?? '1').toLowerCase();
       const shouldCommit = completeRaw !== '0' && completeRaw !== 'false';
-      let offset = await resolveResumeOffset(
-        sftp,
-        temporaryPath,
-        task,
-        sourceSize,
-        sourceMtime,
-        claimedOffset,
-      );
+      let offset;
+      try {
+        offset = await resolveResumeOffset(
+          sftp,
+          temporaryPath,
+          task,
+          sourceSize,
+          sourceMtime,
+          claimedOffset,
+        );
+      } catch (error) {
+        if (error instanceof TransferError && error.code === 'resume-offset-reset') {
+          // 排空仍在发送的 body，避免连接被重置导致错误响应无法送达；不写任何远端数据。
+          request.resume?.();
+        }
+        throw error;
+      }
 
       // offset=0 用截断写；续传用 r+ 在指定 position 写入。
       const handle = await callSftp(sftp, 'open', temporaryPath, offset > 0 ? 'r+' : 'w');
@@ -628,6 +668,81 @@ function createSftpTransferService({ getSftp, emitEvent }) {
     });
   }
 
+  /**
+   * 浏览器 FSA 流式下载由前端真正执行，服务端只持有任务记录。前端通过该入口把
+   * transferring/terminal 状态回报给服务端，否则任务会永远停在 queued，无法重试。
+   *
+   * 只接受 direction==='download'；回报必须携带当前 attempt，旧 attempt 的迟到回报
+   * 会被幂等忽略（避免污染重试后的新任务）；终态任务忽略后续回报（幂等）；未知状态
+   * 直接报错，避免把非法状态静默写进快照。
+   */
+  function reportDownload(clientId, report = {}) {
+    const task = tasks.get(report?.taskId);
+    assertOwner(task, clientId);
+    if (task.snapshot.direction !== 'download') {
+      throw new TransferError('Transfer is not a download', 'invalid-path', false);
+    }
+    // attempt 不匹配（含缺失）说明是上一轮尝试的迟到回报，忽略而不改写当前快照。
+    if (!Number.isInteger(report?.attempt) || report.attempt !== task.snapshot.attempt) {
+      return task.snapshot;
+    }
+    const { status, transferredBytes, totalBytes, error } = report;
+    // 已经结束的任务不再改写（浏览器可能重复/迟到回报）。
+    if (isTerminal(task.snapshot.status)) return task.snapshot;
+
+    if (status === 'transferring') {
+      // 仅允许 queued/transferring -> transferring，其它状态忽略（如 handed-off 仅用于非流式）。
+      if (!['queued', 'transferring'].includes(task.snapshot.status)) {
+        return task.snapshot;
+      }
+      return update(task, (snapshot) => {
+        snapshot.status = 'transferring';
+        if (Number.isFinite(transferredBytes)) {
+          snapshot.transferredBytes = Math.max(0, transferredBytes);
+        }
+        if (Number.isFinite(totalBytes) && totalBytes >= 0) {
+          snapshot.totalBytes = totalBytes;
+        }
+        snapshot.progress = snapshot.totalBytes
+          ? Math.min(99, Math.round((snapshot.transferredBytes / snapshot.totalBytes) * 100))
+          : 0;
+        snapshot.error = undefined;
+      });
+    }
+
+    if (status === 'completed') {
+      if (Number.isFinite(transferredBytes) && transferredBytes >= 0) {
+        task.snapshot.transferredBytes = transferredBytes;
+      }
+      if (Number.isFinite(totalBytes) && totalBytes >= 0) {
+        task.snapshot.totalBytes = totalBytes;
+      }
+      return finish(task, 'completed', undefined, 'browser-managed');
+    }
+
+    if (status === 'failed') {
+      return finish(
+        task,
+        'failed',
+        new TransferError(
+          error?.message || 'Download failed',
+          error?.code || 'io-error',
+          error?.retryable !== false,
+        ),
+      );
+    }
+
+    if (status === 'canceled') {
+      return finish(task, 'canceled');
+    }
+
+    if (status === 'skipped') {
+      return finish(task, 'skipped');
+    }
+
+    throw new TransferError('Unknown download status', 'invalid-path', false);
+  }
+
   async function discard(clientId, request) {
     const task = tasks.get(request?.taskId);
     assertOwner(task, clientId);
@@ -660,6 +775,7 @@ function createSftpTransferService({ getSftp, emitEvent }) {
     cancel,
     discard,
     list,
+    reportDownload,
     resolveConflict,
     retry,
     startDownload,

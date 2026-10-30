@@ -285,15 +285,28 @@ function stripPrefixes(inputTokens) {
 }
 
 function normalizeTarget(token) {
-  const raw = String(token || '');
+  let raw = String(token || '');
+  // 把作为完整路径首段的 $HOME / ${HOME} 视同 ~（$HOMEfoo 不算，避免误伤）。
+  raw = raw.replace(/^\$(?:HOME|\{HOME\})(?=\/|$)/, '~');
   if (raw === '~' || raw.startsWith('~/')) {
-    return raw.replace(/\/+$/, '') || '~';
+    // 用合成的绝对家目录 /home 做结构化归一，能把 ~/.ssh/../.ssh 还原成 ~/.ssh；
+    // 若归一后跑出 /home（如 ~/..），返回该绝对路径，仍会命中绝对路径黑名单。
+    const rest = raw.slice(1);
+    const normalized = posixPath.normalize(`/home${rest}`);
+    if (normalized === '/home') {
+      return '~';
+    }
+    if (normalized.startsWith('/home/')) {
+      return `~${normalized.slice('/home'.length)}`;
+    }
+    return normalized;
   }
   if (raw.startsWith('/')) {
     const normalized = posixPath.normalize(raw);
     return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
   }
-  return raw;
+  // 相对路径也结构化归一：./build -> build、../x -> ../x、.. -> ..
+  return posixPath.normalize(raw);
 }
 
 function isCriticalRmTarget(token) {
@@ -303,6 +316,10 @@ function isCriticalRmTarget(token) {
   }
   const normalized = normalizeTarget(raw);
   if (CRITICAL_RM_TARGETS.has(normalized) || CRITICAL_TOP_LEVEL.includes(normalized)) {
+    return true;
+  }
+  // 相对向上遍历（.. / ../...）同样可能删到关键目录，一并拦截。
+  if (normalized === '..' || normalized.startsWith('../')) {
     return true;
   }
   return CRITICAL_SUBTREES.some(
@@ -340,14 +357,78 @@ function checkRm(args) {
   return null;
 }
 
-function checkFind(args) {
-  if (!args.includes('-delete')) {
-    return null;
+function checkFind(args, depth = 0) {
+  // find 的路径参数必须出现在表达式之前：遇到以 '-' 开头的选项或
+  // 表达式元字符（( ) ! ,）就说明根路径列表结束。
+  // `-name` 后面的模式值不属于根路径，不能被当成根。
+  const roots = [];
+  const expressionStarters = new Set(['(', ')', '!', ',']);
+  for (const arg of args) {
+    if (arg.startsWith('-') || expressionStarters.has(arg)) {
+      break;
+    }
+    roots.push(arg);
   }
-  const roots = args.filter((arg) => !arg.startsWith('-'));
-  if (roots.some((root) => CRITICAL_TOP_LEVEL.includes(normalizeTarget(root)))) {
-    return { rule: 'find-delete-critical', reason: '禁止对关键目录使用 find -delete' };
+  const effectiveRoots = roots.length > 0 ? roots : ['.'];
+
+  // -delete：保持原有行为（无根路径时按 GNU 默认从 '.' 删除）。
+  if (args.includes('-delete')) {
+    const criticalRoot = effectiveRoots.find((root) => isCriticalRmTarget(root));
+    if (criticalRoot) {
+      if (roots.length === 0) {
+        return {
+          rule: 'find-delete-critical',
+          reason: '禁止在未指定路径时使用 find -delete（默认从当前目录递归删除）',
+        };
+      }
+      return {
+        rule: 'find-delete-critical',
+        reason: `禁止对关键目录使用 find -delete（${criticalRoot}）`,
+      };
+    }
   }
+
+  // -exec/-execdir/-ok/-okdir：把嵌套命令取出来按普通命令重新检查，
+  // 否则 `find ... -exec rm -rf {} \;` 能绕过 rm 的规则。深度上限复用
+  // checkSegment 的嵌套限制，避免 find -exec find -exec ... 无限递归。
+  if (depth < 3) {
+    const execPredicates = new Set(['-exec', '-execdir', '-ok', '-okdir']);
+    const terminators = new Set([';', '\\', '+']);
+    for (let index = 0; index < args.length; index += 1) {
+      if (!execPredicates.has(args[index])) {
+        continue;
+      }
+      const nested = [];
+      let cursor = index + 1;
+      for (; cursor < args.length; cursor += 1) {
+        const token = args[cursor];
+        if (terminators.has(token)) {
+          break;
+        }
+        nested.push(token);
+      }
+      // 无终止符时取剩余 token；末尾孤立的反斜杠不算命令内容。
+      while (nested.length > 0 && nested[nested.length - 1] === '\\') {
+        nested.pop();
+      }
+      if (nested.length > 0) {
+        for (const root of effectiveRoots) {
+          const nestedCommand = nested
+            .map((token) => token.split('{}').join(root))
+            .join(' ');
+          const hit = checkSegment(nestedCommand, depth + 1);
+          if (hit) {
+            return {
+              rule: 'find-exec-critical',
+              reason: `检测到 find -exec 执行危险命令（${hit.rule || 'blocked'}）；请由人手动执行`,
+            };
+          }
+        }
+      }
+      index = cursor;
+    }
+  }
+
   return null;
 }
 
@@ -401,7 +482,7 @@ function checkSegment(segment, depth = 0) {
     return checkRm(args);
   }
   if (name === 'find') {
-    return checkFind(args);
+    return checkFind(args, depth);
   }
   if (name === 'dd' && args.some((arg) => /^of=\/dev\//i.test(arg))) {
     return { rule: 'dd-block-device', reason: '禁止 dd 直接写入块设备' };

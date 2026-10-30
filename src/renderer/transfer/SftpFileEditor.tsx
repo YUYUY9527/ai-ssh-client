@@ -4,6 +4,7 @@ import { FileCode2, Loader2, RotateCcw, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { Modal } from '../shared-ui/Modal';
 import { MAX_SFTP_EDIT_BYTES } from '../../shared/ipc-types';
+import { canSaveSftpDraft } from './sftp-editor-save';
 
 interface SftpFileEditorProps {
   isOpen: boolean;
@@ -35,6 +36,8 @@ export function SftpFileEditor({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 是否成功读取过远端文件。读取失败时为 false，用于阻止任何写回（按钮与快捷键共用）。
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [original, setOriginal] = useState('');
@@ -44,6 +47,8 @@ export function SftpFileEditor({
   const dirty = draft !== original;
   const draftBytes = useMemo(() => new TextEncoder().encode(draft).length, [draft]);
   const overLimit = draftBytes > maxBytes;
+  // 保存条件：按钮 disabled、Ctrl/Cmd+S 调用的 handleSave 都用它，避免两条路径不一致。
+  const canSave = canSaveSftpDraft({ loaded, loading, saving, dirty, overLimit });
 
   /** 过大/不可编辑：优先走居中弹窗，避免埋在编辑器页内 */
   const alertAndClose = useCallback((message: string) => {
@@ -68,6 +73,7 @@ export function SftpFileEditor({
     }
 
     setLoading(true);
+    setLoaded(false);
     setError(null);
     setStatus(null);
     try {
@@ -86,6 +92,7 @@ export function SftpFileEditor({
       }
       setOriginal(result.data.content);
       setDraft(result.data.content);
+      setLoaded(true);
       setMaxBytes(result.data.maxBytes || MAX_SFTP_EDIT_BYTES);
       setStatus(t('fileTransfer.editLoaded', {
         size: formatBytes(result.data.size),
@@ -111,7 +118,8 @@ export function SftpFileEditor({
   }, [isOpen, loadFile]);
 
   const handleSave = useCallback(async () => {
-    if (!window.electronAPI?.writeSftpTextFile || saving || loading || overLimit) {
+    // 与保存按钮 disabled 使用同一个 canSave：读取失败(loaded=false)时快捷键也不会写回。
+    if (!canSave || !window.electronAPI?.writeSftpTextFile) {
       return;
     }
     setSaving(true);
@@ -130,7 +138,7 @@ export function SftpFileEditor({
     } finally {
       setSaving(false);
     }
-  }, [connectionId, draft, draftBytes, loading, overLimit, remotePath, saving, t]);
+  }, [canSave, connectionId, draft, draftBytes, remotePath, t]);
 
   const handleReset = useCallback(() => {
     setDraft(original);
@@ -182,7 +190,7 @@ export function SftpFileEditor({
           <button
             type="button"
             className="industrial-button-primary px-3 py-1.5 text-xs"
-            disabled={loading || saving || !dirty || overLimit || Boolean(error && !draft && !original)}
+            disabled={!canSave}
             onClick={() => void handleSave()}
             title={`${t('common.save')} (Ctrl+S)`}
           >
@@ -212,7 +220,7 @@ export function SftpFileEditor({
             <Loader2 className="h-4 w-4 animate-spin" />
             {t('common.loading')}
           </div>
-        ) : error && !original && !draft ? (
+        ) : !loaded && error ? (
           <div className="flex h-full min-h-[360px] items-center justify-center px-6 text-center text-sm text-danger">
             {error}
           </div>

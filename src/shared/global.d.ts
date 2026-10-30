@@ -167,6 +167,17 @@ declare global {
       mcpGetConfig?: () => Promise<IPCResult<McpConfigSnapshot>>;
       /** Web 部署专用：保存 MCP 服务端策略。 */
       mcpSaveConfig?: (policy: McpPolicyConfig) => Promise<IPCResult<McpConfigSaveResult>>;
+      /** Web 部署专用：FSA 流式下载把进度/终态回报给服务端，供重试与列表状态保持一致。 */
+      reportSftpDownloadStatus?: (
+        taskId: string,
+        update: {
+          attempt: number;
+          status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped';
+          transferredBytes?: number;
+          totalBytes?: number;
+          error?: { code?: string; message?: string; retryable?: boolean };
+        },
+      ) => Promise<IPCResult>;
     };
     /** Web 部署下由 installWebApi 设置，桌面端为 undefined。 */
     __AISSH_WEB__?: boolean;

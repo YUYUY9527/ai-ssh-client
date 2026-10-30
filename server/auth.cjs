@@ -77,23 +77,91 @@ function deriveSessionValue(hash) {
   return crypto.createHmac('sha256', hash).update('session').digest('base64url');
 }
 
+// 凭据文件的备份后缀：改密时把上一份可用凭据备份到 `<file>.bak`，供损坏时恢复。
+const CREDENTIAL_BACKUP_SUFFIX = '.bak';
+
 /**
- * 读取凭据文件；不存在或损坏时返回 null。
+ * 解析凭据 JSON 文本；结构不合法（缺 salt/hash）时也视为无效并返回 null。
  */
-function readCredentialFile(credentialPath) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(credentialPath, 'utf8'));
-    if (parsed && typeof parsed.salt === 'string' && typeof parsed.hash === 'string') {
-      return { salt: parsed.salt, hash: parsed.hash, isDefault: parsed.isDefault === true };
-    }
-  } catch {
-    // 文件不存在或格式错误，交由上层重新初始化。
+function parseCredential(raw) {
+  const parsed = JSON.parse(raw);
+  if (parsed && typeof parsed.salt === 'string' && typeof parsed.hash === 'string') {
+    return { salt: parsed.salt, hash: parsed.hash, isDefault: parsed.isDefault === true };
   }
   return null;
 }
 
 /**
- * 写入凭据文件（0600 权限，尽力而为）。
+ * 读取单个凭据文件，明确区分三种状态：
+ * - { status: 'ok', value }       解析成功；
+ * - { status: 'missing' }         文件不存在（唯一允许首次初始化的情形）；
+ * - { status: 'invalid', error }  文件存在但不可读/解析失败。
+ */
+function readCredentialAt(credentialPath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(credentialPath, 'utf8');
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return { status: 'missing' };
+    }
+    return { status: 'invalid', error };
+  }
+  try {
+    const value = parseCredential(raw);
+    if (value) {
+      return { status: 'ok', value };
+    }
+    return { status: 'invalid', error: new Error('凭据文件缺少 salt/hash 字段') };
+  } catch (error) {
+    return { status: 'invalid', error };
+  }
+}
+
+/**
+ * 读取凭据文件：主文件损坏时尝试 `.bak`；只有主文件与备份都不存在才允许首次初始化。
+ *
+ * 安全约束：主文件存在但损坏且无可用备份时**抛错拒绝启动**，绝不回退到默认密码——
+ * 否则攻击者只要截断/破坏凭据文件，就能把 Web 网关重置成 admin。
+ */
+function readCredentialFile(credentialPath) {
+  const primary = readCredentialAt(credentialPath);
+  if (primary.status === 'ok') {
+    return primary.value;
+  }
+
+  const backupPath = `${credentialPath}${CREDENTIAL_BACKUP_SUFFIX}`;
+  const backup = readCredentialAt(backupPath);
+  if (backup.status === 'ok') {
+    // 主文件不可用但备份可用：用它启动，并尽力把备份写回主文件。
+    try {
+      fs.writeFileSync(credentialPath, JSON.stringify(backup.value), { mode: 0o600 });
+    } catch {
+      // 写回失败不影响本次使用内存中的备份凭据。
+    }
+    console.warn(`[auth] 凭据文件不可用（${primary.status}），已从备份 ${backupPath} 恢复。`);
+    return backup.value;
+  }
+
+  if (primary.status === 'missing' && backup.status === 'missing') {
+    return null; // 首次启动：主文件与备份都不存在时才允许初始化默认密码
+  }
+
+  const reason = primary.status === 'invalid'
+    ? (primary.error && primary.error.message) || String(primary.error)
+    : `备份文件不可用（${backup.status}）`;
+  const error = new Error(
+    `凭据文件 ${credentialPath} 已损坏且无可用备份（${reason}）。`
+      + '为避免被重置为默认密码，已拒绝启动；请修复该文件，或删除它与 .bak 以重新初始化。',
+  );
+  error.code = 'credential-corrupt';
+  throw error;
+}
+
+/**
+ * 写入凭据文件（0600 权限，先写临时文件再原子 rename）。
+ * 覆盖前把当前可用凭据备份为 `.bak`（损坏文件不参与备份）。
+ * @returns {boolean} 是否成功持久化。调用方必须据此决定是否提交内存状态。
  */
 function writeCredentialFile(credentialPath, credential) {
   const payload = JSON.stringify({
@@ -101,11 +169,29 @@ function writeCredentialFile(credentialPath, credential) {
     hash: credential.hash,
     isDefault: credential.isDefault === true,
   });
+  const tmpPath = `${credentialPath}.tmp`;
   try {
     fs.mkdirSync(path.dirname(credentialPath), { recursive: true });
-    fs.writeFileSync(credentialPath, payload, { mode: 0o600 });
-  } catch {
-    // 无法持久化时仍在内存中保留凭据，仅本次进程有效。
+    try {
+      const currentRaw = fs.readFileSync(credentialPath, 'utf8');
+      if (parseCredential(currentRaw)) {
+        fs.writeFileSync(`${credentialPath}${CREDENTIAL_BACKUP_SUFFIX}`, currentRaw, { mode: 0o600 });
+      }
+    } catch {
+      // 无现有文件或不可读：无需备份。
+    }
+    fs.writeFileSync(tmpPath, payload, { mode: 0o600 });
+    fs.renameSync(tmpPath, credentialPath);
+    return true;
+  } catch (error) {
+    // 落盘失败必须让调用方知道（不能假装改密成功）。
+    try {
+      fs.rmSync(tmpPath, { force: true });
+    } catch {
+      // 忽略清理失败。
+    }
+    console.error(`[auth] 无法写入凭据文件 ${credentialPath}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
   }
 }
 
@@ -137,7 +223,11 @@ function loadCredential(dataDir) {
 
   const { salt, hash } = hashPassword(DEFAULT_PASSWORD);
   const credential = { salt, hash, isDefault: true };
-  writeCredentialFile(credentialPath, credential);
+  const persisted = writeCredentialFile(credentialPath, credential);
+  if (!persisted) {
+    // 首次初始化写盘失败时仍以内存默认密码启动；但重启后可能再次初始化，需提示运维。
+    console.warn('[auth] 默认凭据未能持久化，重启后可能需要重新初始化密码。');
+  }
   return { ...credential, source: 'generated', credentialPath };
 }
 
@@ -145,8 +235,13 @@ function loadCredential(dataDir) {
  * 创建鉴权中间件、登录/登出/改密处理器。
  * 未携带有效会话 Cookie 的请求会被拦截：API 返回 401，页面返回登录页。
  */
-function createAuth(dataDir) {
+function createAuth(dataDir, options = {}) {
   const credential = loadCredential(dataDir);
+  // 改密成功后的外部回调：供 Web 服务层撤销改密前建立的所有 WebSocket 连接。
+  // 旧 socket 在建立时只鉴权一次，改密后必须主动失效，否则被盗密码连接的攻击者仍可继续操作 SSH。
+  const onPasswordChanged = typeof options.onPasswordChanged === 'function'
+    ? options.onPasswordChanged
+    : null;
   // 可变状态：改密后原地更新，无需重启进程。
   let current = {
     salt: credential.salt,
@@ -157,12 +252,15 @@ function createAuth(dataDir) {
   let sessionValue = deriveSessionValue(current.hash);
   const loginFailures = new Map();
 
+  // 限流的客户端标识：只使用真实连接地址，绝不直接信任客户端自报的 X-Forwarded-For。
+  // 反向代理场景下由 Express 的 trust proxy（WEB_TRUSTED_PROXIES）决定 request.ip；
+  // 未声明可信代理时 request.ip 就是 socket 直连地址，伪造转发头无法绕过限流。
   function loginClientKey(request) {
-    const forwarded = request.headers?.['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.trim()) {
-      return forwarded.split(',')[0].trim().slice(0, 200);
-    }
-    return String(request.ip || request.socket?.remoteAddress || 'unknown');
+    const address = request.ip
+      || request.socket?.remoteAddress
+      || request.connection?.remoteAddress
+      || 'unknown';
+    return String(address).slice(0, 200);
   }
 
   function isLoginBlocked(request) {
@@ -329,13 +427,31 @@ function createAuth(dataDir) {
       return;
     }
     const { salt, hash } = hashPassword(newPassword);
-    current = { salt, hash, isDefault: newPassword === DEFAULT_PASSWORD };
-    writeCredentialFile(credential.credentialPath, current);
+    const next = { salt, hash, isDefault: newPassword === DEFAULT_PASSWORD };
+    // 先持久化：只有成功写盘才提交内存状态、刷新会话并撤销旧会话。
+    // 写盘失败时若仍返回成功，用户会误以为旧密码已失效（重启后旧密码仍可登录）。
+    if (!writeCredentialFile(credential.credentialPath, next)) {
+      response.status(500).json({
+        success: false,
+        error: 'Failed to persist new password',
+        code: 'CREDENTIAL_WRITE_FAILED',
+      });
+      return;
+    }
+    current = next;
     // 改密后令牌缓存里的哈希已失配，直接清空，避免残留条目占内存。
     mcpTokenCache.clear();
     // 刷新会话值：旧的其它会话失效，随即为当前请求重设 Cookie 以保持登录。
     sessionValue = deriveSessionValue(current.hash);
     setSessionCookie(request, response);
+    // 撤销改密前建立的所有 WebSocket 授权并关闭连接（旧 socket 不会因 Cookie 变化而失效）。
+    if (onPasswordChanged) {
+      try {
+        onPasswordChanged();
+      } catch {
+        // 撤销失败不应回滚已成功的改密，但也不能让异常冒泡成 500。
+      }
+    }
     response.json({ success: true });
   }
 

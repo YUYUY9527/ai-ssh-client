@@ -304,3 +304,59 @@ describe('encryptStore / decryptStore', () => {
     expect(JSON.stringify(encrypted)).not.toContain('plaintext-legacy');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 解密失败：必须保留原始密文，不能把整份配置写成 null
+// ---------------------------------------------------------------------------
+
+describe('decryptStore 解密失败时保留原始密文', () => {
+  it('用错误密钥读取不会把密文变 null，整份写回也不破坏原密文，换回正确密钥仍可恢复', () => {
+    const k1 = createSecretStore({ dataDir });
+    const original = {
+      connections: [
+        { id: 'c1', password: 'ssh-pw', privateKey: 'PRIVATE-KEY', passphrase: 'key-pass' },
+      ],
+      aiProviders: [{ id: 'p1', apiKey: 'sk-secret-key' }],
+    };
+    const encrypted = k1.encryptStore(original);
+    const cipherPassword = encrypted.connections[0].password;
+    const cipherPrivateKey = encrypted.connections[0].privateKey;
+    const cipherPassphrase = encrypted.connections[0].passphrase;
+    const cipherApiKey = encrypted.aiProviders[0].apiKey;
+    expect(isEncrypted(cipherPassword)).toBe(true);
+
+    const otherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-ssh-secret-wrongkey-'));
+    try {
+      const k2 = createSecretStore({ dataDir: otherDir });
+      const readWithWrongKey = k2.decryptStore(encrypted);
+      // 解不开时保留密文，而不是 null
+      expect(readWithWrongKey.connections[0].password).toBe(cipherPassword);
+      expect(readWithWrongKey.connections[0].privateKey).toBe(cipherPrivateKey);
+      expect(readWithWrongKey.connections[0].passphrase).toBe(cipherPassphrase);
+      expect(readWithWrongKey.aiProviders[0].apiKey).toBe(cipherApiKey);
+
+      // 模拟“主题/命令历史保存”导致的整份重写：密文必须原样保留
+      const rewritten = k2.encryptStore(readWithWrongKey);
+      expect(rewritten.connections[0].password).toBe(cipherPassword);
+      expect(rewritten.connections[0].privateKey).toBe(cipherPrivateKey);
+      expect(rewritten.connections[0].passphrase).toBe(cipherPassphrase);
+      expect(rewritten.aiProviders[0].apiKey).toBe(cipherApiKey);
+
+      // 换回正确密钥后仍能恢复明文
+      const recovered = k1.decryptStore(rewritten);
+      expect(recovered.connections[0].password).toBe('ssh-pw');
+      expect(recovered.connections[0].privateKey).toBe('PRIVATE-KEY');
+      expect(recovered.connections[0].passphrase).toBe('key-pass');
+      expect(recovered.aiProviders[0].apiKey).toBe('sk-secret-key');
+    } finally {
+      fs.rmSync(otherDir, { recursive: true, force: true });
+    }
+  });
+
+  it('单值 decrypt 对篡改密文仍返回 null（契约不变）', () => {
+    const store = createSecretStore({ dataDir });
+    const cipher = store.encrypt('secret-value') as string;
+    const tampered = cipher.slice(0, -2) + 'xx';
+    expect(store.decrypt(tampered)).toBeNull();
+  });
+});

@@ -63,6 +63,9 @@ pub struct AgentService {
 struct AgentTaskHandle {
     /// 取消信号发送器
     cancel: oneshot::Sender<()>,
+    /// 产生该句柄的 task_id：注销/发事件时用它做身份校验，
+    /// 避免旧监听器退出时把**新监听器**的句柄删掉、或向已被替换的连接继续发事件。
+    task_id: String,
 }
 
 /// 待执行命令句柄 - 用于取消命令执行
@@ -118,10 +121,17 @@ impl AgentService {
         self.tasks
             .lock()
             .map_err(|_| app_error("Agent 状态锁已损坏"))?
-            .insert(connection_id.clone(), AgentTaskHandle { cancel: cancel_tx });
+            .insert(
+                connection_id.clone(),
+                AgentTaskHandle {
+                    cancel: cancel_tx,
+                    task_id: task_id.clone(),
+                },
+            );
 
         let tasks = Arc::clone(&self.tasks);
         let task_connection_id = connection_id.clone();
+        let handle_task_id = task_id.clone();
         tauri::async_runtime::spawn(async move {
             let mut stripper = SentinelStripper::default();
             loop {
@@ -132,6 +142,11 @@ impl AgentService {
                         };
                         let clean = stripper.feed(&data);
                         if !clean.is_empty() {
+                            // Stop as soon as this listener has been replaced: a stale
+                            // listener must not emit on behalf of the new one.
+                            if !task_is_current(&tasks, &task_connection_id, &handle_task_id) {
+                                break;
+                            }
                             let _ = app_handle.emit(
                                 "agent-terminal-output",
                                 json!({
@@ -149,7 +164,7 @@ impl AgentService {
             }
 
             let tail = stripper.flush();
-            if !tail.is_empty() {
+            if !tail.is_empty() && task_is_current(&tasks, &task_connection_id, &handle_task_id) {
                 let _ = app_handle.emit(
                     "agent-terminal-output",
                     json!({
@@ -161,7 +176,7 @@ impl AgentService {
             }
 
             if let Ok(mut guard) = tasks.lock() {
-                guard.remove(&task_connection_id);
+                remove_task_if_current(&mut guard, &task_connection_id, &handle_task_id);
             }
         });
 
@@ -380,6 +395,42 @@ impl Default for AgentService {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 判断当前登记的监听器是否仍属于 `task_id`。
+fn task_is_current(
+    tasks: &Arc<Mutex<HashMap<String, AgentTaskHandle>>>,
+    connection_id: &str,
+    task_id: &str,
+) -> bool {
+    tasks
+        .lock()
+        .map(|guard| {
+            guard
+                .get(connection_id)
+                .map(|handle| handle.task_id == task_id)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+/// 仅当句柄仍属于 `task_id` 时才删除，返回是否真正删除。
+///
+/// 历史缺陷：旧监听器退出时无条件 `guard.remove(connection_id)`，会把「重连后新建的
+/// 监听器」句柄删掉，导致新监听器再也无法被取消。现在按 task_id 做身份校验。
+fn remove_task_if_current(
+    tasks: &mut HashMap<String, AgentTaskHandle>,
+    connection_id: &str,
+    task_id: &str,
+) -> bool {
+    let owned_by_caller = tasks
+        .get(connection_id)
+        .map(|handle| handle.task_id == task_id)
+        .unwrap_or(false);
+    if owned_by_caller {
+        tasks.remove(connection_id);
+    }
+    owned_by_caller
 }
 
 /// 检查输出缓冲区末尾是否包含 Shell 提示符
@@ -946,5 +997,31 @@ mod tests {
         trim_exec_buffer(&mut buffer);
 
         assert!(buffer.ends_with("__AGENT_DONE_x__:1\n"));
+    }
+
+    #[test]
+    fn remove_task_if_current_only_removes_its_own_handle() {
+        let mut tasks: HashMap<String, AgentTaskHandle> = HashMap::new();
+        let (first_tx, _first_rx) = oneshot::channel();
+        let (second_tx, _second_rx) = oneshot::channel();
+
+        tasks.insert(
+            "c1".to_string(),
+            AgentTaskHandle { cancel: first_tx, task_id: "task-a".to_string() },
+        );
+        // 重连：新监听器顶替旧监听器的句柄
+        let superseded = tasks.insert(
+            "c1".to_string(),
+            AgentTaskHandle { cancel: second_tx, task_id: "task-b".to_string() },
+        );
+        drop(superseded);
+
+        // 旧监听器（task-a）晚退出时不得删掉新监听器（task-b）
+        assert!(!remove_task_if_current(&mut tasks, "c1", "task-a"));
+        assert!(tasks.contains_key("c1"));
+
+        // 句柄的主人退出时才真正移除
+        assert!(remove_task_if_current(&mut tasks, "c1", "task-b"));
+        assert!(!tasks.contains_key("c1"));
     }
 }

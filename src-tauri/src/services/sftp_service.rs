@@ -16,9 +16,10 @@ use tokio::sync::Semaphore;
 use crate::error::{app_error, AppResult};
 use crate::models::sftp::{
     SftpBatchDeleteResult, SftpCommitGuarantee, SftpConflictPolicy, SftpDeleteItemResult,
-    SftpListTransfersResult, SftpResolveConflictRequest, SftpStartDownloadRequest,
-    SftpStartTransferResult, SftpStartUploadRequest, SftpTransferDirection, SftpTransferError,
-    SftpTransferStatus, SftpTransferTaskRequest, SftpTransferTaskSnapshot,
+    SftpListTransfersResult, SftpLocalFileRef, SftpResolveConflictRequest,
+    SftpStartDownloadRequest, SftpStartTransferResult, SftpStartUploadRequest,
+    SftpTransferDirection, SftpTransferError, SftpTransferStatus, SftpTransferTaskRequest,
+    SftpTransferTaskSnapshot,
 };
 use crate::models::ssh::{SftpFileInfo, SshConnection};
 use crate::services::ssh_service::{
@@ -118,43 +119,16 @@ impl SftpService {
 
         let batch_id = uuid::Uuid::new_v4().to_string();
         let policy = request.conflict_policy.unwrap_or(SftpConflictPolicy::Ask);
-        let mut snapshots = Vec::new();
-        for file in request.files {
-            let local_path = file
-                .path
-                .ok_or_else(|| app_error("Desktop upload requires a local path"))?;
-            let metadata = std::fs::metadata(&local_path)?;
-            if !metadata.is_file() {
-                return Err(app_error("Selected upload source is not a file"));
-            }
-            let name = Path::new(&local_path)
-                .file_name()
-                .and_then(|value| value.to_str())
-                .ok_or_else(|| app_error("Upload file name is invalid"))?
-                .to_string();
-            let remote_path = join_remote_path(&request.remote_directory, &name);
-            let snapshot = new_snapshot(
-                request.connection_id.clone(),
-                Some(batch_id.clone()),
-                SftpTransferDirection::Upload,
-                name,
-                Some(local_path.clone()),
-                Some(remote_path),
-                Some(metadata.len()),
-                policy.clone(),
-            );
-            self.insert_task(
-                snapshot.clone(),
-                TransferSource::Upload {
-                    local_path,
-                    remote_directory: request.remote_directory.clone(),
-                },
-            )?;
-            self.emit_snapshot(&app_handle, &snapshot);
-            self.spawn_transfer(app_handle.clone(), snapshot.task_id.clone());
-            snapshots.push(snapshot);
-        }
-        Ok(SftpStartTransferResult { tasks: snapshots })
+        // 阶段 1：只校验并规划，不插入任务、不发射、不 spawn。
+        let plan = plan_upload_batch(
+            &request.connection_id,
+            &request.files,
+            &request.remote_directory,
+            &batch_id,
+            &policy,
+        )?;
+        // 阶段 2：全部插入后再统一发射、启动。
+        self.commit_batch(app_handle, plan)
     }
 
     /// Creates download tasks and starts each selected remote file independently.
@@ -176,38 +150,35 @@ impl SftpService {
 
         let batch_id = uuid::Uuid::new_v4().to_string();
         let policy = request.conflict_policy.unwrap_or(SftpConflictPolicy::Ask);
-        let mut snapshots = Vec::new();
-        for remote_path in request.remote_paths {
-            validate_remote_path(&remote_path)?;
-            let name = Path::new(&remote_path)
-                .file_name()
-                .and_then(|value| value.to_str())
-                .ok_or_else(|| app_error("Remote file name is invalid"))?
-                .to_string();
-            let local_path = Path::new(&destination)
-                .join(&name)
-                .to_string_lossy()
-                .to_string();
-            let snapshot = new_snapshot(
-                request.connection_id.clone(),
-                Some(batch_id.clone()),
-                SftpTransferDirection::Download,
-                name,
-                Some(local_path),
-                Some(remote_path.clone()),
-                None,
-                policy.clone(),
-            );
-            self.insert_task(
-                snapshot.clone(),
-                TransferSource::Download {
-                    remote_path,
-                    destination: destination.clone(),
-                },
-            )?;
-            self.emit_snapshot(&app_handle, &snapshot);
+        let plan = plan_download_batch(
+            &request.connection_id,
+            &request.remote_paths,
+            &destination,
+            &batch_id,
+            &policy,
+        )?;
+        self.commit_batch(app_handle, plan)
+    }
+
+    /// 阶段 2：先插入全部计划任务；任一插入失败则回滚已插入项并在此之前不启动任何任务。
+    fn commit_batch(
+        &self,
+        app_handle: AppHandle,
+        plan: Vec<(SftpTransferTaskSnapshot, TransferSource)>,
+    ) -> AppResult<SftpStartTransferResult> {
+        let mut snapshots: Vec<SftpTransferTaskSnapshot> = Vec::with_capacity(plan.len());
+        for (snapshot, source) in &plan {
+            if let Err(error) = self.insert_task(snapshot.clone(), source.clone()) {
+                for inserted in &snapshots {
+                    self.remove_task(&inserted.task_id);
+                }
+                return Err(error);
+            }
+            snapshots.push(snapshot.clone());
+        }
+        for snapshot in &snapshots {
+            self.emit_snapshot(&app_handle, snapshot);
             self.spawn_transfer(app_handle.clone(), snapshot.task_id.clone());
-            snapshots.push(snapshot);
         }
         Ok(SftpStartTransferResult { tasks: snapshots })
     }
@@ -218,29 +189,34 @@ impl SftpService {
         app_handle: &AppHandle,
         request: SftpTransferTaskRequest,
     ) -> AppResult<()> {
-        let current = self.task(&request.task_id)?;
-        if current.snapshot.status == SftpTransferStatus::Committing {
-            return Err(app_error("Transfer commit is in progress"));
-        }
-        let snapshot = self.update_task(&request.task_id, |record| {
-            if is_terminal(&record.snapshot.status) {
-                return;
-            }
-            record.canceled.store(true, Ordering::Release);
-            if matches!(
-                record.snapshot.status,
-                SftpTransferStatus::Queued
-                    | SftpTransferStatus::Checking
-                    | SftpTransferStatus::WaitingConflict
-            ) {
-                record.snapshot.status = SftpTransferStatus::Canceled;
-                record.snapshot.completed_at = Some(now_millis());
-            } else {
-                record.snapshot.status = SftpTransferStatus::Canceling;
-            }
-        })?;
+        let snapshot = self.cancel_task(&request.task_id)?;
         self.emit_snapshot(app_handle, &snapshot);
         Ok(())
+    }
+
+    /// 单次持锁完成取消判定，避免与 commit 的读-改-写竞态。
+    fn cancel_task(&self, task_id: &str) -> AppResult<SftpTransferTaskSnapshot> {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| app_error("SFTP task registry lock is poisoned"))?;
+        let record = tasks
+            .get_mut(task_id)
+            .ok_or_else(|| app_error("SFTP task not found"))?;
+        if record.snapshot.status == SftpTransferStatus::Committing {
+            return Err(app_error("Transfer commit is in progress"));
+        }
+        if is_terminal(&record.snapshot.status) {
+            return Ok(record.snapshot.clone());
+        }
+        record.canceled.store(true, Ordering::Release);
+        record.snapshot.status = cancel_status(&record.snapshot.status);
+        if record.snapshot.status == SftpTransferStatus::Canceled {
+            record.snapshot.completed_at = Some(now_millis());
+        }
+        record.snapshot.sequence += 1;
+        record.snapshot.updated_at = now_millis();
+        Ok(record.snapshot.clone())
     }
 
     /// Requeues a terminal task using the same stable task ID and a new attempt number.
@@ -798,6 +774,13 @@ impl SftpService {
         Ok(())
     }
 
+    /// Best-effort removal used to roll back a partially inserted batch.
+    fn remove_task(&self, task_id: &str) {
+        if let Ok(mut tasks) = self.tasks.lock() {
+            tasks.remove(task_id);
+        }
+    }
+
     fn spawn_transfer(&self, app_handle: AppHandle, task_id: String) {
         let service = self.clone();
         let attempt = match service.task(&task_id) {
@@ -1003,7 +986,13 @@ impl SftpService {
         }
         remote_file.flush().await?;
         remote_file.shutdown().await?;
-        self.transition(app_handle, task_id, SftpTransferStatus::Committing)?;
+        // 提交前的最后一刻在锁内做一次性决定：若取消在 shutdown 期间落地则放弃 rename。
+        if !self.begin_commit(app_handle, task_id)? {
+            let _ = sftp.remove_file(&temp_path).await;
+            let _ = sftp.remove_file(&meta_path).await;
+            self.complete_canceled(app_handle, task_id)?;
+            return Ok(());
+        }
         sftp.rename(&temp_path, &remote_path).await?;
         let _ = sftp.remove_file(&meta_path).await;
         let guarantee = if matches!(
@@ -1132,10 +1121,23 @@ impl SftpService {
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map(|duration| duration.as_millis() as u64)
             .unwrap_or(0);
+        // 记录源文件首尾指纹；计算失败视为不可校验（空串），续传时绝不盲目拼接。
+        let (source_head, source_tail) =
+            match hash_remote_file_edges(&sftp_session.sftp, remote_path, total).await {
+                Ok(edges) => edges,
+                Err(_) => (String::new(), String::new()),
+            };
         let temp_path = temp_local_path(&local_path, task_id);
         let meta_path = local_meta_path(&temp_path);
-        let mut offset =
-            resolve_local_resume_offset(&temp_path, &meta_path, task_id, total, remote_mtime_ms)?;
+        let mut offset = resolve_local_resume_offset(
+            &temp_path,
+            &meta_path,
+            task_id,
+            total,
+            remote_mtime_ms,
+            &source_head,
+            &source_tail,
+        )?;
 
         let mut local_file = if offset > 0 {
             tokio::fs::OpenOptions::new()
@@ -1175,8 +1177,8 @@ impl SftpService {
                         task_id: task_id.to_string(),
                         source_size: total,
                         source_mtime_ms: remote_mtime_ms,
-                        source_head: String::new(),
-                        source_tail: String::new(),
+                        source_head: source_head.clone(),
+                        source_tail: source_tail.clone(),
                         total_bytes: total,
                         confirmed_offset: transferred,
                         destination_path: local_path.to_string_lossy().to_string(),
@@ -1201,8 +1203,8 @@ impl SftpService {
                         task_id: task_id.to_string(),
                         source_size: total,
                         source_mtime_ms: remote_mtime_ms,
-                        source_head: String::new(),
-                        source_tail: String::new(),
+                        source_head: source_head.clone(),
+                        source_tail: source_tail.clone(),
                         total_bytes: total,
                         confirmed_offset: transferred,
                         destination_path: local_path.to_string_lossy().to_string(),
@@ -1214,7 +1216,24 @@ impl SftpService {
         }
         local_file.flush().await?;
         drop(local_file);
-        self.transition(app_handle, task_id, SftpTransferStatus::Committing)?;
+        // 提交前一次性判定：若期间被取消，保留 temp + 可信 checkpoint 供续传，不覆盖目标。
+        if !self.begin_commit(app_handle, task_id)? {
+            let _ = write_local_checkpoint(
+                &meta_path,
+                &TransferCheckpoint {
+                    task_id: task_id.to_string(),
+                    source_size: total,
+                    source_mtime_ms: remote_mtime_ms,
+                    source_head: source_head.clone(),
+                    source_tail: source_tail.clone(),
+                    total_bytes: total,
+                    confirmed_offset: transferred,
+                    destination_path: local_path.to_string_lossy().to_string(),
+                },
+            );
+            self.complete_canceled(app_handle, task_id)?;
+            return Ok(());
+        }
         commit_local_temp(&temp_path, &local_path, task_id)?;
         let _ = std::fs::remove_file(&meta_path);
         self.update_task(task_id, |task| {
@@ -1369,6 +1388,31 @@ impl SftpService {
         let snapshot = self.update_task(task_id, |task| task.snapshot.status = status)?;
         self.emit_snapshot(app_handle, &snapshot);
         self.task(task_id)
+    }
+
+    /// 单次持锁决定是否进入提交阶段；被取消或已终态则拒绝且不改状态。
+    fn begin_commit(&self, app_handle: &AppHandle, task_id: &str) -> AppResult<bool> {
+        let snapshot = {
+            let mut tasks = self
+                .tasks
+                .lock()
+                .map_err(|_| app_error("SFTP task registry lock is poisoned"))?;
+            let record = tasks
+                .get_mut(task_id)
+                .ok_or_else(|| app_error("SFTP task not found"))?;
+            if can_begin_commit(&record.snapshot.status, record.canceled.load(Ordering::Acquire)) {
+                record.snapshot.status = SftpTransferStatus::Committing;
+                record.snapshot.sequence += 1;
+                record.snapshot.updated_at = now_millis();
+                Some(record.snapshot.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(snapshot) = &snapshot {
+            self.emit_snapshot(app_handle, snapshot);
+        }
+        Ok(snapshot.is_some())
     }
 
     fn progress(
@@ -1547,6 +1591,92 @@ fn new_snapshot(
     }
 }
 
+/// 阶段 1 规划：校验并构建上传计划，不插入任务、不发射、不 spawn。
+fn plan_upload_batch(
+    connection_id: &str,
+    files: &[SftpLocalFileRef],
+    remote_directory: &str,
+    batch_id: &str,
+    policy: &SftpConflictPolicy,
+) -> AppResult<Vec<(SftpTransferTaskSnapshot, TransferSource)>> {
+    let mut plan = Vec::with_capacity(files.len());
+    for file in files {
+        let local_path = file
+            .path
+            .clone()
+            .ok_or_else(|| app_error("Desktop upload requires a local path"))?;
+        let metadata = std::fs::metadata(&local_path)?;
+        if !metadata.is_file() {
+            return Err(app_error("Selected upload source is not a file"));
+        }
+        let name = Path::new(&local_path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| app_error("Upload file name is invalid"))?
+            .to_string();
+        let remote_path = join_remote_path(remote_directory, &name);
+        let snapshot = new_snapshot(
+            connection_id.to_string(),
+            Some(batch_id.to_string()),
+            SftpTransferDirection::Upload,
+            name,
+            Some(local_path.clone()),
+            Some(remote_path),
+            Some(metadata.len()),
+            policy.clone(),
+        );
+        plan.push((
+            snapshot,
+            TransferSource::Upload {
+                local_path,
+                remote_directory: remote_directory.to_string(),
+            },
+        ));
+    }
+    Ok(plan)
+}
+
+/// 阶段 1 规划：校验并构建下载计划，不插入任务、不发射、不 spawn。
+fn plan_download_batch(
+    connection_id: &str,
+    remote_paths: &[String],
+    destination: &str,
+    batch_id: &str,
+    policy: &SftpConflictPolicy,
+) -> AppResult<Vec<(SftpTransferTaskSnapshot, TransferSource)>> {
+    let mut plan = Vec::with_capacity(remote_paths.len());
+    for remote_path in remote_paths {
+        validate_remote_path(remote_path)?;
+        let name = Path::new(remote_path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| app_error("Remote file name is invalid"))?
+            .to_string();
+        let local_path = Path::new(destination)
+            .join(&name)
+            .to_string_lossy()
+            .to_string();
+        let snapshot = new_snapshot(
+            connection_id.to_string(),
+            Some(batch_id.to_string()),
+            SftpTransferDirection::Download,
+            name,
+            Some(local_path),
+            Some(remote_path.clone()),
+            None,
+            policy.clone(),
+        );
+        plan.push((
+            snapshot,
+            TransferSource::Download {
+                remote_path: remote_path.clone(),
+                destination: destination.to_string(),
+            },
+        ));
+    }
+    Ok(plan)
+}
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1564,6 +1694,21 @@ fn is_terminal(status: &SftpTransferStatus) -> bool {
             | SftpTransferStatus::Failed
             | SftpTransferStatus::HandedOff
     )
+}
+
+/// 取消请求落到各状态时的目标状态：未开始传输的直接置为 Canceled，其余进入 Canceling。
+fn cancel_status(status: &SftpTransferStatus) -> SftpTransferStatus {
+    match status {
+        SftpTransferStatus::Queued
+        | SftpTransferStatus::Checking
+        | SftpTransferStatus::WaitingConflict => SftpTransferStatus::Canceled,
+        _ => SftpTransferStatus::Canceling,
+    }
+}
+
+/// 是否允许进入提交阶段：已请求取消、正在取消或已终态都不允许。
+fn can_begin_commit(status: &SftpTransferStatus, canceled: bool) -> bool {
+    !canceled && !matches!(status, SftpTransferStatus::Canceling) && !is_terminal(status)
 }
 
 fn validate_remote_path(path: &str) -> AppResult<()> {
@@ -1647,6 +1792,28 @@ fn hex_sha256(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// 计算远端文件首尾最多 64KiB 的 SHA-256 十六进制指纹（用于下载续传校验）。
+async fn hash_remote_file_edges(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    size: u64,
+) -> AppResult<(String, String)> {
+    const EDGE: u64 = 64 * 1024;
+    let mut file = sftp.open(path).await?;
+    let head_len = size.min(EDGE) as usize;
+    let mut head = vec![0_u8; head_len];
+    file.read_exact(&mut head).await?;
+    let tail_len = size.min(EDGE) as usize;
+    if size > EDGE {
+        file.seek(SeekFrom::Start(size - EDGE)).await?;
+    } else {
+        file.seek(SeekFrom::Start(0)).await?;
+    }
+    let mut tail = vec![0_u8; tail_len];
+    file.read_exact(&mut tail).await?;
+    Ok((hex_sha256(&head), hex_sha256(&tail)))
+}
+
 fn write_local_checkpoint(path: &Path, checkpoint: &TransferCheckpoint) -> AppResult<()> {
     let temp = PathBuf::from(format!("{}.tmp", path.to_string_lossy()));
     let bytes = serde_json::to_vec(checkpoint).map_err(|error| app_error(error.to_string()))?;
@@ -1666,6 +1833,8 @@ fn resolve_local_resume_offset(
     task_id: &str,
     source_size: u64,
     source_mtime_ms: u64,
+    source_head: &str,
+    source_tail: &str,
 ) -> AppResult<u64> {
     let part_size = std::fs::metadata(temp_path).map(|meta| meta.len()).unwrap_or(0);
     let Some(checkpoint) = read_local_checkpoint(meta_path) else {
@@ -1683,6 +1852,27 @@ fn resolve_local_resume_offset(
         return Err(app_error(
             "SOURCE_CHANGED: source file changed; restart required",
         ));
+    }
+    // 源指纹校验：没有可信指纹时不冒险拼接（避免续传拼接两个源版本）。
+    if !checkpoint.source_head.is_empty() && !checkpoint.source_tail.is_empty() {
+        if source_head.is_empty() || source_tail.is_empty() {
+            // 当前无法计算指纹 => 不可校验，重启。
+            let _ = std::fs::remove_file(temp_path);
+            let _ = std::fs::remove_file(meta_path);
+            return Ok(0);
+        }
+        if checkpoint.source_head != source_head || checkpoint.source_tail != source_tail {
+            let _ = std::fs::remove_file(temp_path);
+            let _ = std::fs::remove_file(meta_path);
+            return Err(app_error(
+                "SOURCE_CHANGED: source file changed; restart required",
+            ));
+        }
+    } else {
+        // 旧版 checkpoint 无指纹 => 不可校验，重启。
+        let _ = std::fs::remove_file(temp_path);
+        let _ = std::fs::remove_file(meta_path);
+        return Ok(0);
     }
     let trusted = checkpoint
         .confirmed_offset
@@ -1827,10 +2017,14 @@ fn collapse_descendants(mut paths: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        backup_local_path, collapse_descendants, commit_local_temp, join_remote_path,
-        next_remote_name, suggested_conflict_path, temp_local_path, temp_remote_path,
+        backup_local_path, cancel_status, can_begin_commit, collapse_descendants, commit_local_temp,
+        join_remote_path, next_remote_name, plan_download_batch, plan_upload_batch,
+        resolve_local_resume_offset, suggested_conflict_path, temp_local_path, temp_remote_path,
+        write_local_checkpoint, TransferCheckpoint,
     };
-    use crate::models::sftp::SftpTransferDirection;
+    use crate::models::sftp::{
+        SftpConflictPolicy, SftpLocalFileRef, SftpTransferDirection, SftpTransferStatus,
+    };
     use std::fs;
     use std::path::Path;
 
@@ -1904,5 +2098,204 @@ mod tests {
         assert!(!temporary.exists());
         assert!(!backup_local_path(&destination, "task").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn temp_root(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "ai-ssh-client-sftp-{tag}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn checkpoint(
+        source_head: &str,
+        source_tail: &str,
+        confirmed_offset: u64,
+    ) -> TransferCheckpoint {
+        TransferCheckpoint {
+            task_id: "task-1".to_string(),
+            source_size: 100,
+            source_mtime_ms: 42,
+            source_head: source_head.to_string(),
+            source_tail: source_tail.to_string(),
+            total_bytes: 100,
+            confirmed_offset,
+            destination_path: "dest".to_string(),
+        }
+    }
+
+    #[test]
+    fn cancel_status_targets_pre_start_states_to_canceled() {
+        assert_eq!(
+            cancel_status(&SftpTransferStatus::Queued),
+            SftpTransferStatus::Canceled
+        );
+        assert_eq!(
+            cancel_status(&SftpTransferStatus::Checking),
+            SftpTransferStatus::Canceled
+        );
+        assert_eq!(
+            cancel_status(&SftpTransferStatus::WaitingConflict),
+            SftpTransferStatus::Canceled
+        );
+        assert_eq!(
+            cancel_status(&SftpTransferStatus::Transferring),
+            SftpTransferStatus::Canceling
+        );
+        assert_eq!(
+            cancel_status(&SftpTransferStatus::Committing),
+            SftpTransferStatus::Canceling
+        );
+    }
+
+    #[test]
+    fn begin_commit_is_refused_when_canceled_or_already_finishing() {
+        assert!(can_begin_commit(&SftpTransferStatus::Transferring, false));
+        assert!(!can_begin_commit(&SftpTransferStatus::Transferring, true));
+        assert!(!can_begin_commit(&SftpTransferStatus::Canceling, false));
+        assert!(!can_begin_commit(&SftpTransferStatus::Canceled, false));
+        assert!(!can_begin_commit(&SftpTransferStatus::Completed, false));
+        assert!(!can_begin_commit(&SftpTransferStatus::Failed, false));
+    }
+
+    #[test]
+    fn resumes_local_offset_when_fingerprint_and_meta_match() {
+        let root = temp_root("resume-match");
+        let temp = root.join(".report.txt.task-1.part");
+        let meta = root.join(".report.txt.task-1.part.meta");
+        fs::write(&temp, vec![7_u8; 100]).unwrap();
+        write_local_checkpoint(&meta, &checkpoint("head-a", "tail-a", 100)).unwrap();
+
+        let offset =
+            resolve_local_resume_offset(&temp, &meta, "task-1", 100, 42, "head-a", "tail-a")
+                .unwrap();
+
+        assert_eq!(offset, 100);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_local_resume_when_source_fingerprint_differs() {
+        let root = temp_root("resume-mismatch");
+        let temp = root.join(".report.txt.task-1.part");
+        let meta = root.join(".report.txt.task-1.part.meta");
+        fs::write(&temp, vec![7_u8; 100]).unwrap();
+        write_local_checkpoint(&meta, &checkpoint("head-a", "tail-a", 50)).unwrap();
+
+        let error =
+            resolve_local_resume_offset(&temp, &meta, "task-1", 100, 42, "head-b", "tail-a")
+                .unwrap_err();
+
+        assert!(error.to_string().contains("SOURCE_CHANGED"));
+        assert!(!temp.exists());
+        assert!(!meta.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn restarts_local_resume_when_checkpoint_has_no_fingerprint() {
+        let root = temp_root("resume-legacy");
+        let temp = root.join(".report.txt.task-1.part");
+        let meta = root.join(".report.txt.task-1.part.meta");
+        fs::write(&temp, vec![7_u8; 100]).unwrap();
+        write_local_checkpoint(&meta, &checkpoint("", "", 50)).unwrap();
+
+        let offset =
+            resolve_local_resume_offset(&temp, &meta, "task-1", 100, 42, "head-a", "tail-a")
+                .unwrap();
+
+        assert_eq!(offset, 0);
+        assert!(!temp.exists());
+        assert!(!meta.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn local_file_ref(name: &str, path: Option<std::path::PathBuf>) -> SftpLocalFileRef {
+        SftpLocalFileRef {
+            name: name.to_string(),
+            path: path.map(|value| value.to_string_lossy().to_string()),
+            r#ref: None,
+            size: None,
+            last_modified: None,
+        }
+    }
+
+    #[test]
+    fn plans_upload_batch_before_inserting_any_task() {
+        let root = temp_root("plan-upload");
+        let a = root.join("a.txt");
+        let b = root.join("b.txt");
+        fs::write(&a, b"aaaa").unwrap();
+        fs::write(&b, b"bbbb").unwrap();
+
+        let valid = vec![
+            local_file_ref("a.txt", Some(a.clone())),
+            local_file_ref("b.txt", Some(b.clone())),
+        ];
+        let plan =
+            plan_upload_batch("conn", &valid, "/srv", "batch-1", &SftpConflictPolicy::Ask).unwrap();
+        assert_eq!(plan.len(), 2);
+        assert!(plan
+            .iter()
+            .all(|(snapshot, _)| snapshot.batch_id.as_deref() == Some("batch-1")));
+        assert!(plan
+            .iter()
+            .all(|(snapshot, _)| matches!(snapshot.direction, SftpTransferDirection::Upload)));
+
+        // 后一项缺少本地路径 => 整个批次在规划阶段就失败，且不产生任何计划。
+        let invalid = vec![
+            local_file_ref("a.txt", Some(a.clone())),
+            local_file_ref("missing.txt", None),
+        ];
+        let error =
+            plan_upload_batch("conn", &invalid, "/srv", "batch-1", &SftpConflictPolicy::Ask)
+                .err()
+                .expect("expected planning error");
+        assert!(error.to_string().contains("local path"));
+
+        // 后一项指向不存在的文件 => 同样在规划阶段失败。
+        let missing = vec![
+            local_file_ref("a.txt", Some(a)),
+            local_file_ref("ghost.txt", Some(root.join("ghost.txt"))),
+        ];
+        assert!(
+            plan_upload_batch("conn", &missing, "/srv", "batch-1", &SftpConflictPolicy::Ask)
+                .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn plans_download_batch_one_entry_per_remote_path() {
+        let paths = vec!["/srv/a.txt".to_string(), "/srv/b.txt".to_string()];
+        let plan = plan_download_batch(
+            "conn",
+            &paths,
+            "C:/Downloads",
+            "batch-2",
+            &SftpConflictPolicy::Overwrite,
+        )
+        .unwrap();
+        assert_eq!(plan.len(), 2);
+        assert_eq!(plan[1].0.remote_path.as_deref(), Some("/srv/b.txt"));
+        assert!(plan[1]
+            .0
+            .local_path
+            .as_deref()
+            .unwrap()
+            .ends_with("b.txt"));
+
+        // 非法远端路径 => 规划失败，无计划。
+        let bad = vec!["/srv/a.txt".to_string(), "/".to_string()];
+        assert!(plan_download_batch(
+            "conn",
+            &bad,
+            "C:/Downloads",
+            "batch-2",
+            &SftpConflictPolicy::Ask
+        )
+        .is_err());
     }
 }
