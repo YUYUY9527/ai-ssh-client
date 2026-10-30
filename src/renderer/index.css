@@ -1374,6 +1374,54 @@
     transform: translateX(1.25rem);
   }
 
+  /* 设置里的滑块：跟随青绿主题，替换浏览器默认蓝色 */
+  .settings-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 1.25rem;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .settings-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--border-color) 68%, var(--bg-hover));
+  }
+
+  .settings-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -6px;
+    height: 16px;
+    width: 16px;
+    border-radius: 9999px;
+    background: var(--accent-primary);
+    border: 2px solid color-mix(in srgb, var(--bg-secondary) 92%, #ffffff);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 16%, transparent);
+    transition: box-shadow var(--duration-chrome) var(--ease-chrome);
+  }
+
+  .settings-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  }
+
+  .settings-range::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--border-color) 68%, var(--bg-hover));
+  }
+
+  .settings-range::-moz-range-thumb {
+    height: 16px;
+    width: 16px;
+    border-radius: 9999px;
+    background: var(--accent-primary);
+    border: 2px solid color-mix(in srgb, var(--bg-secondary) 92%, #ffffff);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 16%, transparent);
+  }
+
   .connection-list-row {
     @apply mx-2 my-1 flex items-center border px-2 py-2 transition-colors;
     border-radius: var(--radius-sm);
@@ -1419,6 +1467,17 @@
   .sftp-sidebar-resizer-active::after {
     background: color-mix(in srgb, var(--accent-primary) 70%, transparent);
     width: 3px;
+  }
+
+  /* 文件类型图标：容器定尺，内部 Material 图标 SVG 自适应填满 */
+  .file-type-icon {
+    @apply inline-flex h-5 w-5 shrink-0 items-center justify-center;
+  }
+
+  .file-type-icon > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .modal-backdrop {
@@ -1859,4 +1918,39 @@
 /* Text selection */
 ::selection {
   background: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+}
+
+/* CodeMirror 编辑器滚动条：沿用全站 scrollbar token，替换系统默认样式。
+   只使用 ::-webkit-scrollbar（Tauri/WebView2 与 Chrome 均基于 Chromium），
+   避免同时设置标准 scrollbar-* 后走系统细滚动条而残留上下箭头。 */
+.cm-editor .cm-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  min-height: 36px;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-corner {
+  background: transparent;
 }

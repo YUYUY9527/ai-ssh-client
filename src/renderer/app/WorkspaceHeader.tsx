@@ -3,7 +3,7 @@ import type { DragEvent, RefObject } from 'react';
 import {
   Download,
   Edit3,
-  FolderUp,
+  Folder,
   GripVertical,
   Monitor,
   Moon,
@@ -325,10 +325,10 @@ export function WorkspaceHeader({
           <button
             onClick={onToggleSftpSidebar}
             className={`toolbar-button ${isSftpSidebarOpen ? 'toolbar-button-active' : ''}`}
-            title={translate('fileTransfer.transfer')}
+            title={translate('fileTransfer.manage')}
           >
-            <FolderUp className="w-4 h-4" />
-            {translate('fileTransfer.transfer')}
+            <Folder className="w-4 h-4" />
+            {translate('fileTransfer.files')}
           </button>
         )}
 

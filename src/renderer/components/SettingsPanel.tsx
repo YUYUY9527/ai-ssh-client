@@ -14,6 +14,7 @@ import {
   resolveTerminalRuntimeSettings,
 } from '../session/terminal/terminal-settings';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
+import { SettingsItem, SettingsPage, SettingsSection, ToggleSwitch } from '../settings/SettingsLayout';
 
 const FONT_FAMILY_OPTIONS = [
   { value: "Consolas, 'Courier New', monospace", label: 'Consolas' },
@@ -38,27 +39,6 @@ type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'languag
 
 // Web 部署下才提供修改登录密码入口（桌面端无 Web 登录概念）。
 const IS_WEB = typeof window !== 'undefined' && window.__AISSH_WEB__ === true;
-
-interface ToggleButtonProps {
-  enabled: boolean;
-  label: string;
-  onChange: (enabled: boolean) => void;
-}
-
-function ToggleButton({ enabled, label, onChange }: ToggleButtonProps) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={label}
-      onClick={() => onChange(!enabled)}
-      className={`ui-toggle ${enabled ? 'ui-toggle-on' : 'ui-toggle-off'}`}
-    >
-      <span className="ui-toggle-thumb" />
-    </button>
-  );
-}
 
 export function SettingsPanel({ settings, onSave, onClose, initialTab = 'terminal', onPasswordChanged }: SettingsPanelProps) {
   const { t } = useI18n();
@@ -250,213 +230,215 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             ))}
           </div>
 
-          <div className="scrollbar-modern min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+          <div className="scrollbar-modern min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
             {activeTab === 'terminal' && (
-              <div className="space-y-5">
-                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.terminal.title')}</h3>
+              <SettingsPage title={t('settings.terminal.title')}>
+                <SettingsSection title={t('settings.terminal.appearance')}>
+                  <SettingsItem label={t('settings.terminal.fontSize')} layout="block">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min="10"
+                        max="24"
+                        value={localSettings.fontSize}
+                        onChange={(e) => setLocalSettings({ ...localSettings, fontSize: parseInt(e.target.value, 10) })}
+                        className="settings-range flex-1"
+                        aria-label={t('settings.terminal.fontSize')}
+                      />
+                      <span className="w-12 shrink-0 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                        {localSettings.fontSize}px
+                      </span>
+                    </div>
+                  </SettingsItem>
 
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    {t('settings.terminal.fontSize')}
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="range"
-                      min="10"
-                      max="24"
-                      value={localSettings.fontSize}
-                      onChange={(e) => setLocalSettings({ ...localSettings, fontSize: parseInt(e.target.value, 10) })}
-                      className="flex-1"
+                  <SettingsItem
+                    label={t('settings.terminal.fontFamily')}
+                    controlClassName="w-full sm:w-56"
+                  >
+                    <IndustrialSelect
+                      value={localSettings.fontFamily}
+                      options={FONT_FAMILY_OPTIONS}
+                      onChange={(value) => setLocalSettings({ ...localSettings, fontFamily: value })}
                     />
-                    <span className="text-sm text-slate-600 dark:text-slate-400 w-12">
-                      {localSettings.fontSize}px
-                    </span>
-                  </div>
-                </div>
+                  </SettingsItem>
 
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    {t('settings.terminal.fontFamily')}
-                  </label>
-                  <IndustrialSelect
-                    value={localSettings.fontFamily}
-                    options={FONT_FAMILY_OPTIONS}
-                    onChange={(value) => setLocalSettings({ ...localSettings, fontFamily: value })}
-                  />
-                </div>
+                  <SettingsItem
+                    label={t('settings.terminal.cursorStyle')}
+                    controlClassName="w-full sm:w-44"
+                  >
+                    <IndustrialSelect
+                      value={terminalRuntimePreview.cursorStyle}
+                      options={[
+                        { value: 'block', label: t('terminal.cursorBlock') },
+                        { value: 'underline', label: t('terminal.cursorUnderline') },
+                        { value: 'bar', label: t('terminal.cursorBar') },
+                      ]}
+                      onChange={(value) => setLocalSettings({
+                        ...localSettings,
+                        terminalCursorStyle: normalizeCursorStyle(value),
+                      })}
+                    />
+                  </SettingsItem>
 
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    {t('settings.terminal.scrollback')}
-                  </label>
-                  <input
-                    type="number"
-                    min={MIN_TERMINAL_SCROLLBACK}
-                    max={MAX_TERMINAL_SCROLLBACK}
-                    value={terminalRuntimePreview.scrollback}
-                    onChange={(e) => setLocalSettings({
-                      ...localSettings,
-                      terminalScrollback: clampTerminalScrollback(parseInt(e.target.value, 10)),
-                    })}
-                    className="industrial-input w-full"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">{t('settings.terminal.scrollbackDesc')}</p>
-                </div>
+                  <SettingsItem label={t('settings.terminal.cursorBlink')}>
+                    <ToggleSwitch
+                      enabled={terminalRuntimePreview.cursorBlink}
+                      label={t('settings.terminal.cursorBlink')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, terminalCursorBlink: value })}
+                    />
+                  </SettingsItem>
+                </SettingsSection>
 
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    {t('settings.terminal.cursorStyle')}
-                  </label>
-                  <IndustrialSelect
-                    value={terminalRuntimePreview.cursorStyle}
-                    options={[
-                      { value: 'block', label: t('terminal.cursorBlock') },
-                      { value: 'underline', label: t('terminal.cursorUnderline') },
-                      { value: 'bar', label: t('terminal.cursorBar') },
-                    ]}
-                    onChange={(value) => setLocalSettings({
-                      ...localSettings,
-                      terminalCursorStyle: normalizeCursorStyle(value),
-                    })}
-                  />
-                </div>
+                <SettingsSection title={t('settings.terminal.behavior')}>
+                  <SettingsItem
+                    label={t('settings.terminal.scrollback')}
+                    description={t('settings.terminal.scrollbackDesc')}
+                    layout="block"
+                  >
+                    <input
+                      type="number"
+                      min={MIN_TERMINAL_SCROLLBACK}
+                      max={MAX_TERMINAL_SCROLLBACK}
+                      value={terminalRuntimePreview.scrollback}
+                      onChange={(e) => setLocalSettings({
+                        ...localSettings,
+                        terminalScrollback: clampTerminalScrollback(parseInt(e.target.value, 10)),
+                      })}
+                      className="industrial-input w-36"
+                    />
+                  </SettingsItem>
 
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.cursorBlink')}</label>
-                  </div>
-                  <ToggleButton
-                    enabled={terminalRuntimePreview.cursorBlink}
-                    label={t('settings.terminal.cursorBlink')}
-                    onChange={(value) => setLocalSettings({ ...localSettings, terminalCursorBlink: value })}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.copyOnSelect')}</label>
-                    <p className="text-xs text-slate-500">{t('settings.terminal.copyOnSelectDesc')}</p>
-                  </div>
-                  <ToggleButton
-                    enabled={terminalRuntimePreview.copyOnSelect}
+                  <SettingsItem
                     label={t('settings.terminal.copyOnSelect')}
-                    onChange={(value) => setLocalSettings({ ...localSettings, terminalCopyOnSelect: value })}
-                  />
-                </div>
+                    description={t('settings.terminal.copyOnSelectDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={terminalRuntimePreview.copyOnSelect}
+                      label={t('settings.terminal.copyOnSelect')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, terminalCopyOnSelect: value })}
+                    />
+                  </SettingsItem>
 
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.terminal.shellIntegration')}</label>
-                    <p className="text-xs text-slate-500">{t('settings.terminal.shellIntegrationDesc')}</p>
-                  </div>
-                  <ToggleButton
-                    enabled={terminalRuntimePreview.shellIntegration}
+                  <SettingsItem
                     label={t('settings.terminal.shellIntegration')}
-                    onChange={(value) => setLocalSettings({ ...localSettings, terminalShellIntegration: value })}
-                  />
-                </div>
-
-              </div>
+                    description={t('settings.terminal.shellIntegrationDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={terminalRuntimePreview.shellIntegration}
+                      label={t('settings.terminal.shellIntegration')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, terminalShellIntegration: value })}
+                    />
+                  </SettingsItem>
+                </SettingsSection>
+              </SettingsPage>
             )}
 
             {activeTab === 'ssh' && (
-              <div className="space-y-5">
-                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.ssh.title')}</h3>
+              <SettingsPage title={t('settings.ssh.title')}>
+                <SettingsSection title={t('settings.ssh.connection')}>
+                  <SettingsItem
+                    label={t('settings.ssh.keepaliveInterval')}
+                    description={t('settings.ssh.keepaliveDisableHint')}
+                    controlClassName="w-full sm:w-32"
+                  >
+                    <input
+                      type="number"
+                      min="0"
+                      max="300"
+                      value={localSettings.keepaliveInterval}
+                      onChange={(e) => setLocalSettings({ ...localSettings, keepaliveInterval: parseInt(e.target.value, 10) || 0 })}
+                      className="industrial-input w-full"
+                    />
+                  </SettingsItem>
 
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    {t('settings.ssh.keepaliveInterval')}
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="300"
-                    value={localSettings.keepaliveInterval}
-                    onChange={(e) => setLocalSettings({ ...localSettings, keepaliveInterval: parseInt(e.target.value, 10) || 0 })}
-                    className="industrial-input w-full"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">{t('settings.ssh.keepaliveDisableHint')}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    {t('settings.ssh.keepaliveCountMax')}
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10"
-                    value={localSettings.keepaliveCountMax}
-                    onChange={(e) => setLocalSettings({ ...localSettings, keepaliveCountMax: parseInt(e.target.value, 10) || 3 })}
-                    className="industrial-input w-full"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.ssh.autoReconnect')}</label>
-                    <p className="text-xs text-slate-500">{t('settings.ssh.autoReconnectDesc')}</p>
-                  </div>
-                  <ToggleButton
-                    enabled={localSettings.autoReconnect}
-                    label={t('settings.ssh.autoReconnect')}
-                    onChange={(value) => setLocalSettings({ ...localSettings, autoReconnect: value })}
-                  />
-                </div>
-
-                {localSettings.autoReconnect && (
-                  <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                      {t('settings.ssh.maxReconnectAttempts')}
-                    </label>
+                  <SettingsItem
+                    label={t('settings.ssh.keepaliveCountMax')}
+                    controlClassName="w-full sm:w-32"
+                  >
                     <input
                       type="number"
                       min="1"
                       max="10"
-                      value={localSettings.maxReconnectAttempts}
-                      onChange={(e) => setLocalSettings({ ...localSettings, maxReconnectAttempts: parseInt(e.target.value, 10) || 5 })}
-                    className="industrial-input w-full"
+                      value={localSettings.keepaliveCountMax}
+                      onChange={(e) => setLocalSettings({ ...localSettings, keepaliveCountMax: parseInt(e.target.value, 10) || 3 })}
+                      className="industrial-input w-full"
                     />
-                  </div>
-                )}
+                  </SettingsItem>
 
-                <div className="border-t border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pt-4">
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div>
-                      <h4 className="flex items-center gap-1.5 text-sm font-medium text-slate-900 dark:text-white">
-                        <Shield className="h-4 w-4 text-teal-500" />
-                        {t('settings.ssh.trustedHosts')}
-                      </h4>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {t('settings.ssh.trustedHostsDesc')}
-                      </p>
-                    </div>
-                    {hostTrustRecords.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => void handleClearHostTrust()}
-                        className="industrial-button-secondary px-2.5 py-1.5 text-xs"
-                      >
-                        {t('settings.ssh.clearTrustedHosts')}
-                      </button>
-                    )}
-                  </div>
+                  <SettingsItem
+                    label={t('settings.ssh.autoReconnect')}
+                    description={t('settings.ssh.autoReconnectDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={localSettings.autoReconnect}
+                      label={t('settings.ssh.autoReconnect')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, autoReconnect: value })}
+                    />
+                  </SettingsItem>
 
-                  {hostTrustLoading ? (
-                    <div className="py-4 text-center text-sm text-slate-500">
-                      {t('common.loading')}
-                    </div>
-                  ) : hostTrustError ? (
-                    <div className="rounded-sm border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-                      {hostTrustError}
-                    </div>
-                  ) : hostTrustRecords.length === 0 ? (
-                    <div className="rounded-sm border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-4 text-center text-sm text-slate-500">
-                      {t('settings.ssh.noTrustedHosts')}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {hostTrustRecords.map((record) => (
+                  {localSettings.autoReconnect && (
+                    <SettingsItem
+                      label={t('settings.ssh.maxReconnectAttempts')}
+                      controlClassName="w-full sm:w-32"
+                    >
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={localSettings.maxReconnectAttempts}
+                        onChange={(e) => setLocalSettings({ ...localSettings, maxReconnectAttempts: parseInt(e.target.value, 10) || 5 })}
+                        className="industrial-input w-full"
+                      />
+                    </SettingsItem>
+                  )}
+                </SettingsSection>
+
+                <SettingsSection title={t('settings.ssh.fileManagerSection')}>
+                  <SettingsItem
+                    label={t('settings.ssh.fileManagerPersistent')}
+                    description={t('settings.ssh.fileManagerPersistentDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={localSettings.fileManagerPersistent ?? false}
+                      label={t('settings.ssh.fileManagerPersistent')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, fileManagerPersistent: value })}
+                    />
+                  </SettingsItem>
+                </SettingsSection>
+
+                <SettingsSection
+                  title={(
+                    <span className="flex items-center gap-1.5">
+                      <Shield className="h-3.5 w-3.5 text-teal-500" />
+                      {t('settings.ssh.trustedHosts')}
+                    </span>
+                  )}
+                  description={t('settings.ssh.trustedHostsDesc')}
+                  actions={hostTrustRecords.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleClearHostTrust()}
+                      className="industrial-button-secondary px-2.5 py-1.5 text-xs"
+                    >
+                      {t('settings.ssh.clearTrustedHosts')}
+                    </button>
+                  ) : undefined}
+                >
+                  <div className="space-y-2 py-3.5">
+                    {hostTrustLoading ? (
+                      <div className="py-4 text-center text-sm text-slate-500">
+                        {t('common.loading')}
+                      </div>
+                    ) : hostTrustError ? (
+                      <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+                        {hostTrustError}
+                      </div>
+                    ) : hostTrustRecords.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-4 text-center text-sm text-slate-500">
+                        {t('settings.ssh.noTrustedHosts')}
+                      </div>
+                    ) : (
+                      hostTrustRecords.map((record) => (
                         <div
                           key={`${record.host}:${record.port}:${record.fingerprint}`}
                           className="industrial-card flex items-start justify-between gap-3 p-3"
@@ -481,122 +463,106 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+                      ))
+                    )}
+                  </div>
+                </SettingsSection>
+              </SettingsPage>
             )}
 
             {activeTab === 'agent' && (
-              <div className="space-y-5">
-                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.agent.title')}</h3>
+              <SettingsPage
+                title={t('settings.agent.title')}
+                description={t('settings.agent.description')}
+              >
+                <SettingsSection title={t('settings.agent.executionControl')}>
+                  <SettingsItem
+                    label={t('settings.agent.enableAgent')}
+                    description={t('settings.agent.enableAgentDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={localSettings.agentEnabled ?? true}
+                      label={t('settings.agent.enableAgent')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, agentEnabled: value })}
+                    />
+                  </SettingsItem>
 
-                <div className="industrial-card connection-list-row-active p-4">
-                  <p className="text-sm text-teal-700 dark:text-teal-300">
-                    {t('settings.agent.description')}
-                  </p>
-                </div>
+                  <SettingsItem
+                    label={t('settings.agent.readOnlyMode')}
+                    description={t('settings.agent.readOnlyModeDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={localSettings.agentReadOnlyMode ?? false}
+                      label={t('settings.agent.readOnlyMode')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, agentReadOnlyMode: value })}
+                    />
+                  </SettingsItem>
 
-                <div>
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.agent.executionControl')}</h4>
+                  <SettingsItem
+                    label={t('settings.agent.summaryContextLength')}
+                    description={t('settings.agent.summaryContextLengthDesc')}
+                    controlClassName="w-full sm:w-36"
+                  >
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={localSettings.agentSemanticSummaryContextLength ?? 12000}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value, 10);
+                        if (!isNaN(value)) {
+                          setLocalSettings({
+                            ...localSettings,
+                            agentSemanticSummaryContextLength: Math.max(1000, value),
+                          });
+                        }
+                      }}
+                      className="industrial-input w-full"
+                    />
+                  </SettingsItem>
+                </SettingsSection>
 
-                  <div className="space-y-4">
-                    <div className="industrial-setting-row">
-                      <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.enableAgent')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.agent.enableAgentDesc')}</p>
-                      </div>
-                      <ToggleButton
-                        enabled={localSettings.agentEnabled ?? true}
-                        label={t('settings.agent.enableAgent')}
-                        onChange={(value) => setLocalSettings({ ...localSettings, agentEnabled: value })}
-                      />
-                    </div>
+                <SettingsSection title={t('settings.agent.commandApproval')}>
+                  <SettingsItem
+                    label={t('settings.security.approveHighRisk')}
+                    description={t('settings.security.approveHighRiskDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={localSettings.approveHighRisk ?? true}
+                      label={t('settings.security.approveHighRisk')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, approveHighRisk: value })}
+                    />
+                  </SettingsItem>
 
-                    <div className="industrial-setting-row">
-                      <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.readOnlyMode')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.agent.readOnlyModeDesc')}</p>
-                      </div>
-                      <ToggleButton
-                        enabled={localSettings.agentReadOnlyMode ?? false}
-                        label={t('settings.agent.readOnlyMode')}
-                        onChange={(value) => setLocalSettings({ ...localSettings, agentReadOnlyMode: value })}
-                      />
-                    </div>
+                  <SettingsItem
+                    label={t('settings.security.approveMediumRisk')}
+                    description={t('settings.security.approveMediumRiskDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={localSettings.approveMediumRisk ?? true}
+                      label={t('settings.security.approveMediumRisk')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, approveMediumRisk: value })}
+                    />
+                  </SettingsItem>
 
-                    <div>
-                      <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.agent.summaryContextLength')}</label>
-                      <p className="text-xs text-slate-500 mb-2">{t('settings.agent.summaryContextLengthDesc')}</p>
-                      <input
-                        type="number"
-                        min={1000}
-                        step={1000}
-                        value={localSettings.agentSemanticSummaryContextLength ?? 12000}
-                        onChange={(e) => {
-                          const value = parseInt(e.target.value, 10);
-                          if (!isNaN(value)) {
-                            setLocalSettings({
-                              ...localSettings,
-                              agentSemanticSummaryContextLength: Math.max(1000, value),
-                            });
-                          }
-                        }}
-                        className="industrial-input w-36"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-medium text-slate-900 dark:text-white mb-3">{t('settings.agent.commandApproval')}</h4>
-
-                  <div className="space-y-4">
-                    <div className="industrial-setting-row">
-                      <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.security.approveHighRisk')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.security.approveHighRiskDesc')}</p>
-                      </div>
-                      <ToggleButton
-                        enabled={localSettings.approveHighRisk ?? true}
-                        label={t('settings.security.approveHighRisk')}
-                        onChange={(value) => setLocalSettings({ ...localSettings, approveHighRisk: value })}
-                      />
-                    </div>
-
-                    <div className="industrial-setting-row">
-                      <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.security.approveMediumRisk')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.security.approveMediumRiskDesc')}</p>
-                      </div>
-                      <ToggleButton
-                        enabled={localSettings.approveMediumRisk ?? true}
-                        label={t('settings.security.approveMediumRisk')}
-                        onChange={(value) => setLocalSettings({ ...localSettings, approveMediumRisk: value })}
-                      />
-                    </div>
-
-                    <div className="industrial-setting-row">
-                      <div>
-                        <label className="text-sm text-slate-600 dark:text-slate-400">{t('settings.security.rememberChoice')}</label>
-                        <p className="text-xs text-slate-500">{t('settings.security.rememberChoiceDesc')}</p>
-                      </div>
-                      <ToggleButton
-                        enabled={localSettings.rememberChoice ?? true}
-                        label={t('settings.security.rememberChoice')}
-                        onChange={(value) => {
-                          // 关闭后清空会话级记忆，避免残留自动批准
-                          if (!value) {
-                            clearRememberedRiskDecisions();
-                          }
-                          setLocalSettings({ ...localSettings, rememberChoice: value });
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  <SettingsItem
+                    label={t('settings.security.rememberChoice')}
+                    description={t('settings.security.rememberChoiceDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={localSettings.rememberChoice ?? true}
+                      label={t('settings.security.rememberChoice')}
+                      onChange={(value) => {
+                        // 关闭后清空会话级记忆，避免残留自动批准
+                        if (!value) {
+                          clearRememberedRiskDecisions();
+                        }
+                        setLocalSettings({ ...localSettings, rememberChoice: value });
+                      }}
+                    />
+                  </SettingsItem>
+                </SettingsSection>
+              </SettingsPage>
             )}
 
             {activeTab === 'providers' && (
@@ -608,16 +574,14 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             )}
 
             {activeTab === 'language' && (
-              <div className="space-y-5">
-                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.language.title')}</h3>
-
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                    {t('settings.language.selectLanguage')}
-                  </label>
-                  <p className="text-xs text-slate-500 mb-3">{t('settings.language.selectLanguageDesc')}</p>
-                  <div className="grid gap-2">
-                    {(Object.entries(localeNames) as Array<[Locale, string]>).map(([locale, name]) => (
+              <SettingsPage
+                title={t('settings.language.title')}
+                description={t('settings.language.selectLanguageDesc')}
+              >
+                <div className="grid gap-2">
+                  {(Object.entries(localeNames) as Array<[Locale, string]>).map(([locale, name]) => {
+                    const selected = localSettings.language === locale;
+                    return (
                       <button
                         key={locale}
                         type="button"
@@ -625,35 +589,31 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           setLocalSettings({ ...localSettings, language: locale });
                           useI18nStore.getState().setLocale(locale);
                         }}
-                        aria-pressed={localSettings.language === locale}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-sm border text-sm transition-colors ${
-                          localSettings.language === locale
-                            ? 'border-teal-500 bg-teal-600/10 text-teal-600 dark:text-teal-400'
-                            : 'border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+                        aria-pressed={selected}
+                        className={`flex items-center gap-3 rounded-md border px-4 py-3 text-sm transition-colors ${
+                          selected
+                            ? 'border-[color-mix(in_srgb,var(--accent-primary)_60%,var(--border-color))] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-slate-900 dark:text-white'
+                            : 'border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] text-slate-600 hover:bg-[color-mix(in_srgb,var(--bg-hover)_60%,transparent)] dark:text-slate-300'
                         }`}
                       >
-                        <Globe className="w-4 h-4" />
+                        <Globe className="h-4 w-4" />
                         <span className="font-medium">{name}</span>
-                        {localSettings.language === locale && (
-                          <Check className="ml-auto h-4 w-4 text-teal-500" />
-                        )}
+                        {selected && <Check className="ml-auto h-4 w-4 text-teal-500" />}
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
-              </div>
+              </SettingsPage>
             )}
 
             {activeTab === 'password' && (
-              <div className="space-y-5">
-                <h3 className="font-medium text-slate-900 dark:text-white">{t('settings.password.title')}</h3>
-                <p className="text-xs text-slate-500">{t('settings.password.description')}</p>
-
-                <div className="space-y-4 max-w-sm">
+              <SettingsPage
+                title={t('settings.password.title')}
+                description={t('settings.password.description')}
+              >
+                <div className="max-w-sm space-y-3">
                   <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                      {t('settings.password.current')}
-                    </label>
+                    <label className="industrial-field-label">{t('settings.password.current')}</label>
                     <input
                       type="password"
                       autoComplete="current-password"
@@ -663,9 +623,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                      {t('settings.password.new')}
-                    </label>
+                    <label className="industrial-field-label">{t('settings.password.new')}</label>
                     <input
                       type="password"
                       autoComplete="new-password"
@@ -675,9 +633,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
-                      {t('settings.password.confirm')}
-                    </label>
+                    <label className="industrial-field-label">{t('settings.password.confirm')}</label>
                     <input
                       type="password"
                       autoComplete="new-password"
@@ -699,7 +655,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     {pwSubmitting ? t('settings.password.submitting') : t('settings.password.submit')}
                   </button>
                 </div>
-              </div>
+              </SettingsPage>
             )}
           </div>
         </div>
@@ -712,7 +668,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
           >
             {t('common.cancel')}
           </button>
-          {activeTab !== 'mcp' && (
+          {activeTab !== 'mcp' && activeTab !== 'password' && (
             <button
               type="button"
               onClick={handleSave}

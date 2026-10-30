@@ -116,6 +116,7 @@ const defaultSettings = {
   agentReadOnlyMode: false,
   maxPersistedSessions: 8,
   maxScrollbackBytesPerSession: 150 * 1024,
+  fileManagerPersistent: false,
 };
 
 // 会话表：key 为 sessionKeyOf(connectionId, clientId) 复合键（格式见 session-key.cjs）。

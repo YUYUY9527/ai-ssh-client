@@ -191,6 +191,8 @@ export interface AppSettings {
   agentReadOnlyMode?: boolean;
   maxPersistedSessions?: number;
   maxScrollbackBytesPerSession?: number;
+  /** 文件管理面板是否常驻左侧显示（默认关闭，按需从顶栏切换）。 */
+  fileManagerPersistent?: boolean;
 }
 
 // SFTP 文件信息

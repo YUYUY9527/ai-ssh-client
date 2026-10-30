@@ -157,6 +157,8 @@ export const DEFAULT_SETTINGS = {
   // 单会话输出缓冲上限：vim/less 等全屏重绘程序滚动时输出量大，
   // 过小会导致截断错位、终端画面缺行丢内容，故放宽到 1MB
   maxScrollbackBytesPerSession: 1024 * 1024,
+  // 文件管理面板是否常驻左侧；默认关闭，按需从顶栏切换
+  fileManagerPersistent: false,
 };
 
 // SSH 默认端口

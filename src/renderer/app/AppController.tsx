@@ -143,6 +143,14 @@ export function AppController() {
     useAgentStore.getState().setActiveConnection(activeTabId);
   }, [activeTabId]);
 
+  // 文件管理面板常驻：开启后默认展开在终端左侧（仍可用顶栏按钮临时收起/展开）
+  const fileManagerPersistent = settings.fileManagerPersistent ?? false;
+  useEffect(() => {
+    if (fileManagerPersistent && activeTabId) {
+      setSftpSidebarOpen(true);
+    }
+  }, [activeTabId, fileManagerPersistent, setSftpSidebarOpen]);
+
   // Web 部署：查询登录状态，仍使用默认密码时提示尽快修改。
   useEffect(() => {
     const getAuthStatus = window.electronAPI?.getAuthStatus;

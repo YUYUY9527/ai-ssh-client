@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  Archive,
   ChevronRight,
   Copy,
   Download,
-  File,
   FileCode2,
-  FileText,
   Folder,
   FolderOpen,
   FolderPlus,
   Home,
-  Image,
   ListChecks,
   Loader2,
+  MoreHorizontal,
   Pencil,
   RefreshCw,
   Shield,
@@ -24,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { ConfirmDialog } from './ConfirmDialog';
+import { FileTypeIcon } from './FileTypeIcon';
 import { useI18n } from '../i18n';
 import { normalizeHistoryPath } from '../history/command-history-index';
 import { useSessionStore } from '../session/useSessionStore';
@@ -178,8 +176,30 @@ function formatTime(timestamp: number): string {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/** 列表里只显示 月/日 时:分，省掉年份和秒，给名称留更多空间 */
+function formatListTime(timestamp: number): string {
+  if (!timestamp) return '-';
+  const date = new Date(timestamp);
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** 把八进制/十进制 mode 统一成 rwx 形式（如 rw-r--r-- (644)） */
+function formatPermissions(mode?: string): string {
+  const raw = (mode ?? '').trim();
+  if (!raw) return '';
+  if (!/^[0-9]+$/.test(raw)) return raw;
+  const perms = modeToPermissionBits(raw) & 0o777;
+  const flags = 'rwxrwxrwx';
+  let symbolic = '';
+  for (let index = 0; index < 9; index += 1) {
+    symbolic += (perms >> (8 - index)) & 1 ? flags[index] : '-';
+  }
+  return `${symbolic} (${perms.toString(8).padStart(3, '0')})`;
+}
+
 /** Session-bound SFTP browser used inside the workspace sidebar. */
-export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProps) {
+export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const { t } = useI18n();
   const sessionCwd = useSessionStore((state) => state.sessions[connectionId]?.cwd);
   const browserState = useSftpTransferStore((state) => state.browserByConnection[connectionId]);
@@ -249,6 +269,16 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const [isChmodding, setIsChmodding] = useState(false);
   /** 复制路径等轻量成功提示 */
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  /** 路径编辑：合并到面包屑里，点击铅笔才展开输入框 */
+  const [pathEditOpen, setPathEditOpen] = useState(false);
+  /** 工具栏「更多」菜单 */
+  const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
+  /** 悬停 2 秒后的文件详情浮层 */
+  const [hoverDetail, setHoverDetail] = useState<{
+    item: RemoteFileItem;
+    x: number;
+    y: number;
+  } | null>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -256,6 +286,8 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
   const chmodInputRef = useRef<HTMLInputElement>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
   const pathSuggestRef = useRef<HTMLDivElement>(null);
+  const toolbarMenuRef = useRef<HTMLDivElement>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathListCacheRef = useRef<Map<string, RemoteFileItem[]>>(new Map());
   const statusNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathSuggestRequestRef = useRef(0);
@@ -279,7 +311,6 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     [files, selectedPaths],
   );
   const orderedPaths = useMemo(() => files.map((file) => file.path), [files]);
-  const allSelected = files.length > 0 && files.every((file) => selectedPaths.includes(file.path));
   const selectedHasDirectory = selectedFiles.some((file) => file.isDirectory);
 
   const loadDirectory = useCallback(async (path: string): Promise<boolean> => {
@@ -478,36 +509,13 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     void loadDirectory(currentPath);
   }, [currentPath, isLive, loadDirectory, visibleTransferTasks]);
 
-  const getFileIcon = (file: RemoteFileItem) => {
-    if (file.isDirectory) return <Folder className="w-5 h-5 text-teal-400" />;
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext || '')) {
-      return <Image className="w-5 h-5 text-purple-400" />;
-    }
-    if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext || '')) {
-      return <Archive className="w-5 h-5 text-yellow-400" />;
-    }
-    if (['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'conf', 'log'].includes(ext || '')) {
-      return <FileText className="w-5 h-5 text-gray-400" />;
-    }
-    return <File className="w-5 h-5 text-green-400" />;
-  };
-
-  const getFileType = (file: RemoteFileItem): string => {
-    if (file.isDirectory) return t('fileTransfer.fileTypes.directory');
-    const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico'].includes(ext)) return t('fileTransfer.fileTypes.image');
-    if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2', 'xz'].includes(ext)) return t('fileTransfer.fileTypes.archive');
-    if (['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'conf', 'log', 'ini', 'cfg'].includes(ext)) return t('fileTransfer.fileTypes.text');
-    if (['js', 'ts', 'tsx', 'jsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'rb', 'php', 'sh', 'bash', 'zsh'].includes(ext)) return t('fileTransfer.fileTypes.code');
-    if (['html', 'css', 'scss', 'sass', 'less'].includes(ext)) return 'Web';
-    if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext)) return t('fileTransfer.fileTypes.audio');
-    if (['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'].includes(ext)) return t('fileTransfer.fileTypes.video');
-    if (['pdf'].includes(ext)) return 'PDF';
-    if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'Office';
-    if (ext) return `${ext.toUpperCase()} ${t('fileTransfer.fileTypes.file')}`;
-    return t('fileTransfer.fileTypes.file');
-  };
+  const getFileIcon = (file: RemoteFileItem) => (
+    <FileTypeIcon
+      name={file.name}
+      isDirectory={file.isDirectory}
+      isSymbolicLink={file.isSymbolicLink}
+    />
+  );
 
   /** 所有目录跳转走 requestBrowserPath，保证侧栏已打开时也会强制刷新 */
   const navigateTo = useCallback((path: string) => {
@@ -643,6 +651,47 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [pathFocused]);
 
+  // 打开路径编辑时自动聚焦并全选
+  useEffect(() => {
+    if (!pathEditOpen) return;
+    const timer = window.setTimeout(() => {
+      pathInputRef.current?.focus();
+      pathInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [pathEditOpen]);
+
+  // 工具栏「更多」菜单：点击外部或 Esc 关闭
+  useEffect(() => {
+    if (!toolbarMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (toolbarMenuRef.current && !toolbarMenuRef.current.contains(event.target as Node)) {
+        setToolbarMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setToolbarMenuOpen(false);
+    };
+    document.addEventListener('click', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [toolbarMenuOpen]);
+
+  // 悬停详情：卸载时清理定时器；列表滚动时收起浮层
+  useEffect(() => () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!hoverDetail) return;
+    const hide = () => setHoverDetail(null);
+    window.addEventListener('scroll', hide, true);
+    return () => window.removeEventListener('scroll', hide, true);
+  }, [hoverDetail]);
+
   const goUp = () => {
     const base = normalizeRemoteBrowsePath(currentPath);
     if (base === '/') {
@@ -672,12 +721,23 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
     setBrowserSelection(connectionId, file.path);
   };
 
-  const handleSelectAll = () => {
-    if (allSelected) {
-      clearBrowserSelection(connectionId);
+  const openFileForEdit = (file: RemoteFileItem) => {
+    if (typeof file.size === 'number' && file.size > MAX_SFTP_EDIT_BYTES) {
+      setEditAlert(t('fileTransfer.editTooLarge', {
+        size: formatSize(file.size),
+        max: formatSize(MAX_SFTP_EDIT_BYTES),
+      }));
       return;
     }
-    setBrowserSelectedPaths(connectionId, orderedPaths, orderedPaths[0] ?? null);
+    setEditTarget(file);
+  };
+
+  const handleItemDoubleClick = (file: RemoteFileItem) => {
+    if (file.isDirectory) {
+      navigateTo(file.path);
+      return;
+    }
+    openFileForEdit(file);
   };
 
   const handleDownload = async (file: RemoteFileItem) => {
@@ -1041,52 +1101,141 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
       directories: deleteTargets.filter((item) => item.isDirectory).length,
     });
 
+  // 路径输入框：合并到面包屑行，点铅笔才展开
+  const pathEditor = (
+    <div className="relative min-w-0 flex-1">
+      <input
+        ref={pathInputRef}
+        type="text"
+        value={pathInput}
+        onChange={(e) => {
+          setPathInput(e.target.value);
+          setPathFocused(true);
+        }}
+        onFocus={() => setPathFocused(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' && showPathSuggestions) {
+            e.preventDefault();
+            setPathSuggestIndex((index) => Math.min(index + 1, pathSuggestions.length - 1));
+            return;
+          }
+          if (e.key === 'ArrowUp' && showPathSuggestions) {
+            e.preventDefault();
+            setPathSuggestIndex((index) => Math.max(index - 1, 0));
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            setPathSuggestions([]);
+            setPathFocused(false);
+            setPathEditOpen(false);
+            return;
+          }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (showPathSuggestions && pathSuggestions[pathSuggestIndex]) {
+              applyPathSuggestion(pathSuggestions[pathSuggestIndex]);
+              setPathEditOpen(false);
+              return;
+            }
+            commitPathInput();
+            setPathEditOpen(false);
+          }
+        }}
+        className="industrial-input w-full py-1"
+        placeholder={t('fileTransfer.pathPlaceholder')}
+        disabled={!isLive}
+        spellCheck={false}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={showPathSuggestions}
+        aria-autocomplete="list"
+        aria-controls="sftp-path-suggestions"
+      />
+      {pathFocused && isLive && (showPathSuggestions || pathSuggestLoading) && (
+        <div
+          ref={pathSuggestRef}
+          id="sftp-path-suggestions"
+          role="listbox"
+          className="app-popover scrollbar-thin left-0 right-0 top-full z-[60] mt-1 max-h-56 overflow-y-auto py-1"
+        >
+          {pathSuggestLoading && pathSuggestions.length === 0 ? (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t('common.loading')}
+            </div>
+          ) : pathSuggestions.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-slate-500">
+              {t('fileTransfer.pathNoMatches')}
+            </div>
+          ) : (
+            pathSuggestions.map((item, index) => (
+              <button
+                key={`${item.source}-${item.path}`}
+                type="button"
+                role="option"
+                aria-selected={index === pathSuggestIndex}
+                className={`app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm ${
+                  index === pathSuggestIndex
+                    ? 'bg-[color-mix(in_srgb,var(--accent-primary)_14%,transparent)]'
+                    : ''
+                }`}
+                onMouseEnter={() => setPathSuggestIndex(index)}
+                onMouseDown={(event) => {
+                  // 避免 input blur 先于 click 关掉列表
+                  event.preventDefault();
+                  applyPathSuggestion(item);
+                  setPathEditOpen(false);
+                }}
+              >
+                <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-800 dark:text-slate-100">
+                  {item.path}
+                </span>
+                {item.source === 'history' && (
+                  <span className="shrink-0 text-[10px] text-slate-500">
+                    {t('fileTransfer.pathRecent')}
+                  </span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[color-mix(in_srgb,var(--bg-primary)_76%,var(--bg-secondary))]">
-      <div className="flex items-center justify-between gap-3 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-3 py-2.5">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-            <Folder className="h-4 w-4 shrink-0 text-teal-500" />
-            <span className="truncate">{t('fileTransfer.title')}</span>
-          </h2>
-          <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
-            {isLive ? t('fileTransfer.sessionBound') : t('fileTransfer.connectionOffline')}
-          </p>
-        </div>
-        {onClose && (
-          <button onClick={onClose} className="icon-button h-7 w-7" title={t('common.close')}>
-            <X className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))] p-2.5">
+      <div className="flex flex-wrap items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))] p-2">
         <div className="flex shrink-0 items-center gap-1">
           <button
             onClick={() => setBrowserView(connectionId, 'files')}
-            className={
+            className={`icon-button h-7 w-7 ${
               activeView === 'files'
-                ? 'industrial-button-primary px-2.5 py-1.5'
-                : 'industrial-button-secondary px-2.5 py-1.5'
-            }
+                ? 'bg-[color-mix(in_srgb,var(--accent-primary)_20%,transparent)] text-teal-500'
+                : 'text-slate-500'
+            }`}
             title={t('fileTransfer.files')}
           >
             <Folder className="h-4 w-4" />
-            {t('fileTransfer.files')}
           </button>
+          <span
+            aria-hidden="true"
+            className="mx-0.5 h-4 w-px shrink-0 bg-[color-mix(in_srgb,var(--border-color)_85%,transparent)]"
+          />
           <button
             onClick={() => setBrowserView(connectionId, 'tasks')}
-            className={
+            className={`icon-button relative h-7 w-7 ${
               activeView === 'tasks'
-                ? 'industrial-button-primary px-2.5 py-1.5'
-                : 'industrial-button-secondary px-2.5 py-1.5'
-            }
+                ? 'bg-[color-mix(in_srgb,var(--accent-primary)_20%,transparent)] text-teal-500'
+                : 'text-slate-500'
+            }`}
             title={t('fileTransfer.transferTasks')}
           >
             <ListChecks className="h-4 w-4" />
-            {t('fileTransfer.tasks')}
             {hasTransferTasks && (
-              <span className="ml-1 rounded-sm bg-white/20 px-1.5 text-[11px] tabular-nums">
+              <span className="absolute -right-0.5 -top-0.5 rounded-full bg-teal-500 px-1 text-[9px] font-semibold leading-3 text-white tabular-nums">
                 {activeTaskCount > 0 ? activeTaskCount : visibleTransferTasks.length}
               </span>
             )}
@@ -1094,10 +1243,10 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         </div>
 
         {activeView === 'files' && (
-          <>
+          <div className="flex shrink-0 items-center gap-1">
             <button
               onClick={goHome}
-              className="icon-button h-8 w-8"
+              className="icon-button h-7 w-7"
               title={t('fileTransfer.homeDir')}
               disabled={!isLive}
             >
@@ -1105,7 +1254,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             </button>
             <button
               onClick={goUp}
-              className="icon-button h-8 w-8"
+              className="icon-button h-7 w-7"
               title={t('fileTransfer.parentDir')}
               disabled={!isLive}
             >
@@ -1113,111 +1262,13 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             </button>
             <button
               onClick={() => void loadDirectory(pathInput || currentPath)}
-              className="icon-button h-8 w-8"
+              className="icon-button h-7 w-7"
               title={t('common.refresh')}
               disabled={!isLive}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <div className="relative min-w-0 flex-1">
-              <input
-                ref={pathInputRef}
-                type="text"
-                value={pathInput}
-                onChange={(e) => {
-                  setPathInput(e.target.value);
-                  setPathFocused(true);
-                }}
-                onFocus={() => setPathFocused(true)}
-                onKeyDown={(e) => {
-                  if (e.key === 'ArrowDown' && showPathSuggestions) {
-                    e.preventDefault();
-                    setPathSuggestIndex((index) => Math.min(index + 1, pathSuggestions.length - 1));
-                    return;
-                  }
-                  if (e.key === 'ArrowUp' && showPathSuggestions) {
-                    e.preventDefault();
-                    setPathSuggestIndex((index) => Math.max(index - 1, 0));
-                    return;
-                  }
-                  if (e.key === 'Escape') {
-                    if (showPathSuggestions) {
-                      e.preventDefault();
-                      setPathSuggestions([]);
-                      setPathFocused(false);
-                    }
-                    return;
-                  }
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (showPathSuggestions && pathSuggestions[pathSuggestIndex]) {
-                      applyPathSuggestion(pathSuggestions[pathSuggestIndex]);
-                      return;
-                    }
-                    commitPathInput();
-                  }
-                }}
-                className="industrial-input w-full py-1"
-                placeholder={t('fileTransfer.pathPlaceholder')}
-                disabled={!isLive}
-                spellCheck={false}
-                autoComplete="off"
-                role="combobox"
-                aria-expanded={showPathSuggestions}
-                aria-autocomplete="list"
-                aria-controls="sftp-path-suggestions"
-              />
-              {pathFocused && isLive && (showPathSuggestions || pathSuggestLoading) && (
-                <div
-                  ref={pathSuggestRef}
-                  id="sftp-path-suggestions"
-                  role="listbox"
-                  className="app-popover scrollbar-thin left-0 right-0 top-full z-[60] mt-1 max-h-56 overflow-y-auto py-1"
-                >
-                  {pathSuggestLoading && pathSuggestions.length === 0 ? (
-                    <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-500">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {t('common.loading')}
-                    </div>
-                  ) : pathSuggestions.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-slate-500">
-                      {t('fileTransfer.pathNoMatches')}
-                    </div>
-                  ) : (
-                    pathSuggestions.map((item, index) => (
-                      <button
-                        key={`${item.source}-${item.path}`}
-                        type="button"
-                        role="option"
-                        aria-selected={index === pathSuggestIndex}
-                        className={`app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm ${
-                          index === pathSuggestIndex
-                            ? 'bg-[color-mix(in_srgb,var(--accent-primary)_14%,transparent)]'
-                            : ''
-                        }`}
-                        onMouseEnter={() => setPathSuggestIndex(index)}
-                        onMouseDown={(event) => {
-                          // 避免 input blur 先于 click 关掉列表
-                          event.preventDefault();
-                          applyPathSuggestion(item);
-                        }}
-                      >
-                        <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
-                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-800 dark:text-slate-100">
-                          {item.path}
-                        </span>
-                        {item.source === 'history' && (
-                          <span className="shrink-0 text-[10px] text-slate-500">
-                            {t('fileTransfer.pathRecent')}
-                          </span>
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          </>
+          </div>
         )}
 
         {activeView === 'tasks' && (
@@ -1227,81 +1278,128 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
         {activeView === 'tasks' ? (
           <button
             onClick={() => clearCompletedTasks(connectionId)}
-            className="industrial-button-secondary px-2.5 py-1.5"
+            className="industrial-button-secondary px-2 py-1 text-xs"
             disabled={!visibleTransferTasks.some((task) => ['completed', 'skipped', 'canceled', 'interrupted', 'failed', 'handed-off'].includes(task.status))}
           >
             {t('fileTransfer.clearFinished')}
           </button>
         ) : (
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              onClick={() => {
-                setMkdirOpen(true);
-                setMkdirName('');
-                setMkdirError(null);
-              }}
-              className="industrial-button-secondary px-2.5 py-1.5"
-              disabled={!isLive}
-              title={t('fileTransfer.mkdir')}
-            >
-              <FolderPlus className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => void handleBatchDownload()}
-              className="industrial-button-secondary px-2.5 py-1.5"
-              disabled={!isLive || selectedFiles.length === 0 || selectedHasDirectory}
-              title={selectedHasDirectory
-                ? t('fileTransfer.batchDownloadDirectoriesUnsupported')
-                : t('common.download')}
-            >
-              <Download className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => {
-                if (selectedFiles.length === 0) return;
-                setDeleteTargets(selectedFiles);
-              }}
-              className="industrial-button-secondary px-2.5 py-1.5"
-              disabled={!isLive || selectedFiles.length === 0}
-              title={t('common.delete')}
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <button
               onClick={() => void handleUpload()}
-              className="industrial-button-primary px-2.5 py-1.5"
+              className="icon-button h-7 w-7"
+              title={t('common.upload')}
               disabled={!isLive}
             >
               <Upload className="h-4 w-4" />
-              {t('common.upload')}
             </button>
+            <div className="relative" ref={toolbarMenuRef}>
+              <button
+                onClick={() => setToolbarMenuOpen((open) => !open)}
+                className="icon-button h-7 w-7"
+                title={t('fileTransfer.moreActions')}
+                aria-haspopup="menu"
+                aria-expanded={toolbarMenuOpen}
+                disabled={!isLive}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+              {toolbarMenuOpen && (
+                <div
+                  role="menu"
+                  className="app-popover absolute right-0 top-full z-[60] mt-1 min-w-[168px] py-1"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolbarMenuOpen(false);
+                      setMkdirOpen(true);
+                      setMkdirName('');
+                      setMkdirError(null);
+                    }}
+                    className="app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm"
+                  >
+                    <FolderPlus className="h-4 w-4" />
+                    {t('fileTransfer.mkdir')}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolbarMenuOpen(false);
+                      void handleBatchDownload();
+                    }}
+                    className="app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm"
+                    disabled={!isLive || selectedFiles.length === 0 || selectedHasDirectory}
+                  >
+                    <Download className="h-4 w-4" />
+                    {t('common.download')}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolbarMenuOpen(false);
+                      if (selectedFiles.length === 0) return;
+                      setDeleteTargets(selectedFiles);
+                    }}
+                    className="app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm"
+                    disabled={!isLive || selectedFiles.length === 0}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {t('common.delete')}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
       {activeView === 'files' && (
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_66%,var(--bg-secondary))] px-3 py-2 text-sm">
-          <button
-            onClick={() => navigateTo(pathRoot)}
-            className="whitespace-nowrap text-slate-500 hover:text-teal-500 disabled:opacity-50"
-            disabled={!isLive}
-          >
-            {pathRoot}
-          </button>
-          {pathParts.map((part, index) => (
-            <span key={`${part}-${index}`} className="flex items-center">
-              <ChevronRight className="mx-0.5 h-3 w-3 text-slate-400" />
-              <button
-                onClick={() => navigateTo(
-                  `${isHomePath ? '~/' : '/'}${pathParts.slice(0, index + 1).join('/')}`,
-                )}
-                className="whitespace-nowrap text-slate-500 hover:text-teal-500 disabled:opacity-50"
-                disabled={!isLive}
-              >
-                {part}
-              </button>
-            </span>
-          ))}
+        <div className="flex items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_66%,var(--bg-secondary))] px-2 py-1 text-sm">
+          {pathEditOpen ? (
+            pathEditor
+          ) : (
+            <>
+              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+                <button
+                  onClick={() => navigateTo(pathRoot)}
+                  className="whitespace-nowrap text-slate-500 hover:text-teal-500 disabled:opacity-50"
+                  disabled={!isLive}
+                >
+                  {pathRoot}
+                </button>
+                {pathParts.map((part, index) => (
+                  <span key={`${part}-${index}`} className="flex items-center">
+                    <ChevronRight className="mx-0.5 h-3 w-3 shrink-0 text-slate-400" />
+                    <button
+                      onClick={() => navigateTo(
+                        `${isHomePath ? '~/' : '/'}${pathParts.slice(0, index + 1).join('/')}`,
+                      )}
+                      className="whitespace-nowrap text-slate-500 hover:text-teal-500 disabled:opacity-50"
+                      disabled={!isLive}
+                    >
+                      {part}
+                    </button>
+                  </span>
+                ))}
+              </div>
+              {isLive && (
+                <button
+                  onClick={() => {
+                    setPathInput(currentPath);
+                    setPathEditOpen(true);
+                  }}
+                  className="icon-button h-6 w-6 shrink-0"
+                  title={t('fileTransfer.editPath')}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -1376,66 +1474,61 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                 <p className="mt-1 text-xs">{t('fileTransfer.dragHint')}</p>
               </div>
             ) : (
-              <div className="space-y-1">
-                <div className="industrial-table-head grid grid-cols-[1.5rem_minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3">
-                  <div className="flex items-center justify-center">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={handleSelectAll}
-                      title={t('fileTransfer.selectAll')}
-                    />
-                  </div>
-                  <div>{t('fileTransfer.tableHeaders.name')}</div>
-                  <div>{t('fileTransfer.tableHeaders.type')}</div>
-                  <div className="text-right">{t('fileTransfer.tableHeaders.size')}</div>
-                  <div className="text-right">{t('fileTransfer.tableHeaders.modified')}</div>
-                </div>
+              <div className="space-y-0.5">
                 {files.map((file) => {
                   const isSelected = selectedPaths.includes(file.path);
                   return (
                     <div
                       key={file.path}
-                      onClick={(event) => handleItemClick(event, file)}
-                      onDoubleClick={() => file.isDirectory && navigateTo(file.path)}
+                      onClick={(event) => {
+                        setHoverDetail(null);
+                        handleItemClick(event, file);
+                      }}
+                      onDoubleClick={() => handleItemDoubleClick(file)}
+                      onMouseEnter={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                        hoverTimerRef.current = setTimeout(() => {
+                          const width = 272;
+                          const height = 184;
+                          const x = Math.max(8, Math.min(rect.left + 8, window.innerWidth - width - 8));
+                          const y = rect.bottom + 6 + height > window.innerHeight
+                            ? Math.max(8, rect.top - height - 6)
+                            : rect.bottom + 6;
+                          setHoverDetail({ item: file, x, y });
+                        }, 2000);
+                      }}
+                      onMouseLeave={() => {
+                        if (hoverTimerRef.current) {
+                          clearTimeout(hoverTimerRef.current);
+                          hoverTimerRef.current = null;
+                        }
+                        setHoverDetail(null);
+                      }}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        setHoverDetail(null);
                         // 右键未选项先单选；已选项保留整组。
                         if (!selectedPaths.includes(file.path)) {
                           setBrowserSelection(connectionId, file.path);
                         }
                         setContextMenu({ x: event.clientX, y: event.clientY, item: file });
                       }}
-                      className={`grid cursor-pointer grid-cols-[1.5rem_minmax(0,4.4fr)_minmax(0,2fr)_minmax(5.5rem,1.2fr)_minmax(11.5rem,1.8fr)] gap-3 rounded-sm px-3 py-2 transition-colors group ${
+                      className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-2 py-1.5 transition-colors group ${
                         isSelected
-                          ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)]'
+                          ? 'bg-[color-mix(in_srgb,var(--accent-primary)_22%,transparent)]'
                           : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
                       }`}
                     >
-                      <div
-                        className="flex items-center justify-center"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleBrowserSelection(connectionId, file.path);
-                        }}
-                      >
-                        <input type="checkbox" checked={isSelected} readOnly />
-                      </div>
                       <div className="flex min-w-0 items-center gap-2">
                         {getFileIcon(file)}
-                        <span className="truncate text-sm text-slate-900 dark:text-white" title={file.name}>
+                        <span className="truncate text-sm text-slate-900 dark:text-white">
                           {file.name}
                         </span>
                       </div>
-                      <div className="flex min-w-0 items-center text-sm text-slate-500 dark:text-slate-400">
-                        {getFileType(file)}
-                      </div>
-                      <div className="whitespace-nowrap text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
-                        {file.isDirectory ? '-' : formatSize(file.size)}
-                      </div>
-                      <div className="whitespace-nowrap text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
-                        {formatTime(file.mtime)}
+                      <div className="whitespace-nowrap text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                        {formatListTime(file.mtime)}
                       </div>
                     </div>
                   );
@@ -1478,14 +1571,7 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
                       onClick={() => {
                         const item = contextMenu.item;
                         setContextMenu(null);
-                        if (typeof item.size === 'number' && item.size > MAX_SFTP_EDIT_BYTES) {
-                          setEditAlert(t('fileTransfer.editTooLarge', {
-                            size: formatSize(item.size),
-                            max: formatSize(MAX_SFTP_EDIT_BYTES),
-                          }));
-                          return;
-                        }
-                        setEditTarget(item);
+                        openFileForEdit(item);
                       }}
                       className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
                     >
@@ -1568,6 +1654,73 @@ export function FileTransfer({ connectionId, isLive, onClose }: FileTransferProp
             : 'SFTP'}
         </span>
       </div>
+
+      {hoverDetail && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-[80] w-64 rounded-md border border-[color-mix(in_srgb,var(--border-color)_85%,transparent)] bg-[color-mix(in_srgb,var(--bg-secondary)_97%,transparent)] p-2.5 shadow-lg backdrop-blur"
+          style={{ left: hoverDetail.x, top: hoverDetail.y }}
+        >
+          <div className="mb-1.5 flex items-center gap-2">
+            <FileTypeIcon
+              name={hoverDetail.item.name}
+              isDirectory={hoverDetail.item.isDirectory}
+              isSymbolicLink={hoverDetail.item.isSymbolicLink}
+            />
+            <span className="min-w-0 truncate text-xs font-semibold text-slate-900 dark:text-white">
+              {hoverDetail.item.name}
+            </span>
+          </div>
+          <dl className="space-y-0.5 text-[11px] leading-5">
+            <div className="flex gap-2">
+              <dt className="w-14 shrink-0 text-slate-500 dark:text-slate-400">
+                {t('fileTransfer.tableHeaders.type')}
+              </dt>
+              <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
+                {hoverDetail.item.isSymbolicLink
+                  ? t('fileTransfer.fileTypes.symlink')
+                  : hoverDetail.item.isDirectory
+                    ? t('fileTransfer.fileTypes.directory')
+                    : t('fileTransfer.fileTypes.file')}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="w-14 shrink-0 text-slate-500 dark:text-slate-400">
+                {t('fileTransfer.tableHeaders.size')}
+              </dt>
+              <dd className="tabular-nums text-slate-700 dark:text-slate-200">
+                {hoverDetail.item.isDirectory ? '—' : formatSize(hoverDetail.item.size)}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="w-14 shrink-0 text-slate-500 dark:text-slate-400">
+                {t('fileTransfer.tableHeaders.modified')}
+              </dt>
+              <dd className="tabular-nums text-slate-700 dark:text-slate-200">
+                {formatTime(hoverDetail.item.mtime)}
+              </dd>
+            </div>
+            {formatPermissions(hoverDetail.item.mode) && (
+              <div className="flex gap-2">
+                <dt className="w-14 shrink-0 text-slate-500 dark:text-slate-400">
+                  {t('fileTransfer.detailPermissions')}
+                </dt>
+                <dd className="font-mono text-slate-700 dark:text-slate-200">
+                  {formatPermissions(hoverDetail.item.mode)}
+                </dd>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <dt className="w-14 shrink-0 text-slate-500 dark:text-slate-400">
+                {t('fileTransfer.detailPath')}
+              </dt>
+              <dd className="min-w-0 flex-1 break-all font-mono text-[10px] text-slate-600 dark:text-slate-300">
+                {hoverDetail.item.path}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      )}
 
       {editTarget && (
         <SftpFileEditor

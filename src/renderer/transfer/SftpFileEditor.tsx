@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileCode2, Loader2, RotateCcw, Save } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { FileCode2, Loader2, RotateCcw, Save, Wand2 } from 'lucide-react';
 
 import { useI18n } from '../i18n';
 import { Modal } from '../shared-ui/Modal';
 import { MAX_SFTP_EDIT_BYTES } from '../../shared/ipc-types';
 import { canSaveSftpDraft } from './sftp-editor-save';
+import { detectCodeLanguage, formatCodeContent } from './code-format';
+
+// CodeMirror 体积较大，按需懒加载，避免拖慢应用启动
+const CodeEditor = lazy(() => import('./CodeEditor').then((module) => ({ default: module.CodeEditor })));
 
 interface SftpFileEditorProps {
   isOpen: boolean;
@@ -33,7 +37,6 @@ export function SftpFileEditor({
   onAlert,
 }: SftpFileEditorProps) {
   const { t } = useI18n();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   // 是否成功读取过远端文件。读取失败时为 false，用于阻止任何写回（按钮与快捷键共用）。
@@ -49,6 +52,25 @@ export function SftpFileEditor({
   const overLimit = draftBytes > maxBytes;
   // 保存条件：按钮 disabled、Ctrl/Cmd+S 调用的 handleSave 都用它，避免两条路径不一致。
   const canSave = canSaveSftpDraft({ loaded, loading, saving, dirty, overLimit });
+
+  const language = useMemo(() => detectCodeLanguage(remotePath), [remotePath]);
+  const canFormat = language !== 'text' && loaded && !loading && !saving;
+
+  const handleFormat = useCallback(() => {
+    // js-yaml 重新序列化会丢失注释/锚点，YAML 先确认再动
+    if (language === 'yaml' && !window.confirm(t('fileTransfer.editFormatYamlConfirm'))) {
+      return;
+    }
+    const result = formatCodeContent(language, draft);
+    if (!result.ok) {
+      setError(t('fileTransfer.editFormatFailed', { error: result.error }));
+      setStatus(null);
+      return;
+    }
+    setDraft(result.content);
+    setError(null);
+    setStatus(t('fileTransfer.editFormatted'));
+  }, [draft, language, t]);
 
   /** 过大/不可编辑：优先走居中弹窗，避免埋在编辑器页内 */
   const alertAndClose = useCallback((message: string) => {
@@ -206,6 +228,18 @@ export function SftpFileEditor({
             <RotateCcw className="h-3.5 w-3.5" />
             {t('fileTransfer.editResetAction')}
           </button>
+          {language !== 'text' && (
+            <button
+              type="button"
+              className="industrial-button-secondary px-3 py-1.5 text-xs"
+              disabled={!canFormat}
+              onClick={handleFormat}
+              title={t('fileTransfer.editFormat')}
+            >
+              <Wand2 className="h-3.5 w-3.5" />
+              {t('fileTransfer.editFormat')}
+            </button>
+          )}
         </div>
         <span className={`text-[11px] tabular-nums ${overLimit ? 'text-danger' : 'text-slate-500'}`}>
           {formatBytes(draftBytes)} / {formatBytes(maxBytes)}
@@ -225,18 +259,25 @@ export function SftpFileEditor({
             {error}
           </div>
         ) : (
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setStatus(null);
-              setError(null);
-            }}
-            className="industrial-input scrollbar-thin absolute inset-0 h-full w-full resize-none overflow-y-auto rounded-none border-0 font-mono text-sm leading-6 focus:ring-0"
-            spellCheck={false}
-            disabled={saving}
-          />
+          <Suspense
+            fallback={(
+              <div className="flex h-full min-h-[360px] items-center justify-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('common.loading')}
+              </div>
+            )}
+          >
+            <CodeEditor
+              value={draft}
+              language={language}
+              readOnly={saving}
+              onChange={(next) => {
+                setDraft(next);
+                setStatus(null);
+                setError(null);
+              }}
+            />
+          </Suspense>
         )}
       </div>
 

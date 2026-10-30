@@ -5,6 +5,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { useI18n } from '../i18n';
 import type { AIProviderConfig, AIProviderSummary, AIProviderType } from '../../shared/types';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
+import { SettingsPage } from '../settings/SettingsLayout';
 
 interface ProviderFormState {
   name: string;
@@ -214,19 +215,17 @@ export function AIProviderSettings() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="font-medium text-slate-900 dark:text-white">{t('aiProvider.title')}</h3>
-          <p className="mt-1 text-xs text-slate-500">{t('aiProvider.description')}</p>
-        </div>
+    <SettingsPage
+      title={t('aiProvider.title')}
+      description={t('aiProvider.description')}
+      actions={(
         <button onClick={handleAddProvider} className="industrial-button-primary px-3 py-1.5">
           <Plus className="h-4 w-4" />
           {t('aiProvider.addProvider')}
         </button>
-      </div>
-
-      <div className="grid gap-3">
+      )}
+    >
+      <div className="grid gap-2">
         {providers.length === 0 ? (
           <div className="industrial-card p-5 text-center">
             <KeyRound className="mx-auto mb-2 h-6 w-6 text-slate-400" />
@@ -379,6 +378,6 @@ export function AIProviderSettings() {
         onConfirm={() => void handleDeleteProvider()}
         onCancel={() => setConfirmProviderId(null)}
       />
-    </div>
+    </SettingsPage>
   );
 }

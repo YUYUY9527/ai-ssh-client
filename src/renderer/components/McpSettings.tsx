@@ -9,27 +9,7 @@ import type {
 } from '../../shared/types';
 import { useI18n } from '../i18n';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
-
-interface ToggleProps {
-  enabled: boolean;
-  label: string;
-  onChange: (enabled: boolean) => void;
-}
-
-function Toggle({ enabled, label, onChange }: ToggleProps) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={label}
-      onClick={() => onChange(!enabled)}
-      className={`ui-toggle ${enabled ? 'ui-toggle-on' : 'ui-toggle-off'}`}
-    >
-      <span className="ui-toggle-thumb" />
-    </button>
-  );
-}
+import { SettingsItem, SettingsPage, SettingsSection, ToggleSwitch } from '../settings/SettingsLayout';
 
 interface NumberFieldProps {
   value: number;
@@ -245,14 +225,15 @@ export function McpSettings() {
   ];
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h3 className="flex items-center gap-2 font-medium text-slate-900 dark:text-white">
+    <SettingsPage
+      title={(
+        <span className="flex items-center gap-2">
           <Server className="h-4 w-4 text-teal-500" />
           {t('settings.mcp.title')}
-        </h3>
-        <p className="mt-1 text-xs text-slate-500">{t('settings.mcp.description')}</p>
-      </div>
+        </span>
+      )}
+      description={t('settings.mcp.description')}
+    >
 
       <div className="industrial-card space-y-1 p-3 text-xs">
         <div className="flex items-start justify-between gap-3">
@@ -295,57 +276,46 @@ export function McpSettings() {
         </div>
       )}
 
-      <div className="space-y-4">
-        <div>
-          <label className="mb-2 block text-sm text-slate-600 dark:text-slate-400">
-            {t('settings.mcp.defaultMode')}
-          </label>
+      <SettingsSection title={t('settings.mcp.general')}>
+        <SettingsItem
+          label={t('settings.mcp.defaultMode')}
+          description={t('settings.mcp.defaultModeDesc')}
+          layout="block"
+        >
           <IndustrialSelect
             value={draft.defaultMode}
             options={modeOptions}
             onChange={(value) => setDraft({ ...draft, defaultMode: value as McpPolicyMode })}
           />
-          <p className="mt-1 text-xs text-slate-500">{t('settings.mcp.defaultModeDesc')}</p>
-        </div>
+        </SettingsItem>
 
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <label className="text-sm text-slate-600 dark:text-slate-400">
-              {t('settings.mcp.trustOnFirstUse')}
-            </label>
-            <p className="text-xs text-slate-500">{t('settings.mcp.trustOnFirstUseDesc')}</p>
-          </div>
-          <Toggle
+        <SettingsItem
+          label={t('settings.mcp.trustOnFirstUse')}
+          description={t('settings.mcp.trustOnFirstUseDesc')}
+        >
+          <ToggleSwitch
             enabled={draft.trustOnFirstUse}
             label={t('settings.mcp.trustOnFirstUse')}
             onChange={(value) => setDraft({ ...draft, trustOnFirstUse: value })}
           />
-        </div>
+        </SettingsItem>
 
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <label className="text-sm text-slate-600 dark:text-slate-400">
-              {t('settings.mcp.audit')}
-            </label>
-            <p className="text-xs text-slate-500">{t('settings.mcp.auditDesc')}</p>
-          </div>
-          <Toggle
+        <SettingsItem
+          label={t('settings.mcp.audit')}
+          description={t('settings.mcp.auditDesc')}
+        >
+          <ToggleSwitch
             enabled={draft.audit.enabled}
             label={t('settings.mcp.audit')}
             onChange={(value) => setDraft({ ...draft, audit: { enabled: value } })}
           />
-        </div>
-      </div>
+        </SettingsItem>
+      </SettingsSection>
 
-      <div className="border-t border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pt-4">
-        <h4 className="text-sm font-medium text-slate-900 dark:text-white">
-          {t('settings.mcp.limits')}
-        </h4>
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+      <SettingsSection title={t('settings.mcp.limits')} description={t('settings.mcp.limitsDesc')}>
+        <div className="grid gap-4 py-3.5 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-500">
-              {t('settings.mcp.limitOutput')}
-            </label>
+            <label className="industrial-field-label">{t('settings.mcp.limitOutput')}</label>
             <NumberField
               value={draft.limits.maxOutputBytes}
               min={1024}
@@ -354,9 +324,7 @@ export function McpSettings() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">
-              {t('settings.mcp.limitTimeout')}
-            </label>
+            <label className="industrial-field-label">{t('settings.mcp.limitTimeout')}</label>
             <NumberField
               value={draft.limits.execTimeoutMs}
               min={1000}
@@ -365,9 +333,7 @@ export function McpSettings() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">
-              {t('settings.mcp.limitCommandChars')}
-            </label>
+            <label className="industrial-field-label">{t('settings.mcp.limitCommandChars')}</label>
             <NumberField
               value={draft.limits.maxCommandChars}
               min={128}
@@ -376,9 +342,7 @@ export function McpSettings() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">
-              {t('settings.mcp.limitReadBytes')}
-            </label>
+            <label className="industrial-field-label">{t('settings.mcp.limitReadBytes')}</label>
             <NumberField
               value={draft.limits.maxReadBytes}
               min={1024}
@@ -387,18 +351,15 @@ export function McpSettings() {
             />
           </div>
         </div>
-        <p className="mt-2 text-xs text-slate-500">{t('settings.mcp.limitsDesc')}</p>
-      </div>
+      </SettingsSection>
 
-      <div className="border-t border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pt-4">
-        <h4 className="text-sm font-medium text-slate-900 dark:text-white">
-          {t('settings.mcp.connections')}
-        </h4>
-        <p className="mt-1 text-xs text-slate-500">{t('settings.mcp.connectionsDesc')}</p>
-
-        <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+      <SettingsSection
+        title={t('settings.mcp.connections')}
+        description={t('settings.mcp.connectionsDesc')}
+      >
+        <div className="max-h-72 space-y-2 overflow-y-auto py-3.5 pr-1">
           {snapshot?.connections.length === 0 && (
-            <div className="rounded-sm border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-3 text-center text-xs text-slate-500">
+            <div className="rounded-md border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-3 text-center text-xs text-slate-500">
               {t('settings.mcp.noConnections')}
             </div>
           )}
@@ -428,24 +389,25 @@ export function McpSettings() {
             </div>
           ))}
         </div>
-      </div>
+      </SettingsSection>
 
-      <div className="border-t border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pt-4">
-        <label className="mb-1 block text-sm text-slate-600 dark:text-slate-400">
-          {t('settings.mcp.exceptions')}
-        </label>
-        <p className="mb-2 text-xs text-slate-500">{t('settings.mcp.exceptionsDesc')}</p>
-        <textarea
-          value={exceptionsText}
-          onChange={(event) => setExceptionsText(event.target.value)}
-          rows={3}
-          spellCheck={false}
-          placeholder={t('settings.mcp.exceptionsPlaceholder')}
-          className="industrial-input w-full font-mono text-xs"
-        />
-      </div>
+      <SettingsSection
+        title={t('settings.mcp.exceptions')}
+        description={t('settings.mcp.exceptionsDesc')}
+      >
+        <div className="py-3.5">
+          <textarea
+            value={exceptionsText}
+            onChange={(event) => setExceptionsText(event.target.value)}
+            rows={3}
+            spellCheck={false}
+            placeholder={t('settings.mcp.exceptionsPlaceholder')}
+            className="industrial-input w-full font-mono text-xs"
+          />
+        </div>
+      </SettingsSection>
 
-      <details className="border-t border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pt-4">
+      <details className="rounded-md border border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] px-3 py-2">
         <summary className="cursor-pointer text-sm font-medium text-slate-900 dark:text-white">
           {t('settings.mcp.denyRules')}
         </summary>
@@ -480,6 +442,6 @@ export function McpSettings() {
           {t('settings.mcp.reload')}
         </button>
       </div>
-    </div>
+    </SettingsPage>
   );
 }

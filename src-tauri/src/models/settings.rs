@@ -48,6 +48,9 @@ pub struct AppSettings {
     pub max_persisted_sessions: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_scrollback_bytes_per_session: Option<u32>,
+    /// 文件管理面板是否常驻左侧显示
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_manager_persistent: Option<bool>,
 }
 
 impl Default for AppSettings {
@@ -76,6 +79,7 @@ impl Default for AppSettings {
             agent_read_only_mode: Some(false),
             max_persisted_sessions: Some(8),
             max_scrollback_bytes_per_session: Some(150 * 1024),
+            file_manager_persistent: Some(false),
         }
     }
 }
