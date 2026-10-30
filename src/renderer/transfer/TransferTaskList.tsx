@@ -78,13 +78,13 @@ export function TransferTaskList({
   }
 
   return (
-    <div className="file-transfer-scroll h-full overflow-y-auto bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
+    <div className="file-transfer-scroll h-full w-full min-w-0 overflow-y-auto overflow-x-hidden bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
       <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
           {translate('fileTransfer.transferTasks')}
         </h3>
       </div>
-      <div className="grid gap-2 p-3">
+      <div className="grid min-w-0 grid-cols-1 gap-2 p-3">
         {tasks.map((task) => {
           const progressValue = Math.max(0, Math.min(100, task.status === 'completed' ? 100 : task.progress));
           const failed = task.status === 'failed' || task.status === 'interrupted' || task.status === 'canceled';
@@ -113,7 +113,7 @@ export function TransferTaskList({
           const statusKey = getStatusKey(task);
 
           return (
-            <div key={task.taskId} className="industrial-card p-3">
+            <div key={task.taskId} className="industrial-card min-w-0 overflow-hidden p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-1.5">
                   {task.direction === 'upload' ? (
@@ -169,8 +169,8 @@ export function TransferTaskList({
                 </div>
               </div>
 
-              <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-                <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 ${statusTone}`}>
+              <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
+                <span className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-sm border px-1.5 py-0.5 ${statusTone}`}>
                   {(task.status === 'completed' || task.status === 'handed-off') && <CheckCircle className="h-3 w-3" />}
                   {failed && <AlertCircle className="h-3 w-3" />}
                   {!isSftpTransferTerminal(task.status)
@@ -198,7 +198,7 @@ export function TransferTaskList({
 
               {task.status === 'waiting-conflict' && (
                 <div className="mt-3 rounded-sm border border-amber-500/35 bg-amber-500/10 p-2.5">
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                  <p className="break-words text-xs text-amber-700 dark:text-amber-300">
                     {translate('fileTransfer.conflictMessage', {
                       name: task.name,
                       path: task.conflict?.destinationPath || task.remotePath || '-',
@@ -265,13 +265,13 @@ export function TransferTaskList({
               </div>
 
               {task.notice && (
-                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" title={task.notice}>
+                <p className="mt-2 break-words text-xs text-amber-600 dark:text-amber-400" title={task.notice}>
                   {task.notice}
                 </p>
               )}
 
               {failed && task.error?.message && (
-                <p className="mt-2 line-clamp-2 text-xs text-red-600 dark:text-red-400" title={task.error.message}>
+                <p className="mt-2 line-clamp-2 break-words text-xs text-red-600 dark:text-red-400" title={task.error.message}>
                   {task.error.message}
                 </p>
               )}
