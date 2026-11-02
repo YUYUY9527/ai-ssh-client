@@ -1302,19 +1302,6 @@
     color: var(--danger-fg);
   }
 
-  .workspace-empty {
-    @apply absolute inset-0 flex flex-col items-center justify-center gap-7 p-8 text-center;
-    animation: ui-chrome-in calc(var(--duration-chrome) + 40ms) var(--ease-chrome) both;
-  }
-
-  .workspace-empty-mark {
-    @apply flex h-16 w-16 items-center justify-center border;
-    border-radius: var(--radius-lg);
-    border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
-    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
-    box-shadow: 0 0 32px color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  }
-
   .workspace-empty-card-icon {
     @apply flex h-8 w-8 shrink-0 items-center justify-center border;
     border-radius: var(--radius-sm);
@@ -1330,6 +1317,56 @@
     border-color: color-mix(in srgb, var(--info) 40%, var(--border-color));
     background: color-mix(in srgb, var(--info) 12%, transparent);
     color: var(--info);
+  }
+
+  .workspace-dashboard {
+    @apply absolute inset-0 overflow-y-auto p-5 sm:p-7;
+    animation: ui-chrome-in calc(var(--duration-chrome) + 40ms) var(--ease-chrome) both;
+  }
+
+  .workspace-dashboard-inner {
+    @apply mx-auto flex w-full max-w-5xl flex-col gap-4;
+  }
+
+  .workspace-dashboard-top {
+    @apply grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)];
+  }
+
+  .workspace-home-panel-header {
+    @apply flex items-center gap-2 border-b px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100;
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  }
+
+  .workspace-home-row {
+    @apply flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors;
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    transition-duration: var(--duration-chrome);
+  }
+
+  .workspace-home-row:last-child {
+    border-bottom-width: 0;
+  }
+
+  .workspace-home-row:hover {
+    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+  }
+
+  .workspace-home-action {
+    @apply flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm transition-colors;
+    color: var(--text-secondary);
+    transition-duration: var(--duration-chrome);
+  }
+
+  .workspace-home-action:hover {
+    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+    color: var(--text-primary);
+  }
+
+  .workspace-home-hint {
+    @apply mx-3 mb-3 flex items-start gap-2 rounded-sm border px-3 py-2 text-xs leading-5;
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    color: var(--text-secondary);
   }
 
   .settings-nav-item {
@@ -1952,5 +1989,35 @@
 }
 
 .cm-editor .cm-scroller::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 文件管理路径面包屑的横向滚动条：只使用 ::-webkit-scrollbar，
+   避免系统默认滚动条残留左右箭头，并保持与全站滚动条一致的圆角样式。 */
+.file-path-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.file-path-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-path-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  min-width: 32px;
+}
+
+.file-path-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.file-path-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.file-path-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }

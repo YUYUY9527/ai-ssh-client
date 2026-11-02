@@ -72,7 +72,7 @@ interface DragState {
 export function AppController() {
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'agent' | 'language' | 'password'>('terminal');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password'>('terminal');
   // Web 部署下若仍使用默认登录密码，显示提醒横幅。
   const [showDefaultPasswordBanner, setShowDefaultPasswordBanner] = useState(false);
   const [showAgentPet, setShowAgentPet] = useState(false);
@@ -908,9 +908,19 @@ export function AppController() {
         <SessionWorkspace
         activeTabId={activeTabId}
         tabs={openTabs}
+        connections={connections}
         isSftpSidebarOpen={isSftpSidebarOpen}
         onPasteToAI={handlePasteToAI}
         onCloseSftpSidebar={() => setSftpSidebarOpen(false)}
+        onConnect={(connectionId, connectionName) => {
+          void handleConnect(connectionId, connectionName);
+        }}
+        onCreateConnection={handleCreateConnection}
+        onOpenSettings={(tab) => {
+          setSettingsInitialTab(tab);
+          setShowSettings(true);
+        }}
+        onOpenAssistant={() => setShowAgentPet(true)}
         theme={theme}
         settings={settings}
         onSettingsPatch={handleSettingsPatch}

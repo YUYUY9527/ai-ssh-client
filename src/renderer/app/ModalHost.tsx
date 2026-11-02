@@ -33,7 +33,7 @@ interface ModalHostProps {
   pendingCommand: CommandSuggestion | null;
   pendingHostTrust: HostTrustPromptEvent | null;
   settings: AppSettings;
-  settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'agent' | 'language' | 'password';
+  settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password';
   testingConnection: boolean;
   translate: (key: string, params?: Record<string, string | number>) => string;
   onApproveCommand: () => void;

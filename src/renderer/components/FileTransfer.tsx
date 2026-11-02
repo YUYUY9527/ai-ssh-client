@@ -1363,7 +1363,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
             pathEditor
           ) : (
             <>
-              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+              <div className="file-path-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
                 <button
                   onClick={() => navigateTo(pathRoot)}
                   className="whitespace-nowrap text-slate-500 hover:text-teal-500 disabled:opacity-50"

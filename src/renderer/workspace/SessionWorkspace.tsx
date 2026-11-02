@@ -1,8 +1,8 @@
-import type { AppSettings } from '../../shared/types';
+import type { AppSettings, SSHConnection } from '../../shared/types';
 import type { Session } from '../../shared/types';
 import { SessionTerminal } from '../session/SessionTerminal';
 import { SftpSidebar } from '../transfer/SftpSidebar';
-import { WorkspaceEmptyState } from './WorkspaceEmptyState';
+import { WorkspaceEmptyState, type WorkspaceHomeSettingsTab } from './WorkspaceEmptyState';
 import { WorkspaceLayout } from './WorkspaceLayout';
 
 export interface WorkspaceTab {
@@ -18,9 +18,14 @@ export interface WorkspaceTab {
 interface SessionWorkspaceProps {
   activeTabId: string | null;
   tabs: WorkspaceTab[];
+  connections: SSHConnection[];
   isSftpSidebarOpen: boolean;
   onPasteToAI: (text: string) => void;
   onCloseSftpSidebar: () => void;
+  onConnect: (connectionId: string, connectionName: string) => void;
+  onCreateConnection: () => void;
+  onOpenSettings: (tab: WorkspaceHomeSettingsTab) => void;
+  onOpenAssistant: () => void;
   theme: 'dark' | 'light' | 'system';
   settings: AppSettings;
   onSettingsPatch?: (patch: Partial<AppSettings>) => void | Promise<void>;
@@ -30,9 +35,14 @@ interface SessionWorkspaceProps {
 export function SessionWorkspace({
   activeTabId,
   tabs,
+  connections,
   isSftpSidebarOpen,
   onPasteToAI,
   onCloseSftpSidebar,
+  onConnect,
+  onCreateConnection,
+  onOpenSettings,
+  onOpenAssistant,
   theme,
   settings,
   onSettingsPatch,
@@ -68,7 +78,15 @@ export function SessionWorkspace({
           />
         </div>
       ))}
-      {tabs.length === 0 && <WorkspaceEmptyState />}
+      {tabs.length === 0 && (
+        <WorkspaceEmptyState
+          connections={connections}
+          onConnect={onConnect}
+          onCreateConnection={onCreateConnection}
+          onOpenSettings={onOpenSettings}
+          onOpenAssistant={onOpenAssistant}
+        />
+      )}
     </WorkspaceLayout>
   );
 }
