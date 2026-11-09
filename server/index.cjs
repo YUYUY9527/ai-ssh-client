@@ -28,6 +28,7 @@ const {
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
 const { buildDownloadEtag, readSftpFileEdges } = require('./sftp-download-validator.cjs');
+const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
 const { createAuth } = require('./auth.cjs');
 const { createHostTrust } = require('./host-trust.cjs');
 const { createSecretStore } = require('./secret-store.cjs');
@@ -1755,10 +1756,10 @@ app.get('/api/sftp/:id/download', async (request, response) => {
     response.setHeader('Content-Type', 'application/octet-stream');
     response.setHeader('Accept-Ranges', 'bytes');
 
-    const streamOptions = start > 0 || (end != null && size > 0 && end < size - 1)
-      ? { start, end }
-      : undefined;
-    const readStream = sftp.createReadStream(remotePath, streamOptions);
+    const readStream = createPipelinedReadStream(sftp, remotePath, {
+      start,
+      end: end != null ? end : undefined,
+    });
     // 客户端断开时销毁 SFTP 读流，避免空转占用会话。
     request.on('close', () => {
       if (!response.writableEnded) {
