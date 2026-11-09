@@ -86,6 +86,40 @@ export function isPromptLineReady(logicalLine: string): boolean {
 }
 
 /**
+ * 判定这一行是不是「只有 shell 提示符、后面没有任何输入」。
+ *
+ * Agent 连续执行多条命令时，每条命令跑完远端都会重画一次提示符。它夹在
+ * 「✓ 退出码」和下一条 `Agent · 执行中` 之间，用户会误以为 AI 已经结束。
+ * 只匹配裸提示符：`[root@host ~]# ` 命中，`[root@host ~]# ls` 不命中。
+ */
+export function isShellPromptOnlyLine(logicalLine: string): boolean {
+  const line = logicalLine.replace(/\s+$/, '');
+  if (!line || line === '#') {
+    return false;
+  }
+  const stripped = stripPromptPrefix(line);
+  return stripped.matched && stripped.text.trim() === '';
+}
+
+/**
+ * 计算擦掉 Agent 期间裸提示符的终端转义序列。
+ * 光标正好停在提示符行时直接清当前行；有些 shell 在提示符后补了换行，
+ * 光标落在下方空行，需要上移一行、清掉上一行再移回来，否则提示符会留在屏幕上。
+ */
+export function resolveAgentPromptEraseSequence(
+  currentLine: string,
+  previousLine: string | null,
+): string | null {
+  if (isShellPromptOnlyLine(currentLine)) {
+    return '\r\x1b[2K';
+  }
+  if (!currentLine.trim() && previousLine !== null && isShellPromptOnlyLine(previousLine)) {
+    return '\x1b[1A\r\x1b[2K\x1b[1B';
+  }
+  return null;
+}
+
+/**
  * 决定回车时真正提交的内容。
  *
  * 本地逐字符追踪对「一路键入」是精确的，但会在这些情况下漂移：粘贴（不经过

@@ -9,7 +9,6 @@ const express = require('express');
 const { Client } = require('ssh2');
 const { WebSocketServer } = require('ws');
 const {
-  formatAgentCommandEcho,
   makeSentinelMarker,
   parseSentinel,
   stripCompleteSentinelArtifacts,
@@ -559,7 +558,8 @@ function runSshCommand(connectionId, command, options = {}, clientId = '') {
     stream.on('close', handleClose);
     timeout = setTimeout(() => interruptAndFinish('timeout'), timeoutMs);
 
-    emitToClient(clientId, 'ssh-data', { connectionId, data: formatAgentCommandEcho(command) });
+    // 命令行由前端 Agent 输出投影统一打印（`$ command`），这里不再重复下发 echo；
+    // 远端对包装命令的回显仍由 sentinel stripper 过滤掉。
     session.agentEchoPending = true;
     stream.write(wrapCommandWithSentinel(command, runId));
   });

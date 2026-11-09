@@ -107,6 +107,40 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /*
+   * 全局滚动条兜底：所有可滚动区域默认使用全站细滚动条，
+   * 避免个别容器漏加 scrollbar-* 类时回退成系统粗滚动条。
+   * 具体组件（xterm、CodeMirror、.scrollbar-thin 等）仍可覆盖。
+   */
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+    min-height: 32px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  *::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   input[type="number"] {
     -moz-appearance: textfield;
     appearance: textfield;

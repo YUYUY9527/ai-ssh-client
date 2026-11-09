@@ -17,10 +17,6 @@ function wrapCommandWithSentinel(command, runId) {
   return `\r(${trimmed}); printf '\\n${marker}:%s\\n' "$?"\n`;
 }
 
-function formatAgentCommandEcho(command) {
-  return `\r\n${command.trimEnd()}\r\n`;
-}
-
 function parseSentinel(buffer, marker) {
   let markerIndex = buffer.indexOf(marker);
   while (markerIndex !== -1) {
@@ -186,7 +182,6 @@ function isIncompleteWrappedPrintfTail(line) {
 
 module.exports = {
   createSentinelStripper,
-  formatAgentCommandEcho,
   makeSentinelMarker,
   parseSentinel,
   stripCompleteSentinelArtifacts,

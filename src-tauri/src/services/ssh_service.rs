@@ -245,11 +245,6 @@ impl SshService {
             .map_err(|_| app_error("SSH 会话已关闭"))
     }
 
-    /// Emits text to the visible terminal without sending it to the remote shell.
-    pub fn emit_terminal_data(&self, app_handle: &AppHandle, connection_id: &str, data: String) {
-        emit_ssh_data(app_handle, connection_id, data);
-    }
-
     /// Subscribes to raw terminal output for a tracked SSH session.
     pub fn subscribe_output(
         &self,

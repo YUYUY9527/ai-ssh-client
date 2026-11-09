@@ -105,6 +105,61 @@ function finishTask(finishReason: string) {
 }
 
 describe('useTerminalAgentOutput — 结束摘要与状态标签', () => {
+  it('任务开始只打印 Agent 标题，不重复打印用户问题', () => {
+    act(() => {
+      useAgentStore.setState({
+        agentState: 'thinking',
+        currentTask: task({
+          userInput: '看下ctc-joysuch-gateway的compose文件在哪',
+          state: 'thinking',
+        }),
+      } as never);
+    });
+
+    const rendered = lines();
+    expect(rendered.some((line) => line.includes('ctc-joysuch-gateway'))).toBe(false);
+    expect(rendered.some((line) => line.includes('Agent'))).toBe(true);
+  });
+
+  it('多行 Agent 问题使用 CRLF 换行，不会呈阶梯状错位', () => {
+    act(() => {
+      useAgentStore.setState({
+        agentState: 'thinking',
+        currentTask: task({ state: 'thinking' }),
+        pendingQuestion: '1. 系统信息查看\n2. 服务管理\n3. 文件操作',
+      } as never);
+    });
+
+    const raw = writes.join('');
+    expect(raw).toContain('1. 系统信息查看\r\n2. 服务管理\r\n3. 文件操作');
+    expect(raw).not.toContain('1. 系统信息查看\n2. 服务管理');
+  });
+
+  it('结束摘要前会擦掉光标上一行的裸提示符', () => {
+    const bufferLines = ['docker info output', '[root@k8s-slave1 ~]#', ''];
+    (fakeTerminal as unknown as {
+      buffer: { active: { cursorY: number; getLine: (index: number) => { isWrapped: boolean; translateToString: () => string } } };
+    }).buffer = {
+      active: {
+        cursorY: 2,
+        getLine: (index: number) => ({
+          isWrapped: false,
+          translateToString: () => bufferLines[index] ?? '',
+        }),
+      },
+    };
+
+    try {
+      finishTask('Docker 正在正常运行');
+      const raw = writes.join('');
+      const eraseIndex = raw.indexOf('\x1b[1A\r\x1b[2K');
+      expect(eraseIndex).toBeGreaterThanOrEqual(0);
+      expect(raw.indexOf('Docker 正在正常运行')).toBeGreaterThan(eraseIndex);
+    } finally {
+      delete (fakeTerminal as unknown as { buffer?: unknown }).buffer;
+    }
+  });
+
   it('任务结束后打印摘要与继续提示，最后一行不是状态标签', () => {
     finishTask('第一次结束');
 

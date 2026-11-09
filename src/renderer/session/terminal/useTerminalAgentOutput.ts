@@ -5,6 +5,7 @@ import { useAgentStore } from '../../store/useAgentStore';
 import { useSessionStore } from '../useSessionStore';
 import { executionDurationMs, isExecutionFailure } from '../../agent/agent-execution-metrics';
 import { formatAgentTerminalText, normalizeAgentTerminalText, sanitizeAgentTerminalText } from '../../agent/terminal-agent-chat';
+import { isShellPromptOnlyLine, readLogicalBufferLine, resolveAgentPromptEraseSequence } from './terminal-input-line';
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -45,10 +46,47 @@ function commandFromStep(content: string): string {
     || '';
 }
 
+function currentLogicalLine(term: XTerm): string | null {
+  const buffer = term.buffer?.active;
+  if (!buffer) {
+    return null;
+  }
+  return readLogicalBufferLine((index) => buffer.getLine(index), buffer.cursorY);
+}
+
+function previousLogicalLine(term: XTerm): string | null {
+  const buffer = term.buffer?.active;
+  if (!buffer || buffer.cursorY <= 0) {
+    return null;
+  }
+  return readLogicalBufferLine((index) => buffer.getLine(index), buffer.cursorY - 1);
+}
+
+/**
+ * 光标当前停在空行或裸提示符上时，可以直接复用这一行；
+ * 用户已经输入了内容的行不能覆盖，仍从下一行开始。
+ */
+function canReuseCurrentLine(term: XTerm): boolean {
+  const line = currentLogicalLine(term);
+  if (line === null) {
+    return false;
+  }
+  return !line.trim() || isShellPromptOnlyLine(line);
+}
+
 function writeLine(term: XTerm, text: string, color?: string): void {
-  const safeText = normalizeAgentTerminalText(text);
+  // xterm 默认 convertEol=false：内部换行必须补成 CRLF，否则下一行会从
+  // 上一行结束时的列继续写，多行 Agent 回复会呈阶梯状错位。
+  const safeText = normalizeAgentTerminalText(text).replace(/\n/g, '\r\n');
   const label = color ? `\x1b[${color}m${safeText}\x1b[0m` : safeText;
-  term.write(`\r\n${label}\r\n`);
+  // 光标落在提示符下方的空行时，单纯清当前空行会把上一行的裸提示符留在屏幕上；
+  // 这里按当前/上一行一起判断，把提示符那行也擦掉。
+  const erasePrompt = resolveAgentPromptEraseSequence(
+    currentLogicalLine(term) ?? '',
+    previousLogicalLine(term),
+  );
+  const prefix = erasePrompt ?? (canReuseCurrentLine(term) ? '\r\x1b[2K' : '\r\n');
+  term.write(`${prefix}${label}\r\n`);
 }
 
 /** Projects Agent store transitions into the active xterm without a chat panel. */
@@ -111,10 +149,10 @@ export function useTerminalAgentOutput({
       approvalRef.current = null;
       completedTaskIdRef.current = null;
       terminalRef.current = null;
-      const userText = sanitizeAgentTerminalText(currentTask.userInput);
-      term.write(`\r\n\x1b[36m┌─ Agent ─────────────────────────\x1b[0m\r\n`);
-      term.write(`\x1b[36m│\x1b[0m \x1b[1m${formatAgentTerminalText(userText)}`);
-      term.write(`\x1b[36m└────────────────────────────────\x1b[0m\r\n`);
+      const prefix = canReuseCurrentLine(term) ? '\r\x1b[2K' : '\r\n';
+      // 用户的问题已经在终端输入行回显过，这里不再重复打印；
+      // 只打一条 Agent 分隔标题，正文交给状态/命令/结果行。
+      term.write(`${prefix}\x1b[36m── Agent ──────────────────────────\x1b[0m\r\n`);
     }
 
     // 同一任务被重新驱动（结束态 → 进行中）时重新武装结束输出：否则第二次结束时

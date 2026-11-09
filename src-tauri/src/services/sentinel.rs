@@ -63,11 +63,6 @@ pub fn wrap_command_with_sentinel(command: &str, run_id: &str) -> String {
     format!("\r({trimmed}); printf '\\n{marker}:%s\\n' \"$?\"\n")
 }
 
-pub fn format_agent_command_echo(command: &str) -> String {
-    let trimmed = command.trim_end_matches(['\r', '\n']);
-    format!("\r\n{trimmed}\r\n")
-}
-
 pub fn parse_sentinel(buffer: &str, marker: &str) -> Option<(String, i32)> {
     for (marker_index, _) in buffer.match_indices(marker) {
         let after_marker = &buffer[marker_index + marker.len()..];

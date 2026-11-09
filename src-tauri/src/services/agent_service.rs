@@ -9,8 +9,8 @@ use tokio::sync::oneshot;
 
 use crate::error::{app_error, AppResult};
 use crate::services::sentinel::{
-    format_agent_command_echo, make_sentinel_marker, parse_sentinel,
-    strip_complete_sentinel_artifacts, wrap_command_with_sentinel, SentinelStripper,
+    make_sentinel_marker, parse_sentinel, strip_complete_sentinel_artifacts,
+    wrap_command_with_sentinel, SentinelStripper,
 };
 use crate::services::ssh_service::SshService;
 
@@ -218,7 +218,7 @@ impl AgentService {
     /// 返回命令执行结果，包含输出、退出码和完成原因
     pub async fn exec_await(
         &self,
-        app_handle: AppHandle,
+        _app_handle: AppHandle,
         ssh: &SshService,
         connection_id: String,
         command: String,
@@ -250,11 +250,8 @@ impl AgentService {
         };
         drop(superseded);
 
-        ssh.emit_terminal_data(
-            &app_handle,
-            &connection_id,
-            format_agent_command_echo(&command),
-        );
+        // 命令行由前端 Agent 输出投影统一打印（`$ command`），这里不再重复下发 echo；
+        // 远端对包装命令的回显仍由 SentinelStripper 过滤掉。
         ssh.execute(
             &connection_id,
             wrap_command_with_sentinel(&command, &run_id),

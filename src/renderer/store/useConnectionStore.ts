@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AppSettings, SSHConnection } from '../../shared/types';
+import { loadRecentConnectionIds, markRecentConnection } from '../connection/recent-connections';
 import { applyRemoteOutputBuffer } from '../session/merge-remote-output';
 import {
   buildRuntimeConnection,
@@ -9,6 +10,8 @@ import { useSessionStore } from '../session/useSessionStore';
 
 interface ConnectionState {
   connections: SSHConnection[];
+  /** 最近成功连接过的连接 id，最近的排在前面 */
+  recentConnectionIds: string[];
 
   // 连接操作
   loadConnections: () => Promise<void>;
@@ -23,6 +26,7 @@ interface ConnectionState {
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connections: [],
+  recentConnectionIds: loadRecentConnectionIds(),
 
   loadConnections: async () => {
     if (!window.electronAPI) return;
@@ -76,6 +80,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const result = await window.electronAPI.sshConnect(connection, cols, rows, settings);
     if (!result.success) {
       return false;
+    }
+
+    // 只有已保存的连接才参与“最近连接”排序，临时会话不写入历史。
+    if (get().connections.some((item) => item.id === connection.id)) {
+      set({ recentConnectionIds: markRecentConnection(connection.id) });
     }
 
     // Web：把 connect 响应里的首包输出写入 store（补偿 WS 竞态）

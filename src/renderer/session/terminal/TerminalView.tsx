@@ -39,6 +39,7 @@ import {
 } from './terminal-cwd';
 import { planTerminalOutputSync } from './terminal-output-sync';
 import { planReplayCalibration } from './terminal-replay';
+import { readLogicalBufferLine, resolveAgentPromptEraseSequence } from './terminal-input-line';
 import {
   createProgressWrapState,
   guardCarriageReturnProgress,
@@ -122,6 +123,8 @@ export function TerminalView({
   /** 进度条原地刷新时临时关闭自动换行，防止超宽进度每帧新增一行。 */
   const progressWrapStateRef = useRef(createProgressWrapState());
   const progressWrapTimerRef = useRef<number | null>(null);
+  /** Agent 期间清理裸提示符的延迟任务；输出可能分多帧落地，等一批写完再擦。 */
+  const agentPromptClearTimerRef = useRef<number | null>(null);
 
   const runtimeSettings = resolveTerminalRuntimeSettings(settings);
 
@@ -288,6 +291,55 @@ export function TerminalView({
     }),
     [sessionId],
   );
+
+  /**
+   * Agent 任务期间，命令之间远端会重画一次裸提示符。它出现在终端最底部，
+   * 会被误读成「AI 已结束」，所以一落地就擦掉当前行；下一条状态行会复用这一行。
+   */
+  const clearStrayAgentPrompt = useCallback(() => {
+    const term = xtermRef.current;
+    if (!term || !sessionId) {
+      return;
+    }
+    const state = useAgentStore.getState();
+    const running = isAgentTaskRunningInSession({
+      sessionId,
+      currentTaskState: state.currentTask?.state ?? null,
+      currentTaskConnectionId: state.currentTask?.connectionId ?? null,
+      agentState: state.agentState,
+    });
+    // 任务刚结束、状态先落到 finished 时，裸提示符可能比状态投影更早到达；
+    // 连续对话模式（follow-up / 首轮输入）也算 Agent 上下文，同样要清理。
+    const inAgentContext = running
+      || agentFollowUpModeRef.current
+      || agentFirstInputModeRef.current;
+    if (!inAgentContext) {
+      return;
+    }
+    const buffer = term.buffer?.active;
+    if (!buffer) {
+      return;
+    }
+    const currentLine = readLogicalBufferLine((index) => buffer.getLine(index), buffer.cursorY);
+    const previousLine = buffer.cursorY > 0
+      ? readLogicalBufferLine((index) => buffer.getLine(index), buffer.cursorY - 1)
+      : null;
+    const eraseSequence = resolveAgentPromptEraseSequence(currentLine, previousLine);
+    if (eraseSequence) {
+      term.write(eraseSequence);
+    }
+  }, [sessionId]);
+
+  /** 输出分多帧到达，统一在最后一批落地后做一次提示符清理。 */
+  const scheduleAgentPromptClear = useCallback(() => {
+    if (agentPromptClearTimerRef.current != null) {
+      window.clearTimeout(agentPromptClearTimerRef.current);
+    }
+    agentPromptClearTimerRef.current = window.setTimeout(() => {
+      agentPromptClearTimerRef.current = null;
+      clearStrayAgentPrompt();
+    }, 80);
+  }, [clearStrayAgentPrompt]);
 
   /**
    * Esc 的统一入口：按当前状态决定含义，Agent 上下文内一律吞掉这次按键。
@@ -575,6 +627,10 @@ export function TerminalView({
       window.clearTimeout(progressWrapTimerRef.current);
       progressWrapTimerRef.current = null;
     }
+    if (agentPromptClearTimerRef.current != null) {
+      window.clearTimeout(agentPromptClearTimerRef.current);
+      agentPromptClearTimerRef.current = null;
+    }
     progressWrapStateRef.current.active = false;
   }, []);
 
@@ -778,7 +834,10 @@ export function TerminalView({
       }
       consumeOutputChunk(chunk);
       consumeShellIntegration(chunk);
-      writeProgressGuarded(chunk);
+      writeProgressGuarded(chunk, clearStrayAgentPrompt);
+      if (isAgentTaskRunningHere()) {
+        scheduleAgentPromptClear();
+      }
     };
 
     if (plan.action === 'append') {
@@ -817,6 +876,10 @@ export function TerminalView({
         consumeShellIntegration(plan.chunk);
         // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
         writeProgressGuarded(plan.chunk, () => {
+          clearStrayAgentPrompt();
+          if (isAgentTaskRunningHere()) {
+            scheduleAgentPromptClear();
+          }
           releaseSuspend();
           calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
         });
@@ -832,10 +895,13 @@ export function TerminalView({
   }, [
     beginSuspendInputForward,
     calibrateAfterReplay,
+    clearStrayAgentPrompt,
     consumeOutputChunk,
     consumeShellIntegration,
     endSuspendInputForward,
+    isAgentTaskRunningHere,
     renderedOutput,
+    scheduleAgentPromptClear,
     resetInputTracking,
     setRenderedOutput,
     sessionId,

@@ -12,6 +12,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { SSHConnection } from '../../shared/types';
+import { sortConnectionsByRecent } from '../connection/recent-connections';
 import { ConnectionImportExportModal } from '../connection/ConnectionImportExportModal';
 import { useCommandHistoryStore } from '../history/useCommandHistoryStore';
 import { useI18n } from '../i18n';
@@ -48,6 +49,7 @@ export function WorkspaceEmptyState({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const historyItems = useCommandHistoryStore((state) => state.items);
+  const recentConnectionIds = useConnectionStore((state) => state.recentConnectionIds);
   const loadHistory = useCommandHistoryStore((state) => state.loadHistory);
   useEffect(() => {
     void loadHistory();
@@ -57,7 +59,10 @@ export function WorkspaceEmptyState({
     [historyItems],
   );
 
-  const visibleConnections = connections.slice(0, 5);
+  const visibleConnections = useMemo(
+    () => sortConnectionsByRecent(connections, recentConnectionIds).slice(0, 5),
+    [connections, recentConnectionIds],
+  );
   const isWeb = typeof window !== 'undefined' && window.__AISSH_WEB__ === true;
   const aiSettingsTab: WorkspaceHomeSettingsTab = isWeb ? 'mcp' : 'providers';
 

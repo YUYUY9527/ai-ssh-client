@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Pencil,
   RefreshCw,
+  Search,
   Shield,
   Trash2,
   Upload,
@@ -239,6 +240,9 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const [pathSuggestLoading, setPathSuggestLoading] = useState(false);
   const [pathHistory, setPathHistory] = useState<string[]>([]);
   const [files, setFiles] = useState<RemoteFileItem[]>([]);
+  /** 当前目录内的名称过滤 */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -285,6 +289,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const mkdirInputRef = useRef<HTMLInputElement>(null);
   const chmodInputRef = useRef<HTMLInputElement>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const pathSuggestRef = useRef<HTMLDivElement>(null);
   const toolbarMenuRef = useRef<HTMLDivElement>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -306,11 +311,16 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
     (task) => !['completed', 'skipped', 'canceled', 'interrupted', 'failed', 'handed-off'].includes(task.status),
   ).length;
   const hasTransferTasks = visibleTransferTasks.length > 0;
+  const visibleFiles = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return files;
+    return files.filter((file) => file.name.toLowerCase().includes(query));
+  }, [files, searchQuery]);
   const selectedFiles = useMemo(
     () => files.filter((file) => selectedPaths.includes(file.path)),
     [files, selectedPaths],
   );
-  const orderedPaths = useMemo(() => files.map((file) => file.path), [files]);
+  const orderedPaths = useMemo(() => visibleFiles.map((file) => file.path), [visibleFiles]);
   const selectedHasDirectory = selectedFiles.some((file) => file.isDirectory);
 
   const loadDirectory = useCallback(async (path: string): Promise<boolean> => {
@@ -691,6 +701,15 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
     window.addEventListener('scroll', hide, true);
     return () => window.removeEventListener('scroll', hide, true);
   }, [hoverDetail]);
+
+  // 切换目录/会话时清空过滤，避免误以为目录里文件缺失。
+  useEffect(() => {
+    setSearchQuery('');
+  }, [currentPath, connectionId]);
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
 
   const goUp = () => {
     const base = normalizeRemoteBrowsePath(currentPath);
@@ -1268,6 +1287,22 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
+            <button
+              onClick={() => {
+                if (searchOpen) {
+                  setSearchOpen(false);
+                  setSearchQuery('');
+                } else {
+                  setSearchOpen(true);
+                }
+              }}
+              className={`icon-button h-7 w-7 ${searchOpen ? 'text-teal-500' : ''}`}
+              title={t('fileTransfer.searchFiles')}
+              aria-pressed={searchOpen}
+              disabled={!isLive}
+            >
+              <Search className="h-4 w-4" />
+            </button>
           </div>
         )}
 
@@ -1403,6 +1438,48 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
         </div>
       )}
 
+      {activeView === 'files' && searchOpen && (
+        <div className="flex items-center gap-1.5 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] px-2 py-1.5">
+          <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setSearchOpen(false);
+                setSearchQuery('');
+              }
+            }}
+            placeholder={t('fileTransfer.searchPlaceholder')}
+            className="min-w-0 flex-1 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100"
+            spellCheck={false}
+          />
+          {searchQuery.trim() && (
+            <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
+              {visibleFiles.length}/{files.length}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (searchQuery) {
+                setSearchQuery('');
+                searchInputRef.current?.focus();
+              } else {
+                setSearchOpen(false);
+              }
+            }}
+            className="icon-button h-6 w-6 shrink-0"
+            title={searchQuery ? t('fileTransfer.searchClear') : t('common.close')}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeView === 'tasks' ? (
           <TransferTaskList
@@ -1473,9 +1550,14 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                 <p className="text-sm">{t('fileTransfer.emptyDir')}</p>
                 <p className="mt-1 text-xs">{t('fileTransfer.dragHint')}</p>
               </div>
+            ) : visibleFiles.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-slate-400">
+                <Search className="h-8 w-8 opacity-50" />
+                <p className="text-sm">{t('fileTransfer.searchEmpty')}</p>
+              </div>
             ) : (
               <div className="space-y-0.5">
-                {files.map((file) => {
+                {visibleFiles.map((file) => {
                   const isSelected = selectedPaths.includes(file.path);
                   return (
                     <div

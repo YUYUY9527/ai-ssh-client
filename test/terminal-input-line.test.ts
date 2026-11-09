@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_LOGICAL_LINE_ROWS,
   isPromptLineReady,
+  isShellPromptOnlyLine,
   readLogicalBufferLine,
+  resolveAgentPromptEraseSequence,
   resolveSubmittedInput,
   stripPromptPrefix,
   type TerminalBufferLineLike,
@@ -87,6 +89,40 @@ describe('stripPromptPrefix / isPromptLineReady', () => {
     expect(isPromptLineReady('[root@h ~]# ')).toBe(true);
     expect(isPromptLineReady('[root@h ~]# 还能查询到其他虚拟机吗')).toBe(true);
     expect(isPromptLineReady('custom-prompt without marker')).toBe(false);
+  });
+});
+
+describe('isShellPromptOnlyLine — 只认裸提示符', () => {
+  it('裸提示符命中（含常见格式）', () => {
+    expect(isShellPromptOnlyLine('[root@k8s-slave2 ~]#')).toBe(true);
+    expect(isShellPromptOnlyLine('[root@k8s-slave2 ~]# ')).toBe(true);
+    expect(isShellPromptOnlyLine('user@host:~$')).toBe(true);
+    expect(isShellPromptOnlyLine('bash-4.2# ')).toBe(true);
+    expect(isShellPromptOnlyLine('❯ ')).toBe(true);
+  });
+
+  it('带输入内容 / 普通输出 / 空行不命中', () => {
+    expect(isShellPromptOnlyLine('[root@h ~]# ls -l')).toBe(false);
+    expect(isShellPromptOnlyLine('docker inspect xxx')).toBe(false);
+    expect(isShellPromptOnlyLine('')).toBe(false);
+    expect(isShellPromptOnlyLine('#')).toBe(false);
+  });
+});
+
+describe('resolveAgentPromptEraseSequence — 擦掉 Agent 期间的裸提示符', () => {
+  it('光标在提示符行时直接清当前行', () => {
+    expect(resolveAgentPromptEraseSequence('[root@h ~]# ', '上一行输出'))
+      .toBe('\r\x1b[2K');
+  });
+
+  it('光标在提示符下方空行时上移一行清掉再回来', () => {
+    expect(resolveAgentPromptEraseSequence('', '[root@h ~]# '))
+      .toBe('\x1b[1A\r\x1b[2K\x1b[1B');
+  });
+
+  it('当前行有内容时不误擦', () => {
+    expect(resolveAgentPromptEraseSequence('Agent · 思考中', '[root@h ~]# ')).toBeNull();
+    expect(resolveAgentPromptEraseSequence('普通输出', null)).toBeNull();
   });
 });
 
