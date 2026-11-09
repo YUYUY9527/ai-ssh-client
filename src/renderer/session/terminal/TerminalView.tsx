@@ -39,6 +39,11 @@ import {
 } from './terminal-cwd';
 import { planTerminalOutputSync } from './terminal-output-sync';
 import { planReplayCalibration } from './terminal-replay';
+import {
+  createProgressWrapState,
+  guardCarriageReturnProgress,
+  releaseProgressWrap,
+} from './terminal-progress-wrap';
 import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
 import { useTerminalSearch } from './useTerminalSearch';
@@ -114,6 +119,9 @@ export function TerminalView({
   const clearTrackedInputRef = useRef<() => void>(() => {});
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
+  /** 进度条原地刷新时临时关闭自动换行，防止超宽进度每帧新增一行。 */
+  const progressWrapStateRef = useRef(createProgressWrapState());
+  const progressWrapTimerRef = useRef<number | null>(null);
 
   const runtimeSettings = resolveTerminalRuntimeSettings(settings);
 
@@ -522,6 +530,54 @@ export function TerminalView({
     onShellIntegrationStateChange: handleShellIntegrationStateChange,
   });
 
+  const scheduleProgressWrapRelease = useCallback(() => {
+    if (progressWrapTimerRef.current != null) {
+      window.clearTimeout(progressWrapTimerRef.current);
+    }
+    // 进度更新通常 100ms 左右一帧；短暂空闲后恢复自动换行，避免影响后续普通输出。
+    progressWrapTimerRef.current = window.setTimeout(() => {
+      progressWrapTimerRef.current = null;
+      const term = xtermRef.current;
+      if (!term) {
+        progressWrapStateRef.current.active = false;
+        return;
+      }
+      const restore = releaseProgressWrap(progressWrapStateRef.current);
+      if (restore) {
+        term.write(restore);
+      }
+    }, 500);
+  }, []);
+
+  /** 写入终端输出；对超宽 \r 进度条临时关闭自动换行，避免每帧新增一行。 */
+  const writeProgressGuarded = useCallback((chunk: string, onWritten?: () => void) => {
+    const term = xtermRef.current;
+    if (!term) {
+      onWritten?.();
+      return;
+    }
+    const guarded = guardCarriageReturnProgress(chunk, progressWrapStateRef.current);
+    if (onWritten) {
+      term.write(guarded, onWritten);
+    } else {
+      term.write(guarded);
+    }
+    if (progressWrapStateRef.current.active) {
+      scheduleProgressWrapRelease();
+    } else if (progressWrapTimerRef.current != null) {
+      window.clearTimeout(progressWrapTimerRef.current);
+      progressWrapTimerRef.current = null;
+    }
+  }, [scheduleProgressWrapRelease]);
+
+  useEffect(() => () => {
+    if (progressWrapTimerRef.current != null) {
+      window.clearTimeout(progressWrapTimerRef.current);
+      progressWrapTimerRef.current = null;
+    }
+    progressWrapStateRef.current.active = false;
+  }, []);
+
   // 终端右键菜单
   const handleContextMenu = (e: React.MouseEvent) => {
     if (!sessionId) return;
@@ -722,7 +778,7 @@ export function TerminalView({
       }
       consumeOutputChunk(chunk);
       consumeShellIntegration(chunk);
-      term.write(chunk);
+      writeProgressGuarded(chunk);
     };
 
     if (plan.action === 'append') {
@@ -748,13 +804,19 @@ export function TerminalView({
     try {
       // 用 reset 而非 clear：干净重建两个 buffer 与状态机。clear 只清当前视口，
       // vim 等全屏程序感知不到屏幕被清，后续增量输出画在残画面上 → 内容缺失。
+      if (progressWrapTimerRef.current != null) {
+        window.clearTimeout(progressWrapTimerRef.current);
+        progressWrapTimerRef.current = null;
+      }
+      // reset() 会把 DECAWM 恢复为开启，状态必须同步复位，否则重放时不会再关闭自动换行。
+      progressWrapStateRef.current.active = false;
       term.reset();
       resetInputTracking();
       if (plan.chunk) {
         consumeOutputChunk(plan.chunk);
         consumeShellIntegration(plan.chunk);
         // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
-        term.write(plan.chunk, () => {
+        writeProgressGuarded(plan.chunk, () => {
           releaseSuspend();
           calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
         });
@@ -778,6 +840,7 @@ export function TerminalView({
     setRenderedOutput,
     sessionId,
     terminalOutput,
+    writeProgressGuarded,
   ]);
 
   // 连接成功后聚焦终端，避免点到页面其它区域导致按键不进 xterm
