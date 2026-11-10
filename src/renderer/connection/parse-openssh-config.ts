@@ -1,16 +1,22 @@
 import type { SSHConnection } from '../../shared/types';
 
+export interface OpenSshConnectionDraft extends SSHConnection {
+  /** Resolved later by the importer; never persisted as-is. */
+  identityFile?: string;
+}
+
 /**
  * Parses OpenSSH config text into connection drafts.
- * Supports Host / HostName / User / Port / IdentityFile (content not loaded).
+ * Supports Host / HostName / User / Port / IdentityFile (path only).
  */
-export function parseOpenSshConfig(content: string): SSHConnection[] {
+export function parseOpenSshConfig(content: string): OpenSshConnectionDraft[] {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const hosts: Array<{
     aliases: string[];
     hostName?: string;
     user?: string;
     port?: number;
+    identityFile?: string;
   }> = [];
   let current: (typeof hosts)[number] | null = null;
 
@@ -44,10 +50,13 @@ export function parseOpenSshConfig(content: string): SSHConnection[] {
         current.port = port;
       }
     }
+    if (key === 'identityfile' && !current.identityFile && value.toLowerCase() !== 'none') {
+      current.identityFile = value;
+    }
   }
 
   const now = Date.now();
-  const connections: SSHConnection[] = [];
+  const connections: OpenSshConnectionDraft[] = [];
   hosts.forEach((item, index) => {
     const name = item.aliases[0];
     const host = item.hostName || name;
@@ -61,6 +70,7 @@ export function parseOpenSshConfig(content: string): SSHConnection[] {
       host,
       port: item.port || 22,
       username,
+      ...(item.identityFile ? { identityFile: item.identityFile } : {}),
     });
   });
 

@@ -170,6 +170,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
         onClick={() => setShow(!show)}
         className={`toolbar-button ${show ? 'toolbar-button-active' : ''}`}
         title={t('quickCommands.title')}
+        aria-label={t('quickCommands.title')}
       >
         <Zap className="w-4 h-4" />
         {t('quickCommands.commands')}
@@ -186,6 +187,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                 onClick={() => { setShowGroupForm(true); setShowCommandForm(false); }}
                 className="icon-button h-7 w-7"
                 title={t('quickCommands.newGroup')}
+                aria-label={t('quickCommands.newGroup')}
               >
                 <FolderUp className="w-4 h-4" />
               </button>
@@ -193,6 +195,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                 onClick={() => { setShowCommandForm(true); setShowGroupForm(false); }}
                 className="icon-button h-7 w-7"
                 title={t('quickCommands.newCommand')}
+                aria-label={t('quickCommands.newCommand')}
               >
                 <Plus className="w-4 h-4" />
               </button>

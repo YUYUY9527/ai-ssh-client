@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import {
   ArrowUpRight,
   Check,
   Copy,
-  History,
   Info,
   Plus,
   Server,
@@ -13,11 +12,14 @@ import {
 } from 'lucide-react';
 import type { SSHConnection } from '../../shared/types';
 import { sortConnectionsByRecent } from '../connection/recent-connections';
-import { ConnectionImportExportModal } from '../connection/ConnectionImportExportModal';
-import { useCommandHistoryStore } from '../history/useCommandHistoryStore';
 import { useI18n } from '../i18n';
 import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
+
+const ConnectionImportExportModal = lazy(async () => {
+  const module = await import('../connection/ConnectionImportExportModal');
+  return { default: module.ConnectionImportExportModal };
+});
 
 export type WorkspaceHomeSettingsTab =
   | 'terminal'
@@ -48,16 +50,7 @@ export function WorkspaceEmptyState({
   const [importOpen, setImportOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const historyItems = useCommandHistoryStore((state) => state.items);
   const recentConnectionIds = useConnectionStore((state) => state.recentConnectionIds);
-  const loadHistory = useCommandHistoryStore((state) => state.loadHistory);
-  useEffect(() => {
-    void loadHistory();
-  }, [loadHistory]);
-  const recentCommands = useMemo(
-    () => useCommandHistoryStore.getState().query({ limit: 4 }),
-    [historyItems],
-  );
 
   const visibleConnections = useMemo(
     () => sortConnectionsByRecent(connections, recentConnectionIds).slice(0, 5),
@@ -190,47 +183,6 @@ export function WorkspaceEmptyState({
         </div>
 
         <section className="industrial-card overflow-hidden">
-          <header className="workspace-home-panel-header">
-            <History className="h-4 w-4 text-slate-400" />
-            <h2>{t('workspace.home.recentCommands')}</h2>
-          </header>
-          {recentCommands.length === 0 ? (
-            <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
-              {t('workspace.home.noRecentCommands')}
-            </div>
-          ) : (
-            <div>
-              {recentCommands.map((item) => {
-                const copied = copiedKey === `command:${item.id}`;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="workspace-home-row group py-2"
-                    title={t('workspace.home.copyCommand')}
-                    onClick={() => {
-                      void copyText(`command:${item.id}`, item.command);
-                    }}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-mono text-xs text-slate-700 dark:text-slate-200">
-                        {item.command}
-                      </div>
-                      <div className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
-                        {item.username}@{item.host} · {item.effectiveCwd}
-                      </div>
-                    </div>
-                    <span className="shrink-0 text-slate-400 opacity-60 transition-opacity group-hover:opacity-100">
-                      {copied ? <Check className="h-3.5 w-3.5 text-teal-500" /> : <Copy className="h-3.5 w-3.5" />}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="industrial-card overflow-hidden">
           <div className="flex items-start gap-3 px-4 py-4">
             <span className="workspace-empty-card-icon workspace-empty-card-icon-ai mt-0.5">
               <Sparkles className="h-4 w-4" />
@@ -273,18 +225,22 @@ export function WorkspaceEmptyState({
         </section>
       </div>
 
-      <ConnectionImportExportModal
-        isOpen={importOpen}
-        mode="import"
-        existingConnections={connections}
-        onClose={() => setImportOpen(false)}
-        onImported={async () => {
-          await Promise.all([
-            useConnectionStore.getState().loadConnections(),
-            useAIStore.getState().loadProviders(),
-          ]);
-        }}
-      />
+      {importOpen && (
+        <Suspense fallback={null}>
+          <ConnectionImportExportModal
+            isOpen
+            mode="import"
+            existingConnections={connections}
+            onClose={() => setImportOpen(false)}
+            onImported={async () => {
+              await Promise.all([
+                useConnectionStore.getState().loadConnections(),
+                useAIStore.getState().loadProviders(),
+              ]);
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

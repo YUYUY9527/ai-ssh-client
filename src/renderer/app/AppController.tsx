@@ -928,6 +928,7 @@ export function AppController() {
       )}
       assistant={(
         <AssistantHost
+        isHome={openTabs.length === 0}
         input={agentInput}
         onInputChange={setAgentInput}
         focusInputToken={agentInputFocusToken}

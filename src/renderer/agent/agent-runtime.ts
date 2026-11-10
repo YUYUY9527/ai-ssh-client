@@ -17,6 +17,7 @@ import type {
   ThinkingStep,
 } from '../../shared/types';
 import { getRememberedCommandDecision } from '../assistant/risk-approval-memory';
+import { recordSessionCommand } from '../history/session-command-buffer';
 import {
   buildAgentEnvironmentContext,
   extractAgentCwdFromCommand,
@@ -1420,7 +1421,7 @@ export class AgentRuntime {
     this.actions.addExecution(execution);
 
     const connectionId = this.taskConnectionId || this.snapshot.activeConnectionId || '';
-    void this.persistAiCommandHistory(connectionId, command, success);
+    this.recordAiCommandHistory(connectionId, command);
   }
 
   /** 累计任务 token 用量；provider 只给分项时按 prompt + completion 求和。 */
@@ -1515,41 +1516,11 @@ export class AgentRuntime {
     return true;
   }
 
-  private async persistAiCommandHistory(
-    connectionId: string,
-    command: string,
-    approved: boolean,
-  ) {
-    try {
-      const { useCommandHistoryStore } = await import('../history/useCommandHistoryStore');
-      const { useConnectionStore } = await import('../store/useConnectionStore');
-      const { useSessionStore } = await import('../session/useSessionStore');
-      const { resolveSessionConnection } = await import('../session/resolve-session-connection');
-
-      const session = connectionId
-        ? useSessionStore.getState().sessions[connectionId]
-        : null;
-      const connection = resolveSessionConnection(
-        useConnectionStore.getState().connections,
-        connectionId,
-        session?.connectionId,
-      );
-
-      await useCommandHistoryStore.getState().addHistoryItem({
-        id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        command,
-        timestamp: Date.now(),
-        connectionId: connectionId || connection?.id || '',
-        connectionName: connection?.name || session?.title || 'Agent',
-        host: connection?.host,
-        username: connection?.username,
-        executedBy: 'ai',
-        approved,
-        cwd: session?.cwd,
-      });
-    } catch {
-      // 历史写入失败不影响 Agent 主流程
-    }
+  private recordAiCommandHistory(connectionId: string, command: string) {
+    recordSessionCommand(connectionId, {
+      command,
+      executedBy: 'ai',
+    });
   }
 
   // --------------------------------------------------------------------

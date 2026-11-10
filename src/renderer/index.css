@@ -306,6 +306,20 @@
     background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-hover));
   }
 
+  /* 历史命令：只让列表滚动，避免弹层和列表各出现一条滚动条 */
+  .app-popover.command-history-popover {
+    display: flex;
+    max-height: calc(100vh - 7rem);
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .command-history-popover .command-history-list {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+  }
+
   .workspace-tabbar {
     @apply relative z-[40] flex h-9 flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2;
     background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
@@ -363,6 +377,20 @@
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     touch-action: none;
     user-select: none;
+  }
+
+  .agent-pet-launcher {
+    bottom: 48px;
+    left: auto !important;
+    right: 20px;
+    top: auto !important;
+    touch-action: auto;
+  }
+
+  @media (max-width: 640px) {
+    .agent-pet-button-home {
+      display: none;
+    }
   }
 
   .agent-pet-button:hover,
@@ -1360,6 +1388,17 @@
 
   .workspace-dashboard-inner {
     @apply mx-auto flex w-full max-w-5xl flex-col gap-4;
+  }
+
+  @media (min-width: 1024px) and (min-height: 760px) {
+    .workspace-dashboard {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .workspace-dashboard-inner {
+      margin-block: auto;
+    }
   }
 
   .workspace-dashboard-top {

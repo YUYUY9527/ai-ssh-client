@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Save, Send, Settings, ShieldAlert, Terminal, Trash2, User, X, XCircle } from 'lucide-react';
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
@@ -12,10 +12,6 @@ import { useI18n, t } from '../i18n';
 import type { AgentExecution, AgentTask, ThinkingStep } from '../../shared/types';
 import { submitAgentInput, type AgentSubmissionError } from '../agent/terminal-agent-chat';
 
-const AgentExecutor = lazy(async () => {
-  const module = await import('./AgentExecutor');
-  return { default: module.AgentExecutor };
-});
 
 /** 小机器人头像(纯 CSS 绘制,和右下角按钮同款) */
 function RobotFaceMini({ size = 'md' }: { size?: 'sm' | 'md' }) {
@@ -37,6 +33,7 @@ interface AgentPetProps {
   onInputChange: (value: string) => void;
   focusInputToken: number;
   isOpen: boolean;
+  isHome?: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenSettings: () => void;
 }
@@ -455,6 +452,7 @@ function AgentTaskConversation({
                   onClick={() => onRetry(task)}
                   className="agent-chat-detail-toggle"
                   title={t('agent.actions.retry')}
+                  aria-label={t('agent.actions.retry')}
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   {t('agent.actions.retry')}
@@ -537,7 +535,7 @@ function AgentHistoryList({
                 onDelete(conversation.id);
               }}
               className="agent-chat-delete-button"
-              title={t('agent.actions.deleteHistory')}
+              title={t('agent.actions.deleteHistory')} aria-label={t('agent.actions.deleteHistory')}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -548,7 +546,7 @@ function AgentHistoryList({
   );
 }
 
-export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpenChange, onOpenSettings }: AgentPetProps) {
+export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome = false, onOpenChange, onOpenSettings }: AgentPetProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -596,7 +594,6 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
   const activeProvider = providers.find((provider) => provider.id === activeProviderId);
   const activeConnection = useConnectionStore((state) => state.connections.find((connection) => connection.id === activeConnectionId));
   const isBusy = agentState === 'thinking' || agentState === 'planning' || agentState === 'executing' || agentState === 'observing';
-  const shouldRunAgentExecutor = Boolean(currentTask && currentTask.state !== 'finished' && currentTask.state !== 'error');
   const hasAlert = Boolean(pendingApproval || pendingQuestion || pendingTerminalPrompt || localError);
   const conversationSummaries = getConversationSummaries(taskHistory);
   const activeHistoryTasks = taskHistory.filter((task) => (
@@ -1024,12 +1021,6 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
 
   return (
     <>
-      {shouldRunAgentExecutor && (
-        <Suspense fallback={null}>
-          <AgentExecutor />
-        </Suspense>
-      )}
-
       {isOpen && (
         <div ref={panelRef} className="agent-pet-panel" style={getPetPanelStyle(position)}>
           <div className="agent-pet-panel-header">
@@ -1050,11 +1041,11 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
             <div className="flex items-center gap-1">
               {(agentState === 'thinking' || agentState === 'planning' || agentState === 'executing' || agentState === 'observing') && (
                 <>
-                  <button onClick={handlePauseTask} className="agent-pet-header-action" title={t('agent.actions.pause')}>
+                  <button onClick={handlePauseTask} className="agent-pet-header-action" title={t('agent.actions.pause')} aria-label={t('agent.actions.pause')}>
                     <Pause className="h-3.5 w-3.5" />
                     <span>{t('agent.actions.pause')}</span>
                   </button>
-                  <button onClick={cancelTask} className="agent-pet-header-action" title={t('agent.actions.cancel')}>
+                  <button onClick={cancelTask} className="agent-pet-header-action" title={t('agent.actions.cancel')} aria-label={t('agent.actions.cancel')}>
                     <XCircle className="h-3.5 w-3.5" />
                     <span>{t('agent.actions.cancel')}</span>
                   </button>
@@ -1062,20 +1053,20 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               )}
               {agentState === 'paused' && (
                 <>
-                  <button onClick={handleResumeTask} className="agent-pet-header-action agent-pet-header-action-primary" title={t('agent.actions.resume')}>
+                  <button onClick={handleResumeTask} className="agent-pet-header-action agent-pet-header-action-primary" title={t('agent.actions.resume')} aria-label={t('agent.actions.resume')}>
                     <Play className="h-3.5 w-3.5" />
                     <span>{t('agent.actions.resume')}</span>
                   </button>
-                  <button onClick={cancelTask} className="agent-pet-header-action" title={t('agent.actions.cancel')}>
+                  <button onClick={cancelTask} className="agent-pet-header-action" title={t('agent.actions.cancel')} aria-label={t('agent.actions.cancel')}>
                     <XCircle className="h-3.5 w-3.5" />
                     <span>{t('agent.actions.cancel')}</span>
                   </button>
                 </>
               )}
-              <button onClick={onOpenSettings} className="icon-button h-7 w-7" title={t('settings.tabs.providers')}>
+              <button onClick={onOpenSettings} className="icon-button h-7 w-7" title={t('settings.tabs.providers')} aria-label={t('settings.tabs.providers')}>
                 <Settings className="h-4 w-4" />
               </button>
-              <button onClick={() => onOpenChange(false)} className="icon-button h-7 w-7" title={t('common.close')}>
+              <button onClick={() => onOpenChange(false)} className="icon-button h-7 w-7" title={t('common.close')} aria-label={t('common.close')}>
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -1093,6 +1084,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                 disabled={conversationSummaries.length === 0}
                 className={`agent-pet-header-action ${isHistoryVisible ? 'agent-pet-header-action-primary' : ''}`}
                 title={isHistoryVisible ? t('agent.actions.hideHistory') : t('agent.actions.viewHistory')}
+                aria-label={isHistoryVisible ? t('agent.actions.hideHistory') : t('agent.actions.viewHistory')}
               >
                 <History className="h-3.5 w-3.5" />
                 <span>{conversationSummaries.length}</span>
@@ -1238,7 +1230,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
               placeholder={pendingQuestion ? t('agent.input.answerPlaceholder') : t('agent.input.placeholder')}
             />
             <div className="flex flex-col gap-2">
-              <button onClick={handleSend} disabled={!input.trim() || (isBusy && !pendingQuestion) || Boolean(pendingApproval)} className="industrial-button-primary h-9 w-10 px-0 py-0" title={t('agent.actions.send')}>
+              <button onClick={handleSend} disabled={!input.trim() || (isBusy && !pendingQuestion) || Boolean(pendingApproval)} className="industrial-button-primary h-9 w-10 px-0 py-0" title={t('agent.actions.send')} aria-label={t('agent.actions.send')}>
                 {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
               <button
@@ -1246,6 +1238,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
                 disabled={isBusy || Boolean(pendingApproval || pendingQuestion || pendingTerminalPrompt)}
                 className="industrial-button-secondary h-9 w-10 px-0 py-0"
                 title={t('agent.actions.newConversation')}
+                aria-label={t('agent.actions.newConversation')}
               >
                 <MessageCircle className="h-4 w-4" />
               </button>
@@ -1257,9 +1250,10 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, onOpen
       <button
         type="button"
         ref={buttonRef}
-        className={`agent-pet-button ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${shouldShowCompletionCue ? 'agent-pet-button-done' : ''} ${isCompletionBurstVisible && !isCompletionViewed ? 'agent-pet-button-complete-burst' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''} ${isDraggingPet ? 'agent-pet-button-dragging' : ''}`}
+        className={`agent-pet-button ${isHome && !isOpen ? 'agent-pet-button-home' : ''} ${isOpen ? 'agent-pet-button-open' : ''} ${hasAlert ? 'agent-pet-button-alert' : ''} ${isBusy ? 'agent-pet-button-busy' : ''} ${shouldShowCompletionCue ? 'agent-pet-button-done' : ''} ${isCompletionBurstVisible && !isCompletionViewed ? 'agent-pet-button-complete-burst' : ''} ${agentState === 'error' ? 'agent-pet-button-error' : ''} ${isDraggingPet ? 'agent-pet-button-dragging' : ''}`}
         style={{ left: `${position.x}px`, top: `${position.y}px` }}
-        aria-expanded={isOpen}
+        aria-label={t('agent.title')}
+         aria-expanded={isOpen}
         aria-pressed={isOpen}
         onPointerDown={handlePetPointerDown}
         onPointerMove={handlePetPointerMove}

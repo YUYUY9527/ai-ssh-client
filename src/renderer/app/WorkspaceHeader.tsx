@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { DragEvent, RefObject } from 'react';
 import {
   Download,
@@ -17,12 +17,22 @@ import {
 } from 'lucide-react';
 
 import { AppIcon } from '../components/AppIcon';
-import { ConnectionImportExportModal } from '../connection/ConnectionImportExportModal';
-import { CommandHistoryPanel } from '../history/CommandHistoryPanel';
-import { QuickCommandsPanel } from '../components/QuickCommandsPanel';
 import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
 import type { SSHConnection } from '../../shared/types';
+
+const ConnectionImportExportModal = lazy(async () => {
+  const module = await import('../connection/ConnectionImportExportModal');
+  return { default: module.ConnectionImportExportModal };
+});
+const CommandHistoryPanel = lazy(async () => {
+  const module = await import('../history/CommandHistoryPanel');
+  return { default: module.CommandHistoryPanel };
+});
+const QuickCommandsPanel = lazy(async () => {
+  const module = await import('../components/QuickCommandsPanel');
+  return { default: module.QuickCommandsPanel };
+});
 
 interface WorkspaceHeaderProps {
   activeTabId: string | null;
@@ -174,6 +184,7 @@ export function WorkspaceHeader({
                   onClick={onCreateConnection}
                   className="icon-button h-7 w-7"
                   title={translate('connection.newConnection')}
+                  aria-label={translate('connection.newConnection')}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -257,6 +268,7 @@ export function WorkspaceHeader({
                           }}
                           className="icon-button h-7 w-7"
                           title={translate('common.edit')}
+                          aria-label={translate('common.edit')}
                         >
                           <Edit3 className="h-3.5 w-3.5" />
                         </button>
@@ -268,6 +280,7 @@ export function WorkspaceHeader({
                           }}
                           className="icon-button h-7 w-7 hover:text-danger"
                           title={translate('common.delete')}
+                          aria-label={translate('common.delete')}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -310,34 +323,41 @@ export function WorkspaceHeader({
           )}
         </div>
 
-        <ConnectionImportExportModal
-          isOpen={importExportMode !== null}
-          mode={importExportMode || 'export'}
-          existingConnections={connections}
-          onClose={() => setImportExportMode(null)}
-          onImported={async () => {
-            // 导入后刷新连接列表与 AI 供应商
-            await Promise.all([loadConnections(), loadProviders()]);
-          }}
-        />
+        {importExportMode !== null && (
+          <Suspense fallback={null}>
+            <ConnectionImportExportModal
+              isOpen
+              mode={importExportMode}
+              existingConnections={connections}
+              onClose={() => setImportExportMode(null)}
+              onImported={async () => {
+                // 导入后刷新连接列表与 AI 供应商
+                await Promise.all([loadConnections(), loadProviders()]);
+              }}
+            />
+          </Suspense>
+        )}
 
         {activeTabId && (
           <button
             onClick={onToggleSftpSidebar}
             className={`toolbar-button ${isSftpSidebarOpen ? 'toolbar-button-active' : ''}`}
             title={translate('fileTransfer.manage')}
+            aria-label={translate('fileTransfer.manage')}
           >
             <Folder className="w-4 h-4" />
             {translate('fileTransfer.files')}
           </button>
         )}
 
-        {activeTabId && <QuickCommandsPanel onPasteCommand={onPasteCommand} />}
         {activeTabId && (
-          <CommandHistoryPanel
-            onPasteCommand={onPasteCommand}
-            activeSessionId={activeTabId}
-          />
+          <Suspense fallback={null}>
+            <QuickCommandsPanel onPasteCommand={onPasteCommand} />
+            <CommandHistoryPanel
+              onPasteCommand={onPasteCommand}
+              activeSessionId={activeTabId}
+            />
+          </Suspense>
         )}
       </div>
 
@@ -347,6 +367,7 @@ export function WorkspaceHeader({
             onClick={() => onChangeTheme('light')}
             className={`icon-button h-7 w-7 ${theme === 'light' ? 'icon-button-active' : ''}`}
             title={translate('theme.light')}
+            aria-label={translate('theme.light')}
           >
             <Sun className="w-4 h-4" />
           </button>
@@ -354,6 +375,7 @@ export function WorkspaceHeader({
             onClick={() => onChangeTheme('dark')}
             className={`icon-button h-7 w-7 ${theme === 'dark' ? 'icon-button-active' : ''}`}
             title={translate('theme.dark')}
+            aria-label={translate('theme.dark')}
           >
             <Moon className="w-4 h-4" />
           </button>
@@ -361,6 +383,7 @@ export function WorkspaceHeader({
             onClick={() => onChangeTheme('system')}
             className={`icon-button h-7 w-7 ${theme === 'system' ? 'icon-button-active' : ''}`}
             title={translate('theme.system')}
+            aria-label={translate('theme.system')}
           >
             <Monitor className="w-4 h-4" />
           </button>
@@ -369,6 +392,7 @@ export function WorkspaceHeader({
           onClick={onToggleSettings}
           className={`icon-button ${isSettingsOpen ? 'icon-button-active' : ''}`}
           title={translate('settings.title')}
+          aria-label={translate('settings.title')}
         >
           <Settings className="w-4 h-4" />
         </button>

@@ -6,10 +6,8 @@ import {
   nextTrackedCwd,
   normalizeHistoryPath,
 } from '../../history/command-history-index';
-import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
-import { useConnectionStore } from '../../store/useConnectionStore';
+import { recordSessionCommand } from '../../history/session-command-buffer';
 import { useSessionStore } from '../useSessionStore';
-import type { CommandHistoryItem } from '../../../shared/types';
 import {
   isShellPromptReadyForAgent,
   parseTerminalAgentPaste,
@@ -171,8 +169,6 @@ export function useTerminalInputTracking({
   }, [syncSessionCwd]);
 
   useEffect(() => {
-    // 预热历史缓存，供面板与后续补全共用
-    void useCommandHistoryStore.getState().loadHistory();
     if (liveConnectionId) {
       const sessionCwd = useSessionStore.getState().sessions[liveConnectionId]?.cwd;
       cwdRef.current = normalizeHistoryPath(sessionCwd || DEFAULT_CWD);
@@ -366,23 +362,11 @@ export function useTerminalInputTracking({
             syncSessionCwd(inferredNextCwd);
           }
 
-          void (async () => {
-            const { connections } = useConnectionStore.getState();
-            const connection = connections.find(item => item.id === connectionId);
-            const historyItem: CommandHistoryItem = {
-              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              command,
-              timestamp: Date.now(),
-              connectionId: connectionId || '',
-              connectionName: connection?.name || 'Unknown',
-              host: connection?.host,
-              username: connection?.username,
-              executedBy: 'user',
-              approved: true,
-              cwd: currentCwd,
-            };
-            await useCommandHistoryStore.getState().addHistoryItem(historyItem);
-          })();
+          recordSessionCommand(connectionId || '', {
+            command,
+            cwd: currentCwd,
+            executedBy: 'user',
+          });
         }
         inputTrackingReliableRef.current = true;
         currentInputRef.current = '';

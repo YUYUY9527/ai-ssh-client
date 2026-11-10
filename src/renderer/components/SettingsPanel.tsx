@@ -199,7 +199,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="industrial-modal relative z-10 flex max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
+      <div className="industrial-modal relative z-10 flex h-[84vh] max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
         <div className="industrial-modal-header">
           <h2 className="font-semibold text-slate-900 dark:text-white">{t('settings.title')}</h2>
           <button

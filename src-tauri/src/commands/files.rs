@@ -158,6 +158,40 @@ pub fn sftp_select_download_destination(app_handle: AppHandle) -> IpcResult<serd
     }
 }
 
+fn expand_private_key_path(file_path: &str) -> PathBuf {
+    let trimmed = file_path.trim();
+    let home_relative = |rest: &str| {
+        dirs::home_dir().map(|home| {
+            let rest = rest.trim_start_matches(|c| c == '/' || c == '\\');
+            if rest.is_empty() {
+                home
+            } else {
+                home.join(rest)
+            }
+        })
+    };
+
+    if let Some(rest) = trimmed.strip_prefix("%d") {
+        if let Some(path) = home_relative(rest) {
+            return path;
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix('~') {
+        if let Some(path) = home_relative(rest) {
+            return path;
+        }
+    }
+
+    let path = PathBuf::from(trimmed);
+    if path.is_absolute() {
+        path
+    } else {
+        dirs::home_dir()
+            .map(|home| home.join(&path))
+            .unwrap_or(path)
+    }
+}
+
 /// Reads a private key file selected by the file picker.
 #[tauri::command]
 pub fn read_private_key_file(file_path: String) -> IpcResult<serde_json::Value> {
@@ -165,7 +199,7 @@ pub fn read_private_key_file(file_path: String) -> IpcResult<serde_json::Value> 
         return error("私钥文件路径无效");
     }
 
-    let path = PathBuf::from(file_path);
+    let path = expand_private_key_path(&file_path);
     let metadata = match std::fs::metadata(&path) {
         Ok(metadata) => metadata,
         Err(err) => return error(err.to_string()),
@@ -182,5 +216,23 @@ pub fn read_private_key_file(file_path: String) -> IpcResult<serde_json::Value> 
     match std::fs::read_to_string(path) {
         Ok(content) => success(json!({ "content": content })),
         Err(err) => error(err.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expand_private_key_path;
+
+    #[test]
+    fn expands_home_relative_private_key_path() {
+        let path = expand_private_key_path("~/.ssh/id_ed25519");
+        assert!(path.is_absolute());
+        assert!(path.ends_with(".ssh/id_ed25519") || path.ends_with(".ssh\\id_ed25519"));
+    }
+
+    #[test]
+    fn keeps_absolute_private_key_path() {
+        let absolute = std::env::temp_dir().join("id_key");
+        assert_eq!(expand_private_key_path(&absolute.to_string_lossy()), absolute);
     }
 }

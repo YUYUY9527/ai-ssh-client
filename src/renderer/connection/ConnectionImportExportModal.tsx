@@ -16,6 +16,7 @@ import {
   unwrapBackupData,
   type BackupConflict,
 } from './backup-utils';
+import { loadOpenSshIdentityFiles } from './openssh-identity';
 import { parseOpenSshConfig } from './parse-openssh-config';
 
 type Mode = 'export' | 'import';
@@ -118,17 +119,23 @@ export function ConnectionImportExportModal({
     let parsed: unknown;
     try {
       if (importKind === 'openssh') {
-        const connections = parseOpenSshConfig(rawText);
-        if (connections.length === 0) {
+        const drafts = parseOpenSshConfig(rawText);
+        if (drafts.length === 0) {
           throw new Error(t('connection.importExport.opensshEmpty'));
         }
+        const { connections, loadedKeys, failedKeys } = await loadOpenSshIdentityFiles(drafts);
         const payload = { version: 'ai-ssh-client-1', connections };
         setPendingPayload(payload);
         setPreviewCount(connections.length);
         setConflicts(findConnectionConflicts(existingConnections, connections));
+        const keySummary = failedKeys > 0
+          ? ` ${t('connection.importExport.opensshKeysPartial', { loaded: loadedKeys, failed: failedKeys })}`
+          : loadedKeys > 0
+            ? ` ${t('connection.importExport.opensshKeysLoaded', { count: loadedKeys })}`
+            : '';
         setStatus({
-          type: 'success',
-          text: t('connection.importExport.previewReady', { count: connections.length }),
+          type: failedKeys > 0 ? 'error' : 'success',
+          text: `${t('connection.importExport.previewReady', { count: connections.length })}${keySummary}`,
         });
         return;
       }
