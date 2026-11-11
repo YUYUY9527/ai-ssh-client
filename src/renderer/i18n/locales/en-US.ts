@@ -298,6 +298,7 @@ const enUS: DeepStringify<typeof zhCN> = {
     toRemote: '→ {path}',
     fromRemote: '← {path}',
     activeTaskCount: '{count} active',
+    transferSpeed: 'Transfer speed',
     cancelTask: 'Cancel task',
     retryTask: 'Retry task',
     discardTask: 'Remove record and clean temp data',

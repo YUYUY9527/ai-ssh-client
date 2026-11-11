@@ -292,6 +292,7 @@ const zhCN = {
     toRemote: '→ {path}',
     fromRemote: '← {path}',
     activeTaskCount: '{count} 个进行中',
+    transferSpeed: '传输速度',
     cancelTask: '取消任务',
     retryTask: '重试任务',
     discardTask: '删除记录并清理临时数据',

@@ -4,6 +4,7 @@ import {
   CheckCircle,
   Clock3,
   Download,
+  Gauge,
   Loader2,
   RotateCcw,
   Trash2,
@@ -17,6 +18,8 @@ import {
   isSftpTransferActive,
   isSftpTransferTerminal,
 } from './sftp-transfer-reducer';
+import { formatByteSize, formatTransferSpeed, isSpeedDisplayable } from './transfer-speed';
+import { useTransferSpeeds } from './useTransferSpeeds';
 
 interface TransferTaskListProps {
   onCancelTask: (taskId: string) => void;
@@ -68,6 +71,7 @@ export function TransferTaskList({
   translate,
 }: TransferTaskListProps) {
   const [applyToBatch, setApplyToBatch] = useState(false);
+  const speeds = useTransferSpeeds(tasks);
   if (tasks.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -195,6 +199,19 @@ export function TransferTaskList({
                   style={{ width: `${progressValue}%` }}
                 />
               </div>
+
+              {isSpeedDisplayable(task) && (
+                <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2 text-[11px] tabular-nums">
+                  <span className="inline-flex shrink-0 items-center gap-1 text-accent" title={translate('fileTransfer.transferSpeed')}>
+                    <Gauge className="h-3 w-3" />
+                    {formatTransferSpeed(speeds[task.taskId] ?? 0)}
+                  </span>
+                  <span className="truncate text-slate-500 dark:text-slate-400">
+                    {formatByteSize(task.transferredBytes)}
+                    {task.totalBytes ? ` / ${formatByteSize(task.totalBytes)}` : ''}
+                  </span>
+                </div>
+              )}
 
               {task.status === 'waiting-conflict' && (
                 <div className="mt-3 rounded-sm border border-amber-500/35 bg-amber-500/10 p-2.5">
