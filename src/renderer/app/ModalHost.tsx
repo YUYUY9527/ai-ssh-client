@@ -1,9 +1,11 @@
-import { lazy, Suspense, type Dispatch, type SetStateAction } from 'react';
+import { lazy, Suspense, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { AlertCircle, CheckCircle2, FolderOpen, KeyRound, Loader2, Wifi } from 'lucide-react';
 
 import type { AppSettings, CommandSuggestion, HostTrustPromptEvent, SSHConnection } from '../../shared/types';
 import { Modal } from '../shared-ui/Modal';
 import { ConfirmDialog } from '../shared-ui/ConfirmDialog';
+import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
+import { useConnectionGroupStore } from '../store/useConnectionGroupStore';
 
 const CommandApproval = lazy(async () => {
   const module = await import('../components/CommandApproval');
@@ -89,6 +91,22 @@ export function ModalHost({
   onTestConnection,
   onPasswordChanged,
 }: ModalHostProps) {
+  const groups = useConnectionGroupStore((state) => state.groups);
+  const groupsSupported = useConnectionGroupStore((state) => state.supported);
+  const loadGroups = useConnectionGroupStore((state) => state.loadGroups);
+  const [tagsText, setTagsText] = useState('');
+  const editingConnectionId = editingConnection?.id ?? null;
+
+  useEffect(() => {
+    void loadGroups();
+  }, [loadGroups]);
+
+  // 仅在切换编辑对象时把标签回填到输入框，避免打字过程中被覆盖。
+  useEffect(() => {
+    setTagsText((editingConnection?.tags || []).join(', '));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingConnectionId]);
+
   const handleSelectPrivateKey = async () => {
     if (!window.electronAPI) {
       return;
@@ -275,6 +293,45 @@ export function ModalHost({
                 </div>
               )}
             </div>
+            {groupsSupported && (
+              <>
+                <div>
+                  <label className="industrial-field-label">
+                    {translate('features.connectionGroups.group')}
+                  </label>
+                  <IndustrialSelect
+                    value={editingConnection.groupId || ''}
+                    options={[
+                      { value: '', label: translate('features.connectionGroups.noGroup') },
+                      ...groups.map((group) => ({ value: group.id, label: group.name })),
+                    ]}
+                    onChange={(value) => onChangeEditingConnection((previous) => (
+                      previous ? { ...previous, groupId: value || undefined } : null
+                    ))}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="industrial-field-label">
+                    {translate('features.connectionGroups.tags')}
+                  </label>
+                  <input
+                    type="text"
+                    value={tagsText}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setTagsText(value);
+                      const tags = value.split(',').map((tag) => tag.trim()).filter(Boolean);
+                      onChangeEditingConnection((previous) => (
+                        previous ? { ...previous, tags: tags.length > 0 ? tags : undefined } : null
+                      ));
+                    }}
+                    className="industrial-input w-full"
+                    placeholder={translate('features.connectionGroups.tagsPlaceholder')}
+                  />
+                </div>
+              </>
+            )}
             {connectionTestResult && (
               <div className={`industrial-card flex items-center gap-2 px-3 py-2 ${
                 connectionTestResult.success

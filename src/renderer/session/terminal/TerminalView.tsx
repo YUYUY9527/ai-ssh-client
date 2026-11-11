@@ -1000,6 +1000,7 @@ export function TerminalView({
         shellIntegration={runtimeSettings.shellIntegration}
         shellCwd={shellState?.cwd ?? null}
         canInsertAgentPrefix={isLive}
+        connectionId={liveConnectionId}
         onDecreaseFontSize={() => commitFontSize(fontSizeRef.current - 2)}
         onInsertAgentPrefix={handleInsertAgentPrefix}
         onIncreaseFontSize={() => commitFontSize(fontSizeRef.current + 2)}

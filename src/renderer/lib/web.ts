@@ -5,6 +5,7 @@ import type {
   CommandHistoryItem,
   QuickCommand,
   QuickCommandGroup,
+  ConnectionGroup,
   SSHConnection,
   SSHSessionState,
   Message,
@@ -24,6 +25,7 @@ import type {
   AgentExecAwaitResult,
   AgentTaskHistoryResult,
   CommandHistoryResult,
+  ConnectionGroupsResult,
   ConnectionsResult,
   DirectoryListResult,
   ExportDataResult,
@@ -33,8 +35,12 @@ import type {
   PrivateKeyFileResult,
   QuickCommandGroupsResult,
   QuickCommandsResult,
+  ServerMonitorMetrics,
   SettingsResult,
   SftpBatchDeleteResult,
+  SftpPreviewResult,
+  SftpSearchMode,
+  SftpSearchResult,
   SftpDownloadDestinationSelectionResult,
   SftpFilesSelectionResult,
   SftpListTransfersResult,
@@ -50,6 +56,7 @@ import type {
   SSHConnectResult,
 } from '../../shared/ipc-types';
 import { t } from '../i18n';
+import { useSftpTransferStore } from '../store/useSftpTransferStore';
 import { createAsyncTaskQueue } from '../transfer/async-task-queue';
 import {
   decideWebDownloadConflict,
@@ -127,6 +134,25 @@ function createWebId(prefix: string): string {
     return `${prefix}:${crypto.randomUUID()}`;
   }
   return `${prefix}:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** 计算文件相对下载根的所在子目录（posix）；直接位于根下返回 ''。 */
+function relativeRemoteDir(root: string, remotePath: string): string {
+  const normalizedRoot = root.replace(/\/+$/, '');
+  if (!remotePath.startsWith(`${normalizedRoot}/`)) return '';
+  const rel = remotePath.slice(normalizedRoot.length + 1);
+  const idx = rel.lastIndexOf('/');
+  return idx > 0 ? rel.slice(0, idx) : '';
+}
+
+/** 在已授权目录句柄下递归创建子目录，返回目标句柄（文件夹下载重建结构用）。 */
+async function ensureLocalSubdir(root: FileSystemDirectoryHandle, relDir: string): Promise<FileSystemDirectoryHandle> {
+  if (!relDir) return root;
+  let current = root;
+  for (const segment of relDir.split('/').filter(Boolean)) {
+    current = await current.getDirectoryHandle(segment, { create: true });
+  }
+  return current;
 }
 
 async function request<T>(
@@ -1058,12 +1084,12 @@ function connectEvents(): void {
 
   socket.onopen = () => {
     sendSocket('sftp-identify', { clientId: sftpClientId, sshClientId: sftpClientId });
-    // 重连对账：断线期间到达的终态事件会永久丢失，全量补拉任务列表，
-    // 避免 UI 永远卡在“传输中”。reducer 按 attempt/sequence 合并，
-    // 服务端较旧的快照不会回退本地更新的进度。
+    // 重连对账：断线期间到达的终态事件会永久丢失，补拉任务列表更新本会话已跟踪的任务，
+    // 避免 UI 永远卡在“传输中”。用 syncSnapshots 只更新已知任务：绝不复活历史任务，
+    // 也不触发完成 toast（否则刷新页面会对旧的上传再次弹“上传成功”）。
     void sftpRequest<SftpListTransfersResult>('/api/sftp/transfers').then((result) => {
       if (result.success) {
-        result.data.tasks.forEach((snapshot) => publishTaskSnapshot(snapshot));
+        useSftpTransferStore.getState().syncSnapshots(result.data.tasks);
       }
     });
   };
@@ -1494,6 +1520,15 @@ const webApi: Window['electronAPI'] = {
     method: 'DELETE',
   }),
 
+  getConnectionGroups: () => request<ConnectionGroupsResult<ConnectionGroup>>('/api/connection-groups'),
+  saveConnectionGroup: (group: ConnectionGroup) => request<void>('/api/connection-groups', {
+    method: 'POST',
+    body: JSON.stringify({ group }),
+  }),
+  deleteConnectionGroup: (groupId: string) => request<void>(`/api/connection-groups/${groupId}`, {
+    method: 'DELETE',
+  }),
+
   exportAllData: (options) => request<ExportDataResult<any>>(
     `/api/export?includeSecrets=${options?.includeSecrets === false ? 'false' : 'true'}`,
   ),
@@ -1512,6 +1547,39 @@ const webApi: Window['electronAPI'] = {
     connectionId,
     `/api/sftp/${connectionId}/list?path=${encodeURIComponent(remotePath)}`,
   ),
+  // 文件夹递归下载：BFS 展开远端目录树，收集所有文件的绝对路径（跳过符号链接目录防环）。
+  listSftpFolderFiles: async (connectionId, rootPath) => {
+    const MAX_FILES = 5000;
+    const MAX_DEPTH = 64;
+    const files: string[] = [];
+    let level: string[] = [rootPath];
+    let depth = 0;
+    while (level.length > 0 && depth < MAX_DEPTH) {
+      const next: string[] = [];
+      for (const dir of level) {
+        const res = await sftpApiRequest<DirectoryListResult>(
+          connectionId,
+          `/api/sftp/${connectionId}/list?path=${encodeURIComponent(dir)}`,
+        );
+        if (!res.success) {
+          return makeError<{ files: string[]; truncated: boolean }>(res.error || 'List failed', res.code);
+        }
+        for (const item of res.data.files) {
+          if (item.isDirectory) {
+            if (!item.isSymbolicLink) next.push(item.path);
+          } else {
+            files.push(item.path);
+            if (files.length >= MAX_FILES) {
+              return { success: true, data: { files, truncated: true } };
+            }
+          }
+        }
+      }
+      level = next;
+      depth += 1;
+    }
+    return { success: true, data: { files, truncated: false } };
+  },
   selectSftpFiles: () => new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -1534,6 +1602,39 @@ const webApi: Window['electronAPI'] = {
           ref,
           size: file.size,
           lastModified: file.lastModified,
+        };
+      });
+      settle({ success: true, data: { canceled: refs.length === 0, files: refs } });
+    };
+    input.oncancel = () => settle({ success: true, data: { canceled: true, files: [] } });
+    document.body.appendChild(input);
+    input.click();
+  }),
+  // 文件夹递归上传：webkitdirectory 选中整棵树，File.webkitRelativePath 携带相对路径。
+  selectSftpFolder: () => new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    (input as HTMLInputElement & { webkitdirectory?: boolean }).webkitdirectory = true;
+    input.style.display = 'none';
+    let settled = false;
+    const settle = (result: IPCResult<SftpFilesSelectionResult>) => {
+      if (settled) return;
+      settled = true;
+      input.remove();
+      resolve(result);
+    };
+    input.onchange = () => {
+      const files = Array.from(input.files || []);
+      const refs = files.map((file) => {
+        const ref = createWebId('web-file');
+        selectedFiles.set(ref, file);
+        return {
+          name: file.name,
+          ref,
+          size: file.size,
+          lastModified: file.lastModified,
+          relativePath: file.webkitRelativePath || file.name,
         };
       });
       settle({ success: true, data: { canceled: refs.length === 0, files: refs } });
@@ -1606,6 +1707,32 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/text`,
     { method: 'PUT', body: JSON.stringify({ remotePath, content }) },
   ),
+  getServerMonitor: (connectionId) => sftpApiRequest<ServerMonitorMetrics>(
+    connectionId,
+    `/api/ssh/${connectionId}/monitor`,
+  ),
+  searchSftpFiles: (connectionId, { path, query, mode, limit }) => {
+    const params = new URLSearchParams({ path, query, mode });
+    if (limit != null) params.set('limit', String(limit));
+    return sftpApiRequest<SftpSearchResult>(
+      connectionId,
+      `/api/sftp/${connectionId}/search?${params.toString()}`,
+    );
+  },
+  previewSftpFile: (connectionId, remotePath) => sftpApiRequest<SftpPreviewResult>(
+    connectionId,
+    `/api/sftp/${connectionId}/preview?path=${encodeURIComponent(remotePath)}`,
+  ),
+  // 音视频流式预览：直接给出下载路由的 inline URL，浏览器 <video>/<audio> 引用后
+  // 边下边播（Range 流式），无需把整个文件读进内存。clientId 走 query（媒体元素带不了自定义头）。
+  getSftpMediaPreviewUrl: (connectionId, remotePath) => {
+    const params = new URLSearchParams({
+      path: remotePath,
+      clientId: sftpClientId,
+      inline: '1',
+    });
+    return `/api/sftp/${connectionId}/download?${params.toString()}`;
+  },
   deleteSftpItems: (connectionId, remotePaths) => sftpApiRequest<SftpBatchDeleteResult>(
     connectionId,
     `/api/sftp/${connectionId}/items`,
@@ -1664,16 +1791,26 @@ const webApi: Window['electronAPI'] = {
     if (dirHandle) {
       // FSA：入限流队列启动流式下载（各任务独立 AbortController），
       // 避免 N 个文件同时挤爆同一条 SFTP 通道。
-      result.data.tasks.forEach((task: SftpTransferTaskSnapshot & { downloadUrl?: string }) => {
+      // 文件夹下载（remoteRoot）：按相对路径在本地重建子目录，各任务落到对应子目录。
+      for (const task of result.data.tasks as Array<SftpTransferTaskSnapshot & { downloadUrl?: string }>) {
+        let targetHandle = dirHandle;
+        if (request.remoteRoot && task.remotePath) {
+          const relDir = relativeRemoteDir(request.remoteRoot, task.remotePath);
+          try {
+            targetHandle = await ensureLocalSubdir(dirHandle, relDir);
+          } catch {
+            targetHandle = dirHandle;
+          }
+        }
         if (task.downloadUrl) {
           webSftpDownloadContexts.set(task.taskId, {
-            dirHandle,
+            dirHandle: targetHandle,
             downloadUrl: task.downloadUrl,
             conflictPolicy: task.conflictPolicy,
           });
         }
-        webDownloadQueue.enqueue({ key: task.taskId, run: () => streamWebDownload(task, dirHandle) });
-      });
+        webDownloadQueue.enqueue({ key: task.taskId, run: () => streamWebDownload(task, targetHandle) });
+      }
       return result;
     }
     // handed-off：串行触发浏览器原生下载。

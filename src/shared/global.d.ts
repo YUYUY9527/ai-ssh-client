@@ -7,6 +7,7 @@ import type {
   CommandHistoryItem,
   QuickCommand,
   QuickCommandGroup,
+  ConnectionGroup,
   AppSettings,
   AgentTask,
   SSHSessionState,
@@ -28,6 +29,11 @@ import type {
   CommandHistoryResult,
   QuickCommandsResult,
   QuickCommandGroupsResult,
+  ConnectionGroupsResult,
+  ServerMonitorMetrics,
+  SftpSearchMode,
+  SftpSearchResult,
+  SftpPreviewResult,
   SettingsResult,
   FileSelectResult,
   PrivateKeyFileResult,
@@ -109,6 +115,11 @@ declare global {
       saveQuickCommandGroup: (group: QuickCommandGroup) => Promise<IPCResult>;
       deleteQuickCommandGroup: (groupId: string) => Promise<IPCResult>;
 
+      /** 连接分组（文件夹）。Web 优先；桌面端未实现时 UI 自动隐藏。 */
+      getConnectionGroups?: () => Promise<IPCResult<ConnectionGroupsResult<ConnectionGroup>>>;
+      saveConnectionGroup?: (group: ConnectionGroup) => Promise<IPCResult>;
+      deleteConnectionGroup?: (groupId: string) => Promise<IPCResult>;
+
       exportAllData: (options?: { includeSecrets?: boolean }) => Promise<IPCResult<ExportDataResult<any>>>;
       importData: (data: any, options?: { merge?: boolean }) => Promise<IPCResult<ImportDataResult>>;
 
@@ -116,7 +127,11 @@ declare global {
       readPrivateKeyFile: (filePath: string) => Promise<IPCResult<PrivateKeyFileResult>>;
 
       listDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult<DirectoryListResult>>;
+      /** 递归展开远端文件夹，返回所有文件绝对路径；仅 Web 端提供。 */
+      listSftpFolderFiles?: (connectionId: string, rootPath: string) => Promise<IPCResult<{ files: string[]; truncated: boolean }>>;
       selectSftpFiles: () => Promise<IPCResult<SftpFilesSelectionResult>>;
+      /** 选择整个文件夹做递归上传（webkitdirectory）；仅 Web 端提供，文件含 relativePath。 */
+      selectSftpFolder?: () => Promise<IPCResult<SftpFilesSelectionResult>>;
       selectSftpDownloadDestination: () => Promise<IPCResult<SftpDownloadDestinationSelectionResult>>;
       /** 将浏览器/拖放 File 注册为上传引用；桌面端优先提取 path。 */
       prepareSftpLocalFiles?: (files: File[]) => IPCResult<SftpFilesSelectionResult>;
@@ -139,6 +154,18 @@ declare global {
       readSftpTextFile: (connectionId: string, remotePath: string) => Promise<IPCResult<import('./ipc-types').SftpTextFileContent>>;
       /** 覆盖写入远端文本文件。 */
       writeSftpTextFile: (connectionId: string, remotePath: string, content: string) => Promise<IPCResult>;
+
+      /** 服务器监控仪表盘（SSH 采集 /proc + df）。Web 优先；桌面端未实现时按钮隐藏。 */
+      getServerMonitor?: (connectionId: string) => Promise<IPCResult<ServerMonitorMetrics>>;
+      /** 远程文件搜索（按名/按内容）。Web 优先。 */
+      searchSftpFiles?: (
+        connectionId: string,
+        request: { path: string; query: string; mode: SftpSearchMode; limit?: number },
+      ) => Promise<IPCResult<SftpSearchResult>>;
+      /** 远程文件预览（图片/PDF，base64）。Web 优先。 */
+      previewSftpFile?: (connectionId: string, remotePath: string) => Promise<IPCResult<SftpPreviewResult>>;
+      /** 远程音视频流式预览 URL（inline，浏览器 <video>/<audio> 直接引用）。仅 Web 端提供。 */
+      getSftpMediaPreviewUrl?: (connectionId: string, remotePath: string) => string;
 
       agentStartTask: (taskId: string, connectionId: string) => Promise<IPCResult>;
       agentStopTask: (connectionId: string) => Promise<IPCResult>;

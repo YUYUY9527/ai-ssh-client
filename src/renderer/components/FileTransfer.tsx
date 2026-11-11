@@ -4,10 +4,14 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Eye,
   FileCode2,
   Folder,
+  FolderDown,
   FolderOpen,
   FolderPlus,
+  FolderUp,
+  Globe,
   Home,
   ListChecks,
   Loader2,
@@ -31,6 +35,9 @@ import {
   useSftpTransferStore,
 } from '../store/useSftpTransferStore';
 import { SftpFileEditor } from '../transfer/SftpFileEditor';
+import { FilePreviewModal } from '../transfer/FilePreviewModal';
+import { RemoteSearchPanel } from '../transfer/RemoteSearchPanel';
+import { previewKind } from '../transfer/file-preview';
 import { TransferTaskList } from '../transfer/TransferTaskList';
 import { useSftpTransferController } from '../transfer/useSftpTransferController';
 import {
@@ -38,6 +45,23 @@ import {
   type RemoteFileItem,
 } from '../transfer/transfer-types';
 import { MAX_SFTP_EDIT_BYTES, type SftpConflictPolicy } from '../../shared/ipc-types';
+
+/**
+ * 是否展示「预览」入口 / 双击直接预览：
+ * - 图片 / PDF 需要 base64 预览能力（previewSftpFile）；
+ * - 音视频需要流式预览 URL 能力（getSftpMediaPreviewUrl，仅 Web 端）；
+ * 桌面端缺对应方法时自动不展示，保持零回归。
+ */
+function canPreviewRemoteFile(name: string): boolean {
+  const kind = previewKind(name);
+  if (kind === 'image' || kind === 'pdf') {
+    return typeof window.electronAPI?.previewSftpFile === 'function';
+  }
+  if (kind === 'video' || kind === 'audio') {
+    return typeof window.electronAPI?.getSftpMediaPreviewUrl === 'function';
+  }
+  return false;
+}
 
 interface FileTransferProps {
   connectionId: string;
@@ -267,6 +291,10 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const [editTarget, setEditTarget] = useState<RemoteFileItem | null>(null);
   /** 文件过大等提示：居中弹窗，避免顶栏错误需滚动才可见 */
   const [editAlert, setEditAlert] = useState<string | null>(null);
+  /** 远程图片/PDF 预览目标（仅 Web 端 previewSftpFile 可用时展示入口） */
+  const [previewTarget, setPreviewTarget] = useState<RemoteFileItem | null>(null);
+  /** 远程搜索弹层开关（仅 Web 端 searchSftpFiles 可用时展示入口） */
+  const [remoteSearchOpen, setRemoteSearchOpen] = useState(false);
   const [chmodTarget, setChmodTarget] = useState<RemoteFileItem | null>(null);
   const [chmodMode, setChmodMode] = useState('644');
   const [chmodError, setChmodError] = useState<string | null>(null);
@@ -756,6 +784,11 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
       navigateTo(file.path);
       return;
     }
+    // 图片/PDF/音视频双击直接预览，避免落入文本编辑器报「非 UTF-8」错误。
+    if (canPreviewRemoteFile(file.name)) {
+      setPreviewTarget(file);
+      return;
+    }
     openFileForEdit(file);
   };
 
@@ -1000,6 +1033,18 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const handleUpload = async () => {
     if (!isLive) return;
     const errorMessage = await transferController.upload();
+    if (errorMessage) setActionError(errorMessage);
+  };
+
+  const handleUploadFolder = async () => {
+    if (!isLive) return;
+    const errorMessage = await transferController.uploadFolder();
+    if (errorMessage) setActionError(errorMessage);
+  };
+
+  const handleDownloadFolder = async (folder: RemoteFileItem) => {
+    if (!isLive) return;
+    const errorMessage = await transferController.downloadFolder(folder.path);
     if (errorMessage) setActionError(errorMessage);
   };
 
@@ -1344,6 +1389,35 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                   role="menu"
                   className="app-popover absolute right-0 top-full z-[60] mt-1 min-w-[168px] py-1"
                 >
+                  {typeof window.electronAPI?.searchSftpFiles === 'function' && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setToolbarMenuOpen(false);
+                        setRemoteSearchOpen(prev => !prev);
+                      }}
+                      className="app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm"
+                    >
+                      <Globe className="h-4 w-4" />
+                      {t('features.search.title')}
+                    </button>
+                  )}
+                  {typeof window.electronAPI?.selectSftpFolder === 'function' && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setToolbarMenuOpen(false);
+                        void handleUploadFolder();
+                      }}
+                      className="app-popover-row w-full gap-2 px-3 py-1.5 text-left text-sm"
+                      disabled={!isLive}
+                    >
+                      <FolderUp className="h-4 w-4" />
+                      {t('features.folderTransfer.uploadFolder')}
+                    </button>
+                  )}
                   <button
                     type="button"
                     role="menuitem"
@@ -1386,6 +1460,15 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                     {t('common.delete')}
                   </button>
                 </div>
+              )}
+              {remoteSearchOpen && typeof window.electronAPI?.searchSftpFiles === 'function' && (
+                <RemoteSearchPanel
+                  connectionId={connectionId}
+                  currentPath={currentPath}
+                  onNavigate={(path) => { void navigateTo(path); }}
+                  onClose={() => setRemoteSearchOpen(false)}
+                  translate={t}
+                />
               )}
             </div>
           </div>
@@ -1634,18 +1717,34 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                 }}
               >
                 {contextMenu.item.isDirectory ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const item = contextMenu.item;
-                      setContextMenu(null);
-                      navigateTo(item.path);
-                    }}
-                    className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    {t('fileTransfer.open')}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const item = contextMenu.item;
+                        setContextMenu(null);
+                        navigateTo(item.path);
+                      }}
+                      className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      {t('fileTransfer.open')}
+                    </button>
+                    {typeof window.electronAPI?.listSftpFolderFiles === 'function' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const item = contextMenu.item;
+                          setContextMenu(null);
+                          void handleDownloadFolder(item);
+                        }}
+                        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <FolderDown className="h-4 w-4" />
+                        {t('features.folderTransfer.downloadFolder')}
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <>
                     <button
@@ -1672,6 +1771,20 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                       <Download className="h-4 w-4" />
                       {t('common.download')}
                     </button>
+                    {canPreviewRemoteFile(contextMenu.item.name) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const item = contextMenu.item;
+                          setContextMenu(null);
+                          setPreviewTarget(item);
+                        }}
+                        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <Eye className="h-4 w-4" />
+                        {t('features.preview.title')}
+                      </button>
+                    )}
                   </>
                 )}
                 <button
@@ -1815,6 +1928,15 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
             setEditTarget(null);
             setEditAlert(message);
           }}
+        />
+      )}
+
+      {previewTarget && (
+        <FilePreviewModal
+          connectionId={connectionId}
+          file={{ path: previewTarget.path, name: previewTarget.name }}
+          onClose={() => setPreviewTarget(null)}
+          translate={t}
         />
       )}
 

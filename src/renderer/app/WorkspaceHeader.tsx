@@ -1,25 +1,33 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { DragEvent, RefObject } from 'react';
 import {
+  Check,
+  ChevronRight,
   Download,
   Edit3,
   Folder,
+  FolderPlus,
   GripVertical,
   Monitor,
   Moon,
+  Pencil,
   Plug,
   Plus,
   Server,
   Settings,
   Sun,
+  Tag,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 
 import { AppIcon } from '../components/AppIcon';
 import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
-import type { SSHConnection } from '../../shared/types';
+import { useConnectionGroupStore } from '../store/useConnectionGroupStore';
+import { ConfirmDialog } from '../shared-ui/ConfirmDialog';
+import type { ConnectionGroup, SSHConnection } from '../../shared/types';
 
 const ConnectionImportExportModal = lazy(async () => {
   const module = await import('../connection/ConnectionImportExportModal');
@@ -77,6 +85,18 @@ export function WorkspaceHeader({
   const reorderConnections = useConnectionStore((state) => state.reorderConnections);
   const loadConnections = useConnectionStore((state) => state.loadConnections);
   const loadProviders = useAIStore((state) => state.loadProviders);
+  const groups = useConnectionGroupStore((state) => state.groups);
+  const groupsSupported = useConnectionGroupStore((state) => state.supported);
+  const loadGroups = useConnectionGroupStore((state) => state.loadGroups);
+  const saveGroup = useConnectionGroupStore((state) => state.saveGroup);
+  const deleteGroup = useConnectionGroupStore((state) => state.deleteGroup);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [groupModal, setGroupModal] = useState<{
+    open: boolean;
+    editing: ConnectionGroup | null;
+    name: string;
+  }>({ open: false, editing: null, name: '' });
+  const [groupToDelete, setGroupToDelete] = useState<ConnectionGroup | null>(null);
   const [connectionQuery, setConnectionQuery] = useState('');
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
   const [dragOverConnectionId, setDragOverConnectionId] = useState<string | null>(null);
@@ -92,8 +112,10 @@ export function WorkspaceHeader({
     : connections;
   // 连接较多时才显示搜索框，避免少量连接时的冗余
   const showConnectionSearch = connections.length > 5;
-  // 搜索过滤中禁用拖拽，避免只对子集排序导致全表错乱
-  const canReorder = !normalizedQuery && connections.length > 1;
+  // 分组视图（有分组且未搜索时启用）
+  const groupingActive = groupsSupported && groups.length > 0 && !normalizedQuery;
+  // 搜索过滤或分组视图下禁用拖拽，避免只对子集/分组排序导致全表错乱
+  const canReorder = !normalizedQuery && connections.length > 1 && !groupingActive;
 
   // 下拉关闭时清空搜索词与拖拽态
   useEffect(() => {
@@ -103,6 +125,13 @@ export function WorkspaceHeader({
       setDragOverConnectionId(null);
     }
   }, [isConnectionDropdownOpen]);
+
+  // 打开下拉时刷新分组列表
+  useEffect(() => {
+    if (isConnectionDropdownOpen) {
+      void loadGroups();
+    }
+  }, [isConnectionDropdownOpen, loadGroups]);
 
   /** 开始拖动连接项 */
   const handleConnectionDragStart = (event: DragEvent, connectionId: string) => {
@@ -155,7 +184,213 @@ export function WorkspaceHeader({
     setDragOverConnectionId(null);
   };
 
+  const toggleGroupCollapsed = (groupId: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveGroup = async () => {
+    const name = groupModal.name.trim();
+    if (!name) {
+      return;
+    }
+    const group: ConnectionGroup = {
+      id: groupModal.editing?.id || `grp-${Date.now()}`,
+      name,
+      order: groupModal.editing?.order ?? groups.length,
+    };
+    await saveGroup(group);
+    setGroupModal({ open: false, editing: null, name: '' });
+  };
+
+  const handleConfirmDeleteGroup = async () => {
+    const target = groupToDelete;
+    setGroupToDelete(null);
+    if (!target) {
+      return;
+    }
+    await deleteGroup(target.id);
+    // 删除分组后服务端已把组内连接移回未分组，这里刷新连接列表
+    await loadConnections();
+  };
+
+  const renderConnectionRow = (connection: SSHConnection) => (
+    <div
+      key={connection.id}
+      draggable={canReorder}
+      onDragStart={(event) => handleConnectionDragStart(event, connection.id)}
+      onDragOver={(event) => handleConnectionDragOver(event, connection.id)}
+      onDragLeave={handleConnectionDragLeave}
+      onDrop={(event) => handleConnectionDrop(event, connection.id)}
+      onDragEnd={handleConnectionDragEnd}
+      className={`connection-list-row group ${
+        dragOverConnectionId === connection.id
+          ? 'connection-list-row-active ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_45%,transparent)]'
+          : ''
+      } ${
+        draggedConnectionId === connection.id ? 'opacity-50' : ''
+      } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
+    >
+      {canReorder && (
+        <span
+          className="mr-1 flex h-7 w-4 shrink-0 items-center justify-center text-slate-400"
+          title={translate('connection.dragToReorder')}
+          aria-hidden
+        >
+          <GripVertical className="h-4 w-4" />
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => onConnect(connection.id, connection.name)}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+      >
+        <span className="workspace-empty-card-icon workspace-empty-card-icon-connect">
+          <Server className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
+            {connection.name}
+          </div>
+          <div className="truncate text-xs text-slate-500">
+            {connection.username}@{connection.host}:{connection.port}
+          </div>
+          {connection.tags && connection.tags.length > 0 && (
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {connection.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-0.5 rounded-sm border border-teal-500/20 bg-teal-500/10 px-1 py-0.5 text-[10px] text-teal-600 dark:text-teal-400"
+                >
+                  <Tag className="h-2.5 w-2.5" />
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </button>
+      <div className="hidden items-center gap-1 group-hover:flex">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEditConnection(connection);
+          }}
+          className="icon-button h-7 w-7"
+          title={translate('common.edit')}
+          aria-label={translate('common.edit')}
+        >
+          <Edit3 className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDeleteConnection(connection.id);
+          }}
+          className="icon-button h-7 w-7 hover:text-danger"
+          title={translate('common.delete')}
+          aria-label={translate('common.delete')}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderGroupedConnections = () => {
+    const knownGroupIds = new Set(groups.map((group) => group.id));
+    const sortedGroups = [...groups].sort(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name),
+    );
+    const ungrouped = filteredConnections.filter(
+      (connection) => !connection.groupId || !knownGroupIds.has(connection.groupId),
+    );
+    return (
+      <>
+        {sortedGroups.map((group) => {
+          const members = filteredConnections.filter((connection) => connection.groupId === group.id);
+          const collapsed = collapsedGroups.has(group.id);
+          return (
+            <div key={group.id} className="mb-0.5">
+              <div className="group flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-[color-mix(in_srgb,var(--accent-primary)_8%,transparent)]">
+                <button
+                  type="button"
+                  onClick={() => toggleGroupCollapsed(group.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300"
+                >
+                  <ChevronRight
+                    className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
+                  />
+                  <Folder className="h-3.5 w-3.5 shrink-0 text-teal-500" />
+                  <span className="truncate">{group.name}</span>
+                  <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500 dark:text-slate-400">
+                    {members.length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
+                  className="icon-button h-6 w-6 opacity-0 group-hover:opacity-100"
+                  title={translate('features.connectionGroups.renameGroup')}
+                  aria-label={translate('features.connectionGroups.renameGroup')}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupToDelete(group)}
+                  className="icon-button h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-danger"
+                  title={translate('features.connectionGroups.deleteGroup')}
+                  aria-label={translate('features.connectionGroups.deleteGroup')}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+              {!collapsed && (
+                <div className="ml-4 border-l border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pl-1">
+                  {members.length === 0 ? (
+                    <p className="px-2 py-1 text-xs text-slate-400 dark:text-slate-500">
+                      {translate('features.connectionGroups.emptyGroup')}
+                    </p>
+                  ) : (
+                    members.map((connection) => renderConnectionRow(connection))
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {ungrouped.length > 0 && (
+          <div className="mb-1">
+            {sortedGroups.length > 0 && (
+              <div className="flex items-center gap-1.5 px-1.5 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <Folder className="h-3.5 w-3.5 shrink-0" />
+                <span>{translate('features.connectionGroups.ungrouped')}</span>
+                <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none">
+                  {ungrouped.length}
+                </span>
+              </div>
+            )}
+            <div className={sortedGroups.length > 0 ? 'ml-4 border-l border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pl-1' : ''}>
+              {ungrouped.map((connection) => renderConnectionRow(connection))}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
+    <>
     <header className="app-header">
       <div className="flex items-center gap-2">
         <div className="app-title-mark">
@@ -180,15 +415,69 @@ export function WorkspaceHeader({
             <div className="app-popover left-0 w-80 scrollbar-modern">
               <div className="app-popover-header">
                 <span>{translate('connection.selectConnection')}</span>
-                <button
-                  onClick={onCreateConnection}
-                  className="icon-button h-7 w-7"
-                  title={translate('connection.newConnection')}
-                  aria-label={translate('connection.newConnection')}
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  {groupsSupported && (
+                    <button
+                      onClick={() => setGroupModal({ open: true, editing: null, name: '' })}
+                      className="icon-button h-7 w-7"
+                      title={translate('features.connectionGroups.newGroup')}
+                      aria-label={translate('features.connectionGroups.newGroup')}
+                    >
+                      <FolderPlus className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={onCreateConnection}
+                    className="icon-button h-7 w-7"
+                    title={translate('connection.newConnection')}
+                    aria-label={translate('connection.newConnection')}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
+              {groupModal.open && (
+                <div className="flex items-center gap-1.5 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-2 py-2">
+                  {groupModal.editing ? (
+                    <Pencil className="h-3.5 w-3.5 shrink-0 text-teal-500" />
+                  ) : (
+                    <FolderPlus className="h-3.5 w-3.5 shrink-0 text-teal-500" />
+                  )}
+                  <input
+                    type="text"
+                    autoFocus
+                    value={groupModal.name}
+                    onChange={(event) => setGroupModal((previous) => ({ ...previous, name: event.target.value }))}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        void handleSaveGroup();
+                      } else if (event.key === 'Escape') {
+                        setGroupModal({ open: false, editing: null, name: '' });
+                      }
+                    }}
+                    placeholder={translate('features.connectionGroups.groupName')}
+                    className="industrial-input h-7 flex-1 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveGroup()}
+                    className="icon-button h-7 w-7 text-teal-600 dark:text-teal-400"
+                    title={translate('common.save')}
+                    aria-label={translate('common.save')}
+                  >
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGroupModal({ open: false, editing: null, name: '' })}
+                    className="icon-button h-7 w-7"
+                    title={translate('common.cancel')}
+                    aria-label={translate('common.cancel')}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
               {showConnectionSearch && (
                 <div className="px-2 pb-2 pt-1">
                   <input
@@ -211,82 +500,18 @@ export function WorkspaceHeader({
                 </div>
               ) : (
                 <>
-                  {canReorder && (
-                    <div className="px-3 pb-1 text-[11px] text-slate-500 dark:text-slate-400">
-                      {translate('connection.dragToReorder')}
-                    </div>
-                  )}
-                  {filteredConnections.map((connection) => (
-                    <div
-                      key={connection.id}
-                      draggable={canReorder}
-                      onDragStart={(event) => handleConnectionDragStart(event, connection.id)}
-                      onDragOver={(event) => handleConnectionDragOver(event, connection.id)}
-                      onDragLeave={handleConnectionDragLeave}
-                      onDrop={(event) => handleConnectionDrop(event, connection.id)}
-                      onDragEnd={handleConnectionDragEnd}
-                      className={`connection-list-row group ${
-                        dragOverConnectionId === connection.id
-                          ? 'connection-list-row-active ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_45%,transparent)]'
-                          : ''
-                      } ${
-                        draggedConnectionId === connection.id ? 'opacity-50' : ''
-                      } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                    >
+                  {groupingActive ? (
+                    renderGroupedConnections()
+                  ) : (
+                    <>
                       {canReorder && (
-                        <span
-                          className="mr-1 flex h-7 w-4 shrink-0 items-center justify-center text-slate-400"
-                          title={translate('connection.dragToReorder')}
-                          aria-hidden
-                        >
-                          <GripVertical className="h-4 w-4" />
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onConnect(connection.id, connection.name)}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      >
-                        <span className="workspace-empty-card-icon workspace-empty-card-icon-connect">
-                          <Server className="h-4 w-4" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
-                            {connection.name}
-                          </div>
-                          <div className="truncate text-xs text-slate-500">
-                            {connection.username}@{connection.host}:{connection.port}
-                          </div>
+                        <div className="px-3 pb-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          {translate('connection.dragToReorder')}
                         </div>
-                      </button>
-                      <div className="hidden items-center gap-1 group-hover:flex">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onEditConnection(connection);
-                          }}
-                          className="icon-button h-7 w-7"
-                          title={translate('common.edit')}
-                          aria-label={translate('common.edit')}
-                        >
-                          <Edit3 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onDeleteConnection(connection.id);
-                          }}
-                          className="icon-button h-7 w-7 hover:text-danger"
-                          title={translate('common.delete')}
-                          aria-label={translate('common.delete')}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                      )}
+                      {filteredConnections.map((connection) => renderConnectionRow(connection))}
+                    </>
+                  )}
                 </>
               )}
               {/* 连接下拉底部：导入 / 导出 */}
@@ -398,5 +623,13 @@ export function WorkspaceHeader({
         </button>
       </div>
     </header>
+      <ConfirmDialog
+        isOpen={groupToDelete !== null}
+        title={translate('features.connectionGroups.deleteGroup')}
+        message={translate('features.connectionGroups.deleteGroupConfirm')}
+        onConfirm={() => void handleConfirmDeleteGroup()}
+        onCancel={() => setGroupToDelete(null)}
+      />
+    </>
   );
 }

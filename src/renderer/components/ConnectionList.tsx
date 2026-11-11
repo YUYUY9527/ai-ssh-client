@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Server, MonitorPlay, Square, Search, Copy, RefreshCw, Globe, Key, X } from 'lucide-react';
+import { Plus, Trash2, Server, MonitorPlay, Square, Search, Copy, RefreshCw, Globe, Key, X, Folder, FolderPlus, ChevronDown, ChevronRight, Tag, Pencil } from 'lucide-react';
 import { useConnectionStore } from '../store/useConnectionStore';
+import { useConnectionGroupStore } from '../store/useConnectionGroupStore';
 import { useSessionStore } from '../session/useSessionStore';
 import { ConfirmDialog } from './ConfirmDialog';
-import type { SSHConnection } from '../../shared/types';
+import { useI18n } from '../i18n';
+import type { SSHConnection, ConnectionGroup } from '../../shared/types';
 
 interface ConnectionListProps {
   onConnect?: (connection: { id: string; name: string }) => void;
@@ -12,7 +14,9 @@ interface ConnectionListProps {
 }
 
 export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectionTriggered }: ConnectionListProps) {
+  const { t } = useI18n();
   const { connections, connect, disconnect, loadConnections, saveConnection, deleteConnection } = useConnectionStore();
+  const { groups, supported: groupsSupported, loadGroups, saveGroup, deleteGroup } = useConnectionGroupStore();
   const activeConnectionId = useSessionStore((state) => state.activeSessionId);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SSHConnection | null>(null);
@@ -35,11 +39,19 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
     password: '',
     privateKey: '',
     passphrase: '',
+    groupId: '',
+    tags: '',
+  });
+  // 分组管理
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [groupModal, setGroupModal] = useState<{ open: boolean; editing: ConnectionGroup | null; name: string }>({
+    open: false, editing: null, name: '',
   });
 
   useEffect(() => {
     loadConnections();
-  }, [loadConnections]);
+    loadGroups();
+  }, [loadConnections, loadGroups]);
 
   // 处理外部触发的新建连接
   useEffect(() => {
@@ -52,7 +64,8 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
   const filteredConnections = connections.filter(conn =>
     conn.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     conn.host.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    conn.username.toLowerCase().includes(searchTerm.toLowerCase())
+    conn.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (conn.tags || []).some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleAddConnection = () => {
@@ -65,6 +78,8 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       password: '',
       privateKey: '',
       passphrase: '',
+      groupId: '',
+      tags: '',
     });
     setShowAddModal(true);
   };
@@ -79,11 +94,17 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       password: connection.password || '',
       privateKey: connection.privateKey || '',
       passphrase: connection.passphrase || '',
+      groupId: connection.groupId || '',
+      tags: (connection.tags || []).join(', '),
     });
     setShowAddModal(true);
   };
 
   const handleSaveConnection = async () => {
+    const tags = formData.tags
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(Boolean);
     const connection: SSHConnection = {
       id: editingConnection?.id || Date.now().toString(),
       name: formData.name,
@@ -93,6 +114,8 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       password: formData.password,
       privateKey: formData.privateKey,
       passphrase: formData.passphrase,
+      groupId: formData.groupId || undefined,
+      tags: tags.length > 0 ? tags : undefined,
     };
     await saveConnection(connection);
     setShowAddModal(false);
@@ -174,6 +197,184 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
     return () => document.removeEventListener('click', handleClickOutside);
   }, [contextMenu]);
 
+  // ---- 分组管理 ----
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const handleSaveGroup = async () => {
+    const name = groupModal.name.trim();
+    if (!name) return;
+    const group: ConnectionGroup = {
+      id: groupModal.editing?.id || `grp-${Date.now()}`,
+      name,
+      order: groupModal.editing?.order ?? groups.length,
+    };
+    await saveGroup(group);
+    setGroupModal({ open: false, editing: null, name: '' });
+  };
+
+  const handleDeleteGroup = (group: ConnectionGroup) => {
+    setConfirmDialog({
+      open: true,
+      title: t('features.connectionGroups.deleteGroup'),
+      message: t('features.connectionGroups.deleteGroupConfirm'),
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+        await deleteGroup(group.id);
+        // 删除分组后刷新连接（服务端已把组内连接移回未分组）
+        await loadConnections();
+      },
+    });
+  };
+
+  const renderConnectionCard = (connection: SSHConnection) => (
+    <div
+      key={connection.id}
+      onContextMenu={(e) => handleContextMenu(e, connection)}
+      className={`p-2 mb-1 rounded-sm border transition-colors ${
+        activeConnectionId === connection.id
+          ? 'connection-list-row-active'
+          : 'border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_68%,var(--bg-secondary))] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Server className="w-3 h-3 text-slate-400 flex-shrink-0" />
+            <span className="font-medium text-sm truncate text-slate-900 dark:text-white">{connection.name}</span>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate flex items-center gap-1">
+            <Globe className="w-3 h-3" />
+            {connection.username}@{connection.host}:{connection.port}
+          </p>
+          {connection.privateKey && (
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
+              <Key className="w-3 h-3" />
+              密钥认证
+            </p>
+          )}
+          {connection.tags && connection.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {connection.tags.map(tag => (
+                <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[10px] bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+                  <Tag className="w-2.5 h-2.5" />
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1 mt-2">
+        {activeConnectionId === connection.id ? (
+          <button
+            onClick={() => handleDisconnect(connection.id)}
+            className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-500 rounded-sm transition-colors text-white"
+          >
+            <Square className="w-3 h-3" />
+            断开
+          </button>
+        ) : (
+          <button
+            onClick={() => handleConnect(connection)}
+            className="industrial-button-primary px-2 py-1 text-xs"
+          >
+            <MonitorPlay className="w-3 h-3" />
+            连接
+          </button>
+        )}
+        <button
+          onClick={() => handleEditConnection(connection)}
+          className="icon-button h-6 w-6"
+          title="编辑"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+        </button>
+        <button
+          onClick={() => handleDeleteConnection(connection.id)}
+          className="icon-button h-6 w-6 hover:text-danger"
+          title="删除"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderGrouped = () => {
+    const knownGroupIds = new Set(groups.map(g => g.id));
+    const sortedGroups = [...groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
+    const ungrouped = filteredConnections.filter(c => !c.groupId || !knownGroupIds.has(c.groupId));
+    return (
+      <>
+        {sortedGroups.map(group => {
+          const members = filteredConnections.filter(c => c.groupId === group.id);
+          const collapsed = collapsedGroups.has(group.id);
+          return (
+            <div key={group.id} className="mb-2">
+              <div className="flex items-center gap-1 px-1 py-1 group">
+                <button
+                  onClick={() => toggleGroup(group.id)}
+                  className="flex items-center gap-1 flex-1 min-w-0 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                >
+                  {collapsed ? <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />}
+                  <Folder className="w-3.5 h-3.5 flex-shrink-0 text-teal-500" />
+                  <span className="truncate">{group.name}</span>
+                  <span className="text-slate-400 font-normal">({members.length})</span>
+                </button>
+                <button
+                  onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
+                  className="icon-button h-5 w-5 opacity-0 group-hover:opacity-100"
+                  title={t('features.connectionGroups.renameGroup')}
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => handleDeleteGroup(group)}
+                  className="icon-button h-5 w-5 opacity-0 group-hover:opacity-100 hover:text-danger"
+                  title={t('features.connectionGroups.deleteGroup')}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+              {!collapsed && (
+                <div className="pl-2">
+                  {members.length === 0 ? (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 px-2 py-1">{t('features.connectionGroups.emptyGroup')}</p>
+                  ) : (
+                    members.map(renderConnectionCard)
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {ungrouped.length > 0 && (
+          <div className="mb-2">
+            {sortedGroups.length > 0 && (
+              <div className="flex items-center gap-1 px-1 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <Folder className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{t('features.connectionGroups.ungrouped')}</span>
+                <span className="font-normal">({ungrouped.length})</span>
+              </div>
+            )}
+            <div className={sortedGroups.length > 0 ? 'pl-2' : ''}>
+              {ungrouped.map(renderConnectionCard)}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Search */}
@@ -191,14 +392,23 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       </div>
 
       {/* Buttons */}
-      <div className="p-2 flex-shrink-0">
+      <div className="p-2 flex-shrink-0 flex gap-2">
         <button
           onClick={handleAddConnection}
-          className="industrial-button-primary w-full p-2"
+          className="industrial-button-primary flex-1 p-2"
         >
           <Plus className="w-4 h-4" />
           新建连接
         </button>
+        {groupsSupported && (
+          <button
+            onClick={() => setGroupModal({ open: true, editing: null, name: '' })}
+            className="industrial-button-secondary p-2"
+            title={t('features.connectionGroups.newGroup')}
+          >
+            <FolderPlus className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Connection List */}
@@ -209,72 +419,10 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
             <p className="text-sm">{searchTerm ? '没有找到匹配的连接' : '暂无连接'}</p>
             <p className="text-xs mt-1">点击上方"新建连接"开始</p>
           </div>
+        ) : (groupsSupported && !searchTerm) ? (
+          renderGrouped()
         ) : (
-          filteredConnections.map(connection => (
-            <div
-              key={connection.id}
-              onContextMenu={(e) => handleContextMenu(e, connection)}
-              className={`p-2 mb-1 rounded-sm border transition-colors ${
-                activeConnectionId === connection.id
-                  ? 'connection-list-row-active'
-                  : 'border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_68%,var(--bg-secondary))] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Server className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                    <span className="font-medium text-sm truncate text-slate-900 dark:text-white">{connection.name}</span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate flex items-center gap-1">
-                    <Globe className="w-3 h-3" />
-                    {connection.username}@{connection.host}:{connection.port}
-                  </p>
-                  {connection.privateKey && (
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
-                      <Key className="w-3 h-3" />
-                      密钥认证
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-1 mt-2">
-                {activeConnectionId === connection.id ? (
-                  <button
-                    onClick={() => handleDisconnect(connection.id)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-500 rounded-sm transition-colors text-white"
-                  >
-                    <Square className="w-3 h-3" />
-                    断开
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleConnect(connection)}
-                    className="industrial-button-primary px-2 py-1 text-xs"
-                  >
-                    <MonitorPlay className="w-3 h-3" />
-                    连接
-                  </button>
-                )}
-                <button
-                  onClick={() => handleEditConnection(connection)}
-                  className="icon-button h-6 w-6"
-                  title="编辑"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => handleDeleteConnection(connection.id)}
-                  className="icon-button h-6 w-6 hover:text-danger"
-                  title="删除"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-          ))
+          filteredConnections.map(renderConnectionCard)
         )}
       </div>
 
@@ -335,7 +483,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-3 p-6">
+            <div className="space-y-3 p-6 max-h-[70vh] overflow-y-auto">
               <input
                 type="text"
                 value={formData.name}
@@ -394,6 +542,33 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                   className="industrial-input w-full"
                 />
               )}
+              {groupsSupported && (
+                <>
+                  <div>
+                    <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">{t('features.connectionGroups.group')}</label>
+                    <select
+                      value={formData.groupId}
+                      onChange={(e) => setFormData(prev => ({ ...prev, groupId: e.target.value }))}
+                      className="industrial-input w-full"
+                    >
+                      <option value="">{t('features.connectionGroups.noGroup')}</option>
+                      {groups.map(group => (
+                        <option key={group.id} value={group.id}>{group.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">{t('features.connectionGroups.tags')}</label>
+                    <input
+                      type="text"
+                      value={formData.tags}
+                      onChange={(e) => setFormData(prev => ({ ...prev, tags: e.target.value }))}
+                      placeholder={t('features.connectionGroups.tagsPlaceholder')}
+                      className="industrial-input w-full"
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <div className="industrial-modal-footer">
               <button
@@ -407,6 +582,47 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 className="industrial-button-primary flex-1"
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 分组新建/重命名 Modal */}
+      {groupModal.open && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="industrial-modal w-full max-w-sm">
+            <div className="industrial-modal-header">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                {groupModal.editing ? t('features.connectionGroups.renameGroup') : t('features.connectionGroups.newGroup')}
+              </h3>
+              <button onClick={() => setGroupModal({ open: false, editing: null, name: '' })} className="icon-button">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <input
+                type="text"
+                autoFocus
+                value={groupModal.name}
+                onChange={(e) => setGroupModal(prev => ({ ...prev, name: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveGroup(); }}
+                placeholder={t('features.connectionGroups.groupName')}
+                className="industrial-input w-full"
+              />
+            </div>
+            <div className="industrial-modal-footer">
+              <button
+                onClick={() => setGroupModal({ open: false, editing: null, name: '' })}
+                className="industrial-button-secondary flex-1"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSaveGroup}
+                className="industrial-button-primary flex-1"
+              >
+                {t('common.save')}
               </button>
             </div>
           </div>

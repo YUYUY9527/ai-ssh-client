@@ -1,4 +1,5 @@
 import { Bot, Download, Palette, Search, Settings2, ZoomIn, ZoomOut } from 'lucide-react';
+import { ServerMonitorButton } from './ServerMonitorButton';
 import type { TerminalCursorStyle } from './terminal-settings';
 import {
   MAX_TERMINAL_SCROLLBACK,
@@ -22,6 +23,8 @@ interface TerminalToolbarProps {
   shellIntegration: boolean;
   shellCwd: string | null;
   canInsertAgentPrefix: boolean;
+  /** 活动 SSH 连接 id，供服务器监控按钮采集指标；无连接时监控按钮隐藏。 */
+  connectionId: string | null;
   onDecreaseFontSize: () => void;
   onInsertAgentPrefix: () => void;
   onIncreaseFontSize: () => void;
@@ -54,6 +57,7 @@ export function TerminalToolbar({
   shellIntegration,
   shellCwd,
   canInsertAgentPrefix,
+  connectionId,
   onDecreaseFontSize,
   onInsertAgentPrefix,
   onIncreaseFontSize,
@@ -84,6 +88,7 @@ export function TerminalToolbar({
           {translate('terminal.agentPrefixGuide')}
         </span>
       </button>
+      <ServerMonitorButton connectionId={connectionId} translate={translate} />
       <button
         onClick={onDecreaseFontSize}
         className="terminal-control"

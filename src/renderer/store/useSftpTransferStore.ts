@@ -24,6 +24,8 @@ interface SftpTransferState {
   tasks: SftpTransferTaskSnapshot[];
   browserByConnection: Record<string, SftpBrowserSessionState>;
   upsertSnapshot: (snapshot: SftpTransferTaskSnapshot) => void;
+  /** 用服务端任务列表做对账：只更新本地已跟踪的任务，绝不凭空复活历史任务。 */
+  syncSnapshots: (snapshots: SftpTransferTaskSnapshot[]) => void;
   applyTransferEvent: (event: SftpTransferEvent) => void;
   removeTask: (taskId: string) => void;
   clearCompletedTasks: (connectionId?: string) => void;
@@ -82,6 +84,34 @@ export const useSftpTransferStore = create<SftpTransferState>((set, get) => ({
       const tasks = [...state.tasks];
       tasks[index] = next;
       return { tasks };
+    });
+  },
+
+  syncSnapshots: (snapshots) => {
+    if (snapshots.length === 0) {
+      return;
+    }
+    set((state) => {
+      const indexById = new Map(state.tasks.map((task, index) => [task.taskId, index]));
+      let tasks: SftpTransferTaskSnapshot[] | null = null;
+      for (const snapshot of snapshots) {
+        const index = indexById.get(snapshot.taskId);
+        // 仅更新本会话已跟踪的任务；列表里携带来的历史任务不复活，
+        // 否则刷新页面后已清理的记录会重现、并再次触发完成 toast。
+        if (index === undefined) {
+          continue;
+        }
+        const current = (tasks ?? state.tasks)[index];
+        const next = upsertSftpTransferSnapshot(current, snapshot);
+        if (next === current) {
+          continue;
+        }
+        if (!tasks) {
+          tasks = [...state.tasks];
+        }
+        tasks[index] = next;
+      }
+      return tasks ? { tasks } : state;
     });
   },
 

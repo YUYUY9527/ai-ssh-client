@@ -8,6 +8,18 @@ export interface SSHConnection {
   password?: string;
   privateKey?: string;
   passphrase?: string;
+  /** 所属分组（文件夹）id；缺省表示未分组。 */
+  groupId?: string;
+  /** 自由标签，用于跨分组的筛选与归类。 */
+  tags?: string[];
+}
+
+// 连接分组（文件夹）。parentId 预留嵌套能力，当前 UI 按平铺分组渲染。
+export interface ConnectionGroup {
+  id: string;
+  name: string;
+  parentId?: string;
+  order?: number;
 }
 
 export interface HostTrustRecord {

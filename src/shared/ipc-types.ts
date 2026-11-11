@@ -138,6 +138,46 @@ export interface DirectoryListResult<T = SftpItem> {
   path?: string;
 }
 
+/** 连接分组列表结果。 */
+export interface ConnectionGroupsResult<T = any> {
+  groups: T[];
+}
+
+/** 服务器监控指标（SSH 采集 /proc + df 解析所得）。 */
+export interface ServerMonitorMetrics {
+  cpuPercent: number;
+  memory: { totalKb: number; availableKb: number; usedKb: number; percent: number };
+  load: { load1: number; load5: number; load15: number };
+  uptimeSeconds: number;
+  disk: { totalKb: number; usedKb: number; availableKb: number; percent: number };
+  /** 磁盘 I/O 速率。旧版服务端可能不返回，前端需容错。 */
+  diskIo?: { readBytesPerSec: number; writeBytesPerSec: number };
+  hostname: string;
+  os: string;
+}
+
+export type SftpSearchMode = 'name' | 'content';
+
+export interface SftpSearchResultItem {
+  path: string;
+  name: string;
+  isDirectory: boolean;
+  isSymbolicLink?: boolean;
+}
+
+export interface SftpSearchResult {
+  results: SftpSearchResultItem[];
+  mode: SftpSearchMode;
+}
+
+/** 远程文件预览结果（图片/PDF，base64 编码）。 */
+export interface SftpPreviewResult {
+  name: string;
+  mime: string;
+  size: number;
+  base64: string;
+}
+
 /** 本地上传文件引用，ref 用于 Web 端引用暂存文件。 */
 export interface SftpLocalFileRef {
   name: string;
@@ -145,6 +185,8 @@ export interface SftpLocalFileRef {
   ref?: string;
   size?: number;
   lastModified?: number;
+  /** 文件夹上传：相对 remoteDirectory 的嵌套路径（含文件名），如 "dir/sub/a.txt"。 */
+  relativePath?: string;
 }
 
 /** 本地下载目录引用，ref 用于 Web 端引用已授权目录。 */
@@ -305,6 +347,8 @@ export interface SftpStartDownloadRequest {
   remotePaths: string[];
   destination: SftpLocalDestinationRef;
   conflictPolicy?: SftpConflictPolicy;
+  /** 文件夹下载：远端文件夹根路径，用于按相对路径在本地重建子目录。 */
+  remoteRoot?: string;
 }
 
 export interface SftpStartTransferResult {

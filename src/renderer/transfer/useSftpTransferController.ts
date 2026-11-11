@@ -21,6 +21,10 @@ interface SftpTransferController {
   retry: (taskId: string) => Promise<string | undefined>;
   upload: (files?: SftpLocalFileRef[]) => Promise<string | undefined>;
   uploadDroppedFiles: (files: File[]) => Promise<string | undefined>;
+  /** 文件夹递归上传（仅 Web 端 selectSftpFolder 可用）。 */
+  uploadFolder: () => Promise<string | undefined>;
+  /** 文件夹递归下载（仅 Web 端 listSftpFolderFiles 可用）。 */
+  downloadFolder: (remoteFolderPath: string) => Promise<string | undefined>;
 }
 
 function resultError(result: { success: boolean; error?: string }): string | undefined {
@@ -35,6 +39,7 @@ export function useSftpTransferController(
 ): SftpTransferController {
   const applyTransferEvent = useSftpTransferStore((state) => state.applyTransferEvent);
   const upsertSnapshot = useSftpTransferStore((state) => state.upsertSnapshot);
+  const syncSnapshots = useSftpTransferStore((state) => state.syncSnapshots);
 
   useEffect(() => {
     if (!window.electronAPI) return undefined;
@@ -42,11 +47,12 @@ export function useSftpTransferController(
     const unlisten = window.electronAPI.onSftpTransferEvent(applyTransferEvent);
     void window.electronAPI.listSftpTransfers(connectionId).then((result) => {
       if (result.success) {
-        result.data.tasks.forEach(upsertSnapshot);
+        // 对账只更新本会话已跟踪的任务，避免刷新后把历史（含已清理）任务重新灌回列表。
+        syncSnapshots(result.data.tasks);
       }
     });
     return unlisten;
-  }, [applyTransferEvent, connectionId, upsertSnapshot]);
+  }, [applyTransferEvent, connectionId, syncSnapshots]);
 
   const upload = useCallback(async (files?: SftpLocalFileRef[]) => {
     if (!window.electronAPI) return 'SFTP bridge is unavailable';
@@ -88,6 +94,41 @@ export function useSftpTransferController(
     // 桌面 DOM drop 可能拿不到本地路径时回退多选对话框。
     return upload();
   }, [upload]);
+
+  /** 文件夹递归上传：选中整棵树（含 relativePath），复用 upload 推流。 */
+  const uploadFolder = useCallback(async () => {
+    if (!window.electronAPI?.selectSftpFolder) return 'Folder upload is not supported in this environment';
+    const selection = await window.electronAPI.selectSftpFolder();
+    if (!selection.success) return selection.error || 'Unable to select a folder';
+    if (selection.data.canceled || selection.data.files.length === 0) return undefined;
+    return upload(selection.data.files);
+  }, [upload]);
+
+  /** 文件夹递归下载：展开远端树→选本地目录→按相对路径重建子目录落盘。 */
+  const downloadFolder = useCallback(async (remoteFolderPath: string) => {
+    if (!window.electronAPI?.listSftpFolderFiles) return 'Folder download is not supported in this environment';
+    const listed = await window.electronAPI.listSftpFolderFiles(connectionId, remoteFolderPath);
+    if (!listed.success) return listed.error || 'Unable to list the remote folder';
+    if (listed.data.files.length === 0) return undefined;
+
+    const selection = await window.electronAPI.selectSftpDownloadDestination();
+    if (!selection.success) return selection.error || 'Unable to select a download destination';
+    if (selection.data.canceled) return undefined;
+
+    const destination = selection.data.destination || { name: 'browser-download' };
+    const result = await window.electronAPI.startSftpDownload({
+      connectionId,
+      remotePaths: listed.data.files,
+      destination,
+      conflictPolicy: 'ask',
+      remoteRoot: remoteFolderPath,
+    });
+    if (result.success) {
+      result.data.tasks.forEach(upsertSnapshot);
+      onTasksCreated?.(result.data.tasks);
+    }
+    return resultError(result);
+  }, [connectionId, onTasksCreated, upsertSnapshot]);
 
   const download = useCallback(async (remotePaths: string[]) => {
     if (!window.electronAPI) return 'SFTP bridge is unavailable';
@@ -144,9 +185,11 @@ export function useSftpTransferController(
     cancel,
     discard,
     download,
+    downloadFolder,
     resolveConflict,
     retry,
     upload,
     uploadDroppedFiles,
+    uploadFolder,
   };
 }
