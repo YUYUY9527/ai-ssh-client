@@ -37,7 +37,20 @@ function normalizeConnections(input) {
     password: connection.password || undefined,
     privateKey: connection.privateKey || connection.private_key || undefined,
     passphrase: connection.passphrase || undefined,
+    groupId: connection.groupId || connection.group_id || undefined,
+    tags: Array.isArray(connection.tags)
+      ? connection.tags.map((tag) => String(tag)).filter(Boolean)
+      : undefined,
   })).filter((connection) => connection.host && connection.username);
+}
+
+function normalizeConnectionGroups(input) {
+  return asArray(input).map((group) => ({
+    id: String(group.id || Date.now()),
+    name: String(group.name || 'Group'),
+    parentId: group.parentId || group.parent_id || undefined,
+    order: Number.isFinite(Number(group.order)) ? Number(group.order) : undefined,
+  })).filter((group) => group.id);
 }
 
 function normalizeImportData(input) {
@@ -51,6 +64,7 @@ function normalizeImportData(input) {
     commandHistory: asOptionalArray(firstDefined(data.commandHistory, data.command_history)),
     quickCommands: asOptionalArray(firstDefined(data.quickCommands, data.quick_commands)),
     quickCommandGroups: asOptionalArray(firstDefined(data.quickCommandGroups, data.quick_command_groups)),
+    connectionGroups: asOptionalArray(firstDefined(data.connectionGroups, data.connection_groups)),
     aiProviders: asOptionalArray(firstDefined(data.aiProviders, data.ai_providers)),
     hostTrustRecords: asOptionalArray(firstDefined(data.hostTrustRecords, data.host_trust_records)),
   };
@@ -108,6 +122,9 @@ function applyImportData(store, imported, merge, defaultSettings = {}) {
 
   applyIdCollection(store, 'quickCommands', imported.quickCommands, merge);
   applyIdCollection(store, 'quickCommandGroups', imported.quickCommandGroups, merge);
+  if (imported.connectionGroups !== undefined) {
+    applyIdCollection(store, 'connectionGroups', normalizeConnectionGroups(imported.connectionGroups), merge);
+  }
   applyIdCollection(store, 'aiProviders', imported.aiProviders, merge);
 
   if (imported.hostTrustRecords !== undefined) {
@@ -138,6 +155,7 @@ function importSummary(imported) {
     settings: imported.settings ? 1 : 0,
     quickCommands: imported.quickCommands?.length ?? 0,
     quickCommandGroups: imported.quickCommandGroups?.length ?? 0,
+    connectionGroups: imported.connectionGroups?.length ?? 0,
     hostTrustRecords: imported.hostTrustRecords?.length ?? 0,
   };
 }

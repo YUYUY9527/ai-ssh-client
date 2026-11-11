@@ -140,6 +140,34 @@ async function createSftpDirectory(sftp, remotePath) {
   return normalized;
 }
 
+/**
+ * 递归确保目录存在（mkdir -p 语义），用于文件夹上传时创建嵌套父目录。
+ * 已存在的层级跳过；并发/竞态下「已存在」错误被吞掉。调用方须先校验路径
+ * 不含 '..' 逃逸（见 sftp-transfer.startUpload 的 relativePath 校验）。
+ */
+async function ensureRemoteDirectory(sftp, remotePath) {
+  const raw = String(remotePath || '');
+  if (raw.split('/').includes('..')) {
+    const error = new Error('Path traversal is not allowed');
+    error.code = 'invalid-path';
+    throw error;
+  }
+  const normalized = posixPath.normalize(sftpProtocolPath(raw).replace(/\/+$/, '') || '.');
+  if (!normalized || normalized === '.' || normalized === '/') return normalized;
+  const segments = normalized.split('/').filter(Boolean);
+  let current = normalized.startsWith('/') ? '/' : '.';
+  for (const segment of segments) {
+    current = current === '/' ? `/${segment}` : posixPath.join(current, segment);
+    if (await pathExists(sftp, current)) continue;
+    try {
+      await callSftp(sftp, 'mkdir', current);
+    } catch (error) {
+      if (!(await pathExists(sftp, current))) throw error;
+    }
+  }
+  return normalized;
+}
+
 /** 选中父目录时去掉其后代，避免重复递归删除。 */
 function collapseDescendants(paths) {
   const unique = [...new Set((paths || []).map((item) => String(item || '')).filter(Boolean))]
@@ -292,6 +320,7 @@ module.exports = {
   createSftpDirectory,
   deleteSftpItem,
   deleteSftpItems,
+  ensureRemoteDirectory,
   parsePermissionMode,
   readSftpTextFile,
   renameSftpItem,

@@ -28,6 +28,10 @@ const {
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
 const { buildDownloadEtag, readSftpFileEdges, readSftpSmallFile, EDGE_BYTES } = require('./sftp-download-validator.cjs');
 const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
+const { execCommand } = require('./ssh-exec.cjs');
+const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
+const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
+const { readSftpPreview, resolveInlineMime } = require('./sftp-preview.cjs');
 const { createAuth } = require('./auth.cjs');
 const { createHostTrust } = require('./host-trust.cjs');
 const { createSecretStore } = require('./secret-store.cjs');
@@ -202,6 +206,7 @@ function readStore() {
       commandHistory: [],
       quickCommands: [],
       quickCommandGroups: [],
+      connectionGroups: [],
       aiProviders: [],
       agentTasks: [],
       hostTrustRecords: [],
@@ -216,7 +221,7 @@ function readStore() {
         console.warn(`[store] configuration is damaged; recovered from ${backupPath}`);
         return secretStore.decryptStore({
           connections: [], settings: defaultSettings, commandHistory: [],
-          quickCommands: [], quickCommandGroups: [], aiProviders: [],
+          quickCommands: [], quickCommandGroups: [], connectionGroups: [], aiProviders: [],
           agentTasks: [], hostTrustRecords: [], ...backup,
           settings: normalizeSettings(backup.settings),
         });
@@ -233,6 +238,7 @@ function readStore() {
       commandHistory: [],
       quickCommands: [],
       quickCommandGroups: [],
+      connectionGroups: [],
       aiProviders: [],
       agentTasks: [],
       hostTrustRecords: [],
@@ -1336,6 +1342,7 @@ app.get('/api/export', route((request) => {
       commandHistory: store.commandHistory,
       quickCommands: store.quickCommands,
       quickCommandGroups: store.quickCommandGroups,
+      connectionGroups: store.connectionGroups || [],
       hostTrustRecords: store.hostTrustRecords || [],
     },
   });
@@ -1497,6 +1504,30 @@ app.delete('/api/quick-command-groups/:id', route((request) => {
   return success();
 }));
 
+// 连接分组（文件夹）：与快捷命令分组同构的 CRUD。连接自身的 groupId/tags 随
+// POST /api/connections 透传保存，这里只管理分组实体。
+app.get('/api/connection-groups', route(() => success({ groups: readStore().connectionGroups || [] })));
+app.post('/api/connection-groups', route((request) => {
+  updateStore((store) => {
+    const next = request.body.group;
+    if (!next || !next.id) return;
+    const groups = Array.isArray(store.connectionGroups) ? store.connectionGroups : [];
+    store.connectionGroups = [...groups.filter((item) => item.id !== next.id), next];
+  });
+  return success();
+}));
+app.delete('/api/connection-groups/:id', route((request) => {
+  updateStore((store) => {
+    const groups = Array.isArray(store.connectionGroups) ? store.connectionGroups : [];
+    store.connectionGroups = groups.filter((item) => item.id !== request.params.id);
+    // 删除分组后，把归属该分组的连接移回未分组，避免悬空引用。
+    store.connections = (store.connections || []).map((connection) => (
+      connection.groupId === request.params.id ? { ...connection, groupId: undefined } : connection
+    ));
+  });
+  return success();
+}));
+
 // 主机指纹信任记录：与桌面端 ssh_*_host_trust_record 六个命令一一对应。
 // 必须注册在 /api/ssh/:id/* 之前，避免 "host-trust" 被当成连接 ID 匹配。
 app.get('/api/ssh/host-trust', route(() => success({ records: hostTrust.listRecords() })));
@@ -1573,6 +1604,13 @@ app.get('/api/ssh/:id/output-buffer', route((request) => {
     data: session.outputBuffer || '',
   });
 }));
+// 服务器监控仪表盘：独立 exec 通道采集 /proc + df，不干扰交互 shell 与 Agent 执行。
+app.get('/api/ssh/:id/monitor', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const { output } = await execCommand(session.client, buildMonitorCommand(), { timeoutMs: 8000 });
+  return success(parseMonitorOutput(output));
+}));
+
 app.get('/api/ssh/sessions', route((request) => success({
   // 只返回当前客户端的会话：多客户端部署下互不可见、互不干扰
   sessions: Array.from(sessions.values())
@@ -1704,6 +1742,38 @@ app.put('/api/sftp/:id/text', route(async (request) => {
   return success();
 }));
 
+// 远程文件搜索：按名称(find)或内容(grep)，独立 exec 通道，结果数与超时受限。
+app.get('/api/sftp/:id/search', route(async (request) => {
+  const clientId = requireClientId(request);
+  const session = getSession(request.params.id, clientId);
+  const query = String(request.query.query || '');
+  const mode = request.query.mode === 'content' ? 'content' : 'name';
+  if (!query.trim()) {
+    return success({ results: [], truncated: false });
+  }
+  const sftp = await getSftp(request.params.id, clientId);
+  const protocolPath = sftpProtocolPath(String(request.query.path || '~'));
+  const absolutePath = await new Promise((resolve) => {
+    if (typeof sftp.realpath !== 'function') {
+      resolve(protocolPath);
+      return;
+    }
+    sftp.realpath(protocolPath, (error, absolute) => {
+      resolve(!error && absolute ? String(absolute) : protocolPath);
+    });
+  });
+  const command = buildSearchCommand({ path: absolutePath, query, mode, limit: request.query.limit });
+  const { output, truncated } = await execCommand(session.client, command, { timeoutMs: 20000 });
+  return success({ results: parseSearchOutput(output, mode), truncated });
+}));
+
+// 远程文件预览（图片/PDF）：SFTP 整读后 base64 下发；超限报 too-large，前端提示改用下载。
+app.get('/api/sftp/:id/preview', route(async (request) => {
+  const sftp = await getSftp(request.params.id, requireClientId(request));
+  const remotePath = String(request.query.path || '');
+  return success(await readSftpPreview(sftp, sftpProtocolPath(remotePath)));
+}));
+
 // 批量删除文件/目录，返回逐项结果
 app.delete('/api/sftp/:id/items', route(async (request) => {
   const sftp = await getSftp(request.params.id, requireClientId(request));
@@ -1781,11 +1851,15 @@ app.get('/api/sftp/:id/download', async (request, response) => {
       response.setHeader('Content-Length', String(size));
     }
 
+    // inline=1：供音频/视频/图片等内联预览（浏览器 <video>/<audio>/<img> 直接引用），
+    // 用正确 Content-Type + inline 决定浏览器内联播放而非下载；仍复用 Range 流式读取。
+    const inlineRequested = request.query.inline === '1' || request.query.inline === 'true';
+    const inlineMime = inlineRequested ? resolveInlineMime(filename) : '';
     response.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      `${inlineMime ? 'inline' : 'attachment'}; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
     );
-    response.setHeader('Content-Type', 'application/octet-stream');
+    response.setHeader('Content-Type', inlineMime || 'application/octet-stream');
     response.setHeader('Accept-Ranges', 'bytes');
     // 远端文件随时可能被改写，禁止浏览器/中间层启发式缓存，避免续传或重下时拿到旧内容。
     response.setHeader('Cache-Control', 'no-store');

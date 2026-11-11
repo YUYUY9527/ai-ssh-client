@@ -1,6 +1,6 @@
 const posixPath = require('node:path').posix;
 const { randomUUID } = require('node:crypto');
-const { sftpProtocolPath } = require('./sftp-items.cjs');
+const { ensureRemoteDirectory, sftpProtocolPath } = require('./sftp-items.cjs');
 const { writePipelined } = require('./sftp-pipelined-write.cjs');
 
 const CHUNK_SIZE = 64 * 1024;
@@ -464,6 +464,10 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       }
 
       const destination = snapshot.remotePath;
+      // 文件夹上传：先递归创建嵌套父目录（平铺上传 ensureParents=false，跳过，零额外往返）。
+      if (task.ensureParents) {
+        await ensureRemoteDirectory(sftp, posixPath.dirname(destination));
+      }
       const protocolDestination = sftpProtocolPath(destination);
       const temporaryPath = temporaryRemotePath(protocolDestination, snapshot.taskId);
       const sourceSize = Number(
@@ -727,10 +731,23 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       if (!file?.ref || !file?.name || file.name.includes('/') || file.name.includes('\\')) {
         throw new TransferError('Web upload requires a selected file reference', 'invalid-path', false);
       }
-      const remotePath = posixPath.join(remoteDirectory, file.name);
+      // 文件夹上传：relativePath 携带相对 remoteDirectory 的嵌套路径（含文件名），
+      // 例如 "myfolder/sub/a.txt"。校验拒绝绝对路径与 '..' 逃逸；name 仍为 basename。
+      let remotePath = posixPath.join(remoteDirectory, file.name);
+      let ensureParents = false;
+      if (file.relativePath != null && String(file.relativePath).trim() !== '') {
+        const relativePath = String(file.relativePath).replace(/\\/g, '/');
+        const segments = relativePath.split('/').filter((segment) => segment !== '' && segment !== '.');
+        if (relativePath.startsWith('/') || segments.includes('..') || segments.length === 0) {
+          throw new TransferError('Invalid relative upload path', 'invalid-path', false);
+        }
+        remotePath = posixPath.join(remoteDirectory, segments.join('/'));
+        ensureParents = segments.length > 1;
+      }
       const task = {
         clientId,
         canceled: false,
+        ensureParents,
         snapshot: makeSnapshot({
           connectionId: request.connectionId,
           batchId,
