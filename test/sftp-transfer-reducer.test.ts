@@ -47,4 +47,52 @@ describe('sftp transfer snapshot reducer', () => {
 
     expect(upsertSftpTransferSnapshot(current, conflict)).toBe(conflict);
   });
+
+  it('keeps an in-progress upload transferring across the between-chunk queued snapshot', () => {
+    const current = task({ status: 'transferring', sequence: 4, transferredBytes: 40, progress: 40 });
+    // 分片结束服务端短暂回到 queued（等待下一片），同一 attempt、更高 sequence。
+    const betweenChunks = task({
+      status: 'queued',
+      sequence: 5,
+      transferredBytes: 64,
+      progress: 64,
+      updatedAt: 120,
+    });
+
+    const next = upsertSftpTransferSnapshot(current, betweenChunks);
+    expect(next.status).toBe('transferring');
+    expect(next.transferredBytes).toBe(64);
+    expect(next.progress).toBe(64);
+    expect(next.sequence).toBe(5);
+  });
+
+  it('still shows queued when a retry opens a new attempt', () => {
+    const current = task({ status: 'transferring', attempt: 2, sequence: 9, transferredBytes: 40 });
+    const retried = task({ status: 'queued', attempt: 3, sequence: 0, transferredBytes: 40 });
+
+    const next = upsertSftpTransferSnapshot(current, retried);
+    expect(next.status).toBe('queued');
+    expect(next.attempt).toBe(3);
+  });
+
+  it('does not shield a genuine first queued snapshot', () => {
+    const queued = task({ status: 'queued', transferredBytes: 0 });
+    expect(upsertSftpTransferSnapshot(undefined, queued)).toBe(queued);
+  });
+
+  it('still accepts a terminal transition from transferring', () => {
+    const current = task({ status: 'transferring', sequence: 4 });
+    const canceled = task({ status: 'canceled', sequence: 5, updatedAt: 120 });
+
+    const next = upsertSftpTransferSnapshot(current, canceled);
+    expect(next.status).toBe('canceled');
+  });
+
+  it('does not apply the upload anti-flicker rule to downloads', () => {
+    const current = task({ direction: 'download', status: 'transferring', sequence: 4 });
+    const queued = task({ direction: 'download', status: 'queued', sequence: 5, updatedAt: 120 });
+
+    const next = upsertSftpTransferSnapshot(current, queued);
+    expect(next.status).toBe('queued');
+  });
 });

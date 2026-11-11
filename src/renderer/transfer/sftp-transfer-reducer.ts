@@ -73,6 +73,19 @@ export function upsertSftpTransferSnapshot(
   if (snapshot.attempt === current.attempt && isSftpTransferTerminal(current.status)) {
     return current;
   }
+
+  // 分片上传在片与片之间会短暂回到 queued（服务端等待下一片数据），这是内部控制流
+  // 状态，并非用户意义上的“等待中”。同一 attempt 内从 transferring 回退到 queued 时
+  // 保留 transferring 显示、只吸收字节/进度更新，避免状态徽章在传输过程中闪烁。
+  // 重试会开启新 attempt，不受此规则影响；下载不存在片间 queued。
+  if (
+    snapshot.attempt === current.attempt
+    && snapshot.direction === 'upload'
+    && current.status === 'transferring'
+    && snapshot.status === 'queued'
+  ) {
+    return { ...snapshot, status: 'transferring' };
+  }
   return snapshot;
 }
 
