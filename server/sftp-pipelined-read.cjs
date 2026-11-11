@@ -1,7 +1,7 @@
 const { Readable } = require('node:stream');
 
-/** 并行下载默认并发请求数。SFTP 单请求串行读是吞吐瓶颈，提升并发可成倍加速。 */
-const DEFAULT_CONCURRENCY = 16;
+/** 并行下载默认并发请求数。在途窗口 = 并发 × 块大小 = 1MiB，高延迟链路吞吐 ≈ 窗口/RTT。 */
+const DEFAULT_CONCURRENCY = 32;
 /** 单个 SFTP READ 请求的默认字节数。OpenSSH 通常支持 32 KiB，取小值避免被截断。 */
 const DEFAULT_CHUNK_SIZE = 32 * 1024;
 

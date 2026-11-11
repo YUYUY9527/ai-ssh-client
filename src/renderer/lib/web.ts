@@ -76,6 +76,8 @@ const selectedFiles = new Map<string, File>();
 const selectedDirs = new Map<string, FileSystemDirectoryHandle>();
 const webSftpTaskSources = new Map<string, string>();
 const downloadAbortControllers = new Map<string, AbortController>();
+/** 在途上传请求的 AbortController：取消时立即掐断当前分片，不再白传剩余字节。 */
+const uploadAbortControllers = new Map<string, AbortController>();
 
 /** FSA 流式下载的上下文：重试时据此重新发起 streamWebDownload。 */
 interface WebDownloadContext {
@@ -91,9 +93,18 @@ interface PendingWebDownloadConflict {
   reject: (error: unknown) => void;
 }
 const webDownloadConflictResolvers = new Map<string, PendingWebDownloadConflict>();
-/** 浏览器上行与 SSH/SFTP 共用带宽；限制并发，避免大文件批量上传拖死页面。 */
-const WEB_UPLOAD_CONCURRENCY = 1;
+/** 并发上传：不同目标互不锁，小文件批量时并发掩盖每文件 ~10 个 RTT 的固定开销；
+ * 大文件只是分摊带宽。3 路在内存/SFTP 通道压力与吞吐间取平衡。 */
+const WEB_UPLOAD_CONCURRENCY = 3;
 const webUploadQueue = createAsyncTaskQueue<unknown>(WEB_UPLOAD_CONCURRENCY);
+/** FSA 下载同样限流：N 个文件并行会挤爆同一条 SFTP 通道，与上传保持对称。 */
+const WEB_DOWNLOAD_CONCURRENCY = 3;
+const webDownloadQueue = createAsyncTaskQueue<unknown>(WEB_DOWNLOAD_CONCURRENCY);
+/** 网络抖动/SSH 掉线后的自动重试次数与指数退避基数（1s/2s/4s）。 */
+const WEB_TRANSFER_RETRY_LIMIT = 3;
+const WEB_TRANSFER_RETRY_BASE_MS = 1000;
+/** 下载进度节流：与服务端 PROGRESS_EMIT_MS 对齐，避免高速下载每个 chunk 都整表重渲染。 */
+const WEB_PROGRESS_PUSH_MS = 200;
 const listeners = new Map<keyof EventMap, Set<(payload: any) => void>>();
 const sftpClientId = (() => {
   const key = 'ai-ssh-client.sftp-client-id';
@@ -203,8 +214,10 @@ async function refreshWebTransferTask(taskId: string): Promise<void> {
   if (snapshot) publishTaskSnapshot(snapshot);
 }
 
-/** 单次 PUT 分片大小：避免整文件超 Node/代理超时（默认 5 分钟约只能传到数百 MB）。 */
-const WEB_UPLOAD_CHUNK_BYTES = 32 * 1024 * 1024;
+/** 单次 PUT 分片大小：避免整文件超 Node/代理超时（默认 5 分钟约只能传到数百 MB）。
+ * 64MiB 让每片固定开销（开/关句柄 + 片尾 checkpoint + HTTP 往返）频率减半；
+ * 流式传输不占整片内存。前置 nginx 时需 client_max_body_size >= 64MiB。 */
+const WEB_UPLOAD_CHUNK_BYTES = 64 * 1024 * 1024;
 
 /** 发布上传失败快照（保留已传字节便于 UI/重试）。 */
 function publishUploadFailure(
@@ -227,7 +240,59 @@ function publishUploadFailure(
   });
 }
 
-/** 流式分片上传：按 32MiB 切片 PUT，支持 checkpoint offset 续传。 */
+/** 发布上传取消快照：与失败区分开，避免取消被显示成“失败”。 */
+function publishUploadCanceled(
+  baselinetask: SftpTransferTaskSnapshot | undefined,
+  transferredBytes?: number,
+): void {
+  if (!baselinetask) return;
+  publishTaskSnapshot({
+    ...baselinetask,
+    status: 'canceled',
+    transferredBytes: transferredBytes ?? baselinetask.transferredBytes,
+    error: undefined,
+    sequence: baselinetask.sequence + 1,
+    updatedAt: Date.now(),
+    completedAt: Date.now(),
+  });
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 指数退避：第 1/2/3 次重试分别等 1s/2s/4s。 */
+function transferRetryDelayMs(retryIndex: number): number {
+  return WEB_TRANSFER_RETRY_BASE_MS * (2 ** retryIndex);
+}
+
+/** 需要用户介入/不可恢复的服务端错误码，其余（io-error/upload-incomplete/upload-stalled/网络错误）可自动重试。 */
+const NON_RETRYABLE_TRANSFER_CODES = new Set([
+  'conflict', 'source-changed', 'not-found', 'invalid-path',
+  'commit-in-progress', 'canceled', 'permission-denied',
+]);
+function isRetryableTransferCode(code: string | undefined): boolean {
+  return !NON_RETRYABLE_TRANSFER_CODES.has(code || '');
+}
+
+/** 携带 HTTP 状态码的下载错误：用于区分可重试的 5xx 与不可重试的 404/416 等。 */
+class WebTransferHttpError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+function isRetryableDownloadError(error: unknown): boolean {
+  if (error instanceof WebTransferHttpError) {
+    return error.status >= 500 || error.status === 408 || error.status === 429;
+  }
+  // FSA 本地错误（配额不足/权限等）重试无益；AbortError 已按取消处理。
+  if (error instanceof DOMException) return false;
+  return true;
+}
+
+/** 流式分片上传：按 32MiB 切片 PUT，支持 checkpoint offset 续传与掉线自动重试。 */
 async function streamSftpUpload(
   taskId: string,
   resumeOffset = 0,
@@ -240,8 +305,11 @@ async function streamSftpUpload(
     return makeError('Selected file is no longer available', 'not-found');
   }
 
+  const controller = new AbortController();
+  uploadAbortControllers.set(taskId, controller);
   let offset = Math.max(0, Math.min(resumeOffset, file.size));
   let latestTask = baselinetask;
+  let retryCount = 0;
   try {
     // 进入传输中：立即更新 UI，避免长期停在 queued/等待中
     if (baselinetask) {
@@ -258,111 +326,193 @@ async function streamSftpUpload(
 
     const edges = await hashFileEdges(file);
 
-    // 空文件也要走一轮 complete=1，触发远端创建
-    do {
-      const chunkStart = offset;
-      const end = file.size === 0
-        ? 0
-        : Math.min(offset + WEB_UPLOAD_CHUNK_BYTES, file.size);
-      const isComplete = end >= file.size;
-      const body = file.size === 0 ? new Blob([]) : file.slice(offset, end);
+    // 外层循环：可重试失败（网络抖动/SSH 掉线）后重连并从服务端 checkpoint 续传。
+    for (;;) {
+      let retryDelayMs = 0;
+      let needsRetry = false;
+      try {
+        // 空文件也要走一轮 complete=1，触发远端创建
+        do {
+          const chunkStart = offset;
+          const end = file.size === 0
+            ? 0
+            : Math.min(offset + WEB_UPLOAD_CHUNK_BYTES, file.size);
+          const isComplete = end >= file.size;
+          const body = file.size === 0 ? new Blob([]) : file.slice(offset, end);
 
-      const response = await fetch(`/api/sftp/transfers/${encodeURIComponent(taskId)}/content`, {
-        method: 'PUT',
-        headers: {
-          'x-sftp-client-id': sftpClientId,
-          'content-type': 'application/octet-stream',
-          'x-sftp-source-size': String(file.size),
-          'x-sftp-source-mtime': String(file.lastModified),
-          'x-sftp-source-head': edges.head,
-          'x-sftp-source-tail': edges.tail,
-          'x-sftp-resume-offset': String(offset),
-          'x-sftp-upload-complete': isComplete ? '1' : '0',
-        },
-        body,
-      });
-      const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
+          const response = await fetch(`/api/sftp/transfers/${encodeURIComponent(taskId)}/content`, {
+            method: 'PUT',
+            signal: controller.signal,
+            headers: {
+              'x-sftp-client-id': sftpClientId,
+              'content-type': 'application/octet-stream',
+              'x-sftp-source-size': String(file.size),
+              'x-sftp-source-mtime': String(file.lastModified),
+              'x-sftp-source-head': edges.head,
+              'x-sftp-source-tail': edges.tail,
+              'x-sftp-resume-offset': String(offset),
+              'x-sftp-upload-complete': isComplete ? '1' : '0',
+            },
+            body,
+          });
+          const result = await response.json() as IPCResult<{ task: SftpTransferTaskSnapshot }>;
 
-      if (!result.success) {
-        // 服务端认为客户端声明的续传起点超过其可确认偏移：按服务端确认偏移重传该片，
-        // 绝不能把“从 claimedOffset 切片的尾巴”当作已完成的剩余内容。
-        if (result.code === 'resume-offset-reset') {
-          const confirmed = Number(
-            (result as { confirmedOffset?: number }).confirmedOffset
-              ?? result.task?.resumedFrom
-              ?? 0,
-          );
-          const nextOffset = Number.isFinite(confirmed) ? Math.max(0, confirmed) : 0;
-          if (nextOffset < offset) {
-            offset = nextOffset;
-            if (result.task) publishTaskSnapshot(result.task);
+          if (!result.success) {
+            // 服务端认为客户端声明的续传起点超过其可确认偏移：按服务端确认偏移重传该片，
+            // 绝不能把“从 claimedOffset 切片的尾巴”当作已完成的剩余内容。
+            if (result.code === 'resume-offset-reset') {
+              const confirmed = Number(
+                (result as { confirmedOffset?: number }).confirmedOffset
+                  ?? result.task?.resumedFrom
+                  ?? 0,
+              );
+              const nextOffset = Number.isFinite(confirmed) ? Math.max(0, confirmed) : 0;
+              if (nextOffset < offset) {
+                offset = nextOffset;
+                if (result.task) publishTaskSnapshot(result.task);
+                continue;
+              }
+              publishUploadFailure(
+                latestTask || baselinetask,
+                result.error || 'Server reset the resume offset',
+                'io-error',
+                offset,
+              );
+              return makeError(result.error || 'Server reset the resume offset', 'io-error');
+            }
+            // 冲突响应优先使用服务端快照；若旧网关没有携带快照，再补拉任务列表。
+            if (result.code === 'conflict' || response.status === 409) {
+              if (result.task) {
+                publishTaskSnapshot(result.task);
+              } else {
+                await refreshWebTransferTask(taskId);
+              }
+              return makeError(result.error || 'Destination already exists', 'conflict');
+            }
+            // 可重试的服务端错误（io-error/upload-incomplete/upload-stalled 等）：
+            // 服务端已把任务记为 failed 并保留 checkpoint，走 retry 流程续传。
+            if (retryCount < WEB_TRANSFER_RETRY_LIMIT && isRetryableTransferCode(result.code)) {
+              retryDelayMs = transferRetryDelayMs(retryCount);
+              needsRetry = true;
+              break;
+            }
+            publishUploadFailure(
+              latestTask || baselinetask,
+              result.error || `Upload failed (${response.status})`,
+              (result.code as SftpErrorCode | undefined) || 'io-error',
+              offset,
+            );
+            return result;
+          }
+          if (!result.data?.task) {
+            publishUploadFailure(
+              latestTask || baselinetask,
+              `Upload failed (${response.status})`,
+              'io-error',
+              offset,
+            );
+            return makeError(`Upload failed (${response.status})`, 'io-error');
+          }
+
+          latestTask = result.data.task;
+          publishTaskSnapshot(latestTask);
+          // 成功传完一片：重置重试预算，长传偶发抖动不会耗尽次数。
+          retryCount = 0;
+          // 以服务端确认偏移为准。注意不能用 Math.max 抬高：服务端可能因 checkpoint
+          // 校正而把偏移向下修正，此时必须采用服务端的较小值，否则会跳字节。
+          const serverBytes = Number(latestTask.transferredBytes);
+          offset = Number.isFinite(serverBytes) && serverBytes >= 0 ? serverBytes : end;
+
+          if (isComplete || latestTask.status === 'completed' || latestTask.status === 'skipped') {
+            return { success: true, data: { task: latestTask } };
+          }
+          if (latestTask.status === 'waiting-conflict') {
+            return { success: true, data: { task: latestTask } };
+          }
+          if (latestTask.status === 'failed' || latestTask.status === 'canceled') {
+            return { success: true, data: { task: latestTask } };
+          }
+          // 防御：本片结束后偏移未推进则避免死循环
+          if (file.size > 0 && offset <= chunkStart) {
+            publishUploadFailure(latestTask, 'Upload offset did not advance', 'io-error', offset);
+            return makeError('Upload offset did not advance', 'io-error');
+          }
+        } while (offset < file.size);
+
+        if (!needsRetry) {
+          return latestTask
+            ? { success: true, data: { task: latestTask } }
+            : makeError('Upload finished without task snapshot');
+        }
+      } catch (error) {
+        if (controller.signal.aborted) throw error; // 外层 catch 统一按取消处理
+        // 网络层错误（fetch 失败/响应解析失败）：同样尝试自动重试。
+        if (retryCount >= WEB_TRANSFER_RETRY_LIMIT) {
+          const message = error instanceof Error ? error.message : String(error);
+          publishUploadFailure(latestTask || baselinetask, message, 'io-error', offset);
+          return makeError(message);
+        }
+        retryDelayMs = transferRetryDelayMs(retryCount);
+      }
+
+      // ---- 共享重试路径：退避 → 尽力重连 SSH → 服务端 retry（保留 checkpoint）→ 续传 ----
+      retryCount += 1;
+      await sleepMs(retryDelayMs);
+      if (controller.signal.aborted) {
+        publishUploadCanceled(latestTask || baselinetask, offset);
+        return makeError('Upload canceled', 'canceled');
+      }
+      const connectionId = latestTask?.connectionId || baselinetask?.connectionId;
+      if (connectionId) {
+        // 尽力重连：即使重连失败也继续尝试 retry（服务端会话可能仍存活）。
+        await ensureSshSession(connectionId).catch(() => undefined);
+      }
+      const resumed = await sftpRequest<SftpTransferTaskSnapshot>(
+        `/api/sftp/transfers/${encodeURIComponent(taskId)}/retry`,
+        { method: 'POST', body: '{}' },
+      );
+      if (!resumed.success) {
+        // 任务可能在服务端尚未终态（如响应丢失但写入实际成功）：
+        // 若仍是 queued 则采用服务端状态继续传，避免卡在双方都无法重试的状态。
+        if (resumed.code === 'conflict') {
+          const listed = await sftpRequest<SftpListTransfersResult>('/api/sftp/transfers');
+          const serverTask = listed.success
+            ? listed.data.tasks.find((item) => item.taskId === taskId)
+            : undefined;
+          if (serverTask && serverTask.status === 'queued') {
+            latestTask = serverTask;
+            publishTaskSnapshot(latestTask);
+            const serverBytes = Number(serverTask.transferredBytes);
+            offset = Number.isFinite(serverBytes) && serverBytes >= 0
+              ? Math.min(serverBytes, file.size)
+              : offset;
             continue;
           }
-          publishUploadFailure(
-            latestTask || baselinetask,
-            result.error || 'Server reset the resume offset',
-            'io-error',
-            offset,
-          );
-          return makeError(result.error || 'Server reset the resume offset', 'io-error');
-        }
-        // 冲突响应优先使用服务端快照；若旧网关没有携带快照，再补拉任务列表。
-        if (result.code === 'conflict' || response.status === 409) {
-          if (result.task) {
-            publishTaskSnapshot(result.task);
-          } else {
-            await refreshWebTransferTask(taskId);
-          }
-          return makeError(result.error || 'Destination already exists', 'conflict');
         }
         publishUploadFailure(
           latestTask || baselinetask,
-          result.error || `Upload failed (${response.status})`,
-          (result.code as SftpErrorCode | undefined) || 'io-error',
+          resumed.error || 'Upload retry failed',
+          (resumed.code as SftpErrorCode | undefined) || 'io-error',
           offset,
         );
-        return result;
+        return makeError(resumed.error || 'Upload retry failed', resumed.code);
       }
-      if (!result.data?.task) {
-        publishUploadFailure(
-          latestTask || baselinetask,
-          `Upload failed (${response.status})`,
-          'io-error',
-          offset,
-        );
-        return makeError(`Upload failed (${response.status})`, 'io-error');
-      }
-
-      latestTask = result.data.task;
+      latestTask = resumed.data;
       publishTaskSnapshot(latestTask);
-      // 以服务端确认偏移为准。注意不能用 Math.max 抬高：服务端可能因 checkpoint
-      // 校正而把偏移向下修正，此时必须采用服务端的较小值，否则会跳字节。
-      const serverBytes = Number(latestTask.transferredBytes);
-      offset = Number.isFinite(serverBytes) && serverBytes >= 0 ? serverBytes : end;
-
-      if (isComplete || latestTask.status === 'completed' || latestTask.status === 'skipped') {
-        return { success: true, data: { task: latestTask } };
-      }
-      if (latestTask.status === 'waiting-conflict') {
-        return { success: true, data: { task: latestTask } };
-      }
-      if (latestTask.status === 'failed' || latestTask.status === 'canceled') {
-        return { success: true, data: { task: latestTask } };
-      }
-      // 防御：本片结束后偏移未推进则避免死循环
-      if (file.size > 0 && offset <= chunkStart) {
-        publishUploadFailure(latestTask, 'Upload offset did not advance', 'io-error', offset);
-        return makeError('Upload offset did not advance', 'io-error');
-      }
-    } while (offset < file.size);
-
-    return latestTask
-      ? { success: true, data: { task: latestTask } }
-      : makeError('Upload finished without task snapshot');
+      const resumedFrom = Number(latestTask.resumedFrom ?? latestTask.transferredBytes ?? 0);
+      offset = Number.isFinite(resumedFrom) ? Math.max(0, Math.min(resumedFrom, file.size)) : offset;
+    }
   } catch (error) {
+    if (controller.signal.aborted) {
+      // 用户取消：发布 canceled 而非 failed，与服务端取消快照语义一致。
+      publishUploadCanceled(latestTask || baselinetask, offset);
+      return makeError('Upload canceled', 'canceled');
+    }
     const message = error instanceof Error ? error.message : String(error);
     publishUploadFailure(latestTask || baselinetask, message, 'io-error', offset);
     return makeError(message);
+  } finally {
+    uploadAbortControllers.delete(taskId);
   }
 }
 
@@ -518,7 +668,10 @@ function waitForWebDownloadConflict(
   });
 }
 
-/** FSA 目录流式下载：边下边写，支持 Range 续传、冲突策略与 AbortController 取消。 */
+/** 纯进度补丁的键集合：这类补丁按 WEB_PROGRESS_PUSH_MS 节流，状态变迁始终立即发布。 */
+const PROGRESS_PATCH_KEYS = new Set(['transferredBytes', 'totalBytes', 'progress', 'resumedFrom']);
+
+/** FSA 目录流式下载：边下边写，支持 Range 续传、冲突策略、AbortController 取消与掉线自动重试。 */
 async function streamWebDownload(
   task: SftpTransferTaskSnapshot & { downloadUrl?: string },
   dirHandle: FileSystemDirectoryHandle,
@@ -532,6 +685,7 @@ async function streamWebDownload(
     status: 'transferring',
     updatedAt: Date.now(),
   };
+  let lastProgressPushAt = 0;
   const push = (patch: Partial<SftpTransferTaskSnapshot>) => {
     sequence += 1;
     snapshot = {
@@ -540,6 +694,12 @@ async function streamWebDownload(
       sequence,
       updatedAt: Date.now(),
     };
+    // 高速下载每个 chunk 都发布快照会让任务列表整表重渲染数百次/秒；
+    // 纯进度补丁节流，终态/冲突等状态变迁不受影响（reducer 保证进度单调）。
+    const pureProgress = Object.keys(patch).every((key) => PROGRESS_PATCH_KEYS.has(key));
+    const nowMs = Date.now();
+    if (pureProgress && nowMs - lastProgressPushAt < WEB_PROGRESS_PUSH_MS) return;
+    lastProgressPushAt = nowMs;
     emitTransferSnapshot(snapshot);
   };
 
@@ -549,6 +709,7 @@ async function streamWebDownload(
   let writable: FileSystemWritableFileStream | undefined;
   let metaInfo: WebDownloadPartMeta | null = null;
   let transferred = 0;
+  let retryCount = 0;
   const policy = task.conflictPolicy || 'ask';
   const report = (
     status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped',
@@ -560,197 +721,240 @@ async function streamWebDownload(
   ) => {
     void reportWebSftpDownloadStatus(task.taskId, { attempt: task.attempt, status, ...extra });
   };
-
-  try {
-    push({ status: 'transferring', progress: 0 });
-    report('transferring', { transferredBytes: 0, totalBytes: task.totalBytes });
-
-    // 先探测目标文件是否存在，但绝不在此处创建它（避免因探测而“制造”冲突）。
-    let existingHandle: FileSystemFileHandle | null = null;
-    try {
-      existingHandle = await dirHandle.getFileHandle(task.name);
-    } catch {
-      existingHandle = null;
-    }
-    let existingSize = 0;
-    if (existingHandle) {
-      const existingFile = await existingHandle.getFile().catch(() => null);
-      existingSize = existingFile?.size ?? 0;
-    }
-
-    // 只有存在“本任务专属”的 checkpoint 且与本地文件大小匹配时才尝试续传，
-    // 否则按冲突策略处理——绝不把新内容追加到无关的同名旧文件后面。
-    const metadata = await readWebDownloadPartMeta(dirHandle, metaName);
-    const resumeDecision = decideWebDownloadResume({
-      taskId: task.taskId,
-      metadata,
-      existingSize,
-    });
-
-    let action = decideWebDownloadConflict({
-      exists: existingHandle != null,
-      resume: resumeDecision.resume,
-      policy,
-    });
-
-    if (action === 'ask') {
-      // 本地同名文件无法续传：复用统一冲突弹窗裁决，等待 resolveSftpConflict 拦截唤醒。
-      push({
-        status: 'waiting-conflict',
-        conflict: {
-          sourcePath: task.remotePath || task.name,
-          destinationPath: task.name,
-          suggestedName: suggestedLocalName(task.name),
-        },
-      });
-      const resolution = await waitForWebDownloadConflict(task.taskId, controller.signal);
-      action = resolution.policy;
-      if (resolution.policy === 'rename') {
-        targetName = await findAvailableLocalName(
-          dirHandle,
-          resolution.renamedPath?.trim() || task.name,
-        );
-      }
-    } else if (action === 'rename') {
-      targetName = await findAvailableLocalName(dirHandle, task.name);
-    }
-
-    if (action === 'skip') {
-      // 保留本地原文件，任务记为跳过并回报服务端。
-      push({
-        status: 'skipped',
-        progress: 0,
-        transferredBytes: 0,
-        commitGuarantee: 'browser-managed',
-        completedAt: Date.now(),
-      });
-      report('skipped', { transferredBytes: 0, totalBytes: task.totalBytes });
-      return;
-    }
-
-    if (targetName !== task.name) {
-      metaName = webDownloadPartMetaName(targetName, task.taskId);
-    }
-
-    const requestHeaders: Record<string, string> = {};
-    if (action === 'resume') {
-      requestHeaders.Range = `bytes=${resumeDecision.offset}-`;
-      if (resumeDecision.ifRange) requestHeaders['If-Range'] = resumeDecision.ifRange;
-    }
-
-    const response = await fetch(task.downloadUrl, {
-      signal: controller.signal,
-      headers: action === 'resume' ? requestHeaders : undefined,
-    });
-    if (!response.ok && response.status !== 206) {
-      throw new Error(await response.text() || `Download failed (${response.status})`);
-    }
-    const responseEtag = response.headers.get('etag') || '';
-    // 只有 206 且响应校验器与 checkpoint 一致才算续传成功；200/416 都视为
-    // 服务端要求重下（例如 If-Range 校验失败），从 0 覆盖旧文件。
-    const confirmedResume = action === 'resume'
-      && response.status === 206
-      && (!responseEtag || !metadata?.etag || responseEtag === metadata.etag);
-    const offset = confirmedResume ? Math.min(resumeDecision.offset, existingSize) : 0;
-
-    const contentLength = Number(response.headers.get('content-length') || 0);
-    const total = offset > 0 && contentLength > 0 ? offset + contentLength : contentLength || undefined;
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Download stream unavailable');
-    }
-
-    const fileHandle = await dirHandle.getFileHandle(targetName, { create: true });
-    writable = await fileHandle.createWritable({ keepExistingData: offset > 0 });
-    if (offset > 0) {
-      await writable.seek(offset);
-    }
-    metaInfo = {
-      taskId: task.taskId,
-      name: targetName,
-      etag: responseEtag || metadata?.etag || '',
-      size: total ?? 0,
-      bytesWritten: offset,
-    };
-    await writeWebDownloadPartMeta(dirHandle, metaName, metaInfo);
-
-    transferred = offset;
-    let lastMetaBytes = offset;
-    let lastMetaAt = Date.now();
+  const pushCanceled = () => {
+    // 用户主动取消不是错误：不带 error，避免把 AbortError 的原始文案
+    // （如 "signal is aborted without reason"）当成报错显示。与上传取消口径一致。
     push({
-      resumedFrom: offset,
-      transferredBytes: transferred,
-      totalBytes: total,
-      progress: total ? Math.min(99, Math.round((transferred / total) * 100)) : 0,
-    });
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      await writable.write(value);
-      transferred += value.byteLength;
-      push({
-        transferredBytes: transferred,
-        totalBytes: total,
-        progress: total ? Math.min(99, Math.round((transferred / total) * 100)) : 0,
-      });
-      if (
-        transferred - lastMetaBytes >= WEB_DOWNLOAD_CHECKPOINT_BYTES
-        || Date.now() - lastMetaAt >= WEB_DOWNLOAD_CHECKPOINT_MS
-      ) {
-        lastMetaBytes = transferred;
-        lastMetaAt = Date.now();
-        await writeWebDownloadPartMeta(dirHandle, metaName, {
-          ...metaInfo,
-          size: total ?? metaInfo.size,
-          bytesWritten: transferred,
-        });
-      }
-    }
-    await writable.close();
-    writable = undefined;
-    await deleteWebDownloadPartMeta(dirHandle, metaName);
-    push({
-      status: 'completed',
-      progress: 100,
-      transferredBytes: transferred,
-      totalBytes: total || transferred,
-      commitGuarantee: 'browser-managed',
+      status: 'canceled',
+      error: undefined,
       completedAt: Date.now(),
     });
-    report('completed', { transferredBytes: transferred, totalBytes: total || transferred });
-    // 成功后清理重试上下文；失败/取消保留以便重试。
-    webSftpDownloadContexts.delete(task.taskId);
-  } catch (error) {
-    const canceled = controller.signal.aborted
-      || (error instanceof DOMException && error.name === 'AbortError');
-    // 中断时尽量把已写字节提交并刷新 checkpoint，便于下次续传；失败不遮挡原始错误。
-    if (writable) {
-      await writable.close().catch(() => undefined);
-      writable = undefined;
-    }
-    if (metaInfo && transferred > 0) {
-      await writeWebDownloadPartMeta(dirHandle, metaName, {
-        ...metaInfo,
-        bytesWritten: transferred,
-      });
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    push({
-      status: canceled ? 'canceled' : 'failed',
-      error: {
-        code: canceled ? 'canceled' : 'io-error',
-        message,
-        retryable: !canceled,
-      },
-      completedAt: Date.now(),
-    });
-    report(canceled ? 'canceled' : 'failed', {
+    report('canceled', {
       transferredBytes: transferred,
       totalBytes: metaInfo?.size || task.totalBytes,
-      error: canceled ? undefined : { code: 'io-error', message, retryable: true },
     });
+  };
+
+  try {
+    // 外层循环：可重试失败（网络抖动/SSH 掉线/5xx）后退避重连，
+    // 下一轮凭本地 checkpoint 自动 Range 续传；服务端任务保持 transferring，无需 retry API。
+    for (;;) {
+      try {
+        push({ status: 'transferring', progress: 0 });
+        report('transferring', { transferredBytes: 0, totalBytes: task.totalBytes });
+
+        // 先探测目标文件是否存在，但绝不在此处创建它（避免因探测而“制造”冲突）。
+        // 用 targetName 而非 task.name：冲突改名后的重试轮必须探测改名后的文件，
+        // 才能凭它的 checkpoint 续传，而不是回到原名再触发一次冲突。
+        let existingHandle: FileSystemFileHandle | null = null;
+        try {
+          existingHandle = await dirHandle.getFileHandle(targetName);
+        } catch {
+          existingHandle = null;
+        }
+        let existingSize = 0;
+        if (existingHandle) {
+          const existingFile = await existingHandle.getFile().catch(() => null);
+          existingSize = existingFile?.size ?? 0;
+        }
+
+        // 只有存在“本任务专属”的 checkpoint 且与本地文件大小匹配时才尝试续传，
+        // 否则按冲突策略处理——绝不把新内容追加到无关的同名旧文件后面。
+        const metadata = await readWebDownloadPartMeta(dirHandle, metaName);
+        const resumeDecision = decideWebDownloadResume({
+          taskId: task.taskId,
+          metadata,
+          existingSize,
+        });
+
+        let action = decideWebDownloadConflict({
+          exists: existingHandle != null,
+          resume: resumeDecision.resume,
+          policy,
+        });
+
+        if (action === 'ask') {
+          // 本地同名文件无法续传：复用统一冲突弹窗裁决，等待 resolveSftpConflict 拦截唤醒。
+          push({
+            status: 'waiting-conflict',
+            conflict: {
+              sourcePath: task.remotePath || task.name,
+              destinationPath: task.name,
+              suggestedName: suggestedLocalName(task.name),
+            },
+          });
+          const resolution = await waitForWebDownloadConflict(task.taskId, controller.signal);
+          action = resolution.policy;
+          if (resolution.policy === 'rename') {
+            targetName = await findAvailableLocalName(
+              dirHandle,
+              resolution.renamedPath?.trim() || task.name,
+            );
+          }
+        } else if (action === 'rename') {
+          targetName = await findAvailableLocalName(dirHandle, task.name);
+        }
+
+        if (action === 'skip') {
+          // 保留本地原文件，任务记为跳过并回报服务端。
+          push({
+            status: 'skipped',
+            progress: 0,
+            transferredBytes: 0,
+            commitGuarantee: 'browser-managed',
+            completedAt: Date.now(),
+          });
+          report('skipped', { transferredBytes: 0, totalBytes: task.totalBytes });
+          return;
+        }
+
+        if (targetName !== task.name) {
+          metaName = webDownloadPartMetaName(targetName, task.taskId);
+        }
+
+        const requestHeaders: Record<string, string> = {};
+        if (action === 'resume') {
+          requestHeaders.Range = `bytes=${resumeDecision.offset}-`;
+          if (resumeDecision.ifRange) requestHeaders['If-Range'] = resumeDecision.ifRange;
+        }
+
+        const response = await fetch(task.downloadUrl, {
+          signal: controller.signal,
+          headers: action === 'resume' ? requestHeaders : undefined,
+        });
+        if (!response.ok && response.status !== 206) {
+          throw new WebTransferHttpError(
+            await response.text() || `Download failed (${response.status})`,
+            response.status,
+          );
+        }
+        const responseEtag = response.headers.get('etag') || '';
+        // 只有 206 且响应校验器与 checkpoint 一致才算续传成功；200/416 都视为
+        // 服务端要求重下（例如 If-Range 校验失败），从 0 覆盖旧文件。
+        const confirmedResume = action === 'resume'
+          && response.status === 206
+          && (!responseEtag || !metadata?.etag || responseEtag === metadata.etag);
+        const offset = confirmedResume ? Math.min(resumeDecision.offset, existingSize) : 0;
+
+        const contentLength = Number(response.headers.get('content-length') || 0);
+        const total = offset > 0 && contentLength > 0 ? offset + contentLength : contentLength || undefined;
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('Download stream unavailable');
+        }
+
+        const fileHandle = await dirHandle.getFileHandle(targetName, { create: true });
+        writable = await fileHandle.createWritable({ keepExistingData: offset > 0 });
+        if (offset > 0) {
+          await writable.seek(offset);
+        }
+        metaInfo = {
+          taskId: task.taskId,
+          name: targetName,
+          etag: responseEtag || metadata?.etag || '',
+          size: total ?? 0,
+          bytesWritten: offset,
+        };
+        await writeWebDownloadPartMeta(dirHandle, metaName, metaInfo);
+
+        transferred = offset;
+        let lastMetaBytes = offset;
+        let lastMetaAt = Date.now();
+        push({
+          resumedFrom: offset,
+          transferredBytes: transferred,
+          totalBytes: total,
+          progress: total ? Math.min(99, Math.round((transferred / total) * 100)) : 0,
+        });
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          await writable.write(value);
+          transferred += value.byteLength;
+          push({
+            transferredBytes: transferred,
+            totalBytes: total,
+            progress: total ? Math.min(99, Math.round((transferred / total) * 100)) : 0,
+          });
+          if (
+            transferred - lastMetaBytes >= WEB_DOWNLOAD_CHECKPOINT_BYTES
+            || Date.now() - lastMetaAt >= WEB_DOWNLOAD_CHECKPOINT_MS
+          ) {
+            lastMetaBytes = transferred;
+            lastMetaAt = Date.now();
+            await writeWebDownloadPartMeta(dirHandle, metaName, {
+              ...metaInfo,
+              size: total ?? metaInfo.size,
+              bytesWritten: transferred,
+            });
+          }
+        }
+        await writable.close();
+        writable = undefined;
+        await deleteWebDownloadPartMeta(dirHandle, metaName);
+        push({
+          status: 'completed',
+          progress: 100,
+          transferredBytes: transferred,
+          totalBytes: total || transferred,
+          commitGuarantee: 'browser-managed',
+          completedAt: Date.now(),
+        });
+        report('completed', { transferredBytes: transferred, totalBytes: total || transferred });
+        // 成功后清理重试上下文；失败/取消保留以便重试。
+        webSftpDownloadContexts.delete(task.taskId);
+        return;
+      } catch (error) {
+        const canceled = controller.signal.aborted
+          || (error instanceof DOMException && error.name === 'AbortError');
+        // 中断时尽量把已写字节提交并刷新 checkpoint，便于下次续传；失败不遮挡原始错误。
+        if (writable) {
+          await writable.close().catch(() => undefined);
+          writable = undefined;
+        }
+        if (metaInfo && transferred > 0) {
+          await writeWebDownloadPartMeta(dirHandle, metaName, {
+            ...metaInfo,
+            bytesWritten: transferred,
+          });
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        if (canceled) {
+          pushCanceled();
+          return;
+        }
+        if (retryCount < WEB_TRANSFER_RETRY_LIMIT && isRetryableDownloadError(error)) {
+          retryCount += 1;
+          await sleepMs(transferRetryDelayMs(retryCount - 1));
+          if (controller.signal.aborted) {
+            pushCanceled();
+            return;
+          }
+          // 尽力重连 SSH；重连失败也继续尝试（服务端会话可能仍存活）。
+          await ensureSshSession(task.connectionId).catch(() => undefined);
+          // 重置本轮流状态；下一轮重新探测本地文件并凭 checkpoint 续传。
+          // 注意保留 targetName/metaName：冲突改名已裁决过，重试必须沿用改名后的
+          // 目标续传，回到原名会孤儿化已下载的部分并再次弹出冲突。
+          writable = undefined;
+          metaInfo = null;
+          transferred = 0;
+          continue;
+        }
+        push({
+          status: 'failed',
+          error: { code: 'io-error', message, retryable: true },
+          completedAt: Date.now(),
+        });
+        report('failed', {
+          transferredBytes: transferred,
+          totalBytes: metaInfo?.size || task.totalBytes,
+          error: { code: 'io-error', message, retryable: true },
+        });
+        return;
+      }
+    }
   } finally {
     downloadAbortControllers.delete(task.taskId);
   }
@@ -854,6 +1058,14 @@ function connectEvents(): void {
 
   socket.onopen = () => {
     sendSocket('sftp-identify', { clientId: sftpClientId, sshClientId: sftpClientId });
+    // 重连对账：断线期间到达的终态事件会永久丢失，全量补拉任务列表，
+    // 避免 UI 永远卡在“传输中”。reducer 按 attempt/sequence 合并，
+    // 服务端较旧的快照不会回退本地更新的进度。
+    void sftpRequest<SftpListTransfersResult>('/api/sftp/transfers').then((result) => {
+      if (result.success) {
+        result.data.tasks.forEach((snapshot) => publishTaskSnapshot(snapshot));
+      }
+    });
   };
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data) as { type: keyof EventMap; payload: unknown };
@@ -1450,7 +1662,8 @@ const webApi: Window['electronAPI'] = {
     const dirRef = request.destination?.ref;
     const dirHandle = dirRef ? selectedDirs.get(dirRef) : undefined;
     if (dirHandle) {
-      // FSA：并行启动流式下载（各任务独立 AbortController）。
+      // FSA：入限流队列启动流式下载（各任务独立 AbortController），
+      // 避免 N 个文件同时挤爆同一条 SFTP 通道。
       result.data.tasks.forEach((task: SftpTransferTaskSnapshot & { downloadUrl?: string }) => {
         if (task.downloadUrl) {
           webSftpDownloadContexts.set(task.taskId, {
@@ -1459,7 +1672,7 @@ const webApi: Window['electronAPI'] = {
             conflictPolicy: task.conflictPolicy,
           });
         }
-        void streamWebDownload(task, dirHandle);
+        webDownloadQueue.enqueue({ key: task.taskId, run: () => streamWebDownload(task, dirHandle) });
       });
       return result;
     }
@@ -1499,19 +1712,28 @@ const webApi: Window['electronAPI'] = {
     );
     if (result.success) {
       // 当前任务及批次同伴在策略确定后重新推送内容流。
-      const taskIds = request.applyToBatch
-        ? [...webSftpTaskSources.keys()]
-        : [request.taskId];
-      taskIds.forEach((taskId) => {
-        if (webSftpTaskSources.has(taskId)) {
-          enqueueWebUpload(taskId, 0);
-        }
-      });
+      if (request.applyToBatch) {
+        // 只重推服务端仍在等待的任务（queued/waiting-conflict/checking），
+        // 已完成/已失败的任务不再浪费请求。
+        const listed = await sftpRequest<SftpListTransfersResult>('/api/sftp/transfers');
+        const ready = listed.success
+          ? listed.data.tasks.filter((item) => (
+            ['queued', 'waiting-conflict', 'checking'].includes(item.status)
+            && webSftpTaskSources.has(item.taskId)
+          ))
+          : [];
+        ready.forEach((item) => enqueueWebUpload(item.taskId, 0));
+      } else if (webSftpTaskSources.has(request.taskId)) {
+        enqueueWebUpload(request.taskId, 0);
+      }
     }
     return result;
   },
   cancelSftpTransfer: async (request: SftpTransferTaskRequest) => {
     webUploadQueue.remove(request.taskId);
+    webDownloadQueue.remove(request.taskId);
+    // 取消时立即掐断在途上传分片，不再白传当前 32MiB 的剩余字节。
+    uploadAbortControllers.get(request.taskId)?.abort();
     // 取消时让仍在等冲突裁决的下载立即以 AbortError 退出。
     webDownloadConflictResolvers.get(request.taskId)?.reject(new DOMException('Aborted', 'AbortError'));
     downloadAbortControllers.get(request.taskId)?.abort();
@@ -1521,6 +1743,16 @@ const webApi: Window['electronAPI'] = {
     );
   },
   retrySftpTransfer: async (request: SftpTransferTaskRequest) => {
+    // 重试前先确保 SSH 会话存活：retry API 需要读远端 checkpoint，
+    // 会话掉线时会直接失败。从任务列表找到所属连接再重连。
+    const listed = await sftpRequest<SftpListTransfersResult>('/api/sftp/transfers');
+    const existing = listed.success
+      ? listed.data.tasks.find((item) => item.taskId === request.taskId)
+      : undefined;
+    if (existing) {
+      const ensured = await ensureSshSession(existing.connectionId);
+      if (!ensured.success) return ensured as IPCResult<SftpTransferTaskSnapshot>;
+    }
     const result = await sftpRequest<SftpTransferTaskSnapshot>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/retry`,
       { method: 'POST', body: '{}' },
@@ -1536,17 +1768,24 @@ const webApi: Window['electronAPI'] = {
           'not-found',
         );
       }
-      void streamWebDownload({
-        ...result.data,
-        downloadUrl: ctx.downloadUrl,
-        conflictPolicy: ctx.conflictPolicy ?? result.data.conflictPolicy,
-      }, ctx.dirHandle);
+      const retried = result.data;
+      webDownloadQueue.enqueue({
+        key: request.taskId,
+        run: () => streamWebDownload({
+          ...retried,
+          downloadUrl: ctx.downloadUrl,
+          conflictPolicy: ctx.conflictPolicy ?? retried.conflictPolicy,
+        }, ctx.dirHandle),
+      });
     }
     return result;
   },
   discardSftpTransfer: async (request: SftpTransferTaskRequest) => {
     webUploadQueue.remove(request.taskId);
+    webDownloadQueue.remove(request.taskId);
+    uploadAbortControllers.get(request.taskId)?.abort();
     webDownloadConflictResolvers.get(request.taskId)?.reject(new DOMException('Aborted', 'AbortError'));
+    downloadAbortControllers.get(request.taskId)?.abort();
     const result = await sftpRequest<void>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}`,
       { method: 'DELETE' },

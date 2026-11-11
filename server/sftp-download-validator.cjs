@@ -73,13 +73,31 @@ async function readSftpFileEdges(sftp, remotePath, size) {
     return { head: digest, tail: digest };
   }
 
-  const headBuf = await readRange(sftp, remotePath, 0, EDGE_BYTES - 1);
-  const tailBuf = await readRange(sftp, remotePath, total - EDGE_BYTES, total - 1);
+  const [headBuf, tailBuf] = await Promise.all([
+    readRange(sftp, remotePath, 0, EDGE_BYTES - 1),
+    readRange(sftp, remotePath, total - EDGE_BYTES, total - 1),
+  ]);
   return { head: sha256Hex(headBuf), tail: sha256Hex(tailBuf) };
+}
+
+/**
+ * 小文件（<=64KiB）一次整读：同一份 buffer 既算指纹又作响应正文，
+ * 避免“边缘指纹读一遍 + 正文再读一遍”的双倍开销。
+ *
+ * @param {any} sftp ssh2 SFTP 会话
+ * @param {string} remotePath 远端文件路径
+ * @param {number} size 文件字节数（>0 且 <=EDGE_BYTES）
+ * @returns {Promise<{head: string, tail: string, data: Buffer}>}
+ */
+async function readSftpSmallFile(sftp, remotePath, size) {
+  const data = await readRange(sftp, remotePath, 0, Number(size) - 1);
+  const digest = sha256Hex(data);
+  return { head: digest, tail: digest, data };
 }
 
 module.exports = {
   EDGE_BYTES,
   buildDownloadEtag,
   readSftpFileEdges,
+  readSftpSmallFile,
 };

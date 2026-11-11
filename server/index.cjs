@@ -26,7 +26,7 @@ const {
   writeSftpTextFile,
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
-const { buildDownloadEtag, readSftpFileEdges } = require('./sftp-download-validator.cjs');
+const { buildDownloadEtag, readSftpFileEdges, readSftpSmallFile, EDGE_BYTES } = require('./sftp-download-validator.cjs');
 const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
 const { createAuth } = require('./auth.cjs');
 const { createHostTrust } = require('./host-trust.cjs');
@@ -52,6 +52,7 @@ const PORT = Number(process.env.WEB_PORT || 5080);
 const HOST = process.env.WEB_HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'config.json');
+const SFTP_TRANSFERS_PATH = path.join(DATA_DIR, 'sftp-transfers.json');
 const AI_DEBUG_LOG_FILE = process.env.AI_DEBUG_LOG_FILE || '';
 const AI_DEBUG_LOG_STDOUT = process.env.AI_DEBUG_LOG === '1';
 
@@ -649,6 +650,28 @@ const hostTrust = createHostTrust({
 const sftpTransfers = createSftpTransferService({
   getSftp,
   emitEvent: emitToClient,
+  // 任务记录持久化：重启后远端 .part/.meta 仍可通过 discard/retry 清理，
+  // 不再产生永久孤儿。tmp+rename 原子替换，损坏文件按空处理。
+  storage: {
+    load: () => {
+      try {
+        return JSON.parse(fs.readFileSync(SFTP_TRANSFERS_PATH, 'utf8'));
+      } catch {
+        return null;
+      }
+    },
+    save: (payload) => {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      const tempPath = `${SFTP_TRANSFERS_PATH}.${process.pid}.tmp`;
+      fs.writeFileSync(tempPath, `${JSON.stringify(payload)}\n`, { mode: 0o600 });
+      try {
+        fs.renameSync(tempPath, SFTP_TRANSFERS_PATH);
+      } catch (error) {
+        try { fs.rmSync(tempPath, { force: true }); } catch {}
+        throw error;
+      }
+    },
+  },
 });
 
 function stateFor(connectionId, clientId, patch = {}) {
@@ -1713,13 +1736,22 @@ app.get('/api/sftp/:id/download', async (request, response) => {
 
     // 内容感知的强校验器：size+mtime 之外混入头/尾内容哈希，避免“同秒同大小重写”
     // 让过期的 If-Range 误判为可续传；读取边缘哈希失败时不下发 ETag（etag='')。
+    // 小文件一次整读：指纹与正文共用同一份 buffer，不再读两遍。
     let etag = '';
+    let smallFileData = null;
     if (size > 0) {
       try {
-        const edges = await readSftpFileEdges(sftp, remotePath, size);
-        etag = buildDownloadEtag(size, mtime, edges.head, edges.tail);
+        if (size <= EDGE_BYTES) {
+          const small = await readSftpSmallFile(sftp, remotePath, size);
+          etag = buildDownloadEtag(size, mtime, small.head, small.tail);
+          smallFileData = small.data;
+        } else {
+          const edges = await readSftpFileEdges(sftp, remotePath, size);
+          etag = buildDownloadEtag(size, mtime, edges.head, edges.tail);
+        }
       } catch {
         etag = '';
+        smallFileData = null;
       }
     }
     const lastModified = mtime > 0 ? new Date(mtime * 1000).toUTCString() : '';
@@ -1755,6 +1787,14 @@ app.get('/api/sftp/:id/download', async (request, response) => {
     );
     response.setHeader('Content-Type', 'application/octet-stream');
     response.setHeader('Accept-Ranges', 'bytes');
+    // 远端文件随时可能被改写，禁止浏览器/中间层启发式缓存，避免续传或重下时拿到旧内容。
+    response.setHeader('Cache-Control', 'no-store');
+
+    // 小文件直接用整读缓存响应，省掉第二次 open/read/close。
+    if (smallFileData) {
+      response.end(smallFileData.subarray(start, (end != null ? end : size - 1) + 1));
+      return;
+    }
 
     const readStream = createPipelinedReadStream(sftp, remotePath, {
       start,
