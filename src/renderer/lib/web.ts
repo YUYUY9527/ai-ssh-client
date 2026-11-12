@@ -1707,8 +1707,10 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/text`,
     { method: 'PUT', body: JSON.stringify({ remotePath, content }) },
   ),
-  getServerMonitor: (connectionId) => sftpApiRequest<ServerMonitorMetrics>(
-    connectionId,
+  // 监控采集是被动轮询：会话未就绪时直接失败即可，绝不在这里触发自动重连，
+  // 否则底栏每 5 秒一次的轮询会在「连接中」窗口里反复拉起新的 SSH 连接，
+  // 互相顶替导致连接变得异常慢。
+  getServerMonitor: (connectionId) => sftpRequest<ServerMonitorMetrics>(
     `/api/ssh/${connectionId}/monitor`,
   ),
   searchSftpFiles: (connectionId, { path, query, mode, limit }) => {
