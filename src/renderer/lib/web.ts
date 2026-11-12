@@ -124,6 +124,10 @@ const sftpClientId = (() => {
   window.sessionStorage.setItem(key, created);
   return created;
 })();
+/** 供 EventSource / 媒体元素等无法带自定义头的场景使用（同源 Cookie 鉴权 + query 传 clientId）。 */
+export function getWebSftpClientId(): string {
+  return sftpClientId;
+}
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 

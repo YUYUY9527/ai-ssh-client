@@ -37,6 +37,7 @@ const {
   listContainers,
   inspectContainer,
   containerLogs,
+  openContainerLogStream,
   containerAction,
   quoteArg: quoteDockerArg,
 } = require('./docker-manager.cjs');
@@ -1704,6 +1705,56 @@ app.get('/api/ssh/:id/docker/containers/:containerId/logs', route(async (request
   const tail = Number(request.query.tail || 300);
   return success(await containerLogs(session.client, request.params.containerId, tail));
 }));
+
+// 容器日志实时流（SSE）：EventSource 不能带自定义头，clientId 走 query，鉴权仍用同源 Cookie。
+app.get('/api/ssh/:id/docker/containers/:containerId/logs/stream', (request, response) => {
+  let session;
+  try {
+    const clientId = String(request.query.clientId || requestClientId(request));
+    session = getSession(request.params.id, clientId);
+  } catch (error) {
+    response.status(400).json({ success: false, error: error.message });
+    return;
+  }
+  const tail = Number(request.query.tail || 300);
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (event, data) => {
+    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  send('ready', { containerId: request.params.containerId });
+  let closed = false;
+  const stream = openContainerLogStream(session.client, request.params.containerId, tail, {
+    onData: (text) => {
+      if (!closed) send('log', { text });
+    },
+    onClose: () => {
+      if (closed) return;
+      closed = true;
+      send('end', {});
+      response.end();
+    },
+    onError: (error) => {
+      if (closed) return;
+      closed = true;
+      send('error', { message: error?.message || 'log stream failed' });
+      response.end();
+    },
+  });
+  // 心跳：防止代理/浏览器在长时间无日志时断开连接
+  const heartbeat = setInterval(() => {
+    if (!closed) response.write(': ping\n\n');
+  }, 15000);
+  request.on('close', () => {
+    closed = true;
+    clearInterval(heartbeat);
+    stream.close();
+  });
+});
 
 app.post('/api/ssh/:id/docker/containers/:containerId/:action', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));

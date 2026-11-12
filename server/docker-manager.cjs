@@ -154,7 +154,44 @@ async function containerLogs(client, containerId, tail = DEFAULT_LOG_TAIL) {
   return { logs: `${result.output || ''}${result.stderr || ''}`, truncated: result.truncated };
 }
 
+/**
+ * 打开一条 `docker logs -f` 的实时流（SSE 后端用）。
+ * 返回 { close }，调用方在客户端断开时关闭底层 ssh 通道。
+ */
+function openContainerLogStream(client, containerId, tail = DEFAULT_LOG_TAIL, handlers = {}) {
+  const safeTail = Number.isInteger(Number(tail)) && Number(tail) > 0 ? Math.min(Number(tail), 5000) : DEFAULT_LOG_TAIL;
+  const command = `docker logs -f --tail ${safeTail} --timestamps ${shellArg(containerId)}`;
+  let channel = null;
+  const stream = client.exec(command, (error, execChannel) => {
+    if (error) {
+      handlers.onError?.(error);
+      return;
+    }
+    channel = execChannel;
+    execChannel.on('data', (chunk) => handlers.onData?.(chunk.toString('utf8')));
+    execChannel.stderr.on('data', (chunk) => handlers.onData?.(chunk.toString('utf8')));
+    execChannel.on('close', () => handlers.onClose?.());
+    execChannel.on('error', (streamError) => handlers.onError?.(streamError));
+  });
+  stream.on('error', (streamError) => handlers.onError?.(streamError));
+  return {
+    close() {
+      try {
+        channel?.close();
+      } catch {
+        // 已关闭时忽略
+      }
+      try {
+        stream.close();
+      } catch {
+        // 已关闭时忽略
+      }
+    },
+  };
+}
+
 const ALLOWED_ACTIONS = new Set(['start', 'stop', 'restart', 'pause', 'unpause', 'kill']);
+
 
 async function containerAction(client, containerId, action) {
   if (!ALLOWED_ACTIONS.has(action)) {
@@ -174,6 +211,7 @@ module.exports = {
   listContainers,
   inspectContainer,
   containerLogs,
+  openContainerLogStream,
   containerAction,
   ALLOWED_ACTIONS,
 };

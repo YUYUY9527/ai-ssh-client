@@ -10,6 +10,7 @@ const {
   inspectContainer,
   containerAction,
   containerLogs,
+  openContainerLogStream,
 } = require('../server/docker-manager.cjs');
 
 function fakeClient(handler: (command: string) => { stdout?: string; stderr?: string; code: number }) {
@@ -123,5 +124,37 @@ describe('docker-manager', () => {
     const result = await containerLogs(client, 'cid', 10);
     expect(result.logs).toContain('line1');
     expect(result.logs).toContain('errline');
+  });
+
+  it('openContainerLogStream 用 docker logs -f 并把增量与关闭事件转发出去', () => {
+    const events: string[] = [];
+    let capturedCommand = '';
+    const channel: any = new EventEmitter();
+    channel.stderr = new EventEmitter();
+    channel.close = () => events.push('closed');
+    const client: any = {
+      exec(command: string, callback: (error: Error | null, stream: any) => void) {
+        capturedCommand = command;
+        setImmediate(() => callback(null, channel));
+        const stream: any = new EventEmitter();
+        stream.close = () => events.push('stream-closed');
+        return stream;
+      },
+    };
+    const handle = openContainerLogStream(client, 'cid', 5, {
+      onData: (text: string) => events.push(`data:${text}`),
+      onClose: () => events.push('end'),
+    });
+    return new Promise<void>((resolve) => {
+      setImmediate(() => {
+        channel.emit('data', Buffer.from('hello\n'));
+        channel.emit('close');
+        handle.close();
+        expect(capturedCommand).toBe('docker logs -f --tail 5 --timestamps cid');
+        expect(events).toContain('data:hello\n');
+        expect(events).toContain('end');
+        resolve();
+      });
+    });
   });
 });

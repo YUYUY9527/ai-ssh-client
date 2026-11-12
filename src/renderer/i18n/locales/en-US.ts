@@ -235,6 +235,8 @@ const enUS: DeepStringify<typeof zhCN> = {
       logsPaused: 'Paused',
       logsFollowOn: 'Live-following, click to pause',
       logsFollowOff: 'Paused, click to resume live',
+      confirmTitle: 'Confirm {action} container',
+      confirmMessage: 'Are you sure you want to {action} container "{name}"? This takes effect immediately on the remote host.',
       execTitle: 'Container shell · {container} · {shell}',
     },
     zoomIn: 'Increase font size',

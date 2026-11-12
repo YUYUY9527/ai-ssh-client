@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Container, Loader2, Play, RotateCcw, ScrollText, Square, TerminalSquare, X } from 'lucide-react';
 import type { DockerContainerDetail, DockerContainerSummary } from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
+import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
+import { getWebSftpClientId } from '../../lib/web';
 
 interface DockerPanelProps {
   connectionId: string;
@@ -20,6 +22,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<ActionKind | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ container: DockerContainerSummary; action: ActionKind } | null>(null);
   const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
   const [logs, setLogs] = useState<{ containerId: string; text: string } | null>(null);
   const [logSearch, setLogSearch] = useState('');
@@ -81,36 +84,49 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     else setError(result.error || 'inspect failed');
   };
 
-  const openLogs = async (container: DockerContainerSummary) => {
-    const api = window.electronAPI?.dockerContainerLogs;
-    if (!api) return;
-    const result = await api(connectionId, container.id, 500);
+  const openLogs = (container: DockerContainerSummary) => {
     setLogSearch('');
     setFollow(true);
-    setLogs({
-      containerId: container.id,
-      text: result.success ? result.data.logs : (result.error || 'logs failed'),
-    });
+    setLogs({ containerId: container.id, text: '' });
   };
 
-  // 跟随模式：每 2 秒拉取最新 500 行并贴底；关闭即冻结当前内容。
+  // 真流式跟随：SSE 订阅 `docker logs -f`，新日志实时追加；暂停/关闭即断开连接冻结内容。
+  const logContainerId = logs?.containerId ?? null;
   useEffect(() => {
-    if (!logs || !follow) return undefined;
-    const api = window.electronAPI?.dockerContainerLogs;
-    if (!api) return undefined;
-    const containerId = logs.containerId;
-    const timer = window.setInterval(() => {
-      void (async () => {
-        const result = await api(connectionId, containerId, 500);
-        if (result.success) {
-          setLogs((current) =>
-            current && current.containerId === containerId ? { ...current, text: result.data.logs } : current,
-          );
-        }
-      })();
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [logs, follow, connectionId]);
+    if (!logContainerId || !follow) return undefined;
+    const params = new URLSearchParams({ tail: '500', clientId: getWebSftpClientId() });
+    const source = new EventSource(
+      `/api/ssh/${encodeURIComponent(connectionId)}/docker/containers/${encodeURIComponent(logContainerId)}/logs/stream?${params.toString()}`,
+    );
+    let disposed = false;
+    source.addEventListener('log', (event) => {
+      if (disposed) return;
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as { text?: string };
+        if (!payload?.text) return;
+        setLogs((current) =>
+          current && current.containerId === logContainerId
+            ? { containerId: logContainerId, text: current.text + payload.text }
+            : current,
+        );
+      } catch {
+        // 忽略无法解析的帧
+      }
+    });
+    source.addEventListener('error', (event) => {
+      if (disposed) return;
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as { message?: string };
+        if (payload?.message) setError(payload.message);
+      } catch {
+        // 服务端正常 end 或网络中断：EventSource 会自行重连，不额外提示
+      }
+    });
+    return () => {
+      disposed = true;
+      source.close();
+    };
+  }, [logContainerId, follow, connectionId]);
 
   // 内容更新后（且处于跟随/首次打开）自动滚到最下方，显示最新日志。
   useEffect(() => {
@@ -215,7 +231,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         className="terminal-control"
                         disabled={busyId === container.id || container.state === 'running'}
                         title={translate('terminal.docker.start')}
-                        onClick={() => { void runAction(container, 'start'); }}
+                        onClick={() => setPendingAction({ container, action: 'start' })}
                       >
                         {busyId === container.id && busyAction === 'start' ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -228,7 +244,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         className="terminal-control"
                         disabled={busyId === container.id || container.state !== 'running'}
                         title={translate('terminal.docker.stop')}
-                        onClick={() => { void runAction(container, 'stop'); }}
+                        onClick={() => setPendingAction({ container, action: 'stop' })}
                       >
                         {busyId === container.id && busyAction === 'stop' ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -241,7 +257,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         className="terminal-control"
                         disabled={busyId === container.id}
                         title={translate('terminal.docker.restart')}
-                        onClick={() => { void runAction(container, 'restart'); }}
+                        onClick={() => setPendingAction({ container, action: 'restart' })}
                       >
                         {busyId === container.id && busyAction === 'restart' ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -345,6 +361,25 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
           onClose={() => setExecTarget(null)}
         />
       ) : null}
+
+      <ConfirmDialog
+        isOpen={pendingAction !== null}
+        type="warning"
+        title={translate('terminal.docker.confirmTitle', {
+          action: pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : '',
+        })}
+        message={translate('terminal.docker.confirmMessage', {
+          action: pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : '',
+          name: pendingAction?.container.name || pendingAction?.container.id.slice(0, 12) || '',
+        })}
+        confirmText={pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : undefined}
+        onConfirm={() => {
+          const pending = pendingAction;
+          setPendingAction(null);
+          if (pending) void runAction(pending.container, pending.action);
+        }}
+        onCancel={() => setPendingAction(null)}
+      />
     </div>,
     document.body,
   );

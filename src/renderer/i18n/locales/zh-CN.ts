@@ -229,6 +229,8 @@ const zhCN = {
       logsPaused: '已暂停',
       logsFollowOn: '正在实时跟随，点击暂停',
       logsFollowOff: '已暂停跟随，点击恢复实时',
+      confirmTitle: '确认{action}容器',
+      confirmMessage: '确定要{action}容器「{name}」吗？此操作会立即对远端生效。',
       execTitle: '容器 shell · {container} · {shell}',
     },
     zoomIn: '放大字号',
