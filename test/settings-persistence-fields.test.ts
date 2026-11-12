@@ -43,25 +43,6 @@ describe('settings-persistence-fields', () => {
     }
   });
 
-  it('declares the fields in the Rust AppSettings model', () => {
-    const sourcePath = path.join(ROOT, 'src-tauri', 'src', 'models', 'settings.rs');
-    const source = fs.readFileSync(sourcePath, 'utf8');
-    for (const field of [
-      'terminal_scrollback',
-      'terminal_cursor_style',
-      'terminal_cursor_blink',
-      'terminal_copy_on_select',
-      'terminal_shell_integration',
-    ]) {
-      expect(source, `Rust AppSettings missing ${field}`).toMatch(new RegExp(`pub ${field}:`));
-    }
-    expect(source).toMatch(/terminal_scrollback:\s*Some\(3000\)/);
-    expect(source).toMatch(/terminal_cursor_style:\s*Some\("block"\.to_string\(\)\)/);
-    expect(source).toMatch(/terminal_cursor_blink:\s*Some\(true\)/);
-    expect(source).toMatch(/terminal_copy_on_select:\s*Some\(false\)/);
-    expect(source).toMatch(/terminal_shell_integration:\s*Some\(true\)/);
-  });
-
   it('normalizeSettings fills defaults and preserves overrides', () => {
     const defaultSettings = loadServerDefaultSettings();
     function normalizeSettings(settings: Record<string, unknown>) {

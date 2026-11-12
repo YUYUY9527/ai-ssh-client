@@ -1,364 +1,179 @@
-<div align="center">
-
 # AI SSH Client
 
-**集多会话终端、SFTP 文件传输与 AI 辅助 Linux 命令工作流于一体的桌面 SSH 客户端。**
+一款自托管、浏览器直接使用的 SSH 工作台：完整终端、SFTP 文件管理、服务器监控、Docker 管理与可选的 AI 助手，全部由一个 Node.js 进程提供。无需安装桌面客户端，打开网址即可使用。
 
-[English](README.md) | 简体中文
+<p align="center">
+  <img src="docs/首页.png" alt="AI SSH Client 终端工作台" width="900" />
+</p>
 
-[![CI](https://github.com/YUYUY9527/ai-ssh-client/actions/workflows/ci.yml/badge.svg)](https://github.com/YUYUY9527/ai-ssh-client/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/YUYUY9527/ai-ssh-client?include_prereleases)](https://github.com/YUYUY9527/ai-ssh-client/releases)
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri-24C8DB.svg)](https://tauri.app/)
-
-</div>
-
-> 基于 React、Tauri、Rust、TypeScript、xterm.js 和 Tailwind CSS 构建。
+<p align="center">
+  <img src="docs/容器管理.png" alt="AI SSH Client 容器管理" width="900" />
+</p>
 
 ## 目录
 
 - [功能特性](#功能特性)
-- [界面截图](#界面截图)
-- [安装](#安装)
+- [截图](#截图)
 - [快速开始](#快速开始)
-- [使用流程](#使用流程)
-- [给 AI Agent 用的 MCP](#给-ai-agent-用的-mcp)
-- [快捷键](#快捷键)
 - [Docker / Web 部署](#docker--web-部署)
 - [安全](#安全)
+- [面向 AI 的 MCP](#面向-ai-的-mcp)
+- [快捷键](#快捷键)
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
 - [开发](#开发)
 - [数据与备份](#数据与备份)
-- [参与贡献](#参与贡献)
-- [许可证](#许可证)
+- [贡献](#贡献)
+- [开源协议](#开源协议)
 
 ## 功能特性
 
-- **多会话 SSH** —— 支持密码与私钥认证、重连、Keepalive、标签切换和拖拽排序。
-- **强大的终端** —— 基于 xterm.js，支持搜索、字体调节、终端主题、命令补全、命令历史和可配置回滚缓冲。
-- **会话绑定 SFTP** —— 与当前会话绑定的侧栏工作区，支持列目录、上传、下载、在线编辑、改权限和传输进度跟踪。
-- **AI 助手与智能体** —— 自然语言 Linux 命令咨询与受控的任务执行。
-- **多 AI 供应商** —— OpenAI 兼容接口、Anthropic、Gemini 和 Ollama。
-- **安全护栏** —— 命令风险分析，高风险操作进入审批流程，并记录执行日志。
-- **主机指纹校验** —— SHA-256 主机密钥校验，首次连接信任（TOFU）提示。
-- **快速命令** —— 可复用的 Shell 片段，支持分组管理。
-- **主题** —— 浅色、深色、跟随系统。
-- **可移植配置** —— 应用配置导入与导出。
-- **本地密钥存储** —— SSH 凭据与 AI API Key 保存在平台 keyring 中。
+- **多会话 SSH** — 密码与私钥登录、多级跳板机、HTTP / SOCKS5 代理、断线重连与心跳保活。
+- **分屏终端工作台** — 拖动标签即可左右 / 上下分屏，最多四屏同显，每屏标注所属服务器。
+- **富终端** — 基于 xterm.js，支持搜索、主题、字号与回滚行数设置、命令历史、自动补全、括号粘贴，以及全屏程序（vim/nano）安全输入模式。
+- **会话级 SFTP** — 浏览、上传、下载、编辑、重命名、改权限；文件夹递归传输、远程文件预览（图片、PDF、音视频流式播放）与远程文件搜索。
+- **传输队列** — 单任务与批量暂停 / 继续，真断点续传，上传保留源文件修改时间。
+- **端口转发** — 本地转发与动态 SOCKS5，在终端工具栏直接管理。
+- **服务器监控** — 状态栏实时显示每核 CPU、内存、Swap、网络速率、磁盘 IO、负载、进程与延迟。
+- **Docker 管理** — 容器列表、详情、启动 / 停止 / 重启、SSE 实时日志与进入容器 shell。
+- **sudo 文件访问** — 无需离开浏览器即可通过 `sudo` 编辑 root 文件（按需弹窗输入密码，不落盘）。
+- **命令广播** — 一次输入同步发送到当前所有可见分屏。
+- **AI 助手与 Agent** — 自然语言 Linux 命令帮助与受控任务执行。
+- **多 AI 供应商** — 兼容 OpenAI 的接口、Anthropic、Gemini 与 Ollama。
+- **安全护栏** — 命令风险分析与危险操作审批，附带执行日志。
+- **主机指纹校验** — SHA-256 主机密钥校验与首次连接信任提示。
+- **快捷命令** — 可复用的命令片段，支持分组。
+- **主题与设计令牌** — 亮色、暗色与跟随系统，统一由设计令牌驱动。
+- **可移植配置** — 导入导出应用配置，支持导入 OpenSSH `config`。
 
-## 界面截图
+## 截图
 
 <div align="center">
-  <img src="docs/HOME.png" alt="终端工作区与 AI 助手" width="820" />
+  <img src="docs/首页.png" alt="终端工作台" width="880" />
   <br /><br />
-  <img src="docs/SFTP.png" alt="会话绑定的 SFTP 侧栏" width="820" />
+  <img src="docs/容器管理.png" alt="容器管理" width="880" />
 </div>
-
-## 安装
-
-从 [**Releases**](https://github.com/YUYUY9527/ai-ssh-client/releases) 页面下载最新安装包。
-
-- **Windows** —— 下载并运行 `.exe`（NSIS）安装程序。
-- **macOS / Linux** —— 目前需从源码构建（见[开发](#开发)），预编译产物在计划中。
-
-> 在完成代码签名前，Windows 可能提示"未知发布者"。
 
 ## 快速开始
 
+需要 Node.js 20+。
+
 ```bash
-# 安装依赖
 npm install
 
-# 启动开发模式
-npm run dev
-
-# 构建桌面应用
-npm run build
+# 构建前端产物，然后启动 Web 服务（http://localhost:5080）
+npm run web
 ```
 
-## 使用流程
+`npm run web` 会先构建前端再启动 `server/index.cjs`。只调试前端时，可运行
+`npm run dev:vite` 起 Vite 开发服务器，配合已启动的 `npm run web:only` 后端。
 
-1. 在连接菜单中新建 SSH 连接。
-2. 填写主机、端口、用户名，并选择密码或私钥认证。
-3. 点击连接，打开对应终端标签页。
-4. 在 AI 面板中配置并激活 AI 供应商。
-5. 在助手模式中咨询 Linux 命令，或在终端中输入 `@ai 你的任务`，让智能体通过受控命令步骤直接完成对话与任务。智能体追问时可直接输入回答；输入 `@sh <shell命令>` 可切回普通 Shell。
-6. 连接成功后，打开 SFTP 侧栏浏览和传输远程文件。
-
-## 给 AI Agent 用的 MCP
-
-`server/mcp/index.mjs` 是一个可选的 **stdio MCP 服务**，把 Web 模式里已保存的
-连接暴露给 Claude Code、Cursor、DSH 等 MCP 客户端；Web 网关同时提供
-**Streamable HTTP 端点 `/mcp`**（`Authorization: Bearer <Web 登录密码>`），
-客户端只填 URL，连接与策略都由服务端一份数据决定：
+## Docker / Web 部署
 
 ```bash
-npm run mcp          # 本地 stdio（需要能读到 data 目录）
-npm run web          # 网关自带 http://<host>:5080/mcp
+docker compose up -d --build
 ```
 
-- **默认只读**：列连接、看目录、读文本文件；在 Web 部署的 **设置 → MCP** 里按连接开启
-  `ssh_exec`，或以 `MCP_ALLOW_EXEC=1` 启动。
-- **按连接配置**：MCP 设置页写入 `data/mcp-policy.json`，可以让一台机器可执行、其余保持只读。
-  精确例外可以放行被内置黑名单拦下的命令，但必须与整条命令完全一致，且只对可执行模式的连接生效。
-- **HTTP 模式即时生效**：走网关 `/mcp` 时策略文件改动会被自动重载，不用重启容器；stdio 模式仍需重启进程。
-- **只认已保存连接**：agent 不能临时指定主机或自带凭据，「它能连哪台机器」始终由人在界面里决定。
-- **是护栏不是沙箱**：破坏性命令在建立连接前拦截，每次执行写入 `data/mcp-audit.log`；
-  但模式匹配可以被绕过，请用低权限 SSH 账号，不需要时别开执行。
-- **只覆盖 Web 数据目录**：桌面版凭据在系统钥匙串里，独立 Node 进程读不到，因此目前只读
-  `data/config.json`（`npm run web` / Docker 使用的那份）。
+打开 <http://localhost:5080>。通过 `AI_SSH_CLIENT_WEB_PORT` 修改宿主机端口。
+同一局域网的其他设备可访问 `http://<局域网IP>:5080`；若需要从非 localhost
+来源完成 SFTP 下载，请开启 HTTPS（`AI_SSH_CLIENT_WEB_TLS=1`），因为浏览器的
+文件系统访问 API 要求安全上下文。
 
-客户端配置、完整工具列表、环境变量与已知限制见 [docs/mcp.md](docs/mcp.md)。
+常用配置：
+
+| 变量 | 作用 |
+| --- | --- |
+| `AI_SSH_CLIENT_WEB_PORT` | 宿主机映射到容器 `5080` 的端口。 |
+| `AI_SSH_CLIENT_WEB_PASSWORD` | Web 界面访问密码（传入容器为 `WEB_AUTH_PASSWORD`）。 |
+| `AI_SSH_CLIENT_WEB_TLS` | 设为 `1` 时首次启动生成自签名证书（`WEB_TLS`）。 |
+| `WEB_TLS_CERT` / `WEB_TLS_KEY` | 使用自有 PEM 证书，替代自签名。 |
+| `WEB_TLS_HOSTS` | 自签名证书 SAN 使用的域名 / IP，逗号分隔。 |
+| `WEB_TLS_REGENERATE` | 设为 `1` 强制重新生成自签名证书。 |
+| `WEB_HOST` | 绑定地址（`0.0.0.0` 对外暴露；Docker 下已默认设置）。 |
+| `DATA_DIR` | 数据持久化目录（连接、设置、传输、TLS 材料）。 |
+| `WEB_SSH_TRUST_ON_FIRST_USE` | 设为 `true` 自动信任未记录的主机指纹。 |
+| `MCP_ALLOW_EXEC` | 设为 `1` 允许通过 MCP 执行命令（默认关闭）。 |
+
+证书存放在 `DATA_DIR/tls/`，在过期、卷被删除或访问 IP 变化前会持续复用。
+如需自行终止 TLS，可在 `127.0.0.1:5080` 前放置反向代理（如 Caddy）。
+
+## 安全
+
+- **主机密钥校验** — 每次连接都与已存 SHA-256 指纹比对，未知主机触发首次信任提示。
+- **凭据加密** — SSH 密码、私钥与 AI API Key 写入磁盘前均以 AES-GCM 加密
+  （`server/secret-store.cjs`）。
+- **密码管理** — 通过 `WEB_AUTH_PASSWORD` 固定访问密码，加密密钥由它派生；
+  修改或遗失密码会导致已存凭据无法解密。
+- **下载需要 HTTPS** — 文件系统访问 API 要求安全上下文；局域网访问请使用
+  `WEB_TLS=1` 或 TLS 终止代理。
+
+## 面向 AI 的 MCP
+
+`server/mcp/index.mjs` 是可选的标准输入输出（stdio）MCP 服务器，把已保存的
+Web 模式连接暴露给 Claude Code、Cursor、DSH 等 MCP 客户端。Web 网关同时提供
+**Streamable HTTP 端点 `/mcp`**（`Authorization: Bearer <访问密码>`），客户端
+只需一个地址，连接与策略都留在服务端。
+
+```bash
+npm run mcp          # 本地 stdio（需要可访问数据目录）
+npm run web          # 网关在 http://<host>:5080/mcp 暴露
+```
+
+除非为部署启用 `MCP_ALLOW_EXEC=1`，否则通过 MCP 执行命令默认关闭。
 
 ## 快捷键
 
 | 快捷键 | 功能 |
 | --- | --- |
-| `Ctrl+F` | 搜索终端输出 |
-| `Ctrl++` | 放大终端字体 |
-| `Ctrl+-` | 缩小终端字体 |
-| `Esc` | 关闭终端搜索或命令补全面板 |
-
-## Docker / Web 部署
-
-**推荐使用 Docker Compose 部署 Web 版。** 它会自动帮你配置容器网络和持久化
-数据卷，省去手动运行 `node server/index.cjs` 时繁琐且容易遗漏的安全配置步骤。
-
-```bash
-docker compose up -d --build
-```
-
-访问 <http://localhost:5080>。如需修改宿主机端口，可设置
-`AI_SSH_CLIENT_WEB_PORT`。局域网内其他设备访问 `http://<笔记本IP>:5080`：浏览器会
-拦截纯 HTTP 来源的不安全下载，若需要在其他机器上使用 SFTP 下载，请开启内置 HTTPS
-（`AI_SSH_CLIENT_WEB_TLS=1`），详见[网络绑定与 TLS](#网络绑定与-tls)。
-
-Compose 部署会在同一个容器中运行 Node Web 网关并提供 React 页面，由运行
-Docker 的机器发起 SSH/SFTP 连接。连接数据保存在 `ai-ssh-client-data` Docker
-volume 中。AI 助手和智能体模式在 Web 部署中仍仅桌面端可用。
-
-### 密码鉴权
-
-Web 网关要求密码。每个请求和 WebSocket 连接都必须携带有效会话才能访问
-SSH/SFTP 接口；未鉴权的访客只会看到登录页，而不是应用本身。
-
-- **默认密码** —— 首次启动时网关以密码 `admin` 初始化，并将加盐哈希（而非明文）
-  保存到数据卷。用 `admin` 登录后，打开 **设置 → 密码** 修改。默认密码仍在使用
-  时，页面顶部会有横幅提醒你尽快修改。
-
-- **在界面中修改** —— 应用内改密会校验当前密码、持久化新哈希，并在保持当前会话
-  登录的同时使其它会话失效。
-
-- **通过环境变量固定密码** —— 设置 `AI_SSH_CLIENT_WEB_PASSWORD`（会以
-  `WEB_AUTH_PASSWORD` 传入容器）即可完全用配置管理密码。此模式下密码不落盘，
-  也无法在界面中修改：
-
-  ```bash
-  AI_SSH_CLIENT_WEB_PASSWORD='一个足够长的强密码' docker compose up -d --build
-  ```
-
-打开页面，输入一次密码，之后会话 Cookie 会保持登录状态。
-
-### 网络绑定与 TLS
-
-- **桌面 / 本地 `node server/index.cjs`** —— 服务默认绑定 `127.0.0.1`，只能从
-  本机访问。设置 `WEB_HOST=0.0.0.0` 才会对外暴露。在 Docker 中容器内已设为
-  `0.0.0.0`，宿主机端口由 Compose 控制。
-- **密码是以明文经 HTTP 传输的。** 在局域网内通常可以接受，但只要流量可能
-  被监听，就应在网关前面做 TLS 终止（使用 Caddy、Nginx、Traefik 等反向代理）。
-  当请求经由 HTTPS 到达时（包括反代传入的 `X-Forwarded-Proto`），会话 Cookie
-  会自动带上 `Secure` 标志。
-
-#### 内置 HTTPS（局域网建议开启）
-
-浏览器会把「非可信来源 + 非白名单扩展名」的下载判定为 *insecure download* 并直接
-拦截：在 `http://<局域网IP>:5080` 下点 SFTP 下载后既没有文件也没有报错，控制台只留
-一条 `The file at 'http://…' was loaded over an insecure connection…`，下载气泡里是
-「已阻止不安全的下载」。`.pcap/.zip/.conf` 等常见运维文件都不在 Chrome 的安全扩展名
-白名单内，因此**这不是 SFTP 功能故障，而是浏览器的安全策略**。让页面本身走 HTTPS
-即可根治（https 属于可信来源）。网关内置两种方式：
-
-```bash
-# 方式一：自签名证书（首次启动用 openssl 生成，保存在数据卷 /data/tls）
-AI_SSH_CLIENT_WEB_TLS=1 docker compose up -d --build   # bash / zsh
-```
-
-```powershell
-# Windows PowerShell：环境变量必须单独赋值，`VAR=1 cmd` 是 bash 写法会被当成命令名报错
-$env:AI_SSH_CLIENT_WEB_TLS = '1'
-docker compose up -d --build
-```
-
-> 也可以不依赖 shell：在 `docker-compose.yml` 同目录新建 `.env` 写入
-> `AI_SSH_CLIENT_WEB_TLS=1`，或直接把 `docker-compose.yml` 里的
-> `WEB_TLS: ${AI_SSH_CLIENT_WEB_TLS:-}` 改成 `WEB_TLS: "1"`。
->
-> **想一直启用、不必每次设置，就用 `.env`**：`$env:XXX` 只在当前终端会话有效，而
-> `docker compose up -d --build` 每次都会重建容器并按当时的变量重新解析配置，新开一个
-> 终端就会悄悄退回 HTTP。`.env` 已被 `.gitignore` 忽略，`git pull` 不会冲突。
-> 证书生成一次后保存在数据卷 `/data/tls`，重建不影响，浏览器只需接受一次（除非用
-> `docker compose down -v` 删了数据卷，或换了访问 IP —— 那时用 `WEB_TLS_REGENERATE=1` 重签）。
-
-启动日志应打印 `AI SSH Client web server listening on https://…`，随后改用
-`https://<IP>:5080` 访问；浏览器首次会提示证书不可信，选「高级 → 继续前往」。
-
-```yaml
-# 方式二：接入已有正式证书（PEM），挂载后指定路径即可，无需 WEB_TLS=1
-services:
-  ai-ssh-client-web:
-    volumes:
-      - ./certs:/certs:ro
-    environment:
-      WEB_TLS_CERT: /certs/fullchain.pem
-      WEB_TLS_KEY: /certs/privkey.pem
-```
-
-- `WEB_TLS=1`：未提供证书时自动生成自签名证书，SAN 默认包含 `localhost`、
-  `127.0.0.1` 与本机所有非回环 IPv4；可用 `WEB_TLS_HOSTS=ssh.example.com,192.168.4.213`
-  追加域名或固定 IP。
-- `WEB_TLS_REGENERATE=1`：强制重新生成自签名证书（例如换了访问 IP 导致域名不匹配）。
-- 证书文件位于 `DATA_DIR/tls/`（Docker 下为数据卷 `/data/tls`），删除后下次启动会重建。
-- 不走 Docker、直接 `node server/index.cjs` 时，自签名模式需要本机有 `openssl`；
-  没有的话可用 [mkcert](https://github.com/FiloSottile/mkcert) 生成本地证书，再通过
-  `WEB_TLS_CERT` / `WEB_TLS_KEY` 指定。
-
-不想启用 HTTPS 时的临时绕过办法：把 Chrome 站点设置里的「不安全内容」改为允许，或在
-服务器上做 SSH 端口转发后用 `http://localhost:5080` 访问（localhost 属于可信来源）。
-
-<details>
-<summary>示例：使用 Caddy 反向代理自动启用 HTTPS</summary>
-
-让网关绑定在 loopback（或 Docker 内网），由 Caddy 负责 TLS。最小
-`Caddyfile`：
-
-```caddyfile
-ssh.example.com {
-    reverse_proxy 127.0.0.1:5080
-}
-```
-
-Caddy 会自动申请并续期证书，并转发 `X-Forwarded-Proto: https`，网关据此下发
-`Secure` 会话 Cookie。
-
-</details>
-
-> ⚠️ **在没有 TLS 的情况下，不要将该服务直接暴露到不可信网络。** Web 网关可以
-> 使用保存的凭据发起 SSH 连接。密码能提供保护，但在明文 HTTP 下该密码可能
-> 被截获。任何面向公网的部署都请置于 HTTPS 之后，并第一时间修改默认密码。详见
-> [SECURITY.md](SECURITY.md)。
-
-<details>
-<summary>向 Web 版导入已有连接</summary>
-
-```powershell
-Invoke-RestMethod `
-  -Uri http://localhost:5080/api/import `
-  -Method Post `
-  -ContentType application/json `
-  -InFile .\connections.json
-```
-
-JSON 最小格式：
-
-```json
-{
-  "connections": [
-    {
-      "id": "server-1",
-      "name": "server-1",
-      "host": "192.168.1.10",
-      "port": 22,
-      "username": "root",
-      "password": "your-password"
-    }
-  ]
-}
-```
-
-对于 Tauri 桌面版，连接元数据保存在
-`%LOCALAPPDATA%\ai-ssh-client\store.json`，但密码、私钥和私钥密码保存在
-Windows 凭据管理器中，不在该文件里。导入元数据后，需要在 Web 页面编辑连接补上
-密码或私钥。
-
-</details>
-
-## 安全
-
-- 渲染进程只能通过应用暴露的 Tauri command bridge 访问后端能力。
-- SSH 密码、私钥、私钥密码和 AI API Key 会从普通配置中拆分，独立存储。
-- 敏感数据由本地 Tauri/Rust 存储层处理，并在可用时使用平台 keyring。
-- 私钥文件只能通过原生文件选择器选中后读取。
-- 智能体自动执行命令前仍会经过命令风险检查和执行日志记录。
-
-如需上报漏洞，请参阅 [SECURITY.md](SECURITY.md)，请勿以公开 issue 形式提交安全问题。
+| `Ctrl/Cmd + T` | 新建连接标签 |
+| `Ctrl/Cmd + W` | 关闭当前标签 |
+| `Ctrl/Cmd + F` | 终端搜索 |
+| `Ctrl/Cmd + +` / `-` | 增大 / 减小字号 |
+| `Ctrl/Cmd + Shift + P` | 命令面板 |
+| `Esc` | 中断正在运行的 AI Agent 任务 |
 
 ## 技术栈
 
-| 层 | 技术 |
-| --- | --- |
-| 桌面运行时 | Tauri 2 |
-| 后端 | Rust（russh / russh-sftp） |
-| 前端 | React + TypeScript |
-| 构建 | Vite |
-| 终端 | xterm.js |
-| 状态管理 | Zustand |
-| 样式 | Tailwind CSS |
-| 存储 | Tauri 应用数据 + 平台 keyring |
+- **前端** — React 18、TypeScript、Vite、Tailwind CSS（语义化设计令牌）、xterm.js、CodeMirror、Zustand。
+- **后端** — Node.js + Express，`ssh2` 负责 SSH/SFTP，`ws` 负责终端与流式通道，SSE 负责容器日志。
+- **存储** — `DATA_DIR` 下的 JSON 文件，密钥类数据以 AES-GCM 加密。
 
 ## 项目结构
 
-```text
-ai-ssh-client/
-├── src-tauri/            # Tauri/Rust 后端
-│   └── src/
-│       ├── commands/     # Tauri 命令处理
-│       ├── models/       # Rust 数据契约
-│       └── services/     # SSH、SFTP、AI、Agent 和存储服务
-├── src/
-│   ├── renderer/         # React 渲染进程（按领域组织）
-│   │   ├── session/      # 会话模型、终端、恢复
-│   │   ├── transfer/     # SFTP 浏览器、侧栏、传输任务
-│   │   ├── workspace/    # 标签、布局、工作区状态
-│   │   ├── assistant/    # AI 助手 + 风险审批
-│   │   ├── agent/        # 智能体运行时
-│   │   └── store/        # Zustand 状态
-│   └── shared/           # 共享类型和常量
-├── server/               # 可选的 Node Web 网关 + MCP 服务（Docker）
-├── docs/                 # 架构说明
-└── scripts/              # Node 验证脚本
+```
+server/             Node.js Web 服务（SSH、SFTP、监控、Docker、MCP、鉴权）
+src/renderer/       React 前端（工作台、终端、传输、设置）
+src/shared/         共享类型与 IPC/API 契约
+docs/               截图与设计文档
+scripts/            构建与设计系统检查脚本
+test/               Vitest 测试
 ```
 
 ## 开发
 
-**环境要求：** Node.js 20+、稳定版 Rust 工具链，以及
-[Tauri 2 平台依赖](https://tauri.app/start/prerequisites/)。
-
 | 命令 | 说明 |
 | --- | --- |
-| `npm run dev` | 启动 Tauri 开发应用 |
-| `npm run build` | 构建 Tauri 应用 |
-| `npm run build:renderer` | 仅构建渲染进程资源 |
-| `npm run preview` | 预览渲染进程构建结果 |
-| `npm run typecheck` | 类型检查渲染进程 |
-| `npm run check` | 类型检查 + 脚本测试 + 渲染进程构建 |
-| `npm run test:rust` | 运行 Rust 后端测试 |
-| `npm run mcp` | 启动给 AI Agent 用的 stdio MCP 服务 |
-| `npm run dist:win` | 构建 Windows 发布产物 |
+| `npm run dev:vite` | 前端开发服务器 |
+| `npm run web:only` | 仅启动后端 |
+| `npm run build:renderer` | 构建前端产物 |
+| `npm run typecheck` | 前端类型检查 |
+| `npm run test` | 运行 Vitest 测试 |
+| `npm run check` | 类型检查 + 测试 + 前端构建 |
+| `npm run mcp` | 启动 stdio MCP 服务器 |
 
-提交 Pull Request 前请先运行 `npm run check` 和 `npm run test:rust`。
+提交 PR 前请先运行 `npm run check`。
 
 ## 数据与备份
 
-连接元数据、设置、快速命令和 AI 供应商元数据通过 Tauri/Rust 存储服务保存在本机。
-SSH 和 AI 敏感密钥保存在独立的密钥存储中。需要迁移或备份时，可使用设置中的
-导入/导出功能处理可移植配置数据。
+状态保存在 `DATA_DIR`（默认 `./data`）：`connections.json`、`settings.json`、
+`sftp-transfers.json`、TLS 材料与加密密钥库。请整体备份该目录，并保留
+`secret.key`（或保持相同的 `WEB_AUTH_PASSWORD`），以保证已加密凭据仍可解密。
 
-## 参与贡献
+## 贡献
 
-欢迎贡献代码。开始前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 和
-[行为准则](CODE_OF_CONDUCT.md)。
+欢迎提交 Issue 与 Pull Request。请保持改动聚焦，为行为变化补充测试，并先运行
+`npm run check`。
 
-## 许可证
+## 开源协议
 
-[MIT](LICENSE) © YUYUY9527
+见 [LICENSE](LICENSE)。

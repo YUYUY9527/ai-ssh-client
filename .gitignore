@@ -26,11 +26,8 @@ Thumbs.db
 # Electron
 out/
 
-# Rust / Tauri
+# Rust / Tauri (已移除桌面端，保留忽略以防残留)
 /target/
-/src-tauri/target/
-/src-tauri/gen/
-/src-tauri/.tauri/
 
 # Logs
 *.log

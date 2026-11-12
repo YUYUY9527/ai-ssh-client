@@ -30,20 +30,3 @@ jobs:
 
       - name: Build renderer
         run: npm run build:renderer
-
-  backend:
-    name: Backend (cargo test)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
