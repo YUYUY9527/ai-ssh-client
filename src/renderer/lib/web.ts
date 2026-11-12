@@ -1761,14 +1761,19 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/permissions`,
     { method: 'POST', body: JSON.stringify({ remotePath, mode }) },
   ),
-  readSftpTextFile: (connectionId, remotePath) => sftpApiRequest<import('../../shared/ipc-types').SftpTextFileContent>(
+  readSftpTextFile: (connectionId, remotePath, sudoPassword) => sftpApiRequest<import('../../shared/ipc-types').SftpTextFileContent>(
     connectionId,
     `/api/sftp/${connectionId}/text?path=${encodeURIComponent(remotePath)}`,
+    sudoPassword ? { headers: { 'x-sudo-password': sudoPassword } } : {},
   ),
-  writeSftpTextFile: (connectionId, remotePath, content) => sftpApiRequest<void>(
+  writeSftpTextFile: (connectionId, remotePath, content, sudoPassword) => sftpApiRequest<void>(
     connectionId,
     `/api/sftp/${connectionId}/text`,
-    { method: 'PUT', body: JSON.stringify({ remotePath, content }) },
+    {
+      method: 'PUT',
+      body: JSON.stringify({ remotePath, content }),
+      ...(sudoPassword ? { headers: { 'x-sudo-password': sudoPassword } } : {}),
+    },
   ),
   // 监控采集是被动轮询：会话未就绪时直接失败即可，绝不在这里触发自动重连，
   // 否则底栏每 5 秒一次的轮询会在「连接中」窗口里反复拉起新的 SSH 连接，

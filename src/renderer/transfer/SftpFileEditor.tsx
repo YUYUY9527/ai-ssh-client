@@ -46,6 +46,9 @@ export function SftpFileEditor({
   const [original, setOriginal] = useState('');
   const [draft, setDraft] = useState('');
   const [maxBytes, setMaxBytes] = useState(MAX_SFTP_EDIT_BYTES);
+  // sudo 密码：普通 SFTP 无权限时才会用到；仅保存在本组件内存中，不落盘。
+  const [sudoPassword, setSudoPassword] = useState('');
+  const [sudoRequired, setSudoRequired] = useState(false);
 
   const dirty = draft !== original;
   const draftBytes = useMemo(() => new TextEncoder().encode(draft).length, [draft]);
@@ -81,7 +84,7 @@ export function SftpFileEditor({
     setError(message);
   }, [onAlert]);
 
-  const loadFile = useCallback(async () => {
+  const loadFile = useCallback(async (password?: string) => {
     if (!window.electronAPI?.readSftpTextFile) {
       alertAndClose(t('fileTransfer.editUnsupported'));
       return;
@@ -99,9 +102,16 @@ export function SftpFileEditor({
     setError(null);
     setStatus(null);
     try {
-      const result = await window.electronAPI.readSftpTextFile(connectionId, remotePath);
+      const result = await window.electronAPI.readSftpTextFile(connectionId, remotePath, password || undefined);
       if (!result.success || !result.data) {
         const message = result.success === false ? result.error : t('fileTransfer.editLoadFailed');
+        if (/SUDO_PASSWORD_REQUIRED/.test(message || '')) {
+          setSudoRequired(true);
+          setError(t('fileTransfer.sudoRequired'));
+          setOriginal('');
+          setDraft('');
+          return;
+        }
         const tooLarge = /too large|过大|max \d+ bytes/i.test(message || '');
         if (tooLarge) {
           alertAndClose(message || t('fileTransfer.editLoadFailed'));
@@ -112,6 +122,7 @@ export function SftpFileEditor({
         setDraft('');
         return;
       }
+      setSudoRequired(false);
       setOriginal(result.data.content);
       setDraft(result.data.content);
       setLoaded(true);
@@ -148,19 +159,32 @@ export function SftpFileEditor({
     setError(null);
     setStatus(null);
     try {
-      const result = await window.electronAPI.writeSftpTextFile(connectionId, remotePath, draft);
+      const result = await window.electronAPI.writeSftpTextFile(connectionId, remotePath, draft, sudoPassword || undefined);
       if (!result.success) {
-        setError(result.error || t('fileTransfer.editSaveFailed'));
+        const message = result.error || t('fileTransfer.editSaveFailed');
+        if (/SUDO_PASSWORD_REQUIRED/.test(message)) {
+          setSudoRequired(true);
+          setError(t('fileTransfer.sudoRequired'));
+          return;
+        }
+        setError(message);
         return;
       }
+      setSudoRequired(false);
       setOriginal(draft);
       setStatus(t('fileTransfer.editSaved', { size: formatBytes(draftBytes) }));
     } catch (err) {
-      setError((err as Error).message || t('fileTransfer.editSaveFailed'));
+      const message = (err as Error).message || t('fileTransfer.editSaveFailed');
+      if (/SUDO_PASSWORD_REQUIRED/.test(message)) {
+        setSudoRequired(true);
+        setError(t('fileTransfer.sudoRequired'));
+        return;
+      }
+      setError(message);
     } finally {
       setSaving(false);
     }
-  }, [canSave, connectionId, draft, draftBytes, remotePath, t]);
+  }, [canSave, connectionId, draft, draftBytes, remotePath, sudoPassword, t]);
 
   const handleReset = useCallback(() => {
     setDraft(original);
@@ -280,6 +304,26 @@ export function SftpFileEditor({
           </Suspense>
         )}
       </div>
+
+      {sudoRequired ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-surface-raised px-4 py-2 text-xs">
+          <span className="text-fg-secondary">{t('fileTransfer.sudoHint')}</span>
+          <input
+            type="password"
+            className="industrial-input h-7 w-40 px-2 text-xs"
+            placeholder={t('fileTransfer.sudoPasswordPlaceholder')}
+            value={sudoPassword}
+            onChange={(event) => setSudoPassword(event.target.value)}
+          />
+          <button
+            type="button"
+            className="industrial-button-primary px-3 py-1 text-xs"
+            onClick={() => { void (loaded ? handleSave() : loadFile(sudoPassword)); }}
+          >
+            {t('fileTransfer.sudoRetry')}
+          </button>
+        </div>
+      ) : null}
 
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-4 py-2 text-xs">
         <span className="min-w-0 truncate text-fg-muted">

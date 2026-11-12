@@ -31,6 +31,7 @@ const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
 const { execCommand } = require('./ssh-exec.cjs');
 const { openTransport } = require('./ssh-transport.cjs');
 const { createPortForwardManager } = require('./port-forward.cjs');
+const { sudoReadTextFile, sudoWriteTextFile } = require('./sudo-fs.cjs');
 const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
 const { readSftpPreview, resolveInlineMime } = require('./sftp-preview.cjs');
@@ -1844,20 +1845,44 @@ app.post('/api/sftp/:id/permissions', route(async (request) => {
   return success(await setSftpPermissions(sftp, remotePath, mode));
 }));
 
-// 读取远端文本（在线编辑，有大小上限）
+// 判断 SFTP 权限错误（codes: 3 = PERMISSION_DENIED；部分实现给 EACCES）
+function isSftpPermissionError(error) {
+  if (!error) return false;
+  if (error.code === 3 || error.code === 'EACCES' || error.code === 'EPERM') return true;
+  return /permission denied|access denied|EACCES|EPERM/i.test(String(error.message || ''));
+}
+
+// 读取远端文本（在线编辑，有大小上限）。普通 SFTP 无权限时回退 sudo（可用 x-sudo-password 头）。
 app.get('/api/sftp/:id/text', route(async (request) => {
-  const sftp = await getSftp(request.params.id, requireClientId(request));
+  const clientId = requireClientId(request);
   const remotePath = String(request.query.path || '');
-  return success(await readSftpTextFile(sftp, remotePath));
+  const sudoPassword = String(request.get('x-sudo-password') || '');
+  try {
+    const sftp = await getSftp(request.params.id, clientId);
+    return success(await readSftpTextFile(sftp, remotePath));
+  } catch (error) {
+    if (!isSftpPermissionError(error)) throw error;
+    const session = getSession(request.params.id, clientId);
+    return success(await sudoReadTextFile(session.client, remotePath, { password: sudoPassword }));
+  }
 }));
 
-// 覆盖写入远端文本
+// 覆盖写入远端文本。普通 SFTP 无权限时回退 sudo（可用 x-sudo-password 头）。
 app.put('/api/sftp/:id/text', route(async (request) => {
-  const sftp = await getSftp(request.params.id, requireClientId(request));
+  const clientId = requireClientId(request);
   const remotePath = String(request.body?.remotePath || '');
   const content = String(request.body?.content ?? '');
-  await writeSftpTextFile(sftp, remotePath, content);
-  return success();
+  const sudoPassword = String(request.get('x-sudo-password') || '');
+  try {
+    const sftp = await getSftp(request.params.id, clientId);
+    await writeSftpTextFile(sftp, remotePath, content);
+    return success();
+  } catch (error) {
+    if (!isSftpPermissionError(error)) throw error;
+    const session = getSession(request.params.id, clientId);
+    await sudoWriteTextFile(session.client, remotePath, content, { password: sudoPassword });
+    return success();
+  }
 }));
 
 // 远程文件搜索：按名称(find)或内容(grep)，独立 exec 通道，结果数与超时受限。

@@ -160,9 +160,9 @@ declare global {
       renameItem: (connectionId: string, remotePath: string, newName: string) => Promise<IPCResult>;
       deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
       /** 读取远端文本文件（受 MAX_SFTP_EDIT_BYTES 限制）。 */
-      readSftpTextFile: (connectionId: string, remotePath: string) => Promise<IPCResult<import('./ipc-types').SftpTextFileContent>>;
+      readSftpTextFile: (connectionId: string, remotePath: string, sudoPassword?: string) => Promise<IPCResult<import('./ipc-types').SftpTextFileContent>>;
       /** 覆盖写入远端文本文件。 */
-      writeSftpTextFile: (connectionId: string, remotePath: string, content: string) => Promise<IPCResult>;
+      writeSftpTextFile: (connectionId: string, remotePath: string, content: string, sudoPassword?: string) => Promise<IPCResult>;
 
       /** 服务器监控仪表盘（SSH 采集 /proc + df）。Web 优先；桌面端未实现时按钮隐藏。 */
       getServerMonitor?: (connectionId: string) => Promise<IPCResult<ServerMonitorMetrics>>;

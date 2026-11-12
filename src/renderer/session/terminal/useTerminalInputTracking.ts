@@ -21,6 +21,10 @@ import {
 } from './terminal-cwd';
 import { trackPastedInput } from './paste-safety';
 import {
+  getBroadcastTargetConnectionIds,
+  isTerminalBroadcastEnabled,
+} from './terminal-broadcast';
+import {
   isPromptLineReady,
   readLogicalBufferLine,
   resolveSubmittedInput,
@@ -270,6 +274,18 @@ export function useTerminalInputTracking({
         // 避免“连接成功后首屏回放期间敲命令没反应”。
         if (isXtermAutoReply(data)) {
           return;
+        }
+      }
+
+      // 命令广播：把这一笔用户按键同步到当前分屏可见的其它终端。
+      // 放在自动应答拦截之后，避免把 xterm 的重放应答广播出去。
+      if (isTerminalBroadcastEnabled() && data) {
+        for (const target of getBroadcastTargetConnectionIds(connectionId)) {
+          try {
+            window.electronAPI?.sshExecuteSync(target, data);
+          } catch (error) {
+            console.warn('broadcast sshExecuteSync failed', error);
+          }
         }
       }
 

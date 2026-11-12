@@ -1,6 +1,7 @@
 import { Bot, Download, Palette, Search, Settings2, ZoomIn, ZoomOut } from 'lucide-react';
 import { ServerMonitorButton } from './ServerMonitorButton';
 import { PortForwardButton } from './PortForwardButton';
+import { BroadcastButton } from './BroadcastButton';
 import type { TerminalCursorStyle } from './terminal-settings';
 import {
   MAX_TERMINAL_SCROLLBACK,
@@ -91,6 +92,7 @@ export function TerminalToolbar({
       </button>
       <ServerMonitorButton connectionId={connectionId} translate={translate} />
       <PortForwardButton connectionId={connectionId} translate={translate} />
+      <BroadcastButton translate={translate} />
       <button
         onClick={onDecreaseFontSize}
         className="terminal-control"
