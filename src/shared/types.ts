@@ -12,6 +12,46 @@ export interface SSHConnection {
   groupId?: string;
   /** 自由标签，用于跨分组的筛选与归类。 */
   tags?: string[];
+  /** 代理：先经由该代理连到第一跳（有跳板机时是第一台，否则是目标主机）。 */
+  proxy?: SshProxyConfig;
+  /** 多级跳板机，按顺序逐跳建连；最后一跳之后连到目标主机。 */
+  jumpHosts?: SshJumpHost[];
+  /** 端口转发规则（本地转发 / 动态 SOCKS5）。 */
+  portForwards?: PortForwardRule[];
+}
+
+export interface SshProxyConfig {
+  type: 'http' | 'socks5';
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+}
+
+export interface SshJumpHost {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+}
+
+export type PortForwardType = 'local' | 'dynamic';
+
+export interface PortForwardRule {
+  id: string;
+  type: PortForwardType;
+  /** 备注名，便于区分多条规则。 */
+  label?: string;
+  /** 本地监听地址，默认 127.0.0.1（只监听本机更安全）。 */
+  bindHost?: string;
+  /** 本地监听端口。 */
+  bindPort: number;
+  /** local 转发的目标地址（从 SSH 服务器一侧发起连接）。 */
+  targetHost?: string;
+  /** local 转发的目标端口。 */
+  targetPort?: number;
 }
 
 // 连接分组（文件夹）。parentId 预留嵌套能力，当前 UI 按平铺分组渲染。

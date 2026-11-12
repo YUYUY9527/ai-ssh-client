@@ -29,6 +29,7 @@ const { createSftpTransferService } = require('./sftp-transfer.cjs');
 const { buildDownloadEtag, readSftpFileEdges, readSftpSmallFile, EDGE_BYTES } = require('./sftp-download-validator.cjs');
 const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
 const { execCommand } = require('./ssh-exec.cjs');
+const { openTransport } = require('./ssh-transport.cjs');
 const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
 const { readSftpPreview, resolveInlineMime } = require('./sftp-preview.cjs');
@@ -885,6 +886,12 @@ function disposeSessionByKey(key) {
   } catch {
     // 忽略已断开连接的清理错误
   }
+  try {
+    // 关掉代理连接与跳板机客户端，避免隧道泄漏
+    session.transportDispose?.();
+  } catch {
+    // 忽略
+  }
   return session;
 }
 
@@ -963,11 +970,23 @@ function emitSessionClose(session) {
   }
   const key = sessionKeyOf(session.connectionId, session.clientId);
   if (deleteSessionIfCurrent(key, session)) {
+    try {
+      session.transportDispose?.();
+    } catch {
+      // 忽略
+    }
     emitToClient(session.clientId, 'ssh-close', session.connectionId);
   }
 }
 
-function connectSsh(connection, cols, rows, settings = defaultSettings, clientId = '') {
+async function connectSsh(connection, cols, rows, settings = defaultSettings, clientId = '') {
+  // 先建立底层传输（HTTP/SOCKS5 代理 + 多级跳板机），拿到通往目标主机的 TCP 流。
+  // 直连时 sock 为 null，行为与之前完全一致。
+  const { sock, dispose: disposeTransport } = await openTransport({
+    connection,
+    clientId,
+    createVerifier: (options) => hostTrust.createVerifier(options),
+  });
   return new Promise((resolve, reject) => {
     // 只静默替换自己 clientId 的旧会话，绝不顶掉其他客户端的会话。
     // 用 disposeSessionByKey（不发 ssh-close）：重连时旧会话被替换不应通知前端"已断开"，
@@ -983,6 +1002,7 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
       ready: false,
       clientId,
       connectionId: connection.id,
+      transportDispose: disposeTransport,
       outputBuffer: '',
       // 跨 chunk 拼 UTF-8，避免多字节字符被 TCP 分片切断成乱码
       outputDecoder: new StringDecoder('utf8'),
@@ -1011,6 +1031,11 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
       }
       // 只在仍是当前会话时清理，避免超时兜底误删同 key 的新会话。
       deleteSessionIfCurrent(sessionKeyOf(connection.id, clientId), session);
+      try {
+        disposeTransport();
+      } catch {
+        // 忽略
+      }
       reject(new Error('SSH connect timed out'));
     }, hardTimeoutMs);
     const finish = (result) => {
@@ -1138,6 +1163,11 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
         if (deleteSessionIfCurrent(sessionKeyOf(connection.id, clientId), session)) {
           emitToClient(clientId, 'ssh-error', { connectionId: connection.id, error: error.message });
         }
+        try {
+          disposeTransport();
+        } catch {
+          // 忽略
+        }
         if (!settled) {
           clearTimeout(hardTimeout);
           reject(error);
@@ -1156,6 +1186,8 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
         keepaliveInterval: Math.max(0, Number(settings.keepaliveInterval || 0)) * 1000,
         keepaliveCountMax: settings.keepaliveCountMax || 3,
         readyTimeout: 20000,
+        // 代理 / 跳板机隧道；直连时为 undefined，ssh2 自行建 TCP。
+        sock: sock || undefined,
         // 主机密钥校验（TOFU）：不传则 ssh2 默认自动接受任意主机密钥。
         hostVerifier: hostTrust.createVerifier({
           host: connection.host,
@@ -1637,30 +1669,44 @@ app.get('/api/ssh/sessions', route((request) => success({
     .filter((session) => session.clientId === requestClientId(request))
     .map((session) => stateFor(session.connectionId, session.clientId)),
 })));
-app.post('/api/ssh/test', route((request) => new Promise((resolve) => {
-  const client = new Client();
-  client
-    .on('ready', () => {
-      client.end();
-      resolve(success());
-    })
-    .on('error', (error) => resolve(failure(error)))
-    .connect({
-      host: request.body.connection.host,
-      port: request.body.connection.port || 22,
-      username: request.body.connection.username,
-      password: request.body.connection.password || undefined,
-      privateKey: request.body.connection.privateKey || undefined,
-      passphrase: request.body.connection.passphrase || undefined,
-      readyTimeout: 20000,
-      // 与正式连接同等严格：测试连接也校验主机密钥（桌面端 ssh_test_connection 同样会弹确认）。
-      hostVerifier: hostTrust.createVerifier({
-        host: request.body.connection.host,
-        port: request.body.connection.port,
-        clientId: requestClientId(request),
-      }),
-    });
-})));
+app.post('/api/ssh/test', route(async (request) => {
+  const connection = request.body.connection;
+  const { sock, dispose } = await openTransport({
+    connection,
+    clientId: requestClientId(request),
+    createVerifier: (options) => hostTrust.createVerifier(options),
+  });
+  return new Promise((resolve) => {
+    const client = new Client();
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      try { client.end(); } catch { /* ignore */ }
+      try { dispose(); } catch { /* ignore */ }
+      resolve(result);
+    };
+    client
+      .on('ready', () => finish(success()))
+      .on('error', (error) => finish(failure(error)))
+      .connect({
+        host: connection.host,
+        port: connection.port || 22,
+        username: connection.username,
+        password: connection.password || undefined,
+        privateKey: connection.privateKey || undefined,
+        passphrase: connection.passphrase || undefined,
+        readyTimeout: 20000,
+        sock: sock || undefined,
+        // 与正式连接同等严格：测试连接也校验主机密钥（桌面端 ssh_test_connection 同样会弹确认）。
+        hostVerifier: hostTrust.createVerifier({
+          host: connection.host,
+          port: connection.port,
+          clientId: requestClientId(request),
+        }),
+      });
+  });
+}));
 
 app.get('/api/sftp/:id/list', route(async (request) => {
   const requestedPath = String(request.query.path || '~');

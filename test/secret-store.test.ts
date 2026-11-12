@@ -235,6 +235,39 @@ describe('encryptStore / decryptStore', () => {
     expect(restored.hostTrustRecords).toHaveLength(1);
   });
 
+  it('嵌套凭据（代理密码 / 跳板机密码与私钥）也会被加密并还原', () => {
+    const store = createSecretStore({ dataDir });
+    const original = {
+      connections: [{
+        id: 'c9',
+        name: 'chain',
+        host: 'target',
+        port: 22,
+        username: 'root',
+        proxy: { type: 'socks5', host: 'proxy', port: 1080, username: 'pu', password: 'proxy-pass' },
+        jumpHosts: [
+          { host: 'j1', port: 22, username: 'a', password: 'hop-pass', privateKey: 'HOP-KEY', passphrase: 'hop-pp' },
+          { host: 'j2', port: 22, username: 'b' },
+        ],
+      }],
+      aiProviders: [],
+    };
+
+    const encrypted = store.encryptStore(original);
+    const serialized = JSON.stringify(encrypted);
+    expect(serialized).not.toContain('proxy-pass');
+    expect(serialized).not.toContain('hop-pass');
+    expect(serialized).not.toContain('HOP-KEY');
+    expect(serialized).not.toContain('hop-pp');
+
+    const restored = store.decryptStore(encrypted);
+    expect(restored.connections[0].proxy.password).toBe('proxy-pass');
+    expect(restored.connections[0].jumpHosts[0].password).toBe('hop-pass');
+    expect(restored.connections[0].jumpHosts[0].privateKey).toBe('HOP-KEY');
+    expect(restored.connections[0].jumpHosts[0].passphrase).toBe('hop-pp');
+    expect('password' in restored.connections[0].jumpHosts[1]).toBe(false);
+  });
+
   it('落盘形态中不含任何明文凭据', () => {
     const store = createSecretStore({ dataDir });
     const serialized = JSON.stringify(store.encryptStore(buildStore()));

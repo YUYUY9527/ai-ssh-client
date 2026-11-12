@@ -155,6 +155,41 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     });
   }
 
+  /**
+   * 连接凭据加密：除顶层 password/privateKey/passphrase 外，还要覆盖
+   * 代理密码（proxy.password）与每一跳跳板机的密码/私钥/口令。
+   */
+  function mapConnectionSecrets(connections, transform) {
+    const mapped = mapFields(connections, CONNECTION_SECRET_FIELDS, transform);
+    if (!Array.isArray(mapped)) {
+      return mapped;
+    }
+    return mapped.map((connection) => {
+      if (!connection || typeof connection !== 'object') {
+        return connection;
+      }
+      const next = { ...connection };
+      if (next.proxy && typeof next.proxy === 'object' && next.proxy.password !== undefined) {
+        next.proxy = { ...next.proxy, password: transform(next.proxy.password) };
+      }
+      if (Array.isArray(next.jumpHosts)) {
+        next.jumpHosts = next.jumpHosts.map((hop) => {
+          if (!hop || typeof hop !== 'object') {
+            return hop;
+          }
+          const nextHop = { ...hop };
+          for (const field of CONNECTION_SECRET_FIELDS) {
+            if (nextHop[field] !== undefined) {
+              nextHop[field] = transform(nextHop[field]);
+            }
+          }
+          return nextHop;
+        });
+      }
+      return next;
+    });
+  }
+
   /** 写盘前：加密连接凭据与 AI 密钥。 */
   function encryptStore(store) {
     if (!store || typeof store !== 'object') {
@@ -162,7 +197,7 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     }
     return {
       ...store,
-      connections: mapFields(store.connections, CONNECTION_SECRET_FIELDS, encrypt),
+      connections: mapConnectionSecrets(store.connections, encrypt),
       aiProviders: mapFields(store.aiProviders, PROVIDER_SECRET_FIELDS, encrypt),
     };
   }
@@ -189,7 +224,7 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     }
     return {
       ...store,
-      connections: mapFields(store.connections, CONNECTION_SECRET_FIELDS, decryptPreserving),
+      connections: mapConnectionSecrets(store.connections, decryptPreserving),
       aiProviders: mapFields(store.aiProviders, PROVIDER_SECRET_FIELDS, decryptPreserving),
     };
   }

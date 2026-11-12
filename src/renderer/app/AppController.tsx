@@ -1039,6 +1039,7 @@ export function AppController() {
       modals={(
         <ModalHost
         connectionTestResult={connectionTestResult}
+        connections={connections}
         deletingConnection={deletingConnection}
         editingConnection={editingConnection}
         isSettingsOpen={showSettings}

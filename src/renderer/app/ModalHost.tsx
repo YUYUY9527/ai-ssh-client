@@ -5,6 +5,7 @@ import type { AppSettings, CommandSuggestion, HostTrustPromptEvent, SSHConnectio
 import { Modal } from '../shared-ui/Modal';
 import { ConfirmDialog } from '../shared-ui/ConfirmDialog';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
+import { ConnectionAdvancedFields } from '../components/ConnectionAdvancedFields';
 import { useConnectionGroupStore } from '../store/useConnectionGroupStore';
 
 const CommandApproval = lazy(async () => {
@@ -29,6 +30,7 @@ interface ConnectionTestResult {
 
 interface ModalHostProps {
   connectionTestResult: ConnectionTestResult | null;
+  connections: SSHConnection[];
   deletingConnection: string | null;
   editingConnection: SSHConnection | null;
   isSettingsOpen: boolean;
@@ -68,6 +70,7 @@ function LazyModalFallback({ translate }: { translate: ModalHostProps['translate
 /** Central host for application-level settings, connection and approval modals. */
 export function ModalHost({
   connectionTestResult,
+  connections,
   deletingConnection,
   editingConnection,
   isSettingsOpen,
@@ -293,6 +296,12 @@ export function ModalHost({
                 </div>
               )}
             </div>
+            <ConnectionAdvancedFields
+              connection={editingConnection}
+              connections={connections}
+              onChange={onChangeEditingConnection}
+              translate={translate}
+            />
             {groupsSupported && (
               <>
                 <div>
