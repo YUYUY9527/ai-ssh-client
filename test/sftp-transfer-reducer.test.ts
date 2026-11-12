@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SftpTransferTaskSnapshot } from '../src/shared/ipc-types';
-import { upsertSftpTransferSnapshot } from '../src/renderer/transfer/sftp-transfer-reducer';
+import {
+  canPauseSftpTransfer,
+  canResumeSftpTransfer,
+  upsertSftpTransferSnapshot,
+} from '../src/renderer/transfer/sftp-transfer-reducer';
 
 function task(overrides: Partial<SftpTransferTaskSnapshot> = {}): SftpTransferTaskSnapshot {
   return {
@@ -24,6 +28,24 @@ function task(overrides: Partial<SftpTransferTaskSnapshot> = {}): SftpTransferTa
     ...overrides,
   };
 }
+
+describe('sftp transfer pause helpers', () => {
+  it('canPause covers queued/checking/transferring/waiting-conflict only', () => {
+    for (const status of ['queued', 'checking', 'transferring', 'waiting-conflict'] as const) {
+      expect(canPauseSftpTransfer(task({ status }))).toBe(true);
+    }
+    for (const status of ['paused', 'committing', 'canceling', 'completed', 'failed', 'canceled'] as const) {
+      expect(canPauseSftpTransfer(task({ status }))).toBe(false);
+    }
+  });
+
+  it('canResume is true only for paused tasks', () => {
+    expect(canResumeSftpTransfer(task({ status: 'paused' }))).toBe(true);
+    for (const status of ['queued', 'transferring', 'completed', 'failed'] as const) {
+      expect(canResumeSftpTransfer(task({ status }))).toBe(false);
+    }
+  });
+});
 
 describe('sftp transfer snapshot reducer', () => {
   it('accepts an authoritative conflict snapshot sharing the optimistic sequence', () => {

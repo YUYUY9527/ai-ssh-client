@@ -6,10 +6,15 @@ import type {
   SftpTransferTaskSnapshot,
 } from '../../shared/ipc-types';
 import { useSftpTransferStore } from '../store/useSftpTransferStore';
+import { canPauseSftpTransfer, canResumeSftpTransfer } from './sftp-transfer-reducer';
 
 interface SftpTransferController {
   cancel: (taskId: string) => Promise<string | undefined>;
   discard: (taskId: string) => Promise<string | undefined>;
+  pause: (taskId: string) => Promise<string | undefined>;
+  resume: (taskId: string) => Promise<string | undefined>;
+  pauseAll: () => Promise<string | undefined>;
+  resumeAll: () => Promise<string | undefined>;
   download: (remotePaths: string[]) => Promise<string | undefined>;
   resolveConflict: (input: {
     taskId: string;
@@ -165,6 +170,44 @@ export function useSftpTransferController(
     return resultError(result);
   }, [upsertSnapshot]);
 
+  const pause = useCallback(async (taskId: string) => {
+    if (!window.electronAPI?.pauseSftpTransfer) return 'Pause is not supported in this environment';
+    const result = await window.electronAPI.pauseSftpTransfer({ taskId });
+    if (result.success) upsertSnapshot(result.data);
+    return resultError(result);
+  }, [upsertSnapshot]);
+
+  const resume = useCallback(async (taskId: string) => {
+    if (!window.electronAPI?.resumeSftpTransfer) return 'Resume is not supported in this environment';
+    const result = await window.electronAPI.resumeSftpTransfer({ taskId });
+    if (result.success) upsertSnapshot(result.data);
+    return resultError(result);
+  }, [upsertSnapshot]);
+
+  /** 全部暂停：只作用于本连接、当前可暂停的任务。 */
+  const pauseAll = useCallback(async () => {
+    if (!window.electronAPI?.pauseSftpTransfer) return 'Pause is not supported in this environment';
+    const targets = useSftpTransferStore.getState().tasks
+      .filter((task) => task.connectionId === connectionId && canPauseSftpTransfer(task));
+    for (const task of targets) {
+      const result = await window.electronAPI.pauseSftpTransfer({ taskId: task.taskId });
+      if (result.success) upsertSnapshot(result.data);
+    }
+    return undefined;
+  }, [connectionId, upsertSnapshot]);
+
+  /** 全部继续：继续本连接所有已暂停任务。 */
+  const resumeAll = useCallback(async () => {
+    if (!window.electronAPI?.resumeSftpTransfer) return 'Resume is not supported in this environment';
+    const targets = useSftpTransferStore.getState().tasks
+      .filter((task) => task.connectionId === connectionId && canResumeSftpTransfer(task));
+    for (const task of targets) {
+      const result = await window.electronAPI.resumeSftpTransfer({ taskId: task.taskId });
+      if (result.success) upsertSnapshot(result.data);
+    }
+    return undefined;
+  }, [connectionId, upsertSnapshot]);
+
   const discard = useCallback(async (taskId: string) => {
     if (!window.electronAPI) return 'SFTP bridge is unavailable';
     return resultError(await window.electronAPI.discardSftpTransfer({ taskId }));
@@ -186,7 +229,11 @@ export function useSftpTransferController(
     discard,
     download,
     downloadFolder,
+    pause,
+    pauseAll,
     resolveConflict,
+    resume,
+    resumeAll,
     retry,
     upload,
     uploadDroppedFiles,

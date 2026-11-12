@@ -327,7 +327,7 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       snapshot.error = error ? normalizeError(error) : undefined;
       snapshot.commitGuarantee = commitGuarantee;
       snapshot.progress = status === 'completed' ? 100 : snapshot.progress;
-      snapshot.completedAt = now();
+      snapshot.completedAt = status === 'paused' ? undefined : now();
     });
   }
 
@@ -620,7 +620,7 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
         // offset 只在连续块确认后推进，checkpoint 永远不超过真实落盘范围。
         const writeResult = await writePipelined(sftp, handle, trackedSource, offset, {
           chunkSize: CHUNK_SIZE,
-          shouldCancel: () => task.canceled,
+          shouldCancel: () => task.canceled || task.paused,
           onAck: async (confirmedOffset) => {
             offset = confirmedOffset;
             markActivity();
@@ -679,6 +679,10 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
           snapshot.taskId,
         );
         await removeRemoteQuiet(sftp, checkpointRemotePath(temporaryPath));
+        // 保留源文件修改时间（Web 上传默认开启）；权限位浏览器 File 不提供，跳过。
+        if (task.snapshot.preserveTimestamps !== false && sourceMtime > 0) {
+          await callSftp(sftp, 'utimes', protocolDestination, sourceMtime, sourceMtime).catch(() => undefined);
+        }
         return finish(task, 'completed', undefined, commitGuarantee);
       } catch (error) {
         checkpointStopped = true;
@@ -689,7 +693,16 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
         // 用户取消后 writePipelined 在块边界抛 canceled；但客户端 abort/网络错误
         // 可能先以别的错误码断开请求——只要 task.canceled 已置位就统一按取消处理，
         // 避免与 WS 的 canceled 快照竞态、把取消显示成“失败”。
-        const canceled = error?.code === 'canceled' || task.canceled;
+        const paused = task.paused && !task.canceled;
+        const canceled = !paused && (error?.code === 'canceled' || task.canceled);
+        if (paused) {
+          // 用户暂停：保留远端 temp 与 checkpoint，回到 paused 等用户继续后从断点续传。
+          // （与取消不同，取消会清理 temp/meta；暂停必须留住它们。）
+          if (offset > 0) {
+            await persistCheckpoint().catch(() => undefined);
+          }
+          return finish(task, 'paused');
+        }
         if (canceled) {
           // 取消代表用户明确放弃本次上传，不保留远端 partial/meta；
           // 否则目录里会留下 .part 与 .meta 两个隐藏文件。
@@ -747,6 +760,7 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       const task = {
         clientId,
         canceled: false,
+        paused: false,
         ensureParents,
         snapshot: makeSnapshot({
           connectionId: request.connectionId,
@@ -759,6 +773,8 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
           conflictPolicy,
         }),
       };
+      // 上传完成后是否回写源文件 mtime（Web 端默认开启；权限位浏览器不提供，跳过）。
+      task.snapshot.preserveTimestamps = request.preserveTimestamps !== false;
       tasks.set(task.snapshot.taskId, task);
       emit(task);
       return task.snapshot;
@@ -874,10 +890,11 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
   async function retry(clientId, request) {
     const task = tasks.get(request?.taskId);
     assertOwner(task, clientId);
-    if (!['failed', 'interrupted', 'canceled', 'skipped'].includes(task.snapshot.status)) {
+    if (!['failed', 'interrupted', 'canceled', 'skipped', 'paused'].includes(task.snapshot.status)) {
       throw new TransferError('Transfer is not retryable', 'conflict', false);
     }
     task.canceled = false;
+    task.paused = false;
 
     // 读取远端 checkpoint，重试时保留可信续传 offset。
     let resumeFrom = 0;
@@ -912,7 +929,73 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
   }
 
   /**
-   * 浏览器 FSA 流式下载由前端真正执行，服务端只持有任务记录。前端通过该入口把
+   * 暂停上传任务：保留远端 temp + checkpoint，供之后 resume 从断点续传。
+   * - 队列中/等待冲突：没有在途请求，直接把状态切成 paused。
+   * - 传输中：置 task.paused，writePipelined 会在块边界退出，上传处理器随后 finish('paused')。
+   * 下载任务是前端 FSA 流式写盘，由前端 abort 后通过 /download-status 回报 paused。
+   */
+  function pause(clientId, request) {
+    const task = tasks.get(request?.taskId);
+    assertOwner(task, clientId);
+    if (task.snapshot.status === 'committing') {
+      throw new TransferError('Transfer commit is in progress', 'commit-in-progress', false);
+    }
+    if (isTerminal(task.snapshot.status)) {
+      throw new TransferError('Transfer already finished', 'conflict', false);
+    }
+    if (task.snapshot.status === 'paused') return task.snapshot;
+    task.paused = true;
+    if (['queued', 'checking', 'waiting-conflict'].includes(task.snapshot.status)) {
+      return update(task, (snapshot) => {
+        snapshot.status = 'paused';
+        snapshot.conflict = undefined;
+      });
+    }
+    // 传输中：在途分片会在块边界停下，处理器会发 paused 快照。
+    return task.snapshot;
+  }
+
+  /** 继续已暂停的任务：上传从远端 checkpoint 续传；下载重置为 queued 由前端重新驱动。 */
+  async function resume(clientId, request) {
+    const task = tasks.get(request?.taskId);
+    assertOwner(task, clientId);
+    if (task.snapshot.status !== 'paused') {
+      throw new TransferError('Transfer is not paused', 'conflict', false);
+    }
+    task.paused = false;
+    task.canceled = false;
+
+    let resumeFrom = task.snapshot.transferredBytes || 0;
+    if (task.snapshot.direction === 'upload' && task.snapshot.remotePath) {
+      try {
+        const sftp = await getSftp(task.snapshot.connectionId, task.clientId);
+        const temporaryPath = temporaryRemotePath(task.snapshot.remotePath, task.snapshot.taskId);
+        const checkpoint = await readRemoteJson(sftp, checkpointRemotePath(temporaryPath));
+        const partSize = await remoteFileSize(sftp, temporaryPath);
+        if (checkpoint && checkpoint.taskId === task.snapshot.taskId) {
+          resumeFrom = Math.min(Number(checkpoint.confirmedOffset || 0), partSize);
+        }
+      } catch {
+        resumeFrom = task.snapshot.transferredBytes || 0;
+      }
+    }
+
+    return update(task, (snapshot) => {
+      snapshot.status = 'queued';
+      snapshot.sequence = 0;
+      snapshot.transferredBytes = resumeFrom;
+      snapshot.resumedFrom = resumeFrom;
+      snapshot.progress = snapshot.totalBytes
+        ? Math.min(99, Math.round((resumeFrom / snapshot.totalBytes) * 100))
+        : 0;
+      snapshot.error = undefined;
+      snapshot.conflict = undefined;
+      snapshot.completedAt = undefined;
+      snapshot.commitGuarantee = 'none';
+    });
+  }
+
+  /**
    * transferring/terminal 状态回报给服务端，否则任务会永远停在 queued，无法重试。
    *
    * 只接受 direction==='download'；回报必须携带当前 attempt，旧 attempt 的迟到回报
@@ -961,6 +1044,25 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
         task.snapshot.totalBytes = totalBytes;
       }
       return finish(task, 'completed', undefined, 'browser-managed');
+    }
+
+    if (status === 'paused') {
+      // 前端暂停下载：保留任务与本地 checkpoint，状态记为 paused（非终态），
+      // 之后 /resume 或重试会把它重置为 queued 重新驱动 FSA 续传。
+      if (!['queued', 'transferring', 'paused'].includes(task.snapshot.status)) {
+        return task.snapshot;
+      }
+      return update(task, (snapshot) => {
+        snapshot.status = 'paused';
+        if (Number.isFinite(transferredBytes) && transferredBytes >= 0) {
+          snapshot.transferredBytes = transferredBytes;
+        }
+        if (Number.isFinite(totalBytes) && totalBytes >= 0) {
+          snapshot.totalBytes = totalBytes;
+        }
+        snapshot.completedAt = undefined;
+        snapshot.error = undefined;
+      });
     }
 
     if (status === 'failed') {
@@ -1019,8 +1121,10 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
     cancel,
     discard,
     list,
+    pause,
     reportDownload,
     resolveConflict,
+    resume,
     retry,
     startDownload,
     startUpload,

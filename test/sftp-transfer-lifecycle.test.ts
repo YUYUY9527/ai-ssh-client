@@ -310,6 +310,53 @@ describe('sftp-transfer cancel semantics', () => {
   });
 });
 
+describe('sftp-transfer pause semantics', () => {
+  it('pauses an in-flight upload as paused keeping temp+checkpoint, then resumes from offset', async () => {
+    const remoteFiles = new Map<string, Buffer>();
+    const sftp = createSftp(remoteFiles);
+    const { service } = makeService(sftp);
+    const task = startOne(service, 'big.bin', 100);
+
+    const request: any = new Readable({ read() { /* 等待更多数据 */ } });
+    request.headers = { 'x-sftp-source-size': '100', 'x-sftp-upload-complete': '0' };
+    request.push(Buffer.alloc(10, 1));
+
+    const uploading = service.upload('client-a', task.taskId, request);
+    await vi.waitFor(() => {
+      expect(service.list('client-a').tasks[0].status).toBe('transferring');
+    }, { timeout: 3000, interval: 10 });
+
+    service.pause('client-a', { taskId: task.taskId });
+    // 再给一个分片，writePipelined 会在块边界检测到 paused 并以 canceled 错误退出，
+    // 上传处理器据此按「暂停」收尾（而非取消）。
+    request.push(Buffer.alloc(10, 2));
+    const settled = await uploading;
+    expect(settled.status).toBe('paused');
+
+    // 暂停必须保留远端 temp 与 checkpoint，否则无法续传。
+    const partial = temporaryRemotePath('/uploads/big.bin', task.taskId);
+    expect(remoteFiles.has(partial)).toBe(true);
+    expect(remoteFiles.has(checkpointRemotePath(partial))).toBe(true);
+
+    const resumed = await service.resume('client-a', { taskId: task.taskId });
+    expect(resumed.status).toBe('queued');
+    expect(resumed.resumedFrom).toBeGreaterThan(0);
+  });
+
+  it('pauses a queued upload directly to paused and rejects resume when not paused', async () => {
+    const remoteFiles = new Map<string, Buffer>();
+    const sftp = createSftp(remoteFiles);
+    const { service } = makeService(sftp);
+    const task = startOne(service, 'queued.bin', 100);
+
+    const paused = service.pause('client-a', { taskId: task.taskId });
+    expect(paused.status).toBe('paused');
+    expect(paused.completedAt).toBeUndefined();
+
+    await expect(service.resume('client-a', { taskId: 'missing' })).rejects.toBeTruthy();
+  });
+});
+
 describe('sftp-transfer upload watchdog', () => {
   it('fails a stalled upload with upload-stalled after the idle timeout', async () => {
     vi.useFakeTimers();

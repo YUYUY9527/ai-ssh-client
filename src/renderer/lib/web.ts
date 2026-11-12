@@ -85,6 +85,9 @@ const webSftpTaskSources = new Map<string, string>();
 const downloadAbortControllers = new Map<string, AbortController>();
 /** 在途上传请求的 AbortController：取消时立即掐断当前分片，不再白传剩余字节。 */
 const uploadAbortControllers = new Map<string, AbortController>();
+/** 用户点了“暂停”的任务：abort 后按 paused 收尾、保留 checkpoint，而不是按取消。 */
+const uploadPauseRequests = new Set<string>();
+const downloadPauseRequests = new Set<string>();
 
 /** FSA 流式下载的上下文：重试时据此重新发起 streamWebDownload。 */
 interface WebDownloadContext {
@@ -283,8 +286,26 @@ function publishUploadCanceled(
   });
 }
 
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** 发布上传暂停快照：非终态，保留已传字节，UI 显示“已暂停”并可继续。 */
+function publishUploadPaused(
+  baselinetask: SftpTransferTaskSnapshot | undefined,
+  transferredBytes?: number,
+): SftpTransferTaskSnapshot | undefined {
+  if (!baselinetask) return undefined;
+  const snapshot: SftpTransferTaskSnapshot = {
+    ...baselinetask,
+    status: 'paused',
+    transferredBytes: transferredBytes ?? baselinetask.transferredBytes,
+    error: undefined,
+    sequence: baselinetask.sequence + 1,
+    updatedAt: Date.now(),
+    completedAt: undefined,
+  };
+  publishTaskSnapshot(snapshot);
+  return snapshot;
+}
+
+function sleepMs(ms: number): Promise<void> {  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** 指数退避：第 1/2/3 次重试分别等 1s/2s/4s。 */
@@ -485,6 +506,12 @@ async function streamSftpUpload(
       retryCount += 1;
       await sleepMs(retryDelayMs);
       if (controller.signal.aborted) {
+        if (uploadPauseRequests.has(taskId)) {
+          const paused = publishUploadPaused(latestTask || baselinetask, offset);
+          return paused
+            ? { success: true, data: { task: paused } }
+            : makeError('Upload paused', 'canceled');
+        }
         publishUploadCanceled(latestTask || baselinetask, offset);
         return makeError('Upload canceled', 'canceled');
       }
@@ -530,6 +557,13 @@ async function streamSftpUpload(
     }
   } catch (error) {
     if (controller.signal.aborted) {
+      // 用户暂停：保留服务端 temp/checkpoint，发布 paused（非终态），之后可继续。
+      if (uploadPauseRequests.has(taskId)) {
+        const paused = publishUploadPaused(latestTask || baselinetask, offset);
+        return paused
+          ? { success: true, data: { task: paused } }
+          : makeError('Upload paused', 'canceled');
+      }
       // 用户取消：发布 canceled 而非 failed，与服务端取消快照语义一致。
       publishUploadCanceled(latestTask || baselinetask, offset);
       return makeError('Upload canceled', 'canceled');
@@ -539,6 +573,7 @@ async function streamSftpUpload(
     return makeError(message);
   } finally {
     uploadAbortControllers.delete(taskId);
+    uploadPauseRequests.delete(taskId);
   }
 }
 
@@ -618,7 +653,7 @@ async function reportWebSftpDownloadStatus(
   taskId: string,
   update: {
     attempt: number;
-    status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped';
+    status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped' | 'paused';
     transferredBytes?: number;
     totalBytes?: number;
     error?: { code?: string; message?: string; retryable?: boolean };
@@ -738,7 +773,7 @@ async function streamWebDownload(
   let retryCount = 0;
   const policy = task.conflictPolicy || 'ask';
   const report = (
-    status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped',
+    status: 'transferring' | 'completed' | 'failed' | 'canceled' | 'skipped' | 'paused',
     extra: {
       transferredBytes?: number;
       totalBytes?: number;
@@ -756,6 +791,14 @@ async function streamWebDownload(
       completedAt: Date.now(),
     });
     report('canceled', {
+      transferredBytes: transferred,
+      totalBytes: metaInfo?.size || task.totalBytes,
+    });
+  };
+  const pushPaused = () => {
+    // 用户暂停：保留本地 .part 与 checkpoint，状态记为 paused（非终态），继续时可续传。
+    push({ status: 'paused', error: undefined, completedAt: undefined });
+    report('paused', {
       transferredBytes: transferred,
       totalBytes: metaInfo?.size || task.totalBytes,
     });
@@ -948,6 +991,10 @@ async function streamWebDownload(
         }
         const message = error instanceof Error ? error.message : String(error);
         if (canceled) {
+          if (downloadPauseRequests.has(task.taskId)) {
+            pushPaused();
+            return;
+          }
           pushCanceled();
           return;
         }
@@ -955,6 +1002,10 @@ async function streamWebDownload(
           retryCount += 1;
           await sleepMs(transferRetryDelayMs(retryCount - 1));
           if (controller.signal.aborted) {
+            if (downloadPauseRequests.has(task.taskId)) {
+              pushPaused();
+              return;
+            }
             pushCanceled();
             return;
           }
@@ -983,6 +1034,7 @@ async function streamWebDownload(
     }
   } finally {
     downloadAbortControllers.delete(task.taskId);
+    downloadPauseRequests.delete(task.taskId);
   }
 }
 
@@ -1871,6 +1923,8 @@ const webApi: Window['electronAPI'] = {
   cancelSftpTransfer: async (request: SftpTransferTaskRequest) => {
     webUploadQueue.remove(request.taskId);
     webDownloadQueue.remove(request.taskId);
+    uploadPauseRequests.delete(request.taskId);
+    downloadPauseRequests.delete(request.taskId);
     // 取消时立即掐断在途上传分片，不再白传当前 32MiB 的剩余字节。
     uploadAbortControllers.get(request.taskId)?.abort();
     // 取消时让仍在等冲突裁决的下载立即以 AbortError 退出。
@@ -1914,6 +1968,56 @@ const webApi: Window['electronAPI'] = {
           ...retried,
           downloadUrl: ctx.downloadUrl,
           conflictPolicy: ctx.conflictPolicy ?? retried.conflictPolicy,
+        }, ctx.dirHandle),
+      });
+    }
+    return result;
+  },
+  pauseSftpTransfer: async (request: SftpTransferTaskRequest) => {
+    const taskId = request.taskId;
+    // 先让服务端把任务标记为 paused（保留远端 temp/checkpoint），再掐断本地在途请求，
+    // 这样上传处理器会把中断按“暂停”收尾而不是“取消”。
+    const result = await sftpRequest<SftpTransferTaskSnapshot>(
+      `/api/sftp/transfers/${encodeURIComponent(taskId)}/pause`,
+      { method: 'POST', body: '{}' },
+    );
+    if (!result.success) return result;
+    if (result.data.direction === 'upload') {
+      uploadPauseRequests.add(taskId);
+      uploadAbortControllers.get(taskId)?.abort();
+    } else {
+      downloadPauseRequests.add(taskId);
+      webDownloadConflictResolvers.get(taskId)?.reject(new DOMException('Aborted', 'AbortError'));
+      downloadAbortControllers.get(taskId)?.abort();
+    }
+    return result;
+  },
+  resumeSftpTransfer: async (request: SftpTransferTaskRequest) => {
+    const taskId = request.taskId;
+    const result = await sftpRequest<SftpTransferTaskSnapshot>(
+      `/api/sftp/transfers/${encodeURIComponent(taskId)}/resume`,
+      { method: 'POST', body: '{}' },
+    );
+    if (!result.success) return result;
+    const resumed = result.data;
+    if (resumed.direction === 'upload') {
+      uploadPauseRequests.delete(taskId);
+      enqueueWebUpload(taskId, resumed.resumedFrom || 0, resumed);
+    } else {
+      downloadPauseRequests.delete(taskId);
+      const ctx = webSftpDownloadContexts.get(taskId);
+      if (!ctx) {
+        return makeError<SftpTransferTaskSnapshot>(
+          'Download cannot be resumed: the local destination is no longer available',
+          'not-found',
+        );
+      }
+      webDownloadQueue.enqueue({
+        key: taskId,
+        run: () => streamWebDownload({
+          ...resumed,
+          downloadUrl: ctx.downloadUrl,
+          conflictPolicy: ctx.conflictPolicy ?? resumed.conflictPolicy,
         }, ctx.dirHandle),
       });
     }

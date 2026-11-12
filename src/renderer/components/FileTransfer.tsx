@@ -1049,7 +1049,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   };
 
   const handleTaskAction = async (
-    action: 'cancel' | 'retry' | 'discard' | 'remove',
+    action: 'cancel' | 'retry' | 'discard' | 'remove' | 'pause' | 'resume',
     taskId: string,
   ) => {
     if (action === 'remove') {
@@ -1060,12 +1060,26 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
       ? transferController.cancel
       : action === 'retry'
         ? transferController.retry
-        : transferController.discard;
+        : action === 'pause'
+          ? transferController.pause
+          : action === 'resume'
+            ? transferController.resume
+            : transferController.discard;
     const errorMessage = await runner(taskId);
     if (errorMessage) setActionError(errorMessage);
     if (action === 'discard') {
       removeTransferTask(taskId);
     }
+  };
+
+  const handlePauseAll = async () => {
+    const errorMessage = await transferController.pauseAll();
+    if (errorMessage) setActionError(errorMessage);
+  };
+
+  const handleResumeAll = async () => {
+    const errorMessage = await transferController.resumeAll();
+    if (errorMessage) setActionError(errorMessage);
   };
 
   const handleResolveConflict = async (
@@ -1569,6 +1583,10 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
             tasks={visibleTransferTasks}
             onCancelTask={(taskId) => void handleTaskAction('cancel', taskId)}
             onRetryTask={(taskId) => void handleTaskAction('retry', taskId)}
+            onPauseTask={(taskId) => void handleTaskAction('pause', taskId)}
+            onResumeTask={(taskId) => void handleTaskAction('resume', taskId)}
+            onPauseAll={() => void handlePauseAll()}
+            onResumeAll={() => void handleResumeAll()}
             onDiscardTask={(taskId) => void handleTaskAction('discard', taskId)}
             onRemoveTask={(taskId) => void handleTaskAction('remove', taskId)}
             onResolveConflict={(taskId, policy, renamedPath, applyToBatch) => {

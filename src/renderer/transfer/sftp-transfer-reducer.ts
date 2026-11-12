@@ -35,6 +35,19 @@ export function canRetrySftpTransfer(task: SftpTransferTaskSnapshot): boolean {
   return task.status === 'failed' || task.status === 'interrupted' || task.status === 'canceled';
 }
 
+/** 判断任务当前是否可暂停（在途/排队，且非暂停/提交/取消中）。 */
+export function canPauseSftpTransfer(task: SftpTransferTaskSnapshot): boolean {
+  return task.status === 'queued'
+    || task.status === 'checking'
+    || task.status === 'transferring'
+    || task.status === 'waiting-conflict';
+}
+
+/** 判断任务是否为已暂停、可继续。 */
+export function canResumeSftpTransfer(task: SftpTransferTaskSnapshot): boolean {
+  return task.status === 'paused';
+}
+
 /** 比较事件与当前快照的新旧关系。 */
 function compareEventVersion(
   current: SftpTransferTaskSnapshot,

@@ -143,6 +143,10 @@ declare global {
       startSftpDownload: (request: SftpStartDownloadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
       resolveSftpConflict: (request: SftpResolveConflictRequest) => Promise<IPCResult>;
       cancelSftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult>;
+      /** 暂停任务（保留断点，可继续）。Web 优先；桌面端未实现时按钮隐藏。 */
+      pauseSftpTransfer?: (request: SftpTransferTaskRequest) => Promise<IPCResult<SftpTransferTaskSnapshot>>;
+      /** 继续已暂停任务（从断点续传）。Web 优先；桌面端未实现时按钮隐藏。 */
+      resumeSftpTransfer?: (request: SftpTransferTaskRequest) => Promise<IPCResult<SftpTransferTaskSnapshot>>;
       retrySftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult<SftpTransferTaskSnapshot>>;
       discardSftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult>;
       listSftpTransfers: (connectionId?: string) => Promise<IPCResult<SftpListTransfersResult>>;

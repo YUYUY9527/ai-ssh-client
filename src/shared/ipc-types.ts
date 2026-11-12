@@ -263,6 +263,7 @@ export type SftpTransferStatus =
   | 'transferring'
   | 'canceling'
   | 'committing'
+  | 'paused'
   | 'completed'
   | 'skipped'
   | 'canceled'
@@ -313,6 +314,8 @@ export interface SftpTransferTaskSnapshot {
   /** 非致命提示（例如 HTTP 页面下浏览器可能拦截该下载），仅用于 UI 展示。 */
   notice?: string;
   commitGuarantee: SftpCommitGuarantee;
+  /** 上传提交后是否保留源文件 mtime（Web 端默认 true；权限位浏览器无法提供，跳过）。 */
+  preserveTimestamps?: boolean;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -372,6 +375,8 @@ export interface SftpStartUploadRequest {
   files: SftpLocalFileRef[];
   remoteDirectory: string;
   conflictPolicy?: SftpConflictPolicy;
+  /** 上传完成后保留源文件修改时间（mtime）。默认 true；Web 端无文件权限位，权限不迁移。 */
+  preserveTimestamps?: boolean;
 }
 
 export interface SftpStartDownloadRequest {

@@ -6,6 +6,8 @@ import {
   Download,
   Gauge,
   Loader2,
+  Pause,
+  Play,
   RotateCcw,
   Trash2,
   Upload,
@@ -15,6 +17,8 @@ import {
 import type { SftpConflictPolicy } from '../../shared/ipc-types';
 import type { SftpTransferTask } from '../store/useSftpTransferStore';
 import {
+  canPauseSftpTransfer,
+  canResumeSftpTransfer,
   isSftpTransferActive,
   isSftpTransferTerminal,
 } from './sftp-transfer-reducer';
@@ -32,6 +36,10 @@ interface TransferTaskListProps {
     applyToBatch?: boolean,
   ) => void;
   onRetryTask: (taskId: string) => void;
+  onPauseTask: (taskId: string) => void;
+  onResumeTask: (taskId: string) => void;
+  onPauseAll: () => void;
+  onResumeAll: () => void;
   resolvingConflictTaskId?: string | null;
   tasks: SftpTransferTask[];
   translate: (key: string, params?: Record<string, string | number>) => string;
@@ -52,6 +60,7 @@ function getStatusKey(task: SftpTransferTask): string {
   if (task.status === 'handed-off') return 'handedOff';
   if (task.status === 'canceled') return 'canceled';
   if (task.status === 'failed' || task.status === 'interrupted') return 'error';
+  if (task.status === 'paused') return 'paused';
   if (task.status === 'canceling') return 'canceling';
   if (task.status === 'committing') return 'committing';
   if (task.status === 'waiting-conflict') return 'waitingConflict';
@@ -66,12 +75,18 @@ export function TransferTaskList({
   onRemoveTask,
   onResolveConflict,
   onRetryTask,
+  onPauseTask,
+  onResumeTask,
+  onPauseAll,
+  onResumeAll,
   resolvingConflictTaskId,
   tasks,
   translate,
 }: TransferTaskListProps) {
   const [applyToBatch, setApplyToBatch] = useState(false);
   const speeds = useTransferSpeeds(tasks);
+  const canPauseAll = tasks.some((task) => canPauseSftpTransfer(task));
+  const canResumeAll = tasks.some((task) => canResumeSftpTransfer(task));
   if (tasks.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-fg-muted">
@@ -83,10 +98,36 @@ export function TransferTaskList({
 
   return (
     <div className="file-transfer-scroll h-full w-full min-w-0 overflow-y-auto overflow-x-hidden bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
-      <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-3">
+      <div className="flex items-center justify-between gap-2 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-3">
         <h3 className="text-sm font-semibold text-fg dark:text-white">
           {translate('fileTransfer.transferTasks')}
         </h3>
+        {(canPauseAll || canResumeAll) && (
+          <div className="flex shrink-0 items-center gap-1">
+            {canResumeAll && (
+              <button
+                type="button"
+                onClick={onResumeAll}
+                className="industrial-button-secondary inline-flex items-center gap-1 px-2 py-1 text-xs"
+                title={translate('fileTransfer.resumeAll')}
+              >
+                <Play className="h-3 w-3" />
+                {translate('fileTransfer.resumeAll')}
+              </button>
+            )}
+            {canPauseAll && (
+              <button
+                type="button"
+                onClick={onPauseAll}
+                className="industrial-button-secondary inline-flex items-center gap-1 px-2 py-1 text-xs"
+                title={translate('fileTransfer.pauseAll')}
+              >
+                <Pause className="h-3 w-3" />
+                {translate('fileTransfer.pauseAll')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-2 p-3">
         {tasks.map((task) => {
@@ -99,6 +140,8 @@ export function TransferTaskList({
             || task.status === 'interrupted'
             || task.status === 'canceled'
             || task.status === 'skipped';
+          const canPause = canPauseSftpTransfer(task);
+          const canResume = canResumeSftpTransfer(task);
           const canRemove = isSftpTransferTerminal(task.status);
           const statusTone = task.status === 'completed' || task.status === 'handed-off'
             ? 'border-success bg-success-muted text-success dark:text-success-fg'
@@ -106,6 +149,8 @@ export function TransferTaskList({
             ? 'border-danger bg-danger-muted text-danger dark:text-danger-fg'
             : task.status === 'transferring' || task.status === 'committing'
             ? 'border-[color-mix(in_srgb,var(--accent-primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-accent'
+            : task.status === 'paused'
+            ? 'border-line-strong bg-surface-raised text-fg-secondary'
             : 'border-warning bg-warning-muted text-warning dark:text-warning-fg';
           const progressTone = task.status === 'completed' || task.status === 'handed-off'
             ? 'bg-success'
@@ -113,6 +158,8 @@ export function TransferTaskList({
             ? 'bg-danger'
             : task.status === 'queued' || task.status === 'checking' || task.status === 'waiting-conflict'
             ? 'bg-warning'
+            : task.status === 'paused'
+            ? 'bg-[var(--text-muted)]'
             : 'bg-[var(--accent-primary)]';
           const statusKey = getStatusKey(task);
 
@@ -130,6 +177,26 @@ export function TransferTaskList({
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
+                  {canPause && (
+                    <button
+                      type="button"
+                      onClick={() => onPauseTask(task.taskId)}
+                      className="icon-button h-6 w-6"
+                      title={translate('fileTransfer.pauseTask')}
+                    >
+                      <Pause className="h-3 w-3" />
+                    </button>
+                  )}
+                  {canResume && (
+                    <button
+                      type="button"
+                      onClick={() => onResumeTask(task.taskId)}
+                      className="icon-button h-6 w-6"
+                      title={translate('fileTransfer.resumeTask')}
+                    >
+                      <Play className="h-3 w-3" />
+                    </button>
+                  )}
                   {canCancel && (
                     <button
                       type="button"
@@ -181,10 +248,12 @@ export function TransferTaskList({
                     && task.status !== 'queued'
                     && task.status !== 'checking'
                     && task.status !== 'waiting-conflict'
+                    && task.status !== 'paused'
                     && <Loader2 className="h-3 w-3 animate-spin" />}
                   {(task.status === 'queued' || task.status === 'checking' || task.status === 'waiting-conflict') && (
                     <Clock3 className="h-3 w-3" />
                   )}
+                  {task.status === 'paused' && <Pause className="h-3 w-3" />}
                   {translate(`fileTransfer.taskStatus.${statusKey}`)}
                   {task.attempt > 1 ? ` #${task.attempt}` : ''}
                 </span>

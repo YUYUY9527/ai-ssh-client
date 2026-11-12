@@ -1975,6 +1975,16 @@ app.post('/api/sftp/transfers/:taskId/retry', route(async (request) => {
   return success(await sftpTransfers.retry(clientId, { taskId: request.params.taskId }));
 }));
 
+app.post('/api/sftp/transfers/:taskId/pause', route((request) => {
+  const clientId = requireClientId(request);
+  return success(sftpTransfers.pause(clientId, { taskId: request.params.taskId }));
+}));
+
+app.post('/api/sftp/transfers/:taskId/resume', route(async (request) => {
+  const clientId = requireClientId(request);
+  return success(await sftpTransfers.resume(clientId, { taskId: request.params.taskId }));
+}));
+
 // 浏览器 FSA 流式下载把进度/终态回报给服务端，供重试与列表状态保持一致。
 app.put('/api/sftp/transfers/:taskId/download-status', route((request) => {
   const clientId = requireClientId(request);
