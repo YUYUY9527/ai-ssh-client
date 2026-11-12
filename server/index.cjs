@@ -1085,6 +1085,7 @@ function connectSsh(connection, cols, rows, settings = defaultSettings, clientId
 
             session.stream = stream;
             session.ready = true;
+            session.connectedAt = Date.now();
             // 握手期缓存的 resize（连接未 ready 时前端已发出真实尺寸）：
             // shell 建立后立即应用，避免 PTY 卡在 connect 请求的初始 200x50，
             // top/vim 按错误行列绘制（折行、头部挤出可视区）。
@@ -1614,8 +1615,20 @@ app.get('/api/ssh/:id/output-buffer', route((request) => {
 // 服务器监控仪表盘：独立 exec 通道采集 /proc + df，不干扰交互 shell 与 Agent 执行。
 app.get('/api/ssh/:id/monitor', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
+  // 先跑一次极轻量命令测一次往返延迟（失败不影响主采集）。
+  let latencyMs;
+  try {
+    const startedAt = Date.now();
+    await execCommand(session.client, 'true', { timeoutMs: 3000 });
+    latencyMs = Date.now() - startedAt;
+  } catch {
+    latencyMs = undefined;
+  }
   const { output } = await execCommand(session.client, buildMonitorCommand(), { timeoutMs: 8000 });
-  return success(parseMonitorOutput(output));
+  const metrics = parseMonitorOutput(output);
+  if (latencyMs !== undefined) metrics.latencyMs = latencyMs;
+  if (session.connectedAt) metrics.sessionConnectedMs = Date.now() - session.connectedAt;
+  return success(metrics);
 }));
 
 app.get('/api/ssh/sessions', route((request) => success({

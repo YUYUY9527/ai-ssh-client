@@ -146,14 +146,46 @@ export interface ConnectionGroupsResult<T = any> {
 /** 服务器监控指标（SSH 采集 /proc + df 解析所得）。 */
 export interface ServerMonitorMetrics {
   cpuPercent: number;
-  memory: { totalKb: number; availableKb: number; usedKb: number; percent: number };
+  /** 各逻辑核的瞬时使用率（顺序对应 cpu0..cpuN）。旧版服务端可能不返回。 */
+  cpuCores?: number[];
+  /** CPU 逻辑核数量。 */
+  coreCount?: number;
+  /** CPU 型号。 */
+  cpuModel?: string;
+  memory: {
+    totalKb: number;
+    availableKb: number;
+    usedKb: number;
+    freeKb?: number;
+    buffersKb?: number;
+    cachedKb?: number;
+    percent: number;
+    swapTotalKb?: number;
+    swapFreeKb?: number;
+    swapUsedKb?: number;
+    swapPercent?: number;
+  };
   load: { load1: number; load5: number; load15: number };
   uptimeSeconds: number;
   disk: { totalKb: number; usedKb: number; availableKb: number; percent: number };
+  /** 各挂载点磁盘占用。旧版服务端可能不返回。 */
+  disks?: Array<{ mount: string; totalKb: number; usedKb: number; availableKb: number; percent: number }>;
   /** 磁盘 I/O 速率。旧版服务端可能不返回，前端需容错。 */
   diskIo?: { readBytesPerSec: number; writeBytesPerSec: number };
+  /** 各网卡实时上下行速率。旧版服务端可能不返回。 */
+  network?: Array<{ name: string; rxBytesPerSec: number; txBytesPerSec: number }>;
+  /** 进程数（running / 总）。 */
+  processes?: { running: number; total: number };
+  /** 当前登录用户数。 */
+  loggedInUsers?: number;
   hostname: string;
   os: string;
+  kernel?: string;
+  arch?: string;
+  /** 采集往返延迟（毫秒，客户端→目标机 exec 往返）。服务端可选返回。 */
+  latencyMs?: number;
+  /** 当前 SSH 会话已连接时长（毫秒）。服务端可选返回。 */
+  sessionConnectedMs?: number;
 }
 
 export type SftpSearchMode = 'name' | 'content';
