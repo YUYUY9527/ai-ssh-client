@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Container, Loader2, Play, RotateCcw, ScrollText, Square, TerminalSquare, X } from 'lucide-react';
+import { Activity, Box, Container, Layers3, Loader2, Play, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, X } from 'lucide-react';
 import type { DockerContainerDetail, DockerContainerSummary } from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
 import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
@@ -13,6 +13,7 @@ interface DockerPanelProps {
 }
 
 type ActionKind = 'start' | 'stop' | 'restart';
+type ContainerFilter = 'all' | 'running' | 'stopped';
 
 /** 容器管理弹窗：列表 + 详情 + 启停/重启 + 日志 + 进入容器 shell。 */
 export function DockerPanel({ connectionId, translate, onClose }: DockerPanelProps) {
@@ -30,6 +31,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const logPreRef = useRef<HTMLPreElement | null>(null);
   const [execTarget, setExecTarget] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [containerFilter, setContainerFilter] = useState<ContainerFilter>('all');
 
   const refresh = useCallback(async () => {
     const api = window.electronAPI?.listDockerContainers;
@@ -154,83 +156,146 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
       .join('\n');
   }, [logs, logSearch]);
 
+  const runningCount = useMemo(() => containers.filter((item) => item.state === 'running').length, [containers]);
+  const stoppedCount = containers.length - runningCount;
+
   const filtered = useMemo(() => {
     const keyword = filter.trim().toLowerCase();
-    if (!keyword) return containers;
-    return containers.filter((item) =>
-      item.name.toLowerCase().includes(keyword)
-      || item.image.toLowerCase().includes(keyword)
-      || item.state.toLowerCase().includes(keyword));
-  }, [containers, filter]);
+    return containers.filter((item) => {
+      const matchesFilter = containerFilter === 'all'
+        || (containerFilter === 'running' ? item.state === 'running' : item.state !== 'running');
+      const matchesSearch = !keyword
+        || item.name.toLowerCase().includes(keyword)
+        || item.image.toLowerCase().includes(keyword)
+        || item.state.toLowerCase().includes(keyword);
+      return matchesFilter && matchesSearch;
+    });
+  }, [containers, filter, containerFilter]);
 
   return createPortal(
     <div className="fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4">
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="industrial-modal relative my-auto flex h-[84vh] w-full max-w-6xl flex-col overflow-hidden">
-        <div className="industrial-modal-header shrink-0">
-          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold text-fg">
-            <Container className="h-4 w-4 text-accent" />
-            {translate('terminal.docker.title')}
-            {version ? <span className="text-xs font-normal text-fg-muted">v{version}</span> : null}
+      <div className="industrial-modal relative my-auto flex h-[88vh] w-full max-w-6xl flex-col overflow-hidden">
+        <div className="docker-panel-header shrink-0">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="docker-brand-mark"><Container className="h-5 w-5" /></div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h2 className="text-base font-semibold text-fg">{translate('terminal.docker.title')}</h2>
+                {version ? <span className="docker-version">Docker {version}</span> : null}
+              </div>
+              <p className="mt-0.5 text-xs text-fg-muted">{translate('terminal.docker.subtitle')}</p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              className="industrial-input w-48"
-              placeholder={translate('terminal.docker.filterPlaceholder')}
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-            />
-            <button type="button" className="toolbar-button" onClick={() => { void refresh(); }}>
-              {translate('terminal.docker.refresh')}
+          <div className="docker-panel-tools flex items-center gap-2">
+            <label className="docker-search">
+              <Search className="h-4 w-4 shrink-0 text-fg-muted" />
+              <input
+                aria-label={translate('terminal.docker.filterPlaceholder')}
+                placeholder={translate('terminal.docker.filterPlaceholder')}
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+              />
+              {filter ? (
+                <button type="button" className="docker-search-clear" onClick={() => setFilter('')} title={translate('terminal.docker.clearSearch')}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </label>
+            <button type="button" className="icon-button" onClick={() => { void refresh(); }} title={translate('terminal.docker.refresh')} aria-label={translate('terminal.docker.refresh')}>
+              <RefreshCw className={`h-4 w-4 ${available === null ? 'animate-spin' : ''}`} />
             </button>
-            <button type="button" className="icon-button" onClick={onClose} title={translate('terminal.docker.close')}>
+            <button type="button" className="icon-button" onClick={onClose} title={translate('terminal.docker.close')} aria-label={translate('terminal.docker.close')}>
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
         {available === false ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-fg-muted">
-            <span>{error || translate('terminal.docker.unavailable')}</span>
-            <span className="text-xs">{translate('terminal.docker.unavailableHint')}</span>
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <div className="docker-unavailable-icon"><Container className="h-6 w-6" /></div>
+            <div className="max-w-md">
+              <div className="text-sm font-semibold text-fg">{translate('terminal.docker.unavailable')}</div>
+              {error ? <p className="mt-1 text-xs leading-5 text-danger">{error}</p> : null}
+              <p className="mt-1 text-xs leading-5 text-fg-muted">{translate('terminal.docker.unavailableHint')}</p>
+            </div>
+            <button type="button" className="toolbar-button" onClick={() => { void refresh(); }}>
+              <RefreshCw className="h-3.5 w-3.5" />{translate('terminal.docker.retry')}
+            </button>
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead className="sticky top-0 bg-surface text-xs uppercase text-fg-muted">
-                <tr>
-                  <th className="px-3 py-2 font-medium">{translate('terminal.docker.name')}</th>
-                  <th className="px-3 py-2 font-medium">{translate('terminal.docker.image')}</th>
-                  <th className="px-3 py-2 font-medium">{translate('terminal.docker.state')}</th>
-                  <th className="px-3 py-2 font-medium">{translate('terminal.docker.ports')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{translate('terminal.docker.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <div className="docker-panel-content">
+              <div className="docker-overview">
+                <button type="button" aria-pressed={containerFilter === 'all'} className={`docker-stat-tile ${containerFilter === 'all' ? 'is-active' : ''}`} onClick={() => setContainerFilter('all')}>
+                  <span className="docker-stat-icon"><Layers3 className="h-4 w-4" /></span>
+                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.total')}</span><span className="docker-stat-value">{containers.length}</span></span>
+                </button>
+                <button type="button" aria-pressed={containerFilter === 'running'} className={`docker-stat-tile is-running ${containerFilter === 'running' ? 'is-active' : ''}`} onClick={() => setContainerFilter('running')}>
+                  <span className="docker-stat-icon"><Activity className="h-4 w-4" /></span>
+                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.running')}</span><span className="docker-stat-value">{runningCount}</span></span>
+                </button>
+                <button type="button" aria-pressed={containerFilter === 'stopped'} className={`docker-stat-tile is-stopped ${containerFilter === 'stopped' ? 'is-active' : ''}`} onClick={() => setContainerFilter('stopped')}>
+                  <span className="docker-stat-icon"><Box className="h-4 w-4" /></span>
+                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.stopped')}</span><span className="docker-stat-value">{stoppedCount}</span></span>
+                </button>
+              </div>
+
+              <div className="docker-list-heading">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h3 className="truncate text-sm font-semibold text-fg">{translate('terminal.docker.instances')}</h3>
+                  <span className="docker-count">{filtered.length} / {containers.length}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+                  <span className="docker-live-dot" />{translate('terminal.docker.liveStatus')}
+                </div>
+              </div>
+
+              <div className="docker-container-list">
+                <div className="docker-container-labels">
+                  <span>{translate('terminal.docker.name')}</span>
+                  <span>{translate('terminal.docker.image')}</span>
+                  <span>{translate('terminal.docker.ports')}</span>
+                  <span>{translate('terminal.docker.state')}</span>
+                  <span className="text-right">{translate('terminal.docker.actions')}</span>
+                </div>
                 {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-fg-muted">
-                      {available === null ? translate('terminal.docker.loading') : translate('terminal.docker.empty')}
-                    </td>
-                  </tr>
+                  <div className="docker-empty-state">
+                    {available === null ? (
+                      <><Loader2 className="h-5 w-5 animate-spin text-accent" /><span>{translate('terminal.docker.loading')}</span></>
+                    ) : (
+                      <><Box className="h-5 w-5" /><span>{filter || containerFilter !== 'all' ? translate('terminal.docker.noMatches') : translate('terminal.docker.empty')}</span></>
+                    )}
+                  </div>
                 ) : filtered.map((container) => (
-                  <tr key={container.id} className="border-t border-line hover:bg-surface-hover">
-                    <td className="max-w-[16rem] truncate px-3 py-1.5 text-fg" title={container.name}>
-                      <button type="button" className="hover:text-accent" onClick={() => { void openDetail(container); }}>
-                        {container.name}
-                      </button>
-                    </td>
-                    <td className="max-w-[16rem] truncate px-3 py-1.5 text-fg-secondary" title={container.image}>{container.image}</td>
-                    <td className="px-3 py-1.5">
-                      <span className={container.state === 'running' ? 'text-success' : 'text-fg-muted'}>{container.status || container.state}</span>
-                    </td>
-                    <td className="max-w-[16rem] truncate px-3 py-1.5 text-xs text-fg-muted" title={container.ports}>{container.ports}</td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right">
+                  <div key={container.id} className="docker-container-row">
+                    <div className="docker-identity">
+                      <span className="docker-container-icon"><Container className="h-4 w-4" /></span>
+                      <div className="min-w-0">
+                        <button type="button" className="docker-container-name" onClick={() => { void openDetail(container); }} title={container.name}>
+                          {container.name}
+                        </button>
+                        <div className="docker-container-id">{container.id.slice(0, 12)}</div>
+                      </div>
+                    </div>
+                    <div className="docker-image-cell" title={container.image}>{container.image}</div>
+                    <div className="docker-ports-cell" title={container.ports || translate('terminal.docker.noPorts')}>
+                      <span className="docker-mobile-label">{translate('terminal.docker.ports')}</span>
+                      <span className={container.ports ? '' : 'text-fg-subtle'}>{container.ports || translate('terminal.docker.noPorts')}</span>
+                    </div>
+                    <div className="docker-status-cell">
+                      <span className={`docker-status ${container.state === 'running' ? 'is-running' : 'is-stopped'}`}>
+                        <span className="docker-status-dot" />{container.state}
+                      </span>
+                      <span className="docker-runtime">{container.runningFor || container.status}</span>
+                    </div>
+                    <div className="docker-actions">
                       <button
                         type="button"
-                        className="terminal-control"
+                        className="docker-action-button is-start"
                         disabled={busyId === container.id || container.state === 'running'}
                         title={translate('terminal.docker.start')}
+                        aria-label={translate('terminal.docker.start')}
                         onClick={() => setPendingAction({ container, action: 'start' })}
                       >
                         {busyId === container.id && busyAction === 'start' ? (
@@ -241,9 +306,10 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                       </button>
                       <button
                         type="button"
-                        className="terminal-control"
+                        className="docker-action-button is-stop"
                         disabled={busyId === container.id || container.state !== 'running'}
                         title={translate('terminal.docker.stop')}
+                        aria-label={translate('terminal.docker.stop')}
                         onClick={() => setPendingAction({ container, action: 'stop' })}
                       >
                         {busyId === container.id && busyAction === 'stop' ? (
@@ -254,9 +320,10 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                       </button>
                       <button
                         type="button"
-                        className="terminal-control"
+                        className="docker-action-button is-restart"
                         disabled={busyId === container.id}
                         title={translate('terminal.docker.restart')}
+                        aria-label={translate('terminal.docker.restart')}
                         onClick={() => setPendingAction({ container, action: 'restart' })}
                       >
                         {busyId === container.id && busyAction === 'restart' ? (
@@ -265,27 +332,28 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                           <RotateCcw className="h-3.5 w-3.5" />
                         )}
                       </button>
-                      <button type="button" className="terminal-control" title={translate('terminal.docker.logs')} onClick={() => { void openLogs(container); }}>
+                      <button type="button" className="docker-action-button is-logs" title={translate('terminal.docker.logs')} aria-label={translate('terminal.docker.logs')} onClick={() => { void openLogs(container); }}>
                         <ScrollText className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
-                        className="terminal-control"
+                        className="docker-action-button is-exec"
                         disabled={container.state !== 'running'}
                         title={translate('terminal.docker.exec')}
+                        aria-label={translate('terminal.docker.exec')}
                         onClick={() => setExecTarget(container.id)}
                       >
                         <TerminalSquare className="h-3.5 w-3.5" />
                       </button>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         )}
 
-        {error ? <div className="border-t border-danger-muted bg-danger-muted px-4 py-1.5 text-xs text-danger">{error}</div> : null}
+        {error && available !== false ? <div className="border-t border-danger-muted bg-danger-muted px-4 py-1.5 text-xs text-danger">{error}</div> : null}
       </div>
 
       {detail ? (

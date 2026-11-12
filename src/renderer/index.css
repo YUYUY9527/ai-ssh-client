@@ -1243,6 +1243,303 @@
     border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
   }
 
+  .docker-panel-header {
+    @apply flex items-center justify-between gap-4 border-b px-5 py-4;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 48%),
+      color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .docker-brand-mark {
+    @apply flex h-10 w-10 shrink-0 items-center justify-center border text-accent;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--accent-primary) 13%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--accent-primary) 36%, var(--border-color));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent);
+  }
+
+  .docker-version {
+    @apply rounded-sm border px-1.5 py-0.5 font-mono text-[10px] text-fg-muted;
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 68%, transparent);
+  }
+
+  .docker-panel-tools { flex-shrink: 0; }
+
+  .docker-search {
+    @apply flex h-9 items-center gap-2 border px-2.5;
+    width: min(280px, 30vw);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-primary) 84%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+    transition: border-color var(--duration-chrome), box-shadow var(--duration-chrome);
+  }
+
+  .docker-search:focus-within {
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  }
+
+  .docker-search input {
+    @apply min-w-0 flex-1 bg-transparent text-xs text-fg outline-none placeholder:text-fg-subtle;
+  }
+
+  .docker-search-clear {
+    @apply flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg;
+  }
+
+  .docker-panel-content { @apply p-5; }
+
+  .docker-overview {
+    @apply grid grid-cols-3 gap-2.5;
+  }
+
+  .docker-stat-tile {
+    @apply flex min-w-0 items-center gap-3 border px-3.5 py-3 text-left transition-all;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-tertiary) 62%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+  }
+
+  .docker-stat-tile:hover {
+    background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+  }
+
+  .docker-stat-tile.is-active {
+    background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--border-color));
+    box-shadow: inset 0 2px 0 var(--accent-primary);
+  }
+
+  .docker-stat-tile.is-running .docker-stat-icon { color: var(--success-fg); background: var(--success-muted); }
+  .docker-stat-tile.is-stopped .docker-stat-icon { color: var(--warning-fg); background: var(--warning-muted); }
+
+  .docker-stat-icon {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-accent;
+    background: var(--accent-muted);
+  }
+
+  .docker-stat-tile > span:last-child { @apply flex min-w-0 flex-col; }
+  .docker-stat-label { @apply truncate text-[11px] text-fg-muted; }
+  .docker-stat-value { @apply mt-0.5 text-xl font-semibold leading-6 text-fg; }
+
+  .docker-list-heading {
+    @apply mt-5 flex items-center justify-between gap-3 border-b px-0.5 pb-2.5;
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+  }
+
+  .docker-count {
+    @apply rounded-sm border px-1.5 py-0.5 font-mono text-[10px] text-fg-muted;
+    background: color-mix(in srgb, var(--bg-primary) 54%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  }
+
+  .docker-live-dot, .docker-status-dot {
+    @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full;
+  }
+
+  .docker-live-dot {
+    background: var(--success);
+    box-shadow: 0 0 0 3px var(--success-muted);
+  }
+
+  .docker-container-list {
+    @apply mt-2 overflow-hidden border;
+    border-radius: var(--radius-md);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 36%, var(--bg-secondary));
+  }
+
+  .docker-container-labels, .docker-container-row {
+    display: grid;
+    grid-template-columns: minmax(11rem, 1.25fr) minmax(8rem, 1.1fr) minmax(7rem, 1fr) minmax(6rem, 0.75fr) auto;
+    align-items: center;
+    column-gap: 14px;
+  }
+
+  .docker-container-labels {
+    @apply border-b px-4 py-2 text-[10px] font-semibold uppercase text-fg-muted;
+    background: color-mix(in srgb, var(--bg-tertiary) 70%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  }
+
+  .docker-container-row {
+    @apply min-h-[66px] border-b px-4 py-2.5 transition-colors;
+    border-color: color-mix(in srgb, var(--border-color) 58%, transparent);
+  }
+
+  .docker-container-row:last-child { border-bottom: 0; }
+
+  .docker-container-row:hover {
+    background: color-mix(in srgb, var(--accent-primary) 5%, var(--bg-secondary));
+  }
+
+  .docker-identity { @apply flex min-w-0 items-center gap-2.5; }
+
+  .docker-container-icon {
+    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-fg-muted;
+    background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-color) 58%, transparent);
+  }
+
+  .docker-container-name {
+    @apply block max-w-full truncate text-left text-[13px] font-semibold text-fg transition-colors hover:text-accent;
+  }
+
+  .docker-container-id { @apply mt-0.5 truncate font-mono text-[10px] leading-3 text-fg-subtle; }
+  .docker-image-cell { @apply min-w-0 truncate font-mono text-[11px] text-fg-secondary; }
+  .docker-ports-cell { @apply min-w-0 truncate font-mono text-[11px] text-fg-secondary; }
+  .docker-mobile-label { @apply hidden; }
+
+  .docker-status-cell { @apply flex min-w-0 flex-col items-start gap-1; }
+
+  .docker-status {
+    @apply inline-flex max-w-full items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold capitalize;
+  }
+
+  .docker-status.is-running {
+    color: var(--success-fg);
+    background: var(--success-muted);
+    border-color: color-mix(in srgb, var(--success) 34%, var(--border-color));
+  }
+
+  .docker-status.is-stopped {
+    color: var(--warning-fg);
+    background: var(--warning-muted);
+    border-color: color-mix(in srgb, var(--warning) 32%, var(--border-color));
+  }
+
+  .docker-status.is-running .docker-status-dot { background: var(--success); }
+  .docker-status.is-stopped .docker-status-dot { background: var(--warning); }
+  .docker-runtime { @apply max-w-full truncate text-[10px] leading-3 text-fg-subtle; }
+
+  .docker-actions { @apply flex items-center justify-end gap-1; }
+
+  .docker-action-button {
+    @apply inline-flex h-[30px] w-[30px] items-center justify-center border text-fg-muted transition-all disabled:cursor-not-allowed disabled:opacity-35;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-secondary) 64%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+  }
+
+  .docker-action-button.is-start {
+    color: var(--success-fg);
+    background: var(--success-muted);
+    border-color: color-mix(in srgb, var(--success) 32%, var(--border-color));
+  }
+
+  .docker-action-button.is-stop {
+    color: var(--danger-fg);
+    background: var(--danger-muted);
+    border-color: color-mix(in srgb, var(--danger) 32%, var(--border-color));
+  }
+
+  .docker-action-button.is-restart {
+    color: var(--warning-fg);
+    background: var(--warning-muted);
+    border-color: color-mix(in srgb, var(--warning) 32%, var(--border-color));
+  }
+
+  .docker-action-button.is-logs {
+    color: var(--info-fg);
+    background: var(--info-muted);
+    border-color: color-mix(in srgb, var(--info) 32%, var(--border-color));
+  }
+
+  .docker-action-button.is-exec {
+    color: var(--accent-primary);
+    background: var(--accent-muted);
+    border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
+  }
+
+  .docker-action-button:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+  }
+
+  .docker-action-button.is-start:hover:not(:disabled) {
+    color: var(--success-fg);
+    background: color-mix(in srgb, var(--success) 22%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--success) 40%, var(--border-color));
+  }
+
+  .docker-action-button.is-stop:hover:not(:disabled) {
+    color: var(--danger-fg);
+    background: var(--danger-muted);
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-color));
+  }
+
+  .docker-action-button.is-restart:hover:not(:disabled) {
+    color: var(--warning-fg);
+    background: color-mix(in srgb, var(--warning) 20%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--warning) 40%, var(--border-color));
+  }
+
+  .docker-action-button.is-logs:hover:not(:disabled) {
+    color: var(--info-fg);
+    background: color-mix(in srgb, var(--info) 20%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--info) 40%, var(--border-color));
+  }
+
+  .docker-action-button.is-exec:hover:not(:disabled) {
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-primary) 20%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-color));
+  }
+
+  .docker-empty-state {
+    @apply flex min-h-40 flex-col items-center justify-center gap-2 text-xs text-fg-muted;
+  }
+
+  .docker-unavailable-icon {
+    @apply flex h-14 w-14 items-center justify-center rounded-md border text-warning;
+    background: var(--warning-muted);
+    border-color: color-mix(in srgb, var(--warning) 34%, var(--border-color));
+  }
+
+  @media (max-width: 900px) {
+    .docker-container-labels, .docker-container-row {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 0.7fr) auto;
+      column-gap: 8px;
+    }
+
+    .docker-container-labels, .docker-container-row { padding-left: 10px; padding-right: 10px; }
+  }
+
+  @media (max-width: 680px) {
+    .docker-panel-header { flex-wrap: wrap; gap: 12px; padding: 14px; }
+    .docker-panel-header > div:first-child { width: 100%; }
+    .docker-panel-tools { width: 100%; }
+    .docker-search { width: auto; flex: 1; }
+    .docker-panel-content { padding: 14px; }
+    .docker-overview { gap: 6px; }
+    .docker-stat-tile { gap: 8px; padding: 9px 8px; }
+    .docker-stat-icon { width: 28px; height: 28px; }
+    .docker-stat-icon svg { width: 14px; height: 14px; }
+    .docker-stat-label { font-size: 9px; }
+    .docker-stat-value { margin-top: 0; font-size: 17px; line-height: 21px; }
+    .docker-container-labels { display: none; }
+    .docker-container-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto auto;
+      column-gap: 8px;
+      row-gap: 9px;
+      padding: 11px 10px;
+    }
+    .docker-identity { grid-column: 1; grid-row: 1; }
+    .docker-status-cell { grid-column: 2; grid-row: 1; justify-self: end; }
+    .docker-image-cell { grid-column: 1 / -1; grid-row: 2; padding-left: 42px; }
+    .docker-ports-cell { grid-column: 1; grid-row: 3; display: flex; flex-direction: column; gap: 2px; }
+    .docker-mobile-label { display: block; font-family: inherit; font-size: 9px; line-height: 12px; color: var(--text-subtle); }
+    .docker-actions { grid-column: 2; grid-row: 3; }
+    .docker-action-button { width: 26px; height: 26px; }
+    .docker-action-button svg { width: 13px; height: 13px; }
+    .docker-list-heading { margin-top: 14px; }
+  }
+
   .industrial-modal-footer {
     @apply flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3;
     background: color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
