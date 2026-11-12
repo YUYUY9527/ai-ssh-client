@@ -84,7 +84,7 @@ export function TerminalToolbar({
         aria-controls={toolbarContentId}
         onClick={() => setCompactOpen((open) => !open)}
       >
-        {compactOpen ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
+        <SlidersHorizontal className="h-4 w-4" />
       </button>
       {compactOpen && (
         <div className="terminal-toolbar-menu-head">

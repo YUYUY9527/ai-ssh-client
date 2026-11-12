@@ -71,6 +71,7 @@ describe('TerminalToolbar compact menu', () => {
     await act(async () => trigger().click());
 
     expect(trigger().getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelectorAll('button[aria-label="common.close"]')).toHaveLength(1);
     expect(container.querySelector('[data-terminal-save-log]')).not.toBeNull();
     expect(container.querySelector('[data-testid="docker"]')).not.toBeNull();
 

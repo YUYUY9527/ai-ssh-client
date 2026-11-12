@@ -1190,14 +1190,36 @@
 
     .terminal-toolbar.is-open {
       @apply absolute flex max-w-[calc(100%_-_1rem)] flex-col items-stretch;
-      width: min(460px, calc(100cqw - 16px));
+      width: fit-content;
+      max-width: min(460px, calc(100cqw - 16px));
       max-height: calc(100vh - 32px);
       overflow-y: auto;
     }
 
-    .terminal-toolbar.is-open .terminal-toolbar-trigger { @apply self-end; }
+    .terminal-toolbar.is-open .terminal-toolbar-trigger { @apply hidden; }
     .terminal-toolbar-menu-head { @apply flex items-center justify-between text-xs font-medium text-fg-secondary; }
-    .terminal-toolbar.is-open .terminal-toolbar-content { @apply flex w-full; }
+    .terminal-toolbar.is-open .terminal-toolbar-content {
+      @apply grid w-fit max-w-full justify-start;
+      grid-template-columns: repeat(6, minmax(32px, max-content));
+    }
+  }
+
+  @container terminal-pane (max-width: 300px) {
+    .terminal-toolbar.is-open .terminal-toolbar-content {
+      grid-template-columns: repeat(5, minmax(28px, max-content));
+    }
+  }
+
+  @container terminal-pane (max-width: 250px) {
+    .terminal-toolbar.is-open .terminal-toolbar-content {
+      grid-template-columns: repeat(4, minmax(28px, max-content));
+    }
+  }
+
+  @container terminal-pane (max-width: 205px) {
+    .terminal-toolbar.is-open .terminal-toolbar-content {
+      grid-template-columns: repeat(3, minmax(28px, max-content));
+    }
   }
 
   .terminal-toolbar-badge {
