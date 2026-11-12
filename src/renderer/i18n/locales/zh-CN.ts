@@ -134,6 +134,17 @@ const zhCN = {
       aiDescription: '除了内置 AI 助手，也可以通过 MCP 让 Claude Code、Cursor 等编程助手直接使用这里的 SSH 连接。',
       learnMore: '了解更多',
     },
+    split: {
+      label: '分屏',
+      enableRight: '右侧分屏',
+      enableLeft: '左侧分屏',
+      enableUp: '上方分屏',
+      enableDown: '下方分屏',
+      disable: '取消分屏',
+      replacePane: '替换此面板',
+      swapPane: '交换面板',
+      capacityReplace: '已有 4 个面板，将替换此面板',
+    },
   },
   tab: {
     closeTab: '关闭标签页',

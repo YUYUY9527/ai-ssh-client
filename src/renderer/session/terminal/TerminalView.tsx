@@ -81,6 +81,8 @@ interface TerminalProps {
   settings?: AppSettings;
   /** 工具栏改字体/主题时回写全局设置并持久化 */
   onSettingsPatch?: (patch: Partial<AppSettings>) => void | Promise<void>;
+  /** 分屏等紧凑布局下减小终端内边距，收窄面板之间的空隙 */
+  compact?: boolean;
 }
 
 
@@ -127,6 +129,7 @@ export function TerminalView({
   theme: themeProp,
   settings,
   onSettingsPatch,
+  compact,
 }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -1151,7 +1154,7 @@ export function TerminalView({
       )}
 
       {/* Terminal Container */}
-      <div className="absolute inset-0 p-2">
+      <div className={compact ? 'absolute inset-0 p-1' : 'absolute inset-0 p-2'}>
         <div
           ref={terminalRef}
           className="terminal-frame"

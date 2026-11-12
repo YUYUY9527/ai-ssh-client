@@ -140,6 +140,17 @@ const enUS: DeepStringify<typeof zhCN> = {
       aiDescription: 'Besides the built-in AI assistant, MCP lets Claude Code, Cursor and other coding assistants use these SSH connections directly.',
       learnMore: 'Learn more',
     },
+    split: {
+      label: 'Split',
+      enableRight: 'Split Right',
+      enableLeft: 'Split Left',
+      enableUp: 'Split Up',
+      enableDown: 'Split Down',
+      disable: 'Close Split',
+      replacePane: 'Replace this pane',
+      swapPane: 'Swap panes',
+      capacityReplace: '4 panes max — this will replace the pane',
+    },
   },
   tab: {
     closeTab: 'Close Tab',

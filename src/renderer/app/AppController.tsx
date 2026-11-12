@@ -9,6 +9,8 @@ import {
   Edit3,
   MoreVertical,
   ChevronRight,
+  Columns2,
+  Rows2,
 } from 'lucide-react';
 import { AssistantHost } from '../assistant/AssistantHost';
 import { useConnectionStore } from '../store/useConnectionStore';
@@ -35,6 +37,7 @@ import { WorkspaceHeader } from './WorkspaceHeader';
 import { SessionWorkspace } from '../workspace/SessionWorkspace';
 import { WorkspaceTabs } from '../workspace/WorkspaceTabs';
 import { useWorkspaceStore } from '../workspace/useWorkspaceStore';
+import { collectLeaves } from '../workspace/paneLayout';
 
 // Tab 类型
 interface Tab {
@@ -126,6 +129,12 @@ export function AppController() {
   const isSftpSidebarOpen = useWorkspaceStore((state) => state.isSftpSidebarOpen);
   const setSftpSidebarOpen = useWorkspaceStore((state) => state.setSftpSidebarOpen);
   const toggleSftpSidebar = useWorkspaceStore((state) => state.toggleSftpSidebar);
+  const paneRoot = useWorkspaceStore((state) => state.paneRoot);
+  const splitPane = useWorkspaceStore((state) => state.splitPane);
+  const replacePane = useWorkspaceStore((state) => state.replacePane);
+  const prunePanes = useWorkspaceStore((state) => state.prunePanes);
+  const resetLayout = useWorkspaceStore((state) => state.resetLayout);
+  const paneLeafIds = paneRoot ? collectLeaves(paneRoot) : [];
 
   useSessionRecovery(connections, settings);
 
@@ -211,6 +220,11 @@ export function AppController() {
   };
 
   const handleTabClick = (tabId: string) => {
+    // 分屏时点击了不在两个面板里的标签，则用它替换主面板，保持双屏结构
+    // 分屏时点击了不在任何面板里的标签，则用它替换当前聚焦的面板，保持分屏结构
+    if (paneLeafIds.length > 1 && activeTabId && paneLeafIds.includes(activeTabId) && !paneLeafIds.includes(tabId)) {
+      replacePane(activeTabId, tabId);
+    }
     setActiveTabId(tabId);
     setActiveSession(tabId);
     useAgentStore.getState().setActiveConnection(tabId);
@@ -642,6 +656,8 @@ export function AppController() {
     setDragState({ isDragging: true, draggedTabId: tabId, dragOverTabId: null });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', tabId);
+    // 自定义类型，便于工作区区分「拖标签」与其他拖拽（如拖连接）
+    e.dataTransfer.setData('application/x-workspace-tab', tabId);
   };
 
   const handleDragOver = (e: React.DragEvent, tabId: string) => {
@@ -774,6 +790,26 @@ export function AppController() {
     setShowSettings(true);
   };
 
+  // ---- 终端分屏 ----
+  const isSplit = paneLeafIds.length > 1;
+
+  const handleSplitWithTab = (tabId: string, side: 'left' | 'right' | 'top' | 'bottom') => {
+    const target = activeTabId ?? paneLeafIds[0] ?? tabId;
+    const newTabId = tabId === target ? (openTabs.find((tab) => tab.id !== target)?.id ?? null) : tabId;
+    if (target && newTabId) {
+      splitPane(target, newTabId, side);
+    }
+    setTabContextMenu(null);
+  };
+
+  // 有分屏会话被关闭后自动清理对应面板
+  useEffect(() => {
+    if (!paneRoot) {
+      return;
+    }
+    prunePanes(openTabs.map((tab) => tab.id));
+  }, [paneRoot, openTabs, prunePanes]);
+
   return (
     <>
       <AppShell
@@ -878,6 +914,48 @@ export function AppController() {
                 <RefreshCw className="w-4 h-4" />
                 {t('connection.reconnect')}
               </button>
+              {openTabs.length > 1 && (
+                <>
+                  <div className="border-t border-line-subtle dark:border-line my-1" />
+                  <button
+                    onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'left')}
+                    className="app-popover-row text-sm text-fg-secondary"
+                  >
+                    <Columns2 className="w-4 h-4" />
+                    {t('workspace.split.enableLeft')}
+                  </button>
+                  <button
+                    onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'right')}
+                    className="app-popover-row text-sm text-fg-secondary"
+                  >
+                    <Columns2 className="w-4 h-4" />
+                    {t('workspace.split.enableRight')}
+                  </button>
+                  <button
+                    onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'top')}
+                    className="app-popover-row text-sm text-fg-secondary"
+                  >
+                    <Rows2 className="w-4 h-4" />
+                    {t('workspace.split.enableUp')}
+                  </button>
+                  <button
+                    onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'bottom')}
+                    className="app-popover-row text-sm text-fg-secondary"
+                  >
+                    <Rows2 className="w-4 h-4" />
+                    {t('workspace.split.enableDown')}
+                  </button>
+                </>
+              )}
+              {isSplit && (
+                <button
+                  onClick={() => { resetLayout(); setTabContextMenu(null); }}
+                  className="app-popover-row text-sm text-fg-secondary"
+                >
+                  <X className="w-4 h-4" />
+                  {t('workspace.split.disable')}
+                </button>
+              )}
               <div className="border-t border-line-subtle dark:border-line my-1" />
               <button
                 onClick={handleCloseCurrentTab}
@@ -921,9 +999,12 @@ export function AppController() {
           setShowSettings(true);
         }}
         onOpenAssistant={() => setShowAgentPet(true)}
+        onFocusTab={handleTabClick}
         theme={theme}
         settings={settings}
         onSettingsPatch={handleSettingsPatch}
+        translate={t}
+        draggingTabId={dragState.draggedTabId}
       />
       )}
       assistant={(

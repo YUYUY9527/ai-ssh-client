@@ -8,6 +8,7 @@ interface SessionTerminalProps {
   settings: AppSettings;
   theme: 'dark' | 'light' | 'system';
   onSettingsPatch?: (patch: Partial<AppSettings>) => void | Promise<void>;
+  compact?: boolean;
 }
 
 /** Session-facing terminal entry point. */
@@ -18,6 +19,7 @@ export function SessionTerminal({
   settings,
   theme,
   onSettingsPatch,
+  compact,
 }: SessionTerminalProps) {
   return (
     <TerminalView
@@ -27,6 +29,7 @@ export function SessionTerminal({
       settings={settings}
       theme={theme}
       onSettingsPatch={onSettingsPatch}
+      compact={compact}
     />
   );
 }
