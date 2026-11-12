@@ -5,7 +5,7 @@ import type {
   AgentRoundGraphResult,
   AgentToolCall,
 } from './agent-flow';
-import { AGENT_TOOL_DEFINITIONS } from './runtime/tools';
+import { AGENT_TOOL_DEFINITIONS, AGENT_WRITE_TOOLS } from './runtime/tools';
 import { budgetAgentMessages } from './runtime/context';
 import { estimateAgentMessagesTokens } from './agent-token-estimate';
 import type {
@@ -243,6 +243,8 @@ export class AgentRuntime {
   private lastCommandOutput = '';
   private retryAttempt = 0;
   private agentMessages: Message[] = [];
+  /** 模型一轮返回多个工具调用时的执行队列（先进先出，每轮取第一个执行）。 */
+  private pendingAgentToolCalls: AgentToolCall[] = [];
   private agentContextSummary = '';
   private summaryFailureMessageCount: number | null = null;
   private commandExecutionHistory = new Map<string, number>();
@@ -428,6 +430,7 @@ export class AgentRuntime {
     this.terminalOutput = '';
     this.localFullOutput = '';
     this.agentMessages = [];
+    this.pendingAgentToolCalls = [];
     this.agentContextSummary = '';
     this.summaryFailureMessageCount = null;
     this.commandExecutionHistory.clear();
@@ -568,6 +571,7 @@ export class AgentRuntime {
         capturedVersion,
         thinkStepId,
         executionHooks,
+        this.pendingAgentToolCalls.length > 0 ? this.pendingAgentToolCalls.splice(0) : undefined,
       );
     } catch (error) {
       if (error instanceof AbortedByRuntimeError) {
@@ -686,6 +690,10 @@ export class AgentRuntime {
       }
       this.status = 'idle';
       this.actions.setAgentState('thinking');
+      // 模型一轮返回多个工具调用：成功执行一个后，把剩余的排队到下一轮继续执行
+      if (graphResult.pendingToolCalls?.length) {
+        this.pendingAgentToolCalls = graphResult.pendingToolCalls;
+      }
       this.scheduleProcess();
       return;
     }
@@ -721,6 +729,10 @@ export class AgentRuntime {
     }
 
     if (nextAction.type === 'approval') {
+      // 同一响应里的其余工具调用先排队（审批通过后继续执行）
+      if (nextAction.remainingToolCalls?.length) {
+        this.pendingAgentToolCalls = nextAction.remainingToolCalls;
+      }
       // 会话级「记住选择」：按**这条具体命令**匹配（critical 永不记忆，见 risk-approval-memory）
       const remembered = getRememberedCommandDecision(nextAction.command, nextAction.riskLevel);
       if (remembered === 'approved') {
@@ -1172,6 +1184,7 @@ export class AgentRuntime {
     capturedVersion: number,
     thinkStepId: string,
     executionHooks: AgentRoundExecutionHooks,
+    presetToolCalls?: AgentToolCall[],
   ): Promise<AgentRoundGraphResult> {
     return this.callAgentAI(
       userInput,
@@ -1179,6 +1192,7 @@ export class AgentRuntime {
       capturedVersion,
       thinkStepId,
       executionHooks,
+      presetToolCalls,
     );
   }
 
@@ -1188,8 +1202,38 @@ export class AgentRuntime {
     capturedVersion: number,
     thinkStepId: string,
     executionHooks: AgentRoundExecutionHooks,
+    presetToolCalls?: AgentToolCall[],
   ): Promise<AgentRoundGraphResult> {
-    const { activeProviderId, providers, config, taskHistory, activeConversationId } = this.snapshot;
+    const { config } = this.snapshot;
+    if (presetToolCalls && presetToolCalls.length > 0) {
+      // 上一轮流排队的工具调用：跳过模型调用，直接继续路由执行。
+      // providerId/messages/requestId 仅是占位——preset 路径不会触发 callModel。
+      const { runAgentRoundGraph } = await import('./agent-flow');
+      return runAgentRoundGraph({
+        providerId: '',
+        messages: [],
+        requestId: `agent-toolqueue-${this.taskVersion}-${Date.now()}`,
+        parseRetryAvailable: false,
+        aiChatStream: this.services.aiChatStream,
+        tools: AGENT_TOOL_DEFINITIONS,
+        parseResponse: parseAgentResponse,
+        analyzeCommand: this.services.analyzeCommand,
+        shouldBlockRepeatedCommand: (command: string) => this.shouldBlockRepeatedCommand(command),
+        needsApproval: (riskLevel: RuntimeRiskLevel) => needsApprovalForRisk(riskLevel, config),
+        fallbackText: {
+          parseRetry: 'AI 响应格式异常，正在重试...',
+          cannotParse: t('agent.thinking.cannotParse'),
+          invalidResponse: t('agent.finishReasons.aiInvalid'),
+          completed: t('agent.notifications.completed'),
+          analyzing: t('agent.thinking.analyzing'),
+          noCommand: t('agent.finishReasons.noCommand'),
+          duplicateCommand: (command: string) => t('agent.finishReasons.duplicateCommand', { command }),
+        },
+        presetToolCalls,
+        ...executionHooks,
+      });
+    }
+    const { activeProviderId, providers, taskHistory, activeConversationId } = this.snapshot;
     if (!activeProviderId) {
       throw new Error('AI provider not found');
     }
@@ -1657,6 +1701,11 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
     const run = this.services.runAgentTool;
     if (!run) throw new Error('当前环境不支持结构化工具');
 
+    // 只读模式的最后防线：即便审批流程被绕过，写类工具也在这里被拦下
+    if (AGENT_WRITE_TOOLS.has(call.name) && this.snapshot.config.readOnlyMode) {
+      throw new Error(`${POLICY_BLOCKED_MARKER}:只读模式下禁止写文件（${call.name}）`);
+    }
+
     const connectionId = this.taskConnectionId || this.snapshot.activeConnectionId || '';
     if (!connectionId) throw new Error('缺少连接 ID，无法调用工具');
 
@@ -1679,6 +1728,16 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
   /** 审批通过后执行结构化工具（write_file），把结果写回决策上下文。 */
   private async runAgentToolAction(call: AgentToolCall, capturedVersion: number) {
     if (!this.isCurrent(capturedVersion)) return;
+
+    // 只读模式：即使模型把 write_file 包成了需要审批的工具调用，批准也不能越过只读约束。
+    // 走 recoverFromPolicyBlock 把原因回给模型换方案，而不是把任务判死。
+    if (AGENT_WRITE_TOOLS.has(call.name) && this.snapshot.config.readOnlyMode) {
+      const reason = `${POLICY_BLOCKED_MARKER}:只读模式下禁止写文件（${call.name}）`;
+      if (!this.recoverFromPolicyBlock(`工具:${call.name}`, reason, capturedVersion)) {
+        this.finishTask(false, stripPolicyMarker(reason));
+      }
+      return;
+    }
 
     this.status = 'executing';
     this.actions.setAgentState('executing');

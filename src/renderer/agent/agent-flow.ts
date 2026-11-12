@@ -44,8 +44,8 @@ export interface AgentToolCall {
 }
 
 export type AgentGraphAction =
-  | { type: 'execute'; response: AgentResponse; command: string }
-  | { type: 'approval'; response: AgentResponse; command: string; riskLevel: RiskLevel; toolCall?: AgentToolCall }
+  | { type: 'execute'; response: AgentResponse; command: string; remainingToolCalls?: AgentToolCall[] }
+  | { type: 'approval'; response: AgentResponse; command: string; riskLevel: RiskLevel; toolCall?: AgentToolCall; remainingToolCalls?: AgentToolCall[] }
   | { type: 'tool'; response: AgentResponse | null; toolCall: AgentToolCall }
   | { type: 'ask'; response: AgentResponse; question: string }
   | { type: 'finish'; response: AgentResponse; reason: string }
@@ -71,6 +71,8 @@ interface RunAgentRoundGraphInput {
   needsApproval: NeedsApproval;
   executeTool?: (call: AgentToolCall) => Promise<string>;
   tools?: import('../../shared/ipc-types').AIToolDefinition[];
+  /** 上一轮流中排队未执行的工具调用：提供时跳过模型调用，直接继续路由执行。 */
+  presetToolCalls?: AgentToolCall[];
   fallbackText: FallbackText;
 }
 
@@ -87,6 +89,8 @@ export interface AgentRoundGraphResult {
   response: AgentResponse | null;
   nextAction: AgentGraphAction;
   execution?: AgentExecutionGraphResult;
+  /** 本轮成功执行后仍未执行的工具调用（模型一次返回多个时），交给 runtime 排队下一轮。 */
+  pendingToolCalls?: AgentToolCall[];
   error?: string;
 }
 
@@ -211,6 +215,10 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
   interface RoundState {
     rawContent?: string;
     toolCalls?: AgentToolCall[];
+    /** routeToolCall 拆出的、本轮尚未路由的剩余工具调用。 */
+    remainingToolCalls?: AgentToolCall[];
+    /** 执行成功后应交回 runtime 排队的工具调用。 */
+    pendingToolCalls?: AgentToolCall[];
     response: AgentResponse | null;
     nextAction: AgentGraphAction | null;
     execution?: AgentExecutionGraphResult;
@@ -258,7 +266,8 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
     }
   };
 
-  const routeToolCall = (call: AgentToolCall): Patch<RoundState> => {
+  const routeToolCall = (call: AgentToolCall, remaining: AgentToolCall[]): Patch<RoundState> => {
+    const queue = remaining.length > 0 ? remaining : undefined;
     if (call.name === 'run_command') {
       let args: Record<string, unknown> = {};
       try {
@@ -279,31 +288,40 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
       const response = syntheticExecuteResponse(command);
       if (input.needsApproval(risk.riskLevel)) {
         return {
-          nextAction: { type: 'approval', response, command, riskLevel: risk.riskLevel },
+          remainingToolCalls: queue,
+          nextAction: { type: 'approval', response, command, riskLevel: risk.riskLevel, remainingToolCalls: queue },
         };
       }
-      return { nextAction: { type: 'execute', response, command } };
+      return {
+        remainingToolCalls: queue,
+        nextAction: { type: 'execute', response, command, remainingToolCalls: queue },
+      };
     }
 
     const target = summarizeToolArgs(call);
     const label = target ? `${call.name} ${target}` : call.name;
     if (call.name === 'write_file' && input.needsApproval('medium')) {
       return {
+        remainingToolCalls: queue,
         nextAction: {
           type: 'approval',
           response: syntheticExecuteResponse(label),
           command: label,
           riskLevel: 'medium',
           toolCall: call,
+          remainingToolCalls: queue,
         },
       };
     }
-    return { nextAction: { type: 'tool', response: null, toolCall: call } };
+    return {
+      remainingToolCalls: queue,
+      nextAction: { type: 'tool', response: null, toolCall: call },
+    };
   };
 
   const routeDecision = (state: Readonly<RoundState>): Patch<RoundState> => {
     if (state.toolCalls && state.toolCalls.length > 0) {
-      return routeToolCall(state.toolCalls[0]);
+      return routeToolCall(state.toolCalls[0], state.toolCalls.slice(1));
     }
 
     const response = state.response;
@@ -392,6 +410,7 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
             observation: input.summarizeOutput(label, output || '') || '',
             nextDecisionContext: input.buildNextDecisionContext(label, output || '') || '',
           },
+          pendingToolCalls: state.remainingToolCalls,
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
@@ -423,6 +442,7 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
           observation: input.summarizeOutput(command, output || '') || '',
           nextDecisionContext: input.buildNextDecisionContext(command, output || '') || '',
         },
+        pendingToolCalls: state.remainingToolCalls,
       };
     } catch (error) {
       if (isAbortError(error)) {
@@ -442,9 +462,14 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
     }
   };
 
+  // 提供了排队工具调用时跳过模型调用：直接把上轮剩余的工具调用接着路由执行
   const state = await runPipeline<RoundState>(
-    { rawContent: undefined, response: null, nextAction: null, execution: undefined, error: undefined },
-    [callModel, parseModelResponse, routeDecision, executeAction],
+    input.presetToolCalls && input.presetToolCalls.length > 0
+      ? { toolCalls: input.presetToolCalls, response: null, nextAction: null }
+      : { rawContent: undefined, response: null, nextAction: null, execution: undefined, error: undefined },
+    input.presetToolCalls && input.presetToolCalls.length > 0
+      ? [routeDecision, executeAction]
+      : [callModel, parseModelResponse, routeDecision, executeAction],
   );
 
   return {
@@ -455,6 +480,7 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
       reason: input.fallbackText.cannotParse,
     },
     execution: state.execution,
+    pendingToolCalls: state.pendingToolCalls,
     error: state.error,
   };
 }

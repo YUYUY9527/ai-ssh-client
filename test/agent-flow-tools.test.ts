@@ -77,4 +77,48 @@ describe('agent-flow 原生工具调用路由', () => {
     const result = await runAgentRoundGraph(input);
     expect(result.nextAction.type).toBe('fail');
   });
+
+  it('同一响应的多个工具调用：先执行第一个，其余通过 pendingToolCalls 排队', async () => {
+    const input = makeInput([
+      { id: 'c5', name: 'list_dir', arguments: '{"path":"/tmp"}' },
+      { id: 'c6', name: 'read_file', arguments: '{"path":"/tmp/a"}' },
+      { id: 'c7', name: 'search_files', arguments: '{"path":"/tmp","query":"x"}' },
+    ]);
+    const first = await runAgentRoundGraph(input);
+    expect(first.execution?.output).toBe('tool-output');
+    expect(input.executeTool).toHaveBeenCalledTimes(1);
+    expect(first.pendingToolCalls).toHaveLength(2);
+    expect(first.pendingToolCalls?.[0].id).toBe('c6');
+
+    // runtime 下一轮把排队的调用作为 presetToolCalls 传回（跳过模型调用）
+    const executeToolRound2 = vi.fn(async () => 'tool-output-2');
+    const second = await runAgentRoundGraph(makeInput([], {
+      presetToolCalls: first.pendingToolCalls,
+      executeTool: executeToolRound2,
+      aiChatStream: vi.fn(async () => {
+        throw new Error('preset 路径不应调用模型');
+      }),
+    }));
+    expect(second.pendingToolCalls).toHaveLength(1);
+    expect(second.pendingToolCalls?.[0].id).toBe('c7');
+    expect(second.execution?.output).toBe('tool-output-2');
+    expect(executeToolRound2).toHaveBeenCalledTimes(1);
+    expect(executeToolRound2).toHaveBeenCalledWith(expect.objectContaining({ id: 'c6' }));
+  });
+
+  it('审批动作携带剩余工具调用队列（approval.remainingToolCalls）', async () => {
+    const input = makeInput(
+      [
+        { id: 'c8', name: 'write_file', arguments: '{"path":"/tmp/a","content":"hi"}' },
+        { id: 'c9', name: 'list_dir', arguments: '{"path":"/tmp"}' },
+      ],
+      { needsApproval: vi.fn(() => true) },
+    );
+    const result = await runAgentRoundGraph(input);
+    expect(result.nextAction.type).toBe('approval');
+    if (result.nextAction.type === 'approval') {
+      expect(result.nextAction.remainingToolCalls).toHaveLength(1);
+      expect(result.nextAction.remainingToolCalls?.[0].id).toBe('c9');
+    }
+  });
 });
