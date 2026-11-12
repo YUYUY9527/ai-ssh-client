@@ -1,6 +1,12 @@
 /**
  * Structural contract for the shipped UI design system.
- * Reads real CSS + representative chrome components (no mocks of token values).
+ * Reads real CSS + representative chrome components (no mocks of token values),
+ * and hard-fails on any drift away from the token system:
+ *   - dark/light color tokens must be paired and complete
+ *   - tailwind.config must expose the semantic palette and drop dead palettes
+ *   - no Tailwind numbered palette classes in .tsx
+ *   - no raw hex colors in .tsx (asset files excluded)
+ *   - no bare numeric z-index in .tsx
  */
 const fs = require('fs');
 const path = require('path');
@@ -42,13 +48,88 @@ function assertIncludes(haystack, needles, label, failures) {
   }
 }
 
+/** Recursively collect files with the given extension under dir. */
+function walk(dir, ext, acc = []) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return acc;
+  }
+  for (const entry of entries) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules') continue;
+      walk(p, ext, acc);
+    } else if (entry.name.endsWith(ext)) {
+      acc.push(p);
+    }
+  }
+  return acc;
+}
+
+// Color tokens that MUST exist in both :root/.dark and .light (paired).
+const COLOR_TOKENS = [
+  '--bg-primary',
+  '--bg-secondary',
+  '--bg-tertiary',
+  '--bg-hover',
+  '--bg-elevated',
+  '--bg-sunken',
+  '--bg-inverse',
+  '--border-color',
+  '--border-subtle',
+  '--border-strong',
+  '--text-primary',
+  '--text-secondary',
+  '--text-muted',
+  '--text-subtle',
+  '--text-faint',
+  '--text-inverse',
+  '--accent-primary',
+  '--accent-hover',
+  '--accent-muted',
+  '--accent-strong',
+  '--accent-alt',
+  '--accent-gradient-from',
+  '--accent-gradient-to',
+  '--success',
+  '--success-muted',
+  '--success-fg',
+  '--warning',
+  '--warning-muted',
+  '--warning-fg',
+  '--danger',
+  '--danger-muted',
+  '--danger-fg',
+  '--info',
+  '--info-muted',
+  '--info-fg',
+  '--overlay',
+];
+
+// Files allowed to contain raw hex / palette classes (brand assets & data, not theming).
+const ASSET_ALLOWLIST = new Set([
+  'src/renderer/session/terminal/terminal-theme.ts',
+  'src/renderer/components/AppIcon.tsx',
+  'src/renderer/components/FileTypeIcon.tsx',
+  'src/renderer/components/QuickCommandsPanel.tsx',
+]);
+
+// Tailwind numbered palette utilities, e.g. text-slate-600, bg-red-500/10, border-teal-500.
+const PALETTE_CLASS_RE =
+  /\b(?:slate|zinc|gray|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
+const HEX_RE = /#[0-9a-fA-F]{3,8}\b/;
+const BARE_Z_RE = /\bz-(?:\d+|\[\d+\])(?![\w-])/g;
+
 /**
- * Validate design tokens + shared classes + chrome consumers.
- * @returns {{ ok: boolean, failures: string[], notes: string[] }}
+ * Validate design tokens + shared classes + chrome consumers + token-drift guard.
+ * @returns {{ ok: boolean, failures: string[], notes: string[], violations: object[] }}
  */
 function validateUiDesignSystem() {
   const failures = [];
   const notes = [];
+  const violations = [];
   const css = read('src/renderer/index.css');
 
   const darkBlock = extractBlock(css, /:root,\s*\.dark\s*\{/);
@@ -56,31 +137,29 @@ function validateUiDesignSystem() {
   if (!darkBlock) failures.push('dark theme block (:root, .dark) not found');
   if (!lightBlock) failures.push('light theme block (.light) not found');
 
-  const semanticTokens = [
-    '--bg-primary',
-    '--bg-secondary',
-    '--border-color',
-    '--text-primary',
-    '--text-secondary',
-    '--text-muted',
-    '--accent-primary',
-    '--success',
-    '--warning',
-    '--danger',
-    '--radius-sm',
-    '--radius-md',
-    '--radius-lg',
-  ];
-  if (darkBlock) assertIncludes(darkBlock, semanticTokens, 'dark tokens', failures);
-  if (lightBlock) {
-    // light inherits radius from :root but must redefine colors
-    assertIncludes(
-      lightBlock,
-      ['--bg-primary', '--accent-primary', '--success', '--warning', '--danger', '--text-primary'],
-      'light tokens',
-      failures,
-    );
+  // --- tokens: dark must have all color tokens + radius; light must mirror all color tokens ---
+  if (darkBlock) {
+    assertIncludes(darkBlock, COLOR_TOKENS, 'dark tokens', failures);
+    assertIncludes(darkBlock, ['--radius-sm', '--radius-md', '--radius-lg'], 'dark radius', failures);
   }
+  if (lightBlock) {
+    assertIncludes(lightBlock, COLOR_TOKENS, 'light tokens', failures);
+  }
+
+  // --- tailwind config: semantic palette present, dead palettes removed ---
+  const config = read('tailwind.config.js');
+  for (const dead of ['primary', 'dark', 'light']) {
+    const re = new RegExp(`(^|[\\s,{])${dead}\\s*:\\s*\\{`, 'm');
+    if (re.test(config)) {
+      failures.push(`tailwind.config: dead palette '${dead}' still defined (must be removed)`);
+    }
+  }
+  assertIncludes(
+    config,
+    ['surface:', 'fg:', 'line:', 'accent:', 'danger:', 'zIndex:'],
+    'tailwind semantic palette',
+    failures,
+  );
 
   const sharedClasses = [
     '.app-shell',
@@ -115,6 +194,32 @@ function validateUiDesignSystem() {
   }
   assertIncludes(css, ['@keyframes ui-chrome-in', '@keyframes ui-toast-in', '@keyframes ui-fade-in'], 'motion keyframes', failures);
 
+  // --- drift guard: scan every .tsx for palette classes / raw hex / bare z-index ---
+  const tsxFiles = walk(path.join(ROOT, 'src/renderer'), '.tsx');
+  for (const abs of tsxFiles) {
+    const rel = path.relative(ROOT, abs).split(path.sep).join('/');
+    if (ASSET_ALLOWLIST.has(rel)) continue;
+    const src = read(rel);
+    const lines = src.split(/\r?\n/);
+    lines.forEach((line, idx) => {
+      const pal = line.match(PALETTE_CLASS_RE);
+      if (pal) {
+        violations.push({ file: rel, line: idx + 1, kind: 'palette', match: pal[0] });
+      }
+      const hex = line.match(HEX_RE);
+      if (hex) {
+        violations.push({ file: rel, line: idx + 1, kind: 'hex', match: hex[0] });
+      }
+      const zs = line.match(BARE_Z_RE);
+      if (zs) {
+        for (const z of zs) violations.push({ file: rel, line: idx + 1, kind: 'zindex', match: z });
+      }
+    });
+  }
+  for (const v of violations) {
+    failures.push(`${v.file}:${v.line} ${v.kind} '${v.match}' (use design tokens)`);
+  }
+
   const consumers = {
     'src/renderer/app/WorkspaceHeader.tsx': ['app-header', 'toolbar-button-primary', 'app-popover', 'connection-list-row'],
     'src/renderer/workspace/WorkspaceTabs.tsx': ['workspace-tabbar', 'workspace-tab', 'status-dot'],
@@ -141,9 +246,11 @@ function validateUiDesignSystem() {
 
   notes.push(`css_bytes=${Buffer.byteLength(css, 'utf8')}`);
   notes.push(`consumer_files=${Object.keys(consumers).length}`);
+  notes.push(`tsx_scanned=${tsxFiles.length}`);
+  notes.push(`violations=${violations.length}`);
   notes.push(`failures=${failures.length}`);
 
-  return { ok: failures.length === 0, failures, notes };
+  return { ok: failures.length === 0, failures, notes, violations };
 }
 
 module.exports = { validateUiDesignSystem, ROOT };
