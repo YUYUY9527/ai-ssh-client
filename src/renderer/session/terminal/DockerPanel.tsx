@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Container, Play, RotateCcw, ScrollText, Square, TerminalSquare, X } from 'lucide-react';
+import { Container, Loader2, Play, RotateCcw, ScrollText, Square, TerminalSquare, X } from 'lucide-react';
 import type { DockerContainerDetail, DockerContainerSummary } from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
 
@@ -19,6 +19,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [error, setError] = useState<string | null>(null);
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<ActionKind | null>(null);
   const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
   const [logs, setLogs] = useState<{ containerId: string; text: string } | null>(null);
   const [logSearch, setLogSearch] = useState('');
@@ -61,12 +62,14 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     const api = window.electronAPI?.dockerContainerAction;
     if (!api) return;
     setBusyId(container.id);
+    setBusyAction(action);
     try {
       const result = await api(connectionId, container.id, action);
       if (!result.success) setError(result.error || `${action} failed`);
       await refresh();
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
@@ -115,6 +118,15 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     const pre = logPreRef.current;
     if (pre) pre.scrollTop = pre.scrollHeight;
   }, [logs, follow]);
+
+  // 用户向上滚动离开底部时自动暂停跟随，避免被定时刷新强行拽回底部。
+  const handleLogScroll = () => {
+    if (!follow) return;
+    const pre = logPreRef.current;
+    if (!pre) return;
+    const distanceFromBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight;
+    if (distanceFromBottom > 24) setFollow(false);
+  };
 
   const visibleLogs = useMemo(() => {
     if (!logs) return '';
@@ -205,7 +217,11 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         title={translate('terminal.docker.start')}
                         onClick={() => { void runAction(container, 'start'); }}
                       >
-                        <Play className="h-3.5 w-3.5" />
+                        {busyId === container.id && busyAction === 'start' ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Play className="h-3.5 w-3.5" />
+                        )}
                       </button>
                       <button
                         type="button"
@@ -214,7 +230,11 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         title={translate('terminal.docker.stop')}
                         onClick={() => { void runAction(container, 'stop'); }}
                       >
-                        <Square className="h-3.5 w-3.5" />
+                        {busyId === container.id && busyAction === 'stop' ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Square className="h-3.5 w-3.5" />
+                        )}
                       </button>
                       <button
                         type="button"
@@ -223,7 +243,11 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         title={translate('terminal.docker.restart')}
                         onClick={() => { void runAction(container, 'restart'); }}
                       >
-                        <RotateCcw className="h-3.5 w-3.5" />
+                        {busyId === container.id && busyAction === 'restart' ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        )}
                       </button>
                       <button type="button" className="terminal-control" title={translate('terminal.docker.logs')} onClick={() => { void openLogs(container); }}>
                         <ScrollText className="h-3.5 w-3.5" />
@@ -307,7 +331,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                 <button type="button" className="icon-button" onClick={() => setLogs(null)}><X className="h-4 w-4" /></button>
               </div>
             </div>
-            <pre ref={logPreRef} className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-surface p-3 font-mono text-[11px] text-fg-secondary">{visibleLogs || translate('terminal.docker.logsEmpty')}</pre>
+            <pre ref={logPreRef} onScroll={handleLogScroll} className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-surface p-3 font-mono text-[11px] text-fg-secondary">{visibleLogs || translate('terminal.docker.logsEmpty')}</pre>
           </div>
         </div>
       ) : null}
