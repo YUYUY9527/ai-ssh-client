@@ -2,6 +2,7 @@ import { Bot, Download, Palette, Search, Settings2, ZoomIn, ZoomOut } from 'luci
 import { ServerMonitorButton } from './ServerMonitorButton';
 import { PortForwardButton } from './PortForwardButton';
 import { BroadcastButton } from './BroadcastButton';
+import { DockerButton } from './DockerButton';
 import type { TerminalCursorStyle } from './terminal-settings';
 import {
   MAX_TERMINAL_SCROLLBACK,
@@ -93,6 +94,7 @@ export function TerminalToolbar({
       <ServerMonitorButton connectionId={connectionId} translate={translate} />
       <PortForwardButton connectionId={connectionId} translate={translate} />
       <BroadcastButton translate={translate} />
+      <DockerButton connectionId={connectionId} translate={translate} />
       <button
         onClick={onDecreaseFontSize}
         className="terminal-control"

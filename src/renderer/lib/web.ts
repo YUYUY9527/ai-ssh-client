@@ -1482,6 +1482,19 @@ const webApi: Window['electronAPI'] = {
     `/api/ssh/${connectionId}/forwards/${ruleId}/stop`,
     { method: 'POST' },
   ),
+  listDockerContainers: (connectionId) => sftpRequest<import('../../shared/ipc-types').DockerContainerListResult>(
+    `/api/ssh/${connectionId}/docker/containers`,
+  ),
+  inspectDockerContainer: (connectionId, containerId) => sftpRequest<import('../../shared/ipc-types').DockerContainerDetail>(
+    `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}`,
+  ),
+  dockerContainerLogs: (connectionId, containerId, tail = 300) => sftpRequest<import('../../shared/ipc-types').DockerLogsResult>(
+    `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}/logs?tail=${encodeURIComponent(String(tail))}`,
+  ),
+  dockerContainerAction: (connectionId, containerId, action) => sftpRequest<import('../../shared/ipc-types').DockerActionResult>(
+    `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}/${encodeURIComponent(action)}`,
+    { method: 'POST' },
+  ),
   sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
     `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
   ),

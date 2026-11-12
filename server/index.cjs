@@ -33,6 +33,13 @@ const { openTransport } = require('./ssh-transport.cjs');
 const { createPortForwardManager } = require('./port-forward.cjs');
 const { sudoReadTextFile, sudoWriteTextFile } = require('./sudo-fs.cjs');
 const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
+const {
+  listContainers,
+  inspectContainer,
+  containerLogs,
+  containerAction,
+  quoteArg: quoteDockerArg,
+} = require('./docker-manager.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
 const { readSftpPreview, resolveInlineMime } = require('./sftp-preview.cjs');
 const { createAuth } = require('./auth.cjs');
@@ -1681,8 +1688,32 @@ app.get('/api/ssh/:id/monitor', route(async (request) => {
   return success(metrics);
 }));
 
+// Docker 容器管理：复用当前 SSH 会话执行 docker CLI（列表/详情/日志/生命周期）。
+app.get('/api/ssh/:id/docker/containers', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await listContainers(session.client));
+}));
+
+app.get('/api/ssh/:id/docker/containers/:containerId', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await inspectContainer(session.client, request.params.containerId));
+}));
+
+app.get('/api/ssh/:id/docker/containers/:containerId/logs', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const tail = Number(request.query.tail || 300);
+  return success(await containerLogs(session.client, request.params.containerId, tail));
+}));
+
+app.post('/api/ssh/:id/docker/containers/:containerId/:action', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const action = request.params.action;
+  const result = await containerAction(session.client, request.params.containerId, action);
+  emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
+  return success(result);
+}));
+
 app.get('/api/ssh/sessions', route((request) => success({
-  // 只返回当前客户端的会话：多客户端部署下互不可见、互不干扰
   sessions: Array.from(sessions.values())
     .filter((session) => session.clientId === requestClientId(request))
     .map((session) => stateFor(session.connectionId, session.clientId)),
@@ -2347,10 +2378,11 @@ server.headersTimeout = server.requestTimeout === 0
 server.timeout = 0;
 // 手动处理升级，先校验会话 Cookie 再放行 WebSocket，防止未鉴权连接。
 const wss = new WebSocketServer({ noServer: true });
+const dockerWss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
   const { pathname } = new URL(request.url, 'http://localhost');
-  if (pathname !== '/api/events') {
+  if (pathname !== '/api/events' && pathname !== '/api/docker-exec') {
     socket.destroy();
     return;
   }
@@ -2359,9 +2391,125 @@ server.on('upgrade', (request, socket, head) => {
     socket.destroy();
     return;
   }
+  if (pathname === '/api/docker-exec') {
+    dockerWss.handleUpgrade(request, socket, head, (ws) => {
+      dockerWss.emit('connection', ws, request);
+    });
+    return;
+  }
   wss.handleUpgrade(request, socket, head, (ws) => {
     wss.emit('connection', ws, request);
   });
+});
+
+// 容器内交互式 shell：独立 SSH 连接 + docker exec -it（PTY），与主终端会话互不影响。
+dockerWss.on('connection', async (ws, request) => {
+  const url = new URL(request.url, 'http://localhost');
+  const connectionId = url.searchParams.get('connectionId') || '';
+  const containerId = url.searchParams.get('containerId') || '';
+  const shellParam = (url.searchParams.get('shell') || '').trim();
+  const cols = Math.max(2, Math.min(1000, Number(url.searchParams.get('cols')) || 120));
+  const rows = Math.max(2, Math.min(1000, Number(url.searchParams.get('rows')) || 32));
+  const clientId = url.searchParams.get('clientId') || '';
+
+  let client = null;
+  let stream = null;
+  let disposeTransport = null;
+  let closed = false;
+
+  const teardown = () => {
+    if (closed) return;
+    closed = true;
+    try { stream?.end(); } catch { /* ignore */ }
+    try { stream?.close(); } catch { /* ignore */ }
+    try { client?.end(); } catch { /* ignore */ }
+    try { disposeTransport?.(); } catch { /* ignore */ }
+  };
+
+  const fail = (message) => {
+    try { ws.send(JSON.stringify({ type: 'docker-exec-error', payload: { message } })); } catch { /* ignore */ }
+    teardown();
+    try { ws.close(); } catch { /* ignore */ }
+  };
+
+  try {
+    const store = readStore();
+    const connection = (store.connections || []).find((item) => item.id === connectionId);
+    if (!connection) {
+      fail('Connection not found');
+      return;
+    }
+    const transport = await openTransport({
+      connection,
+      clientId,
+      createVerifier: (options) => hostTrust.createVerifier(options),
+    });
+    disposeTransport = transport.dispose;
+    client = new Client();
+    client.on('error', (error) => fail(error?.message || 'SSH error'));
+    client.on('close', () => { teardown(); try { ws.close(); } catch { /* ignore */ } });
+    client.on('ready', () => {
+      // 显式传入 TERM：docker exec 默认不继承宿主的 TERM，缺了它 ls/彩色/补全都会退化。
+      // 未指定 shell 时优先用 bash（-i 交互、-l 读 profile 拿到 alias 与补全），没有则退回 sh -i。
+      const interactive =
+        "if command -v bash >/dev/null 2>&1; then exec bash -il; else exec sh -i; fi";
+      const command = shellParam
+        ? `docker exec -it -e TERM=xterm-256color -e COLORTERM=truecolor -e LANG=C.UTF-8 ${quoteDockerArg(containerId)} ${quoteDockerArg(shellParam)}`
+        : `docker exec -it -e TERM=xterm-256color -e COLORTERM=truecolor -e LANG=C.UTF-8 ${quoteDockerArg(containerId)} sh -c ${quoteDockerArg(interactive)}`;
+      client.exec(command, { pty: { term: 'xterm-256color', cols, rows } }, (error, channel) => {
+        if (error) {
+          fail(error.message);
+          return;
+        }
+        stream = channel;
+        channel.on('data', (data) => {
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'docker-exec-data', payload: { data: data.toString('utf8') } }));
+        });
+        channel.stderr?.on('data', (data) => {
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'docker-exec-data', payload: { data: data.toString('utf8') } }));
+        });
+        channel.on('close', () => {
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'docker-exec-exit', payload: {} }));
+          teardown();
+          try { ws.close(); } catch { /* ignore */ }
+        });
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'docker-exec-ready', payload: {} }));
+      });
+    });
+    client.connect({
+      host: connection.host,
+      port: connection.port,
+      username: connection.username,
+      password: connection.password,
+      privateKey: connection.privateKey,
+      passphrase: connection.passphrase,
+      keepaliveInterval: 10000,
+      keepaliveCountMax: 3,
+      readyTimeout: 20000,
+      hostVerifier: hostTrust.createVerifier({ host: connection.host, port: connection.port, clientId }),
+      sock: transport.sock || undefined,
+    });
+
+    ws.on('message', (raw) => {
+      const text = raw.toString();
+      try {
+        const message = JSON.parse(text);
+        if (message.type === 'resize' && stream) {
+          const nextCols = Math.max(2, Math.min(1000, Number(message.cols) || cols));
+          const nextRows = Math.max(2, Math.min(1000, Number(message.rows) || rows));
+          stream.setWindow(nextRows, nextCols);
+          return;
+        }
+      } catch {
+        // 非 JSON：按原始键入处理
+      }
+      try { stream?.write(text); } catch { /* ignore */ }
+    });
+    ws.on('close', teardown);
+    ws.on('error', teardown);
+  } catch (error) {
+    fail(error?.message || 'Failed to open container shell');
+  }
 });
 
 wss.on('connection', (socket) => {

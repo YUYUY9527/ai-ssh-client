@@ -33,6 +33,10 @@ import type {
   ServerMonitorMetrics,
   PortForwardListResult,
   PortForwardRuntimeState,
+  DockerContainerListResult,
+  DockerContainerDetail,
+  DockerLogsResult,
+  DockerActionResult,
   SftpSearchMode,
   SftpSearchResult,
   SftpPreviewResult,
@@ -78,6 +82,10 @@ declare global {
       listPortForwards?: (connectionId: string) => Promise<IPCResult<PortForwardListResult>>;
       startPortForward?: (connectionId: string, ruleId: string) => Promise<IPCResult<PortForwardRuntimeState>>;
       stopPortForward?: (connectionId: string, ruleId: string) => Promise<IPCResult<{ stopped: boolean }>>;
+      listDockerContainers?: (connectionId: string) => Promise<IPCResult<DockerContainerListResult>>;
+      inspectDockerContainer?: (connectionId: string, containerId: string) => Promise<IPCResult<DockerContainerDetail>>;
+      dockerContainerLogs?: (connectionId: string, containerId: string, tail?: number) => Promise<IPCResult<DockerLogsResult>>;
+      dockerContainerAction?: (connectionId: string, containerId: string, action: string) => Promise<IPCResult<DockerActionResult>>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
       sshListHostTrustRecords: () => Promise<IPCResult<{ records: HostTrustRecord[] }>>;
       sshUpsertHostTrustRecord: (record: HostTrustRecord) => Promise<IPCResult>;

@@ -524,3 +524,66 @@ export interface PortForwardListResult {
   rules: import('./types').PortForwardRule[];
   active: PortForwardRuntimeState[];
 }
+
+/** Docker 容器摘要（来自 docker ps）。 */
+export interface DockerContainerSummary {
+  id: string;
+  name: string;
+  image: string;
+  command: string;
+  state: string;
+  status: string;
+  ports: string;
+  createdAt: string;
+  runningFor: string;
+  size: string;
+}
+
+export interface DockerContainerListResult {
+  available: boolean;
+  version: string;
+  error?: string;
+  containers: DockerContainerSummary[];
+}
+
+export interface DockerPortBinding {
+  container: string;
+  host: string;
+}
+
+export interface DockerMountInfo {
+  type: string;
+  source: string;
+  destination: string;
+  mode: string;
+  readOnly: boolean;
+}
+
+export interface DockerContainerDetail {
+  id: string;
+  name: string;
+  image: string;
+  command: string;
+  state: string;
+  running: boolean;
+  exitCode: number | null;
+  startedAt: string;
+  finishedAt: string;
+  restartCount: number;
+  platform: string;
+  env: string[];
+  ports: DockerPortBinding[];
+  mounts: DockerMountInfo[];
+  networks: string[];
+}
+
+export interface DockerLogsResult {
+  logs: string;
+  truncated: boolean;
+}
+
+export interface DockerActionResult {
+  action: string;
+  containerId: string;
+  output: string;
+}
