@@ -84,21 +84,21 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
         type="button"
         onClick={() => setOpen((previous) => !previous)}
         className={`terminal-control ${open ? 'terminal-control-active' : ''}`}
-        title={translate('terminal.portForward.title')}
-        aria-label={translate('terminal.portForward.title')}
+        title={translate('features.portForward.title')}
+        aria-label={translate('features.portForward.title')}
       >
         <ArrowLeftRight className="h-3.5 w-3.5" />
       </button>
       {open && (
         <div className="app-popover right-0 top-full mt-1 w-[360px] max-h-[75vh] overflow-y-auto p-3 space-y-2.5 z-dropdown">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-fg">{translate('terminal.portForward.title')}</span>
+            <span className="text-xs font-semibold text-fg">{translate('features.portForward.title')}</span>
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => { void fetchForwards(); }}
                 className="icon-button h-6 w-6"
-                title={translate('terminal.portForward.refresh')}
+                title={translate('features.portForward.refresh')}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
@@ -111,7 +111,7 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
           {error && <p className="text-[11px] text-danger">{error}</p>}
 
           {rules.length === 0 ? (
-            <p className="text-[11px] text-fg-muted">{translate('terminal.portForward.empty')}</p>
+            <p className="text-[11px] text-fg-muted">{translate('features.portForward.empty')}</p>
           ) : (
             <div className="space-y-2">
               {rules.map((rule) => {
@@ -134,10 +134,10 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
                     <div className="flex items-center justify-between">
                       <span className={`text-[11px] ${running ? 'text-success' : runtime?.status === 'error' ? 'text-danger' : 'text-fg-subtle'}`}>
                         {running
-                          ? translate('terminal.portForward.running', { count: String(runtime?.connections ?? 0) })
+                          ? translate('features.portForward.running', { count: String(runtime?.connections ?? 0) })
                           : runtime?.status === 'error'
-                            ? runtime.error || translate('terminal.portForward.failed')
-                            : translate('terminal.portForward.stopped')}
+                            ? runtime.error || translate('features.portForward.failed')
+                            : translate('features.portForward.stopped')}
                       </span>
                       {running ? (
                         <button
@@ -147,7 +147,7 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
                           className="toolbar-button px-2 py-1 text-xs"
                         >
                           <Square className="mr-1 h-3 w-3" />
-                          {translate('terminal.portForward.stop')}
+                          {translate('features.portForward.stop')}
                         </button>
                       ) : (
                         <button
@@ -157,7 +157,7 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
                           className="toolbar-button-primary px-2 py-1 text-xs"
                         >
                           <Play className="mr-1 h-3 w-3" />
-                          {translate('terminal.portForward.start')}
+                          {translate('features.portForward.start')}
                         </button>
                       )}
                     </div>
