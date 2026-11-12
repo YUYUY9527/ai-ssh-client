@@ -171,6 +171,67 @@ describe('ssh-transport proxy handshakes', () => {
       22,
     )).rejects.toBeTruthy();
   });
+
+  it('SOCKS5 对 IPv6 字面量使用 atyp=0x04 + 16 字节地址', async () => {
+    const captured: Buffer[] = [];
+    const proxyPort = await listen(net.createServer((socket) => {
+      let stage = 0;
+      let buffer = Buffer.alloc(0);
+      socket.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (stage === 0) {
+          if (buffer.length < 2) return;
+          const methodCount = buffer[1];
+          if (buffer.length < 2 + methodCount) return;
+          buffer = buffer.subarray(2 + methodCount);
+          socket.write(Buffer.from([0x05, 0x00]));
+          stage = 1;
+        }
+        if (stage === 1) {
+          if (buffer.length < 22) return; // 4 头 + 16 地址 + 2 端口
+          captured.push(Buffer.from(buffer.subarray(0, 22)));
+          buffer = Buffer.alloc(0);
+          socket.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0x00, 0x00]));
+          stage = 2;
+        }
+      });
+    }));
+    const socket = await openProxySocket(
+      { type: 'socks5', host: '127.0.0.1', port: proxyPort },
+      '::1',
+      22,
+    ) as net.Socket;
+    const request = captured[0];
+    expect(request[3]).toBe(0x04);
+    // ::1 → 15 个 0x00 + 1 个 0x01
+    expect(Array.from(request.subarray(4, 20))).toEqual([...Array(15).fill(0), 1]);
+    expect([request[20], request[21]]).toEqual([0, 22]);
+    socket.destroy();
+  });
+
+  it('HTTP CONNECT 对 IPv6 字面量加方括号', async () => {
+    const firstLines: string[] = [];
+    const proxyPort = await listen(net.createServer((socket) => {
+      let established = false;
+      socket.on('data', (chunk) => {
+        if (established) {
+          socket.write(chunk);
+          return;
+        }
+        const text = chunk.toString('latin1');
+        firstLines.push(text.split('\r\n')[0]);
+        established = true;
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      });
+    }));
+    const socket = await openProxySocket(
+      { type: 'http', host: '127.0.0.1', port: proxyPort },
+      '::1',
+      2222,
+    ) as net.Socket;
+    expect(firstLines[0]).toBe('CONNECT [::1]:2222 HTTP/1.1');
+    socket.destroy();
+  });
 });
 
 describe('ssh-transport jump chain', () => {

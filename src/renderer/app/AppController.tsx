@@ -747,10 +747,13 @@ export function AppController() {
 
   // 保存设置
   const handleSaveSettings = async (newSettings: AppSettings) => {
-    updateSettings(newSettings);
     if (window.electronAPI) {
-      await window.electronAPI.saveSettings(newSettings);
+      const result = await window.electronAPI.saveSettings(newSettings);
+      if (!result.success) {
+        throw new Error(result.error || t('settings.saveFailed'));
+      }
     }
+    updateSettings(newSettings);
 
     // 同步更新智能体配置
     useAgentStore.getState().syncFromSettings(newSettings);

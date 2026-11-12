@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock, Server } from 'lucide-react';
+import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock, Server, Loader2 } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
-import { AcpSettings } from './AcpSettings';
 import { McpSettings } from './McpSettings';
 import { clearRememberedRiskDecisions } from '../assistant/risk-approval-memory';
 import { useI18n, useI18nStore, localeNames, detectSystemLocale } from '../i18n';
@@ -29,7 +28,7 @@ const FONT_FAMILY_OPTIONS = [
 
 interface SettingsPanelProps {
   settings: AppSettings;
-  onSave: (settings: AppSettings) => void;
+  onSave: (settings: AppSettings) => void | Promise<void>;
   onClose: () => void;
   initialTab?: SettingsTab;
   /** Web 部署下修改密码成功后回调，用于隐藏默认密码横幅。 */
@@ -50,6 +49,9 @@ const IS_WEB = typeof window !== 'undefined' && window.__AISSH_WEB__ === true;
 export function SettingsPanel({ settings, onSave, onClose, initialTab = 'terminal', onPasswordChanged }: SettingsPanelProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [mcpFooterContainer, setMcpFooterContainer] = useState<HTMLDivElement | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{ error: boolean; text: string } | null>(null);
   // 修改密码表单状态（仅 Web 部署使用）。
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
@@ -67,21 +69,34 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   const [hostTrustLoading, setHostTrustLoading] = useState(false);
   const [hostTrustError, setHostTrustError] = useState<string | null>(null);
 
-  const handleSave = () => {
+  useEffect(() => {
+    setSaveFeedback(null);
+  }, [localSettings, activeTab]);
+
+  const handleSave = async () => {
+    if (saving) return;
     const terminalRuntime = resolveTerminalRuntimeSettings(localSettings);
-    onSave({
-      ...localSettings,
-      terminalScrollback: terminalRuntime.scrollback,
-      terminalCursorStyle: terminalRuntime.cursorStyle,
-      terminalCursorBlink: terminalRuntime.cursorBlink,
-      terminalCopyOnSelect: terminalRuntime.copyOnSelect,
-      terminalShellIntegration: terminalRuntime.shellIntegration,
-      agentSemanticSummaryContextLength: Math.max(
-        1000,
-        Math.floor(localSettings.agentSemanticSummaryContextLength ?? 12000),
-      ),
-    });
-    onClose();
+    setSaving(true);
+    setSaveFeedback(null);
+    try {
+      await onSave({
+        ...localSettings,
+        terminalScrollback: terminalRuntime.scrollback,
+        terminalCursorStyle: terminalRuntime.cursorStyle,
+        terminalCursorBlink: terminalRuntime.cursorBlink,
+        terminalCopyOnSelect: terminalRuntime.copyOnSelect,
+        terminalShellIntegration: terminalRuntime.shellIntegration,
+        agentSemanticSummaryContextLength: Math.max(
+          1000,
+          Math.floor(localSettings.agentSemanticSummaryContextLength ?? 12000),
+        ),
+      });
+      setSaveFeedback({ error: false, text: t('settings.saved') });
+    } catch (error) {
+      setSaveFeedback({ error: true, text: (error as Error).message || t('settings.saveFailed') });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleChangePassword = async () => {
@@ -206,7 +221,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   return (
     <div className="fixed inset-0 z-dropdown flex items-center justify-center p-3 sm:p-4">
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="industrial-modal relative z-raised flex h-[84vh] max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
+      <div className={`industrial-modal relative z-raised flex h-[84vh] max-h-[84vh] w-full ${activeTab === 'mcp' ? 'max-w-5xl' : 'max-w-3xl'} flex-col overflow-hidden`}>
         <div className="industrial-modal-header">
           <h2 className="font-semibold text-fg dark:text-white">{t('settings.title')}</h2>
           <button
@@ -583,10 +598,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     />
                   </SettingsItem>
                 </SettingsSection>
-
-                <SettingsSection title={t('settings.acp.title')}>
-                  <AcpSettings />
-                </SettingsSection>
               </SettingsPage>
             )}
 
@@ -595,7 +606,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             )}
 
             {activeTab === 'mcp' && (
-              <McpSettings />
+              <McpSettings footerContainer={mcpFooterContainer} />
             )}
 
             {activeTab === 'language' && (
@@ -713,6 +724,14 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
         </div>
 
         <div className="industrial-modal-footer shrink-0">
+          {activeTab !== 'mcp' && activeTab !== 'password' && saveFeedback && (
+            <div
+              role={saveFeedback.error ? 'alert' : 'status'}
+              className={`settings-save-feedback ${saveFeedback.error ? 'is-error' : 'is-saved'}`}
+            >
+              {saveFeedback.text}
+            </div>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -720,12 +739,16 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
           >
             {t('common.cancel')}
           </button>
+          {activeTab === 'mcp' && <div ref={setMcpFooterContainer} className="contents" />}
           {activeTab !== 'mcp' && activeTab !== 'password' && (
             <button
               type="button"
-              onClick={handleSave}
+              onClick={() => void handleSave()}
+              disabled={saving}
+              aria-busy={saving}
               className="industrial-button-primary"
             >
+              {saving && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
               {t('common.save')}
             </button>
           )}

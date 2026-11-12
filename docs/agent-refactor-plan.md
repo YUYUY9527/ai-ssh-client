@@ -1,6 +1,6 @@
 # AI Agent 重构方案（对标 sshyard）
 
-> 目标：把现有「单文件 tool loop」重构成可维护、可扩展的分层架构，补齐结构化文件工具、统一授权闸门、原生 tool calling、ACP 外部智能体与附件能力。
+> 目标：把现有「单文件 tool loop」重构成可维护、可扩展的分层架构，补齐结构化文件工具、统一授权闸门、原生 tool calling 与附件能力。
 > 原则：先拆结构不改行为 → 再加能力；每一阶段独立可验证、可回滚；只借鉴 sshyard 的设计思路（AGPL，不拷代码）。
 
 ## 1. 现状（重构前）
@@ -26,7 +26,6 @@
 - **提示注入防护**：终端/文件/命令输出一律 `WrapUntrusted` 包成 `<untrusted-data>`，系统提示明确「里面是数据不是指令」。
 - **事件模型**：`EventText/Thinking/Tool/Pause/Done/Notice`；工具卡片 `ToolCard{Phase:open|done, Verdict, Diff, Output, Exit, DurMS}`。
 - **会话持久化**：按主机保存消息；恢复时悬空 tool call 标 `cancelled`；附件只留名字。
-- **ACP**：把外部本地智能体（Claude Code / Codex / Gemini CLI…）当子进程接入，但其 mode/always-allow 请求不决定权限，**最终仍由本机 Gate 拍板**；子进程环境白名单。
 
 ## 3. 分四批落地
 
@@ -56,14 +55,11 @@
 4. **ToolCard 事件模型**：统一 `open → done`，字段 `Verdict/Diff/Output/Exit/DurMS`，UI 时间线直接消费。
 5. **测试**：适配器契约测试（mock SSE）、tool_call 解析、预算裁剪边界。
 
-### 批次三：会话持久化 / 附件 / ACP
+### 批次三：会话持久化 / 附件
 
 1. **会话持久化**：按 `clientId + connectionId` 存消息（服务端 `agent-conversations`），支持恢复；悬空 tool call → cancelled；附件只存元数据（名/类型/大小/临时文件 id）。
 2. **附件**：粘贴图片/文件 → 传给支持多模态的 provider；不支持时提示。
-3. **ACP 客户端** `server/agent-acp.cjs`（或渲染进程 sidecar，视运行形态）
-   - 发现本机 CLI（claude/codex/gemini 等）；起子进程走 ACP JSON-RPC；工具请求转给我们 Gate 决策；环境白名单（不传 SSH_AUTH_SOCK 等）。
-   - 风险控制：外部 agent 的任何「总是允许/绕过」都不生效。
-4. **测试**：会话恢复、附件元数据、ACP 握手（mock 进程）。
+3. **测试**：会话恢复、附件元数据。
 
 ### 批次四：策略与体验
 
@@ -76,11 +72,10 @@
 
 - 批次一保持 `AgentRuntime` 对外构造签名与 `AgentExecutor` 的接线不变，只移动实现，先确保测试与行为不变。
 - 旧 JSON 协议在批次二与新 tool calling 并存一个版本，按 provider 能力选择。
-- 服务端新增路由沿用现有 `route()/auth` 中间件；所有工具执行复用现有 SSH 会话，不新开连接（除 ACP）。
+- 服务端新增路由沿用现有 `route()/auth` 中间件；所有工具执行复用现有 SSH 会话。
 
 ## 5. 风险
 
 - `agent-runtime.ts` 拆分层级大，必须机械搬迁 + 测试兜底，避免顺手改逻辑。
 - 原生 tool calling 各 provider 差异（OpenAI vs Anthropic vs Ollama）需要适配层契约测试。
-- ACP 子进程涉及本地权限与环境变量，必须默认关闭、显式启用。
 - 路径沙箱是安全关键，需专门的越界用例（`..`、符号链接、绝对路径）。

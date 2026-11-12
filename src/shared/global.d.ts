@@ -186,11 +186,6 @@ declare global {
       getAgentAudit?: (
         connectionId: string,
       ) => Promise<IPCResult<{ records: Array<{ at: string; tool: string; root?: string; path?: string; write?: boolean }> }>>;
-      /** Agent 外部智能体（ACP）配置读写与握手测试。Web 优先。 */
-      getAcpConfig?: () => Promise<IPCResult<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>>;
-      saveAcpConfig?: (config: { enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }) => Promise<IPCResult<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>>;
-      testAcpAgent?: (name: string) => Promise<IPCResult<{ ok: boolean; sessionId: string | null }>>;
-
       /** Agent 会话持久化（按连接）。 */
       listAgentConversations?: () => Promise<IPCResult<{ conversations: Array<{ key: string; connectionId: string; messageCount: number; updatedAt: number }> }>>;
       getAgentConversation?: (connectionId: string) => Promise<IPCResult<{ connectionId: string; messages: import('./types').Message[]; updatedAt: number }>>;

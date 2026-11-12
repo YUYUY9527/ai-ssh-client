@@ -1608,6 +1608,190 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
+  .mcp-step { @apply space-y-3.5; }
+
+  .mcp-step-heading { @apply flex items-center gap-3; }
+
+  .mcp-step-index {
+    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-md border font-mono text-[11px] font-semibold text-accent;
+    background: var(--accent-muted);
+    border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
+  }
+
+  .mcp-step-heading h3 { @apply text-sm font-semibold text-fg; }
+  .mcp-step-heading p { @apply mt-0.5 text-xs leading-5 text-fg-muted; }
+
+  .mcp-method-tabs {
+    @apply grid grid-cols-2 gap-2 rounded-md border p-1.5;
+    background: color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+  }
+
+  .mcp-method-tab {
+    @apply flex min-h-14 min-w-0 items-center gap-2.5 border px-3 py-2 text-left text-fg-muted transition-all;
+    border-radius: var(--radius-sm);
+    border-color: transparent;
+  }
+
+  .mcp-method-tab > span { @apply flex min-w-0 flex-1 flex-col gap-0.5; }
+  .mcp-method-tab strong { @apply truncate text-xs font-semibold text-fg-secondary; }
+  .mcp-method-tab small { @apply text-[10px] leading-4 text-fg-muted; }
+
+  .mcp-method-tab:hover { background: color-mix(in srgb, var(--bg-hover) 58%, transparent); }
+
+  .mcp-method-tab.is-active {
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
+  }
+
+  .mcp-method-tab.is-active strong { color: var(--text-primary); }
+  .mcp-method-check { @apply ml-auto shrink-0 text-accent; }
+
+  .mcp-method-content {
+    @apply space-y-4 border p-4;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+  }
+
+  .mcp-method-intro { @apply flex items-start gap-3; }
+
+  .mcp-method-icon {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-md;
+  }
+
+  .mcp-method-icon.is-http { color: var(--info-fg); background: var(--info-muted); }
+  .mcp-method-icon.is-stdio { color: var(--accent-primary); background: var(--accent-muted); }
+  .mcp-method-intro h4 { @apply text-sm font-semibold text-fg; }
+  .mcp-method-intro p { @apply mt-0.5 text-xs leading-5 text-fg-muted; }
+
+  .mcp-copy-section { @apply space-y-1.5; }
+  .mcp-copy-label { @apply text-[11px] font-medium text-fg-secondary; }
+
+  .mcp-copy-control {
+    @apply flex min-h-10 items-center gap-2 border px-3 py-1.5;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  }
+
+  .mcp-copy-control code { @apply min-w-0 flex-1 break-all font-mono text-xs text-fg; }
+
+  .mcp-copy-button {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-fg-muted transition-colors hover:bg-surface-hover hover:text-accent;
+  }
+
+  .mcp-auth-note {
+    @apply flex items-start gap-2.5 border px-3 py-2.5 text-xs;
+    color: var(--info-fg);
+    border-radius: var(--radius-sm);
+    background: var(--info-muted);
+    border-color: color-mix(in srgb, var(--info) 28%, var(--border-color));
+  }
+
+  .mcp-auth-note strong { @apply font-semibold; }
+  .mcp-auth-note p { @apply mt-0.5 leading-5 text-fg-secondary; }
+
+  .mcp-inline-details { @apply border-t pt-2.5; border-color: color-mix(in srgb, var(--border-color) 55%, transparent); }
+  .mcp-inline-details summary, .mcp-technical-details summary { @apply flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-fg-secondary; }
+  .mcp-inline-details summary::-webkit-details-marker, .mcp-technical-details summary::-webkit-details-marker { display: none; }
+  .mcp-inline-details[open] summary svg, .mcp-technical-details[open] summary svg, .mcp-advanced-rules[open] > summary > svg { transform: rotate(180deg); }
+  .mcp-inline-details summary svg, .mcp-technical-details summary svg, .mcp-advanced-rules > summary > svg { @apply shrink-0 text-fg-muted transition-transform; }
+  .mcp-inline-details p { @apply mt-2 text-xs leading-5 text-fg-muted; }
+
+  .mcp-environment-warning {
+    @apply flex items-start gap-2.5 border px-3 py-2.5 text-xs;
+    color: var(--warning-fg);
+    border-radius: var(--radius-sm);
+    background: var(--warning-muted);
+    border-color: color-mix(in srgb, var(--warning) 36%, var(--border-color));
+  }
+
+  .mcp-environment-list { @apply mt-1 break-all font-mono text-[11px]; }
+  .mcp-message { @apply border px-3 py-2 text-xs leading-5; border-radius: var(--radius-sm); }
+  .mcp-message.is-error { color: var(--danger-fg); background: var(--danger-muted); border-color: color-mix(in srgb, var(--danger) 36%, var(--border-color)); }
+  .mcp-message.is-saved { color: var(--success-fg); background: var(--success-muted); border-color: color-mix(in srgb, var(--success) 36%, var(--border-color)); }
+
+  .mcp-policy-summary {
+    @apply flex items-start gap-2.5 border px-3.5 py-3;
+    border-radius: var(--radius-md);
+  }
+
+  .mcp-policy-summary.is-readonly { color: var(--success-fg); background: var(--success-muted); border-color: color-mix(in srgb, var(--success) 34%, var(--border-color)); }
+  .mcp-policy-summary.is-exec { color: var(--warning-fg); background: var(--warning-muted); border-color: color-mix(in srgb, var(--warning) 38%, var(--border-color)); }
+  .mcp-policy-summary strong { @apply text-xs font-semibold; }
+  .mcp-policy-summary p { @apply mt-0.5 text-xs leading-5 text-fg-secondary; }
+
+  .mcp-count {
+    @apply inline-flex min-w-6 items-center justify-center rounded-sm border px-1.5 py-0.5 font-mono text-[10px] text-fg-muted;
+    background: color-mix(in srgb, var(--bg-primary) 66%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  }
+
+  .mcp-connection-row {
+    @apply grid items-center gap-3 py-3;
+    grid-template-columns: 32px minmax(0, 1fr) minmax(9rem, 12rem);
+  }
+
+  .mcp-connection-icon { @apply flex h-8 w-8 items-center justify-center rounded-sm text-fg-muted; background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent); }
+  .mcp-connection-info { @apply min-w-0; }
+  .mcp-connection-name { @apply truncate text-sm font-medium text-fg; }
+  .mcp-connection-address { @apply mt-0.5 truncate font-mono text-[10px] text-fg-muted; }
+  .mcp-connection-mode { @apply min-w-0; }
+  .mcp-empty-state { @apply py-5 text-center text-xs text-fg-muted; }
+
+  .mcp-limit-grid { @apply grid grid-cols-2 gap-x-5 gap-y-4 border-y py-4; border-color: color-mix(in srgb, var(--border-color) 50%, transparent); }
+  .mcp-limit-field { @apply min-w-0 space-y-1.5; }
+
+  .mcp-number-control { @apply flex h-9 items-center border; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bg-primary) 78%, transparent); border-color: color-mix(in srgb, var(--border-color) 76%, transparent); }
+  .mcp-number-control:focus-within { border-color: color-mix(in srgb, var(--accent-primary) 66%, var(--border-color)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 12%, transparent); }
+  .mcp-number-control input { @apply h-full min-w-0 flex-1 border-0 bg-transparent py-1.5 pl-2.5 pr-1 text-sm text-fg shadow-none outline-none; width: auto; }
+  .mcp-number-control input:focus { box-shadow: none; }
+  .mcp-number-control > span { @apply shrink-0 px-2 text-[10px] text-fg-muted; }
+
+  .mcp-advanced-rules, .mcp-technical-details {
+    @apply border;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-secondary) 64%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+  }
+
+  .mcp-advanced-rules > summary { @apply flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3; }
+  .mcp-advanced-rules > summary::-webkit-details-marker { display: none; }
+  .mcp-advanced-rules > summary > span { @apply flex min-w-0 flex-col gap-0.5; }
+  .mcp-advanced-rules > summary strong { @apply text-xs font-semibold text-fg-secondary; }
+  .mcp-advanced-rules > summary small { @apply text-[10px] leading-4 text-fg-muted; }
+  .mcp-advanced-rules[open] > summary { @apply border-b; border-color: color-mix(in srgb, var(--border-color) 60%, transparent); }
+  .mcp-rule-editor { @apply grid gap-2.5 px-3.5 py-3.5; }
+  .mcp-rule-editor + .mcp-rule-editor { @apply border-t; border-color: color-mix(in srgb, var(--border-color) 50%, transparent); }
+  .mcp-rule-heading strong { @apply text-xs font-medium text-fg-secondary; }
+  .mcp-rule-heading p { @apply mt-0.5 text-[11px] leading-4 text-fg-muted; }
+  .mcp-rule-editor textarea { @apply min-h-20 resize-y; }
+
+  .mcp-technical-details { @apply px-3.5 py-3; }
+  .mcp-technical-content { @apply mt-3 space-y-3 border-t pt-3 text-xs text-fg-muted; border-color: color-mix(in srgb, var(--border-color) 55%, transparent); }
+  .mcp-policy-path { @apply flex items-start justify-between gap-3; }
+  .mcp-policy-path > span { @apply shrink-0 rounded-sm px-2 py-0.5 text-[10px] text-warning-fg; background: var(--warning-muted); }
+  .settings-save-feedback { @apply order-first mr-auto w-full min-w-0 text-[11px] leading-4 text-fg-muted sm:w-auto sm:flex-1; overflow-wrap: anywhere; }
+  .settings-save-feedback.is-error { color: var(--danger-fg); }
+  .settings-save-feedback.is-saved { color: var(--success-fg); }
+
+  @media (max-width: 640px) {
+    .mcp-method-tabs { @apply grid-cols-1; }
+    .mcp-method-tab { @apply min-h-12; }
+    .mcp-method-content { @apply p-3; }
+    .mcp-connection-row { grid-template-columns: 30px minmax(0, 1fr) minmax(7.5rem, auto); column-gap: 8px; }
+    .mcp-connection-icon { @apply h-7 w-7; }
+    .mcp-connection-address { font-size: 9px; }
+    .mcp-limit-grid { @apply gap-x-3; }
+  }
+
+  @media (max-width: 420px) {
+    .mcp-limit-grid { @apply grid-cols-1; }
+  }
+
   .industrial-button-primary {
     @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
     border-radius: var(--radius-sm);

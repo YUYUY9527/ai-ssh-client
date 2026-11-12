@@ -138,6 +138,42 @@ describe('port-forward manager', () => {
       .toThrow(/session is not connected/);
   });
 
+  it('活动连接数：一条转发连接关闭只递减一次', async () => {
+    const manager = createPortForwardManager({ getClientForSession: () => fakeSession() });
+    const rule = { id: 'count-1', type: 'local', bindHost: '127.0.0.1', bindPort: 0, targetHost: '127.0.0.1', targetPort: echo.port };
+    manager.start({ clientId: 'c5', connectionId: 'conn5', rule });
+    const port = await waitForPort(manager, 'c5', 'conn5', 'count-1');
+
+    const openConnection = async () => {
+      const socket = net.connect(port, '127.0.0.1');
+      await new Promise((resolve) => socket.once('connect', resolve));
+      socket.write(Buffer.from('ping'));
+      await readN(socket, 'ping'.length);
+      return socket;
+    };
+    const socketA = await openConnection();
+    const socketB = await openConnection();
+    const count = () => manager.list({ clientId: 'c5', connectionId: 'conn5' })[0]?.connections ?? 0;
+    // 两条都活跃时计数为 2（等计数稳定，forwardOut 是异步建立的）
+    for (let attempt = 0; attempt < 100 && count() !== 2; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(count()).toBe(2);
+
+    socketA.destroy();
+    for (let attempt = 0; attempt < 100 && count() !== 1; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(count()).toBe(1);
+
+    socketB.destroy();
+    for (let attempt = 0; attempt < 100 && count() !== 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(count()).toBe(0);
+    manager.stopAllForConnection('conn5', 'c5');
+  });
+
   it('端口被占用时报错且记录可重试：错误记录从列表移除，释放端口后能重新启动', async () => {
     // 占住一个端口，制造 EADDRINUSE
     const blocker = await createEchoServer();

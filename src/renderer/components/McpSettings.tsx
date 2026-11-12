@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, RefreshCw, Save, Server } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, Check, ChevronDown, Copy, Globe, Loader2, RefreshCw, Server, ShieldAlert, ShieldCheck, Terminal } from 'lucide-react';
 
 import type {
   McpConfigSnapshot,
@@ -12,6 +13,8 @@ import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
 import { SettingsItem, SettingsPage, SettingsSection, ToggleSwitch } from '../settings/SettingsLayout';
 
 interface NumberFieldProps {
+  id: string;
+  label: string;
   value: number;
   min: number;
   max: number;
@@ -19,7 +22,7 @@ interface NumberFieldProps {
 }
 
 /** 允许中途清空输入，同时保证保存前拿到的始终是有效整数。 */
-function NumberField({ value, min, max, onChange }: NumberFieldProps) {
+function NumberField({ id, label, value, min, max, onChange }: NumberFieldProps) {
   const [text, setText] = useState(String(value));
 
   useEffect(() => {
@@ -28,7 +31,9 @@ function NumberField({ value, min, max, onChange }: NumberFieldProps) {
 
   return (
     <input
+      id={id}
       type="number"
+      aria-label={label}
       min={min}
       max={max}
       step={1}
@@ -37,7 +42,7 @@ function NumberField({ value, min, max, onChange }: NumberFieldProps) {
         const next = event.target.value;
         setText(next);
         const parsed = Number(next);
-        if (Number.isInteger(parsed)) {
+        if (next.trim() && Number.isInteger(parsed)) {
           onChange(parsed);
         }
       }}
@@ -62,11 +67,12 @@ function linesOf(value: string): string[] {
 /**
  * MCP 服务端策略设置。
  *
- * 只改 `data/mcp-policy.json`，不碰 app 设置；保存后需要重启 MCP 进程才生效。
+ * 只改 `data/mcp-policy.json`，不碰 app 设置；HTTP 即时生效，stdio 需重启进程。
  * 页面本身不提供「关闭内置黑名单」的开关，例外只能是精确命令。
  */
-export function McpSettings() {
+export function McpSettings({ footerContainer }: { footerContainer: HTMLDivElement | null }) {
   const { t } = useI18n();
+  const [transport, setTransport] = useState<'stdio' | 'http'>('http');
   const [snapshot, setSnapshot] = useState<McpConfigSnapshot | null>(null);
   const [draft, setDraft] = useState<McpPolicyConfig | null>(null);
   const [exceptionsText, setExceptionsText] = useState('');
@@ -75,11 +81,34 @@ export function McpSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const copyText = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      window.setTimeout(() => {
+        setCopiedKey((current) => (current === key ? null : current));
+      }, 1500);
+    } catch {
+      // 浏览器可能限制剪贴板权限，保留原按钮状态即可。
+    }
+  };
 
   const applyPolicy = (policy: McpPolicyConfig) => {
+    setSaved(false);
+    setDirty(false);
     setDraft(policy);
     setExceptionsText(policy.commands.exceptions.join('\n'));
     setDenyText(policy.commands.deny.join('\n'));
+  };
+
+  const updateDraft = (update: (current: McpPolicyConfig) => McpPolicyConfig) => {
+    setSaved(false);
+    setDirty(true);
+    setError(null);
+    setDraft((current) => (current ? update(current) : current));
   };
 
   const load = async () => {
@@ -117,16 +146,14 @@ export function McpSettings() {
   }, []);
 
   const updateLimit = (key: keyof McpPolicyConfig['limits'], value: number) => {
-    setDraft((current) => (current
-      ? { ...current, limits: { ...current.limits, [key]: value } }
-      : current));
+    updateDraft((current) => ({
+      ...current,
+      limits: { ...current.limits, [key]: value },
+    }));
   };
 
   const updateConnectionMode = (connection: McpPolicyConnection, value: string) => {
-    setDraft((current) => {
-      if (!current) {
-        return current;
-      }
+    updateDraft((current) => {
       const connections = { ...current.connections };
       // 策略文件可能用名称做键；用户在这里改动后统一改写为 id，避免两套键并存。
       const nameKey = Object.keys(connections).find((key) => (
@@ -162,6 +189,7 @@ export function McpSettings() {
   };
 
   const handleSave = async () => {
+    if (saving) return;
     const api = window.electronAPI;
     if (!api?.mcpSaveConfig || !draft) {
       setError(t('settings.mcp.unavailable'));
@@ -233,150 +261,188 @@ export function McpSettings() {
         </span>
       )}
       description={t('settings.mcp.description')}
+      wide
+      actions={(
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="icon-button"
+          title={t('settings.mcp.reload')}
+          aria-label={t('settings.mcp.reload')}
+          disabled={saving}
+        >
+          <RefreshCw className="h-4 w-4" />
+        </button>
+      )}
     >
-
-      <div className="industrial-card space-y-1 p-3 text-xs">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="font-medium text-fg-secondary">
-              {t('settings.mcp.policyFile')}
-            </div>
-            <div className="mt-1 break-all font-mono text-[11px] text-fg-muted">
-              {snapshot?.path}
-            </div>
+      <section className="mcp-step">
+        <header className="mcp-step-heading">
+          <span className="mcp-step-index">01</span>
+          <div>
+            <h3>{t('settings.mcp.access.title')}</h3>
+            <p>{t('settings.mcp.access.chooseMethod')}</p>
           </div>
-          {snapshot && !snapshot.exists && (
-            <span className="shrink-0 rounded-sm bg-warning-muted px-2 py-0.5 text-warning dark:text-warning-fg">
-              {t('settings.mcp.notCreated')}
-            </span>
+        </header>
+
+        <div className="mcp-method-tabs" role="group" aria-label={t('settings.mcp.access.title')}>
+          <button
+            type="button"
+            aria-pressed={transport === 'http'}
+            className={`mcp-method-tab ${transport === 'http' ? 'is-active' : ''}`}
+            onClick={() => setTransport('http')}
+          >
+            <Globe className="h-4 w-4 shrink-0" />
+            <span><strong>{t('settings.mcp.access.httpTitle')}</strong><small>{t('settings.mcp.access.httpTabDesc')}</small></span>
+            {transport === 'http' ? <Check className="mcp-method-check h-4 w-4" /> : null}
+          </button>
+          <button
+            type="button"
+            aria-pressed={transport === 'stdio'}
+            className={`mcp-method-tab ${transport === 'stdio' ? 'is-active' : ''}`}
+            onClick={() => setTransport('stdio')}
+          >
+            <Terminal className="h-4 w-4 shrink-0" />
+            <span><strong>{t('settings.mcp.access.stdioTitle')}</strong><small>{t('settings.mcp.access.stdioTabDesc')}</small></span>
+            {transport === 'stdio' ? <Check className="mcp-method-check h-4 w-4" /> : null}
+          </button>
+        </div>
+
+        <div className="mcp-method-content">
+          {transport === 'http' ? (
+            <>
+              <div className="mcp-method-intro">
+                <span className="mcp-method-icon is-http"><Globe className="h-4 w-4" /></span>
+                <div><h4>{t('settings.mcp.access.httpTitle')}</h4><p>{t('settings.mcp.access.httpDesc')}</p></div>
+              </div>
+              <div className="mcp-copy-section">
+                <div className="mcp-copy-label">{t('settings.mcp.access.httpAddressLabel')}</div>
+                <div className="mcp-copy-control">
+                  <code>{`${window.location.origin}/mcp`}</code>
+                  <button
+                    type="button"
+                    className="mcp-copy-button"
+                    title={t('settings.mcp.access.httpCopy')}
+                    aria-label={t('settings.mcp.access.httpCopy')}
+                    onClick={() => void copyText('mcp-http', `${window.location.origin}/mcp`)}
+                  >
+                    {copiedKey === 'mcp-http' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="mcp-auth-note">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                <div><strong>{t('settings.mcp.access.httpAuthTitle')}</strong><p>{t('settings.mcp.access.httpAuth')}</p></div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mcp-method-intro">
+                <span className="mcp-method-icon is-stdio"><Terminal className="h-4 w-4" /></span>
+                <div><h4>{t('settings.mcp.access.stdioTitle')}</h4><p>{t('settings.mcp.access.stdioDesc')}</p></div>
+              </div>
+              <div className="mcp-copy-section">
+                <div className="mcp-copy-label">{t('settings.mcp.access.stdioCommandLabel')}</div>
+                <div className="mcp-copy-control">
+                  <code>npm run mcp</code>
+                  <button
+                    type="button"
+                    className="mcp-copy-button"
+                    title={t('settings.mcp.access.stdioCopy')}
+                    aria-label={t('settings.mcp.access.stdioCopy')}
+                    onClick={() => void copyText('mcp-stdio', 'npm run mcp')}
+                  >
+                    {copiedKey === 'mcp-stdio' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <details className="mcp-inline-details">
+                <summary><span>{t('settings.mcp.access.advancedRequirements')}</span><ChevronDown className="h-4 w-4" /></summary>
+                <p>{t('settings.mcp.access.stdioEnv')}</p>
+              </details>
+            </>
           )}
         </div>
-        <p className="text-fg-muted">{t('settings.mcp.restartHint')}</p>
-      </div>
+      </section>
 
       {snapshot && snapshot.envOverrides.length > 0 && (
-        <div className="flex items-start gap-2 rounded-sm border border-warning bg-warning-muted px-3 py-2 text-xs text-warning dark:text-warning-fg">
+        <div className="mcp-environment-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <div className="font-medium">{t('settings.mcp.envOverride')}</div>
-            <div className="mt-1 font-mono text-[11px]">{snapshot.envOverrides.join(', ')}</div>
+            <div className="mcp-environment-list">{snapshot.envOverrides.join(', ')}</div>
             <div className="mt-1">{t('settings.mcp.envOverrideDesc')}</div>
           </div>
         </div>
       )}
 
-      {error && (
-        <div className="rounded-sm border border-danger bg-danger-muted px-3 py-2 text-sm text-danger dark:text-danger-fg">
-          {error}
-        </div>
-      )}
-      {saved && (
-        <div className="rounded-sm border border-accent bg-accent-muted px-3 py-2 text-sm text-accent dark:text-accent-hover">
-          {t('settings.mcp.saved')}
-        </div>
-      )}
+      <section className="mcp-step">
+        <header className="mcp-step-heading">
+          <span className="mcp-step-index">02</span>
+          <div>
+            <h3>{t('settings.mcp.general')}</h3>
+            <p>{t('settings.mcp.generalDesc')}</p>
+          </div>
+        </header>
 
-      <SettingsSection title={t('settings.mcp.general')}>
-        <SettingsItem
-          label={t('settings.mcp.defaultMode')}
-          description={t('settings.mcp.defaultModeDesc')}
-          layout="block"
-        >
-          <IndustrialSelect
-            value={draft.defaultMode}
-            options={modeOptions}
-            onChange={(value) => setDraft({ ...draft, defaultMode: value as McpPolicyMode })}
-          />
-        </SettingsItem>
+        <div className={`mcp-policy-summary ${draft.defaultMode === 'read-only' ? 'is-readonly' : 'is-exec'}`}>
+          {draft.defaultMode === 'read-only' ? <ShieldCheck className="h-5 w-5 shrink-0" /> : <ShieldAlert className="h-5 w-5 shrink-0" />}
+          <div>
+            <strong>{draft.defaultMode === 'read-only' ? t('settings.mcp.readOnlySummaryTitle') : t('settings.mcp.execSummaryTitle')}</strong>
+            <p>{draft.defaultMode === 'read-only' ? t('settings.mcp.readOnlySummaryDesc') : t('settings.mcp.execSummaryDesc')}</p>
+          </div>
+        </div>
 
-        <SettingsItem
-          label={t('settings.mcp.trustOnFirstUse')}
-          description={t('settings.mcp.trustOnFirstUseDesc')}
-        >
-          <ToggleSwitch
-            enabled={draft.trustOnFirstUse}
+        <SettingsSection title={t('settings.mcp.permissions')} description={t('settings.mcp.permissionsDesc')}>
+          <SettingsItem
+            label={t('settings.mcp.defaultMode')}
+            description={t('settings.mcp.defaultModeDesc')}
+            controlClassName="w-full sm:w-48"
+          >
+            <IndustrialSelect
+              value={draft.defaultMode}
+              options={modeOptions}
+              onChange={(value) => updateDraft((current) => ({ ...current, defaultMode: value as McpPolicyMode }))}
+            />
+          </SettingsItem>
+
+          <SettingsItem
             label={t('settings.mcp.trustOnFirstUse')}
-            onChange={(value) => setDraft({ ...draft, trustOnFirstUse: value })}
-          />
-        </SettingsItem>
+            description={t('settings.mcp.trustOnFirstUseDesc')}
+          >
+            <ToggleSwitch
+              enabled={draft.trustOnFirstUse}
+              label={t('settings.mcp.trustOnFirstUse')}
+              onChange={(value) => updateDraft((current) => ({ ...current, trustOnFirstUse: value }))}
+            />
+          </SettingsItem>
 
-        <SettingsItem
-          label={t('settings.mcp.audit')}
-          description={t('settings.mcp.auditDesc')}
-        >
-          <ToggleSwitch
-            enabled={draft.audit.enabled}
+          <SettingsItem
             label={t('settings.mcp.audit')}
-            onChange={(value) => setDraft({ ...draft, audit: { enabled: value } })}
-          />
-        </SettingsItem>
-      </SettingsSection>
+            description={t('settings.mcp.auditDesc')}
+          >
+            <ToggleSwitch
+              enabled={draft.audit.enabled}
+              label={t('settings.mcp.audit')}
+              onChange={(value) => updateDraft((current) => ({ ...current, audit: { enabled: value } }))}
+            />
+          </SettingsItem>
+        </SettingsSection>
 
-      <SettingsSection title={t('settings.mcp.limits')} description={t('settings.mcp.limitsDesc')}>
-        <div className="grid gap-4 py-3.5 sm:grid-cols-2">
-          <div>
-            <label className="industrial-field-label">{t('settings.mcp.limitOutput')}</label>
-            <NumberField
-              value={draft.limits.maxOutputBytes}
-              min={1024}
-              max={4 * 1024 * 1024}
-              onChange={(value) => updateLimit('maxOutputBytes', value)}
-            />
-          </div>
-          <div>
-            <label className="industrial-field-label">{t('settings.mcp.limitTimeout')}</label>
-            <NumberField
-              value={draft.limits.execTimeoutMs}
-              min={1000}
-              max={300000}
-              onChange={(value) => updateLimit('execTimeoutMs', value)}
-            />
-          </div>
-          <div>
-            <label className="industrial-field-label">{t('settings.mcp.limitCommandChars')}</label>
-            <NumberField
-              value={draft.limits.maxCommandChars}
-              min={128}
-              max={65536}
-              onChange={(value) => updateLimit('maxCommandChars', value)}
-            />
-          </div>
-          <div>
-            <label className="industrial-field-label">{t('settings.mcp.limitReadBytes')}</label>
-            <NumberField
-              value={draft.limits.maxReadBytes}
-              min={1024}
-              max={1024 * 1024}
-              onChange={(value) => updateLimit('maxReadBytes', value)}
-            />
-          </div>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection
-        title={t('settings.mcp.connections')}
-        description={t('settings.mcp.connectionsDesc')}
-      >
-        <div className="max-h-72 space-y-2 overflow-y-auto py-3.5 pr-1">
-          {snapshot?.connections.length === 0 && (
-            <div className="rounded-md border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-3 text-center text-xs text-fg-muted">
-              {t('settings.mcp.noConnections')}
-            </div>
-          )}
-          {snapshot?.connections.map((connection) => (
-            <div
-              key={connection.id}
-              className="industrial-card flex items-center justify-between gap-3 p-3"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-fg dark:text-white">
-                  {connection.name || connection.host}
-                </div>
-                <div className="truncate font-mono text-[11px] text-fg-muted">
-                  {connection.username}@{connection.host}:{connection.port}
-                </div>
+        <SettingsSection
+          title={t('settings.mcp.connections')}
+          description={t('settings.mcp.connectionsDesc')}
+          actions={<span className="mcp-count">{snapshot?.connections.length ?? 0}</span>}
+        >
+          {snapshot?.connections.length === 0 ? (
+            <div className="mcp-empty-state">{t('settings.mcp.noConnections')}</div>
+          ) : snapshot?.connections.map((connection) => (
+            <div key={connection.id} className="mcp-connection-row">
+              <span className="mcp-connection-icon"><Server className="h-4 w-4" /></span>
+              <div className="mcp-connection-info">
+                <div className="mcp-connection-name">{connection.name || connection.host}</div>
+                <div className="mcp-connection-address">{connection.username}@{connection.host}:{connection.port}</div>
               </div>
-              <div className="w-36 shrink-0">
+              <div className="mcp-connection-mode">
                 <IndustrialSelect
                   value={connectionMode(connection)}
                   options={[
@@ -388,60 +454,147 @@ export function McpSettings() {
               </div>
             </div>
           ))}
-        </div>
-      </SettingsSection>
+        </SettingsSection>
+      </section>
 
-      <SettingsSection
-        title={t('settings.mcp.exceptions')}
-        description={t('settings.mcp.exceptionsDesc')}
-      >
-        <div className="py-3.5">
+      <section className="mcp-step">
+        <header className="mcp-step-heading">
+          <span className="mcp-step-index">03</span>
+          <div>
+            <h3>{t('settings.mcp.limits')}</h3>
+            <p>{t('settings.mcp.limitsDesc')}</p>
+          </div>
+        </header>
+        <div className="mcp-limit-grid">
+          <div className="mcp-limit-field">
+            <label className="industrial-field-label" htmlFor="mcp-limit-output">{t('settings.mcp.limitOutput')}</label>
+            <div className="mcp-number-control">
+              <NumberField
+                id="mcp-limit-output"
+                label={t('settings.mcp.limitOutput')}
+                value={Math.max(1, Math.round(draft.limits.maxOutputBytes / 1024))}
+                min={1}
+                max={4 * 1024}
+                onChange={(value) => updateLimit('maxOutputBytes', value * 1024)}
+              />
+              <span>KB</span>
+            </div>
+          </div>
+          <div className="mcp-limit-field">
+            <label className="industrial-field-label" htmlFor="mcp-limit-timeout">{t('settings.mcp.limitTimeout')}</label>
+            <div className="mcp-number-control">
+              <NumberField
+                id="mcp-limit-timeout"
+                label={t('settings.mcp.limitTimeout')}
+                value={Math.max(1, Math.round(draft.limits.execTimeoutMs / 1000))}
+                min={1}
+                max={300}
+                onChange={(value) => updateLimit('execTimeoutMs', value * 1000)}
+              />
+              <span>{t('settings.mcp.secondsUnit')}</span>
+            </div>
+          </div>
+          <div className="mcp-limit-field">
+            <label className="industrial-field-label" htmlFor="mcp-limit-command">{t('settings.mcp.limitCommandChars')}</label>
+            <div className="mcp-number-control">
+              <NumberField
+                id="mcp-limit-command"
+                label={t('settings.mcp.limitCommandChars')}
+                value={draft.limits.maxCommandChars}
+                min={128}
+                max={65536}
+                onChange={(value) => updateLimit('maxCommandChars', value)}
+              />
+              <span>{t('settings.mcp.charactersUnit')}</span>
+            </div>
+          </div>
+          <div className="mcp-limit-field">
+            <label className="industrial-field-label" htmlFor="mcp-limit-read">{t('settings.mcp.limitReadBytes')}</label>
+            <div className="mcp-number-control">
+              <NumberField
+                id="mcp-limit-read"
+                label={t('settings.mcp.limitReadBytes')}
+                value={Math.max(1, Math.round(draft.limits.maxReadBytes / 1024))}
+                min={1}
+                max={1024}
+                onChange={(value) => updateLimit('maxReadBytes', value * 1024)}
+              />
+              <span>KB</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <details className="mcp-advanced-rules">
+        <summary>
+          <span><strong>{t('settings.mcp.advancedTitle')}</strong><small>{t('settings.mcp.advancedDesc')}</small></span>
+          <ChevronDown className="h-4 w-4" />
+        </summary>
+        <div className="mcp-rule-editor">
+          <div className="mcp-rule-heading">
+            <strong>{t('settings.mcp.exceptions')}</strong>
+            <p>{t('settings.mcp.exceptionsDesc')}</p>
+          </div>
           <textarea
             value={exceptionsText}
-            onChange={(event) => setExceptionsText(event.target.value)}
+            onChange={(event) => { setSaved(false); setDirty(true); setError(null); setExceptionsText(event.target.value); }}
             rows={3}
             spellCheck={false}
             placeholder={t('settings.mcp.exceptionsPlaceholder')}
             className="industrial-input w-full font-mono text-xs"
           />
         </div>
-      </SettingsSection>
-
-      <details className="rounded-md border border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] px-3 py-2">
-        <summary className="cursor-pointer text-sm font-medium text-fg dark:text-white">
-          {t('settings.mcp.denyRules')}
-        </summary>
-        <p className="mt-2 text-xs text-fg-muted">{t('settings.mcp.denyRulesDesc')}</p>
-        <textarea
-          value={denyText}
-          onChange={(event) => setDenyText(event.target.value)}
-          rows={3}
-          spellCheck={false}
-          placeholder={t('settings.mcp.denyRulesPlaceholder')}
-          className="industrial-input mt-2 w-full font-mono text-xs"
-        />
+        <div className="mcp-rule-editor">
+          <div className="mcp-rule-heading">
+            <strong>{t('settings.mcp.denyRules')}</strong>
+            <p>{t('settings.mcp.denyRulesDesc')}</p>
+          </div>
+          <textarea
+            value={denyText}
+            onChange={(event) => { setSaved(false); setDirty(true); setError(null); setDenyText(event.target.value); }}
+            rows={3}
+            spellCheck={false}
+            placeholder={t('settings.mcp.denyRulesPlaceholder')}
+            className="industrial-input w-full font-mono text-xs"
+          />
+        </div>
       </details>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={saving}
-          className="industrial-button-primary"
-        >
-          <Save className="h-4 w-4" />
-          {saving ? t('settings.mcp.saving') : t('settings.mcp.save')}
-        </button>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="industrial-button-secondary"
-          disabled={saving}
-        >
-          <RefreshCw className="h-4 w-4" />
-          {t('settings.mcp.reload')}
-        </button>
-      </div>
+      <details className="mcp-technical-details">
+        <summary><span>{t('settings.mcp.technicalDetails')}</span><ChevronDown className="h-4 w-4" /></summary>
+        <div className="mcp-technical-content">
+          <div className="mcp-policy-path">
+            <div>
+              <div className="font-medium text-fg-secondary">{t('settings.mcp.policyFile')}</div>
+              <div className="mt-1 break-all font-mono text-[11px] text-fg-muted">{snapshot?.path}</div>
+            </div>
+            {snapshot && !snapshot.exists ? <span>{t('settings.mcp.notCreated')}</span> : null}
+          </div>
+          <p>{t('settings.mcp.restartHint')}</p>
+        </div>
+      </details>
+
+      {footerContainer && createPortal(
+        <>
+          <div
+            role={error ? 'alert' : saved ? 'status' : undefined}
+            className={`settings-save-feedback ${error ? 'is-error' : saved ? 'is-saved' : ''}`}
+          >
+            {error || (saved ? t('settings.mcp.saved') : dirty ? t('settings.mcp.unsaved') : t('settings.mcp.saveHint'))}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            aria-busy={saving}
+            className="industrial-button-primary"
+          >
+            {saving && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
+            {t('common.save')}
+          </button>
+        </>,
+        footerContainer,
+      )}
     </SettingsPage>
   );
 }

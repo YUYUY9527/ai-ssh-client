@@ -35,8 +35,6 @@ const { sudoReadTextFile, sudoWriteTextFile } = require('./sudo-fs.cjs');
 const agentTools = require('./agent-tools.cjs');
 const { createAgentConversationStore } = require('./agent-conversations.cjs');
 const { createAgentAttachmentStore } = require('./agent-attachments.cjs');
-const { createAcpRegistry } = require('./agent-acp-registry.cjs');
-const { createAcpClient } = require('./agent-acp.cjs');
 const aiProviders = require('./ai-providers/index.cjs');
 const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
 const {
@@ -76,7 +74,6 @@ const STORE_PATH = path.join(DATA_DIR, 'config.json');
 const SFTP_TRANSFERS_PATH = path.join(DATA_DIR, 'sftp-transfers.json');
 const agentConversationStore = createAgentConversationStore({ dataDir: DATA_DIR });
 const agentAttachmentStore = createAgentAttachmentStore({ dataDir: DATA_DIR });
-const agentAcpRegistry = createAcpRegistry({ dataDir: DATA_DIR });
 const AI_DEBUG_LOG_FILE = process.env.AI_DEBUG_LOG_FILE || '';
 const AI_DEBUG_LOG_STDOUT = process.env.AI_DEBUG_LOG === '1';
 
@@ -2053,67 +2050,6 @@ app.get('/api/agent/attachments/:attachmentId', route((request) => {
 app.delete('/api/agent/attachments/:attachmentId', route((request) => {
   const removed = agentAttachmentStore.remove(String(request.params.attachmentId || ''));
   return success({ removed });
-}));
-
-// —— Agent 外部智能体（ACP，默认关闭，需显式启用）——
-
-app.get('/api/agent/acp/config', route((request) => {
-  return success(agentAcpRegistry.load());
-}));
-
-app.put('/api/agent/acp/config', route((request) => {
-  return success(agentAcpRegistry.save(request.body || {}));
-}));
-
-// 测试某个外部智能体能否完成 ACP 握手（不执行任何任务）。
-app.post('/api/agent/acp/:name/test', route(async (request) => {
-  const agent = agentAcpRegistry.get(String(request.params.name || ''));
-  if (!agent) throw new Error('acp agent not found');
-  const config = agentAcpRegistry.load();
-  if (!config.enabled) throw new Error('acp disabled');
-  const client = createAcpClient({ command: agent.command, args: agent.args, cwd: DATA_DIR, timeoutMs: 20000 });
-  try {
-    await client.initialize({ protocolVersion: 1 });
-    const session = await client.newSession({ cwd: DATA_DIR, mcpServers: [] });
-    return success({ ok: true, sessionId: (session && session.sessionId) || null });
-  } finally {
-    client.close();
-  }
-}));
-
-// 一次性委托：把一段 prompt 发给外部智能体并等待回合结束。
-// 安全边界：权限请求一律拒绝，外部智能体的任何「总是允许/绕过」都不生效。
-app.post('/api/agent/acp/:name/prompt', route(async (request) => {
-  const agent = agentAcpRegistry.get(String(request.params.name || ''));
-  if (!agent) throw new Error('acp agent not found');
-  const config = agentAcpRegistry.load();
-  if (!config.enabled) throw new Error('acp disabled');
-  const body = request.body || {};
-  const prompt = String(body.prompt || '').trim();
-  if (!prompt) throw new Error('prompt is empty');
-  const timeoutMs = Math.min(Math.max(Number(body.timeoutMs) || 120000, 5000), 600000);
-  const client = createAcpClient({
-    command: agent.command,
-    args: agent.args,
-    cwd: DATA_DIR,
-    timeoutMs,
-    gate: () => false,
-  });
-  const updates = [];
-  client.onNotification((message) => {
-    if (message && message.method === 'session/update') updates.push(message.params ?? null);
-  });
-  try {
-    await client.initialize({ protocolVersion: 1 });
-    const session = await client.newSession({ cwd: DATA_DIR, mcpServers: [] });
-    const result = await client.prompt({
-      sessionId: session && session.sessionId,
-      prompt: [{ type: 'text', text: prompt }],
-    });
-    return success({ sessionId: (session && session.sessionId) || null, stopReason: (result && result.stopReason) || null, updates });
-  } finally {
-    client.close();
-  }
 }));
 
 // 判断 SFTP 权限错误（codes: 3 = PERMISSION_DENIED；部分实现给 EACCES）

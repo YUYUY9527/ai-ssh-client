@@ -33,14 +33,16 @@ export function SettingsPage({
   description,
   actions,
   children,
+  wide = false,
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
+  wide?: boolean;
 }) {
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-5">
+    <div className={`mx-auto w-full ${wide ? 'max-w-4xl' : 'max-w-2xl'} space-y-5`}>
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
           <h2 className="text-base font-semibold text-fg dark:text-white">{title}</h2>

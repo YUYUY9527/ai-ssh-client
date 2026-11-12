@@ -119,7 +119,11 @@ function createPortForwardManager({ getClientForSession } = {}) {
     forward(entry.session, targetHost, targetPort)
       .then((stream) => {
         entry.connections += 1;
+        // 本地 socket 和 SSH stream 的 close 是同一件事的两端，只递减一次
+        let counted = true;
         const done = () => {
+          if (!counted) return;
+          counted = false;
           entry.connections = Math.max(0, entry.connections - 1);
         };
         socket.on('error', () => { try { stream.destroy(); } catch { /* ignore */ } });
@@ -147,7 +151,13 @@ function createPortForwardManager({ getClientForSession } = {}) {
       .then(({ stream }) => {
         socket.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0x00, 0x00]));
         entry.connections += 1;
-        const done = () => { entry.connections = Math.max(0, entry.connections - 1); };
+        // 本地 socket 和 SSH stream 的 close 是同一件事的两端，只递减一次
+        let counted = true;
+        const done = () => {
+          if (!counted) return;
+          counted = false;
+          entry.connections = Math.max(0, entry.connections - 1);
+        };
         socket.on('error', () => { try { stream.destroy(); } catch { /* ignore */ } });
         stream.on('error', () => { try { socket.destroy(); } catch { /* ignore */ } });
         socket.on('close', done);

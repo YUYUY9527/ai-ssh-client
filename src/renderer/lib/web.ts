@@ -1855,18 +1855,6 @@ const webApi: Window['electronAPI'] = {
   getAgentAttachment: (attachmentId: string) => request<{ id: string; name: string; type: string; size: number }>(
     `/api/agent/attachments/${attachmentId}`,
   ),
-  // —— Agent 外部智能体（ACP，服务端默认关闭，需显式启用）——
-  getAcpConfig: () => request<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>(
-    '/api/agent/acp/config',
-  ),
-  saveAcpConfig: (config: { enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }) => request<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>(
-    '/api/agent/acp/config',
-    { method: 'PUT', body: JSON.stringify(config) },
-  ),
-  testAcpAgent: (name: string) => request<{ ok: boolean; sessionId: string | null }>(
-    `/api/agent/acp/${encodeURIComponent(name)}/test`,
-    { method: 'POST', body: JSON.stringify({}) },
-  ),
   // 监控采集是被动轮询：会话未就绪时直接失败即可，绝不在这里触发自动重连，
   // 否则底栏每 5 秒一次的轮询会在「连接中」窗口里反复拉起新的 SSH 连接，
   // 互相顶替导致连接变得异常慢。

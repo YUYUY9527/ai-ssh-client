@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { getWebSftpClientId } from '../../lib/web';
 
 interface DockerExecTerminalProps {
   connectionId: string;
@@ -45,6 +46,8 @@ export function DockerExecTerminal({ connectionId, containerId, shell, translate
       shell,
       cols: String(term.cols),
       rows: String(term.rows),
+      // 服务端用它把「新主机指纹确认」路由到本页面，缺了会直接拒绝新主机连接
+      clientId: getWebSftpClientId(),
     });
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/docker-exec?${params.toString()}`);
 

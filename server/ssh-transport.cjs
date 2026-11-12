@@ -126,6 +126,30 @@ function readUntil(socket, delimiter, state, limit = 64 * 1024) {
   });
 }
 
+/** 把 IPv6 字面量（含压缩形式 `::`，忽略 zone）解析成 16 字节。 */
+function ipv6ToBuffer(host) {
+  const clean = host.split('%')[0];
+  const sections = clean.split('::');
+  if (sections.length > 2) throw new Error(`Invalid IPv6 address: ${host}`);
+  const head = sections[0] ? sections[0].split(':') : [];
+  const tail = sections.length === 2 && sections[1] ? sections[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0 || (sections.length === 1 && missing > 0)) {
+    throw new Error(`Invalid IPv6 address: ${host}`);
+  }
+  const groups = [...head, ...Array(Math.max(missing, 0)).fill('0'), ...tail];
+  if (groups.length !== 8) throw new Error(`Invalid IPv6 address: ${host}`);
+  const out = Buffer.alloc(16);
+  groups.forEach((group, index) => {
+    const value = Number.parseInt(group, 16);
+    if (!Number.isFinite(value) || value < 0 || value > 0xffff) {
+      throw new Error(`Invalid IPv6 address: ${host}`);
+    }
+    out.writeUInt16BE(value, index * 2);
+  });
+  return out;
+}
+
 function connectTcp(host, port, timeoutMs = PROXY_HANDSHAKE_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host, port });
@@ -169,9 +193,13 @@ async function openHttpProxySocket(proxy, targetHost, targetPort) {
   const socket = await connectTcp(proxy.host, proxy.port);
   try {
     return await raceHandshake(socket, (async () => {
+      // IPv6 字面量在 HTTP CONNECT 目标里必须加方括号，否则与端口分隔冒号冲突
+      const connectTarget = net.isIPv6(targetHost)
+        ? `[${targetHost}]:${targetPort}`
+        : `${targetHost}:${targetPort}`;
       const lines = [
-        `CONNECT ${targetHost}:${targetPort} HTTP/1.1`,
-        `Host: ${targetHost}:${targetPort}`,
+        `CONNECT ${connectTarget} HTTP/1.1`,
+        `Host: ${connectTarget}`,
         'Proxy-Connection: Keep-Alive',
       ];
       if (proxy.username) {
@@ -219,14 +247,24 @@ async function openSocks5Socket(proxy, targetHost, targetPort) {
         throw new Error('SOCKS5 proxy rejected all offered authentication methods');
       }
 
-      // 目标地址：域名优先（atyp=0x03），IPv4 字面量用 0x01。
+      // 目标地址：域名用 atyp=0x03，IPv4 字面量用 0x01，IPv6 字面量用 0x04（16 字节）。
       const isIpv4 = net.isIPv4(targetHost);
-      const hostBytes = isIpv4
-        ? Buffer.from(targetHost.split('.').map((part) => Number(part)))
-        : Buffer.concat([Buffer.from([targetHost.length]), Buffer.from(targetHost, 'utf8')]);
+      const isIpv6 = !isIpv4 && net.isIPv6(targetHost);
+      let atyp;
+      let hostBytes;
+      if (isIpv4) {
+        atyp = 0x01;
+        hostBytes = Buffer.from(targetHost.split('.').map((part) => Number(part)));
+      } else if (isIpv6) {
+        atyp = 0x04;
+        hostBytes = ipv6ToBuffer(targetHost);
+      } else {
+        atyp = 0x03;
+        hostBytes = Buffer.concat([Buffer.from([targetHost.length]), Buffer.from(targetHost, 'utf8')]);
+      }
       const portBytes = Buffer.from([(targetPort >> 8) & 0xff, targetPort & 0xff]);
       socket.write(Buffer.concat([
-        Buffer.from([0x05, 0x01, 0x00, isIpv4 ? 0x01 : 0x03]),
+        Buffer.from([0x05, 0x01, 0x00, atyp]),
         hostBytes,
         portBytes,
       ]));
@@ -234,8 +272,8 @@ async function openSocks5Socket(proxy, targetHost, targetPort) {
       const header = await readExactly(socket, 4, state);
       if (header[0] !== 0x05) throw new Error('Invalid SOCKS5 reply version');
       if (header[1] !== 0x00) throw new Error(`SOCKS5 connect failed with code ${header[1]}`);
-      const atyp = header[3];
-      const addressLength = atyp === 0x01 ? 4 : atyp === 0x04 ? 16 : (await readExactly(socket, 1, state))[0];
+      const replyAtyp = header[3];
+      const addressLength = replyAtyp === 0x01 ? 4 : replyAtyp === 0x04 ? 16 : (await readExactly(socket, 1, state))[0];
       await readExactly(socket, addressLength + 2, state);
       if (state.buffer.length > 0) socket.unshift(state.buffer);
       return socket;
