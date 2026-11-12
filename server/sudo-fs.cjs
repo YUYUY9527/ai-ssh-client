@@ -27,16 +27,19 @@ function looksLikePasswordRequired(text) {
     .test(String(text || ''));
 }
 
-/** 执行一条命令并收集输出。stdin 可选，触发后关闭写入。 */
-function execCollect(client, command, { stdin, timeoutMs = 15000 } = {}) {
+/** 执行一条命令并收集输出。stdin 可选，触发后关闭写入。
+ * stdout/stderr 以 Buffer 收集、结束时一次性解码，避免多字节字符被数据块边界劈开；
+ * 传入 maxStdoutBytes 时超限立即中断，防止读大文件时内存无界增长。 */
+function execCollect(client, command, { stdin, timeoutMs = 15000, maxStdoutBytes } = {}) {
   return new Promise((resolve, reject) => {
     client.exec(command, (error, stream) => {
       if (error) {
         reject(error);
         return;
       }
-      let stdout = '';
-      let stderr = '';
+      const stdoutChunks = [];
+      const stderrChunks = [];
+      let stdoutBytes = 0;
       let settled = false;
       const timer = setTimeout(() => {
         if (settled) return;
@@ -48,10 +51,29 @@ function execCollect(client, command, { stdin, timeoutMs = 15000 } = {}) {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve({ stdout, stderr, code });
+        const stdoutBuffer = Buffer.concat(stdoutChunks);
+        resolve({
+          stdout: stdoutBuffer.toString('utf8'),
+          // 原始字节留给需要严格校验的调用方（如 sudoReadTextFile）自行解码
+          stdoutBuffer,
+          stderr: Buffer.concat(stderrChunks).toString('utf8'),
+          code,
+        });
       };
-      stream.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-      stream.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+      stream.on('data', (chunk) => {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        stdoutChunks.push(buf);
+        stdoutBytes += buf.length;
+        if (typeof maxStdoutBytes === 'number' && stdoutBytes > maxStdoutBytes && !settled) {
+          settled = true;
+          clearTimeout(timer);
+          try { stream.close(); } catch { /* ignore */ }
+          reject(sudoError(`output exceeds ${maxStdoutBytes} bytes`, 'too-large'));
+        }
+      });
+      stream.stderr.on('data', (chunk) => {
+        stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
       stream.on('close', (code) => finish(typeof code === 'number' ? code : 0));
       stream.on('error', (streamError) => {
         if (settled) return;
@@ -68,9 +90,9 @@ function execCollect(client, command, { stdin, timeoutMs = 15000 } = {}) {
   });
 }
 
-async function runSudo(client, baseCommand, { password, stdinBody } = {}) {
+async function runSudo(client, baseCommand, { password, stdinBody, maxStdoutBytes } = {}) {
   // 1) 免密尝试
-  const nonInteractive = await execCollect(client, `sudo -n -- ${baseCommand}`, { stdin: stdinBody });
+  const nonInteractive = await execCollect(client, `sudo -n -- ${baseCommand}`, { stdin: stdinBody, maxStdoutBytes });
   if (nonInteractive.code === 0) return nonInteractive;
   const passwordRequired = looksLikePasswordRequired(nonInteractive.stderr);
   if (!passwordRequired) {
@@ -84,7 +106,7 @@ async function runSudo(client, baseCommand, { password, stdinBody } = {}) {
   }
   // 2) 带密码：密码写在 stdin 第一行
   const payload = stdinBody === undefined ? `${password}\n` : `${password}\n${stdinBody}`;
-  const authenticated = await execCollect(client, `sudo -S -p '' -- ${baseCommand}`, { stdin: payload });
+  const authenticated = await execCollect(client, `sudo -S -p '' -- ${baseCommand}`, { stdin: payload, maxStdoutBytes });
   if (authenticated.code !== 0) {
     const reason = (authenticated.stderr || '').trim();
     if (looksLikePasswordRequired(reason) || /incorrect password/i.test(reason)) {
@@ -95,11 +117,24 @@ async function runSudo(client, baseCommand, { password, stdinBody } = {}) {
   return authenticated;
 }
 
-/** 用 sudo 读取远端文本文件。 */
+/** 用 sudo 读取远端文本文件。maxBytes 同时作为收集上限：超限立即中断命令，而不是等读完全部输出。 */
 async function sudoReadTextFile(client, remotePath, { password, maxBytes = DEFAULT_MAX_BYTES } = {}) {
   if (!client) throw sudoError('SSH session is not connected', 'no-session');
-  const result = await runSudo(client, `cat -- ${quoteShellArg(remotePath)}`, { password });
-  const content = result.stdout;
+  const result = await runSudo(client, `cat -- ${quoteShellArg(remotePath)}`, {
+    password,
+    maxStdoutBytes: maxBytes + 1,
+  });
+  // 严格 UTF-8 解码：与普通 SFTP 文本读取（sftp-items.cjs）保持同一语义——
+  // 非法字节直接报错而不是静默替换成 U+FFFD，避免用户保存后损坏原文件。
+  let content;
+  try {
+    content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(result.stdoutBuffer);
+  } catch {
+    throw sudoError('File is not valid UTF-8 text and cannot be edited in-app', 'unsupported-encoding');
+  }
+  if (content.includes('\u0000')) {
+    throw sudoError('File is not valid UTF-8 text and cannot be edited in-app', 'unsupported-encoding');
+  }
   const size = Buffer.byteLength(content, 'utf8');
   if (size > maxBytes) {
     throw sudoError(`File is too large to edit (${size} bytes, max ${maxBytes} bytes)`, 'too-large');

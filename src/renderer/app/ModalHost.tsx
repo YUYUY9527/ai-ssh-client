@@ -386,6 +386,9 @@ export function ModalHost({
                     !editingConnection.name
                     || !editingConnection.host
                     || !editingConnection.username
+                    // 配置了代理但主机/端口不全时禁止保存，避免静默退回直连
+                    || (editingConnection.proxy != null
+                      && (!String(editingConnection.proxy.host || '').trim() || !Number(editingConnection.proxy.port)))
                   }
                   className="industrial-button-primary"
                 >

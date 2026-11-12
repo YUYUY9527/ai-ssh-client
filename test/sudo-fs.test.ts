@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 const {
   quoteShellArg,
   looksLikePasswordRequired,
+  execCollect,
   sudoReadTextFile,
   sudoWriteTextFile,
 } = require('../server/sudo-fs.cjs');
@@ -85,5 +86,76 @@ describe('sudo-fs', () => {
     await sudoWriteTextFile(client, '/etc/secret.conf', 'new-body', { password: 'pw' });
     expect(captured.startsWith('pw\n')).toBe(true);
     expect(captured.endsWith('new-body')).toBe(true);
+  });
+
+  it('execCollect 按 Buffer 收集，多字节字符跨数据块不被劈开', async () => {
+    const client = {
+      exec(_command: string, callback: (error: null, stream: any) => void) {
+        const stream: any = new EventEmitter();
+        stream.stderr = new EventEmitter();
+        stream.close = () => {};
+        stream.end = () => {
+          setImmediate(() => {
+            // 'a中b' 的 UTF-8 字节被从“中”字中间劈开
+            stream.emit('data', Buffer.from([0x61, 0xe4]));
+            stream.emit('data', Buffer.from([0xb8, 0xad, 0x62]));
+            stream.emit('close', 0);
+          });
+        };
+        callback(null, stream);
+      },
+    };
+    const result = await execCollect(client, 'cat x');
+    expect(result.stdout).toBe('a中b');
+  });
+
+  it('sudoReadTextFile 超过 maxBytes 时提前中断命令并报 too-large', async () => {
+    let closed = false;
+    const client = {
+      exec(_command: string, callback: (error: null, stream: any) => void) {
+        const stream: any = new EventEmitter();
+        stream.stderr = new EventEmitter();
+        stream.close = () => { closed = true; };
+        stream.end = () => {
+          setImmediate(() => {
+            stream.emit('data', Buffer.alloc(64 * 1024, 0x61));
+            stream.emit('close', 0);
+          });
+        };
+        callback(null, stream);
+      },
+    };
+    await expect(sudoReadTextFile(client, '/etc/big', { maxBytes: 1024 })).rejects.toMatchObject({
+      code: 'too-large',
+    });
+    expect(closed).toBe(true);
+  });
+
+  it('sudoReadTextFile 遇到非法 UTF-8 字节时拒绝而不是静默替换', async () => {
+    const client = {
+      exec(_command: string, callback: (error: null, stream: any) => void) {
+        const stream: any = new EventEmitter();
+        stream.stderr = new EventEmitter();
+        stream.close = () => {};
+        stream.end = () => {
+          setImmediate(() => {
+            // 'ab' + 一个被截断的多字节序列（非法 UTF-8）
+            stream.emit('data', Buffer.from([0x61, 0x62, 0xe4, 0xb8]));
+            stream.emit('close', 0);
+          });
+        };
+        callback(null, stream);
+      },
+    };
+    await expect(sudoReadTextFile(client, '/etc/binary-ish')).rejects.toMatchObject({
+      code: 'unsupported-encoding',
+    });
+  });
+
+  it('sudoReadTextFile 拒绝包含空字节的文件', async () => {
+    const client = fakeClient(() => ({ stdout: 'a\u0000b', code: 0 }));
+    await expect(sudoReadTextFile(client, '/etc/with-nul')).rejects.toMatchObject({
+      code: 'unsupported-encoding',
+    });
   });
 });

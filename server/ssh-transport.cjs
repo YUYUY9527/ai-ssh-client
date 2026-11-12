@@ -145,31 +145,52 @@ function connectTcp(host, port, timeoutMs = PROXY_HANDSHAKE_TIMEOUT_MS) {
   });
 }
 
+/**
+ * 给代理握手（HTTP CONNECT / SOCKS5）加超时：TCP 连上之后如果对端一直不应答，
+ * 到时销毁 socket 并报错，避免读取 Promise 永远挂起。
+ */
+function raceHandshake(socket, handshake, timeoutMs = PROXY_HANDSHAKE_TIMEOUT_MS) {
+  let timer = null;
+  return Promise.race([
+    handshake,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error(`Proxy handshake timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 /** 通过 HTTP CONNECT 代理建立到 targetHost:targetPort 的隧道。 */
 async function openHttpProxySocket(proxy, targetHost, targetPort) {
   const socket = await connectTcp(proxy.host, proxy.port);
   try {
-    const lines = [
-      `CONNECT ${targetHost}:${targetPort} HTTP/1.1`,
-      `Host: ${targetHost}:${targetPort}`,
-      'Proxy-Connection: Keep-Alive',
-    ];
-    if (proxy.username) {
-      const token = Buffer.from(`${proxy.username}:${proxy.password || ''}`).toString('base64');
-      lines.push(`Proxy-Authorization: Basic ${token}`);
-    }
-    socket.write(`${lines.join('\r\n')}\r\n\r\n`);
-    const state = { buffer: Buffer.alloc(0) };
-    const { head, rest } = await readUntil(socket, Buffer.from('\r\n\r\n'), state);
-    state.buffer = rest;
-    const statusLine = head.toString('latin1').split('\r\n')[0] || '';
-    const match = statusLine.match(/^HTTP\/\d\.\d\s+(\d{3})/i);
-    if (!match) throw new Error(`Unexpected HTTP proxy response: ${statusLine}`);
-    const status = Number(match[1]);
-    if (status !== 200) throw new Error(`HTTP proxy CONNECT failed with status ${status}`);
-    // 响应头之后若还有缓冲数据，先塞回 socket，避免吞掉首包。
-    if (state.buffer.length > 0) socket.unshift(state.buffer);
-    return socket;
+    return await raceHandshake(socket, (async () => {
+      const lines = [
+        `CONNECT ${targetHost}:${targetPort} HTTP/1.1`,
+        `Host: ${targetHost}:${targetPort}`,
+        'Proxy-Connection: Keep-Alive',
+      ];
+      if (proxy.username) {
+        const token = Buffer.from(`${proxy.username}:${proxy.password || ''}`).toString('base64');
+        lines.push(`Proxy-Authorization: Basic ${token}`);
+      }
+      socket.write(`${lines.join('\r\n')}\r\n\r\n`);
+      const state = { buffer: Buffer.alloc(0) };
+      const { head, rest } = await readUntil(socket, Buffer.from('\r\n\r\n'), state);
+      state.buffer = rest;
+      const statusLine = head.toString('latin1').split('\r\n')[0] || '';
+      const match = statusLine.match(/^HTTP\/\d\.\d\s+(\d{3})/i);
+      if (!match) throw new Error(`Unexpected HTTP proxy response: ${statusLine}`);
+      const status = Number(match[1]);
+      if (status !== 200) throw new Error(`HTTP proxy CONNECT failed with status ${status}`);
+      // 响应头之后若还有缓冲数据，先塞回 socket，避免吞掉首包。
+      if (state.buffer.length > 0) socket.unshift(state.buffer);
+      return socket;
+    })());
   } catch (error) {
     socket.destroy();
     throw error;
@@ -181,42 +202,44 @@ async function openSocks5Socket(proxy, targetHost, targetPort) {
   const socket = await connectTcp(proxy.host, proxy.port);
   const state = { buffer: Buffer.alloc(0) };
   try {
-    const wantsAuth = Boolean(proxy.username);
-    socket.write(Buffer.from(wantsAuth ? [0x05, 0x02, 0x00, 0x02] : [0x05, 0x01, 0x00]));
-    const greeting = await readExactly(socket, 2, state);
-    if (greeting[0] !== 0x05) throw new Error('Invalid SOCKS5 version from proxy');
-    const method = greeting[1];
-    if (method === 0x02) {
-      const user = Buffer.from(String(proxy.username || ''), 'utf8');
-      const pass = Buffer.from(String(proxy.password || ''), 'utf8');
-      const auth = Buffer.concat([Buffer.from([0x01, user.length]), user, Buffer.from([pass.length]), pass]);
-      socket.write(auth);
-      const authReply = await readExactly(socket, 2, state);
-      if (authReply[1] !== 0x00) throw new Error('SOCKS5 username/password authentication failed');
-    } else if (method !== 0x00) {
-      throw new Error('SOCKS5 proxy rejected all offered authentication methods');
-    }
+    return await raceHandshake(socket, (async () => {
+      const wantsAuth = Boolean(proxy.username);
+      socket.write(Buffer.from(wantsAuth ? [0x05, 0x02, 0x00, 0x02] : [0x05, 0x01, 0x00]));
+      const greeting = await readExactly(socket, 2, state);
+      if (greeting[0] !== 0x05) throw new Error('Invalid SOCKS5 version from proxy');
+      const method = greeting[1];
+      if (method === 0x02) {
+        const user = Buffer.from(String(proxy.username || ''), 'utf8');
+        const pass = Buffer.from(String(proxy.password || ''), 'utf8');
+        const auth = Buffer.concat([Buffer.from([0x01, user.length]), user, Buffer.from([pass.length]), pass]);
+        socket.write(auth);
+        const authReply = await readExactly(socket, 2, state);
+        if (authReply[1] !== 0x00) throw new Error('SOCKS5 username/password authentication failed');
+      } else if (method !== 0x00) {
+        throw new Error('SOCKS5 proxy rejected all offered authentication methods');
+      }
 
-    // 目标地址：域名优先（atyp=0x03），IPv4 字面量用 0x01。
-    const isIpv4 = net.isIPv4(targetHost);
-    const hostBytes = isIpv4
-      ? Buffer.from(targetHost.split('.').map((part) => Number(part)))
-      : Buffer.concat([Buffer.from([targetHost.length]), Buffer.from(targetHost, 'utf8')]);
-    const portBytes = Buffer.from([(targetPort >> 8) & 0xff, targetPort & 0xff]);
-    socket.write(Buffer.concat([
-      Buffer.from([0x05, 0x01, 0x00, isIpv4 ? 0x01 : 0x03]),
-      hostBytes,
-      portBytes,
-    ]));
+      // 目标地址：域名优先（atyp=0x03），IPv4 字面量用 0x01。
+      const isIpv4 = net.isIPv4(targetHost);
+      const hostBytes = isIpv4
+        ? Buffer.from(targetHost.split('.').map((part) => Number(part)))
+        : Buffer.concat([Buffer.from([targetHost.length]), Buffer.from(targetHost, 'utf8')]);
+      const portBytes = Buffer.from([(targetPort >> 8) & 0xff, targetPort & 0xff]);
+      socket.write(Buffer.concat([
+        Buffer.from([0x05, 0x01, 0x00, isIpv4 ? 0x01 : 0x03]),
+        hostBytes,
+        portBytes,
+      ]));
 
-    const header = await readExactly(socket, 4, state);
-    if (header[0] !== 0x05) throw new Error('Invalid SOCKS5 reply version');
-    if (header[1] !== 0x00) throw new Error(`SOCKS5 connect failed with code ${header[1]}`);
-    const atyp = header[3];
-    const addressLength = atyp === 0x01 ? 4 : atyp === 0x04 ? 16 : (await readExactly(socket, 1, state))[0];
-    await readExactly(socket, addressLength + 2, state);
-    if (state.buffer.length > 0) socket.unshift(state.buffer);
-    return socket;
+      const header = await readExactly(socket, 4, state);
+      if (header[0] !== 0x05) throw new Error('Invalid SOCKS5 reply version');
+      if (header[1] !== 0x00) throw new Error(`SOCKS5 connect failed with code ${header[1]}`);
+      const atyp = header[3];
+      const addressLength = atyp === 0x01 ? 4 : atyp === 0x04 ? 16 : (await readExactly(socket, 1, state))[0];
+      await readExactly(socket, addressLength + 2, state);
+      if (state.buffer.length > 0) socket.unshift(state.buffer);
+      return socket;
+    })());
   } catch (error) {
     socket.destroy();
     throw error;
@@ -281,7 +304,13 @@ function forwardOut(client, targetHost, targetPort) {
  *   sock 为 null 时表示直连（无需代理/跳板），dispose 为空操作。
  */
 async function openTransport({ connection, clientId, createVerifier, createClient } = {}) {
-  const proxy = normalizeProxy(connection?.proxy);
+  const proxyConfig = connection?.proxy;
+  const proxy = normalizeProxy(proxyConfig);
+  // 配了代理但字段残缺（类型/主机/端口不全）时明确报错，
+  // 绝不能静默退回直连——那会让流量绕过预期的网络路径。
+  if (proxyConfig && !proxy) {
+    throw new Error('Proxy configuration is incomplete: type, host and port are required');
+  }
   const jumps = normalizeJumps(connection?.jumpHosts);
   if (!proxy && jumps.length === 0) {
     return { sock: null, dispose: () => {} };

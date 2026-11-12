@@ -1322,6 +1322,9 @@ const trustedProxies = String(process.env.WEB_TRUSTED_PROXIES || '')
 if (trustedProxies.length > 0) {
   app.set('trust proxy', trustedProxies);
 }
+// Agent 附件走 base64 JSON（≈4/3 膨胀），10 MiB 上限需要 ~14 MiB 请求体；
+// 单独为该路由放宽解析上限（body-parser 看到前面已解析会自动跳过），其余接口仍 2mb。
+app.use('/api/agent/attachments', express.json({ limit: '16mb' }));
 app.use(express.json({ limit: '2mb' }));
 
 // 初始化密码鉴权：所有 /api 与页面请求都需通过校验。
