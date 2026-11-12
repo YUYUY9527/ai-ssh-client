@@ -85,6 +85,14 @@ export function AgentExecutor() {
     agentStopTask: window.electronAPI?.agentStopTask,
     agentExecAwait: window.electronAPI?.agentExecAwait,
     agentCancelExec: window.electronAPI?.agentCancelExec,
+    runAgentTool: window.electronAPI?.runAgentTool,
+    loadAgentConversation: async (connectionId: string) => {
+      const result = await window.electronAPI?.getAgentConversation?.(connectionId);
+      return result?.success && result.data ? result.data.messages : [];
+    },
+    saveAgentConversation: async (connectionId: string, messages: import('../../shared/types').Message[]) => {
+      await window.electronAPI?.saveAgentConversation?.(connectionId, messages);
+    },
     onAgentTerminalOutput: window.electronAPI?.onAgentTerminalOutput,
     notifyTaskCompletion: async (success: boolean, reason: string) => {
       const { notifyAgentTaskCompletion } = await import('../agent/agent-completion-notice');

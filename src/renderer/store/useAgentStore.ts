@@ -9,6 +9,7 @@ import type {
   AppSettings,
   PendingApproval
 } from '../../shared/types';
+import type { MessageAttachment } from '../../shared/types';
 
 const MAX_AGENT_HISTORY_TASKS = 30;
 const MAX_HISTORY_STEP_CONTENT = 1600;
@@ -108,7 +109,7 @@ interface AgentStore {
   addTaskTokenUsage: (usage: number) => void;
 
   // 婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柣鎾虫捣椤旀捇鎮楅獮鍨姎閻庢凹鍠氱划?
-  startTask: (userInput: string, connectionId?: string) => AgentTask;
+  startTask: (userInput: string, connectionId?: string, attachments?: MessageAttachment[]) => AgentTask;
   completeTask: (success: boolean, error?: string, finishReason?: string) => void;
   pauseTask: () => void;
   resumeTask: () => void;
@@ -268,21 +269,38 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     approveHighRisk: true,
     approveMediumRisk: true,
     readOnlyMode: false,
+    contextBudgetChars: 120000,
   },
-  updateConfig: (config) => set((state) => ({ 
-    config: { ...state.config, ...config } 
+  updateConfig: (config) => set((state) => ({
+    config: { ...state.config, ...config }
   })),
 
-  syncFromSettings: (settings: AppSettings) => set((state) => ({
-    config: {
-      ...state.config,
-      enabled: settings.agentEnabled ?? true,
-      approveHighRisk: settings.approveHighRisk ?? true,
-      approveMediumRisk: settings.approveMediumRisk ?? true,
-      semanticSummaryContextLength: settings.agentSemanticSummaryContextLength ?? 12000,
-      readOnlyMode: settings.agentReadOnlyMode ?? false,
-    },
-  })),
+  syncFromSettings: (settings: AppSettings) => set((state) => {
+    // 权限模式（批次四）优先；未设置时回退旧的三个开关，保持兼容。
+    const mode = settings.agentPermissionMode;
+    const policyFlags = mode === 'readonly'
+      ? { readOnlyMode: true, approveHighRisk: true, approveMediumRisk: true }
+      : mode === 'full'
+        ? { readOnlyMode: false, approveHighRisk: false, approveMediumRisk: false }
+        : mode === 'auto'
+          ? { readOnlyMode: false, approveHighRisk: true, approveMediumRisk: false }
+          : mode === 'ask'
+            ? { readOnlyMode: false, approveHighRisk: true, approveMediumRisk: true }
+            : {
+                readOnlyMode: settings.agentReadOnlyMode ?? false,
+                approveHighRisk: settings.approveHighRisk ?? true,
+                approveMediumRisk: settings.approveMediumRisk ?? true,
+              };
+    return {
+      config: {
+        ...state.config,
+        enabled: settings.agentEnabled ?? true,
+        semanticSummaryContextLength: settings.agentSemanticSummaryContextLength ?? 12000,
+        contextBudgetChars: settings.agentContextBudgetChars ?? 120000,
+        ...policyFlags,
+      },
+    };
+  }),
 
   // 缂傚倸鍊烽悞锔剧矙閹次诲洭顢涘鍕靛仺闂佺粯妫侀妴鈧柛瀣崌瀹曟寰勬繝鍌楁嫟濠?
   pendingApproval: null,
@@ -367,7 +385,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   }),
 
   // 闂佽瀛╅鏍窗閹烘纾婚柟鐐灱閺€鑺ャ亜閺冨倵鎷￠柛搴￠叄閺岀喖鐛崹顔句紙閻?
-  startTask: (userInput, connectionId) => {
+  startTask: (userInput, connectionId, attachments) => {
     const state = get();
     const ownerConnectionId = connectionId || state.activeConnectionId;
     const conversationId = (ownerConnectionId
@@ -380,6 +398,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       conversationId,
       ...(ownerConnectionId ? { connectionId: ownerConnectionId } : {}),
       userInput,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
       state: 'thinking',
       thinkingSteps: [],
       executions: [],

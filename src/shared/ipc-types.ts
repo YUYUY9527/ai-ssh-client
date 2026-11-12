@@ -56,25 +56,51 @@ export interface AIUsage {
   totalTokens?: number;
 }
 
+export interface AIToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface AIToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 export interface AIChatResponse {
   content: string;
   model?: string;
   finishReason?: string;
   requestId?: string;
   usage?: AIUsage;
+  toolCalls?: AIToolCall[];
 }
 
 export interface AIChatResult extends AIChatResponse {}
 
 export type AIChatStreamEvent =
   | { type: 'delta'; requestId: string; delta: string }
-  | { type: 'done'; requestId: string; model?: string; finishReason?: string; usage?: AIUsage }
+  | { type: 'tool_call_start'; requestId: string; toolCall: { id: string; name: string } }
+  | {
+      type: 'done';
+      requestId: string;
+      model?: string;
+      finishReason?: string;
+      usage?: AIUsage;
+      content?: string;
+      toolCalls?: AIToolCall[];
+    }
   | { type: 'error'; requestId: string; error: string; code?: string }
   | { type: 'canceled'; requestId: string };
 
 export interface AIChatStreamOptions {
   requestId: string;
   onEvent: (event: AIChatStreamEvent) => void;
+  tools?: AIToolDefinition[];
 }
 
 export interface AIProvidersResult<T = any> {

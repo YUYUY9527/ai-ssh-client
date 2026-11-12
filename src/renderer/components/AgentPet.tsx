@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, MessageCircle, Pause, Play, PlugZap, RotateCcw, Save, Send, Settings, ShieldAlert, Terminal, Trash2, User, X, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, History, Loader2, MessageCircle, Paperclip, Pause, Play, PlugZap, RotateCcw, Save, ScrollText, Send, Settings, ShieldAlert, Terminal, Trash2, User, X, XCircle } from 'lucide-react';
 import { useAIStore } from '../store/useAIStore';
 import { useAgentStore } from '../store/useAgentStore';
 import { useConnectionStore } from '../store/useConnectionStore';
@@ -9,8 +9,8 @@ import { COMMAND_DESCRIPTIONS } from '../../shared/constants';
 import { analyzeCommandRisk } from '../ai/analyze-command-risk';
 import { executionDurationMs, isExecutionFailure } from '../agent/agent-execution-metrics';
 import { useI18n, t } from '../i18n';
-import type { AgentExecution, AgentTask, ThinkingStep } from '../../shared/types';
-import { submitAgentInput, type AgentSubmissionError } from '../agent/terminal-agent-chat';
+import type { AgentExecution, AgentTask, MessageAttachment, ThinkingStep } from '../../shared/types';
+import { submitAgentInput, formatAgentAnswerForDisplay, type AgentSubmissionError } from '../agent/terminal-agent-chat';
 
 
 /** 小机器人头像(纯 CSS 绘制,和右下角按钮同款) */
@@ -431,7 +431,7 @@ function AgentTaskConversation({
           </div>
 
           <p className="whitespace-pre-wrap text-sm leading-6 text-fg-secondary dark:text-fg">
-            {getTaskSummary(task)}
+            {formatAgentAnswerForDisplay(getTaskSummary(task))}
           </p>
 
           {(visibleSteps.length > 0 || onRetry) && (
@@ -565,6 +565,9 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
   const [isCompletionViewed, setIsCompletionViewed] = useState(false);
   const shouldAutoScrollRef = useRef(true);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [rememberApprovalChoice, setRememberApprovalChoice] = useState(false);
   const [isEditingApproval, setIsEditingApproval] = useState(false);
   const [approvalDraft, setApprovalDraft] = useState('');
@@ -714,6 +717,30 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
   const handleToggleHistory = () => {
     setIsHistoryVisible((visible) => !visible);
     shouldAutoScrollRef.current = false;
+  };
+
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditRecords, setAuditRecords] = useState<Array<{ at: string; tool: string; path?: string; write?: boolean }>>([]);
+
+  const handleToggleAudit = async () => {
+    const next = !auditOpen;
+    setAuditOpen(next);
+    if (!next) return;
+    const api = window.electronAPI?.getAgentAudit;
+    if (!api || !activeConnectionId) {
+      setAuditRecords([]);
+      return;
+    }
+    setAuditLoading(true);
+    try {
+      const result = await api(activeConnectionId);
+      setAuditRecords(result.success && result.data ? result.data.records : []);
+    } catch {
+      setAuditRecords([]);
+    } finally {
+      setAuditLoading(false);
+    }
   };
 
   const handleSelectConversation = (conversationId: string) => {
@@ -897,7 +924,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
       return;
     }
 
-    const result = submitAgentInput(text, activeConnectionId);
+    const result = submitAgentInput(text, activeConnectionId, pendingAttachments);
     if (!result.ok) {
       const errorKeys: Record<AgentSubmissionError, string> = {
         empty: 'agent.input.placeholder',
@@ -913,9 +940,46 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
     }
 
     setLocalError(null);
+    setPendingAttachments([]);
     setIsHistoryVisible(false);
     onInputChange('');
     shouldAutoScrollRef.current = true;
+  };
+
+  const handleAttachFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const api = window.electronAPI?.uploadAgentAttachment;
+    if (!api) {
+      setLocalError(t('agent.attach.unsupported'));
+      return;
+    }
+    setAttachmentBusy(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (pendingAttachments.length >= 8) {
+          setLocalError(t('agent.attach.tooMany'));
+          break;
+        }
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        const dataBase64 = dataUrl.split(',')[1] || '';
+        const result = await api({ name: file.name, type: file.type || 'text/plain', dataBase64 });
+        if (!result.success || !result.data) {
+          setLocalError(!result.success ? result.error : t('agent.attach.failed'));
+          break;
+        }
+        setPendingAttachments((previous) => [...previous, result.data!]);
+      }
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : t('agent.attach.failed'));
+    } finally {
+      setAttachmentBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleNewConversation = () => {
@@ -1089,6 +1153,16 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
                 <History className="h-3.5 w-3.5" />
                 <span>{conversationSummaries.length}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => void handleToggleAudit()}
+                disabled={!window.electronAPI?.getAgentAudit}
+                className={`agent-pet-header-action ${auditOpen ? 'agent-pet-header-action-primary' : ''}`}
+                title={t('agent.audit.title')}
+                aria-label={t('agent.audit.title')}
+              >
+                <ScrollText className="h-3.5 w-3.5" />
+              </button>
               <span className="inline-flex items-center gap-1.5">
                 <Terminal className="h-3.5 w-3.5 text-warning" />
                 {agentState === 'idle' ? t('agent.status.idle') : agentState === 'finished' ? t('agent.status.finished') : agentState === 'error' ? t('agent.status.error') : t('agent.status.running')}
@@ -1104,6 +1178,28 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
                 onSelect={handleSelectConversation}
                 onDelete={handleDeleteHistoryConversation}
               />
+            )}
+
+            {auditOpen && (
+              <div className="mb-3 rounded border border-line bg-surface px-3 py-2">
+                <p className="text-xs font-medium text-fg-secondary dark:text-fg-muted">{t('agent.audit.title')}</p>
+                {auditLoading ? (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-fg-muted"><Loader2 className="h-3 w-3 animate-spin" />{t('common.loading')}</p>
+                ) : auditRecords.length === 0 ? (
+                  <p className="mt-2 text-xs text-fg-muted">{t('agent.audit.empty')}</p>
+                ) : (
+                  <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto scrollbar-modern">
+                    {auditRecords.slice().reverse().map((record, index) => (
+                      <li key={`${record.at}-${index}`} className="flex items-center gap-2 text-xs text-fg">
+                        <span className="shrink-0 text-fg-muted">{new Date(record.at).toLocaleTimeString()}</span>
+                        <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px]">{record.tool}</span>
+                        {record.path && <span className="min-w-0 truncate font-mono text-[11px] text-fg-secondary dark:text-fg-muted">{record.path}</span>}
+                        {record.write && <span className="shrink-0 rounded bg-warning-muted px-1 text-[10px] text-warning">{t('agent.audit.write')}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
 
             {!isHistoryVisible && activeConversationTasks.length === 0 && (
@@ -1220,6 +1316,23 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
           </div>
 
           <div className="agent-pet-input">
+            {pendingAttachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {pendingAttachments.map((attachment) => (
+                  <span key={attachment.id} className="inline-flex max-w-[180px] items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[11px] text-fg-secondary dark:text-fg">
+                    <Paperclip className="h-3 w-3 shrink-0 text-fg-faint" />
+                    <span className="truncate">{attachment.name}</span>
+                    <button
+                      onClick={() => setPendingAttachments((previous) => previous.filter((item) => item.id !== attachment.id))}
+                      className="ml-0.5 shrink-0 text-fg-faint hover:text-fg"
+                      aria-label={t('agent.attach.title')}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <textarea
               ref={inputRef}
               value={input}
@@ -1230,6 +1343,23 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
               placeholder={pendingQuestion ? t('agent.input.answerPlaceholder') : t('agent.input.placeholder')}
             />
             <div className="flex flex-col gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain"
+                className="hidden"
+                onChange={(event) => void handleAttachFiles(event.target.files)}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={attachmentBusy || (isBusy && !pendingQuestion) || Boolean(pendingApproval)}
+                className="industrial-button-secondary h-9 w-10 px-0 py-0"
+                title={t('agent.attach.title')}
+                aria-label={t('agent.attach.title')}
+              >
+                {attachmentBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </button>
               <button onClick={handleSend} disabled={!input.trim() || (isBusy && !pendingQuestion) || Boolean(pendingApproval)} className="industrial-button-primary h-9 w-10 px-0 py-0" title={t('agent.actions.send')} aria-label={t('agent.actions.send')}>
                 {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>

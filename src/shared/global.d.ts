@@ -172,6 +172,34 @@ declare global {
       /** 覆盖写入远端文本文件。 */
       writeSftpTextFile: (connectionId: string, remotePath: string, content: string, sudoPassword?: string) => Promise<IPCResult>;
 
+      /**
+       * Agent 结构化文件工具（list_dir / read_file / search_files / write_file）。
+       * 仅在 Web 端实现；调用方应优先使用此能力，不可用时回退到执行命令。
+       */
+      runAgentTool?: (
+        connectionId: string,
+        tool: 'list_dir' | 'read_file' | 'search_files' | 'write_file',
+        args?: Record<string, unknown>,
+        root?: string,
+      ) => Promise<IPCResult<unknown>>;
+      /** Agent 工具调用审计（最近 200 条，只读）。Web 优先。 */
+      getAgentAudit?: (
+        connectionId: string,
+      ) => Promise<IPCResult<{ records: Array<{ at: string; tool: string; root?: string; path?: string; write?: boolean }> }>>;
+      /** Agent 外部智能体（ACP）配置读写与握手测试。Web 优先。 */
+      getAcpConfig?: () => Promise<IPCResult<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>>;
+      saveAcpConfig?: (config: { enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }) => Promise<IPCResult<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>>;
+      testAcpAgent?: (name: string) => Promise<IPCResult<{ ok: boolean; sessionId: string | null }>>;
+
+      /** Agent 会话持久化（按连接）。 */
+      listAgentConversations?: () => Promise<IPCResult<{ conversations: Array<{ key: string; connectionId: string; messageCount: number; updatedAt: number }> }>>;
+      getAgentConversation?: (connectionId: string) => Promise<IPCResult<{ connectionId: string; messages: import('./types').Message[]; updatedAt: number }>>;
+      saveAgentConversation?: (connectionId: string, messages: import('./types').Message[]) => Promise<IPCResult<{ connectionId: string; messages: import('./types').Message[]; updatedAt: number }>>;
+      deleteAgentConversation?: (connectionId: string) => Promise<IPCResult<{ removed: boolean }>>;
+      /** Agent 附件（仅元数据 + 临时文件）。 */
+      uploadAgentAttachment?: (input: { name?: string; type: string; dataBase64: string }) => Promise<IPCResult<{ id: string; name: string; type: string; size: number }>>;
+      getAgentAttachment?: (attachmentId: string) => Promise<IPCResult<{ id: string; name: string; type: string; size: number }>>;
+
       /** 服务器监控仪表盘（SSH 采集 /proc + df）。Web 优先；桌面端未实现时按钮隐藏。 */
       getServerMonitor?: (connectionId: string) => Promise<IPCResult<ServerMonitorMetrics>>;
       /** 远程文件搜索（按名/按内容）。Web 优先。 */

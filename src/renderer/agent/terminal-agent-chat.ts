@@ -1,4 +1,4 @@
-import type { AgentState, PendingApproval } from '../../shared/types';
+import type { AgentState, MessageAttachment, PendingApproval } from '../../shared/types';
 import { useAgentStore } from '../store/useAgentStore';
 import { useAIStore } from '../store/useAIStore';
 import { useSessionStore } from '../session/useSessionStore';
@@ -196,13 +196,131 @@ export function sanitizeAgentTerminalText(value: string): string {
 
 /** Normalize model prose for a terminal without preserving Markdown alignment padding. */
 export function normalizeAgentTerminalText(value: string): string {
-  const normalized = sanitizeAgentTerminalText(value)
-    .replace(/\u00a0/g, ' ')
-    .split('\n')
-    .map(line => line.replace(/[ \t]+/g, ' ').trim())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n');
-  return normalized;
+  const converted = convertAgentAnswerLines(sanitizeAgentTerminalText(value))
+    .map(({ text, preserve }) => {
+      const cleaned = text.replace(/\u00a0/g, ' ');
+      // 表格/围栏代码块保留原空格（列对齐、缩进）；纯散文行折叠空白。
+      if (preserve) {
+        return cleaned.replace(/[ \t]+$/g, '');
+      }
+      return cleaned.replace(/[ \t]+/g, ' ').trim();
+    })
+    .join('\n');
+  return converted.replace(/\n{3,}/g, '\n\n');
+}
+
+/** 估算终端显示宽度（CJK/全角按 2 列计）。 */
+function displayWidth(value: string): number {
+  let width = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    const wide = (
+      (code >= 0x1100 && code <= 0x115f)
+      || code === 0x2329 || code === 0x232a
+      || (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f)
+      || (code >= 0xac00 && code <= 0xd7a3)
+      || (code >= 0xf900 && code <= 0xfaff)
+      || (code >= 0xfe30 && code <= 0xfe6f)
+      || (code >= 0xff00 && code <= 0xff60)
+      || (code >= 0xffe0 && code <= 0xffe6)
+      || (code >= 0x20000 && code <= 0x3fffd)
+    );
+    width += wide ? 2 : 1;
+  }
+  return width;
+}
+
+function padCell(value: string, width: number): string {
+  return value + ' '.repeat(Math.max(0, width - displayWidth(value)));
+}
+
+/** 去掉行内 Markdown 修饰（粗体/斜体/行内代码/链接），保留可读文本。 */
+function stripInlineMarkdown(value: string): string {
+  return value
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1 ($2)');
+}
+
+function isMarkdownTableLine(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+function splitTableRow(line: string): string[] {
+  return line.trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => stripInlineMarkdown(cell.trim()));
+}
+
+function isTableSeparatorRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((cell) => /^:?-{2,}:?$/.test(cell));
+}
+
+/** 把 Markdown 表格渲染成列对齐的纯文本（CJK 宽度感知），非标准表格原样保留。 */
+function renderMarkdownTables(lines: { text: string; preserve: boolean }[]): { text: string; preserve: boolean }[] {
+  const output: { text: string; preserve: boolean }[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const current = lines[index];
+    if (current.preserve || !isMarkdownTableLine(current.text)) {
+      output.push(current);
+      index += 1;
+      continue;
+    }
+    let end = index;
+    const rows: string[][] = [];
+    while (end < lines.length && !lines[end].preserve && isMarkdownTableLine(lines[end].text)) {
+      rows.push(splitTableRow(lines[end].text));
+      end += 1;
+    }
+    const header = rows[0];
+    const bodyRows = rows.slice(1).filter((row) => !isTableSeparatorRow(row));
+    if (!header || rows.length < 2 || !isTableSeparatorRow(rows[1])) {
+      // 不是「表头 + 分隔行」结构（可能是代码块残留），保留原样。
+      for (let keep = index; keep < end; keep += 1) output.push(lines[keep]);
+      index = end;
+      continue;
+    }
+    const widths = header.map((cell, column) => Math.max(
+      displayWidth(cell),
+      ...bodyRows.map((row) => displayWidth(row[column] ?? '')),
+    ));
+    output.push({ text: header.map((cell, column) => padCell(cell, widths[column])).join('  '), preserve: true });
+    output.push({ text: widths.map((width) => '-'.repeat(width)).join('  '), preserve: true });
+    for (const row of bodyRows) {
+      output.push({ text: header.map((_, column) => padCell(row[column] ?? '', widths[column])).join('  '), preserve: true });
+    }
+    index = end;
+  }
+  return output;
+}
+
+/**
+ * 把模型输出的 Markdown 转成终端/气泡里可直接阅读的纯文本：
+ * 表格 → 列对齐文本；行内修饰符剥掉；围栏代码块保留原文（去掉 ``` 行）。
+ */
+export function formatAgentAnswerForDisplay(value: string): string {
+  return convertAgentAnswerLines(value).map((line) => line.text).join('\n');
+}
+
+function convertAgentAnswerLines(value: string): { text: string; preserve: boolean }[] {
+  let inFence = false;
+  const lines: { text: string; preserve: boolean }[] = [];
+  for (const line of value.split('\n')) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue; // 围栏标记行不进正文
+    }
+    if (inFence) {
+      lines.push({ text: line, preserve: true }); // 代码块内容保留空格
+      continue;
+    }
+    lines.push({ text: stripInlineMarkdown(line.replace(/^\s{0,3}#{1,6}\s+/, '')), preserve: false });
+  }
+  return renderMarkdownTables(lines);
 }
 
 /** Convert plain terminal-agent text to safe xterm output. */
@@ -275,6 +393,7 @@ export function resolveAgentSubmission(
 export function submitAgentInput(
   rawText: string,
   expectedConnectionId?: string | null,
+  attachments?: MessageAttachment[],
 ): AgentSubmissionResult {
   const agent = useAgentStore.getState();
   const ai = useAIStore.getState();
@@ -316,7 +435,7 @@ export function submitAgentInput(
     agent.setPendingInput(result.action.text);
   } else {
     agent.reset();
-    agent.startTask(result.action.text, connectionId || undefined);
+    agent.startTask(result.action.text, connectionId || undefined, attachments);
   }
 
   return result;

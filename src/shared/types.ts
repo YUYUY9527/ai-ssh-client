@@ -107,11 +107,20 @@ export interface AIProviderSummary extends Omit<AIProviderConfig, 'apiKey'> {
 }
 
 // 聊天消息
+export interface MessageAttachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  /** 用户消息携带的附件（仅元数据，真实字节在服务端临时文件）。 */
+  attachments?: MessageAttachment[];
 }
 
 // 命令建议
@@ -241,6 +250,13 @@ export interface AppSettings {
   agentSemanticSummaryContextLength?: number;
   /** 只读模式：Agent 只允许执行不改动远端状态的命令。 */
   agentReadOnlyMode?: boolean;
+  /**
+   * Agent 权限模式（批次四）：ask=全部询问 / auto=自动放行低中风险、高危仍询问 /
+   * full=全自动 / readonly=只读。设置后优先生效，未设置时回退旧的三个开关。
+   */
+  agentPermissionMode?: 'ask' | 'auto' | 'full' | 'readonly';
+  /** 每轮拼给模型的上下文预算（字符数），超出部分折叠为摘要。 */
+  agentContextBudgetChars?: number;
   maxPersistedSessions?: number;
   maxScrollbackBytesPerSession?: number;
   /** 文件管理面板是否常驻左侧显示（默认关闭，按需从顶栏切换）。 */
@@ -293,6 +309,8 @@ export interface AgentTask {
   /** 发起任务时绑定的 SSH 会话；终端内对话输出只投影到该会话。 */
   connectionId?: string;
   userInput: string;
+  /** 随本次任务一起提交的附件（元数据）。 */
+  attachments?: MessageAttachment[];
   state: AgentState;
   thinkingSteps: ThinkingStep[];
   executions: AgentExecution[];
@@ -311,11 +329,15 @@ export interface AgentConfig {
   approveMediumRisk: boolean;
   /** 只读模式：非只读命令一律不执行，并把原因回给模型换方案。 */
   readOnlyMode: boolean;
+  /** 上下文预算（字符），超出折叠为摘要；默认 120000。 */
+  contextBudgetChars: number;
 }
 
 export interface PendingApproval {
   command: string;
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  /** write_file 等结构化工具审批时携带的原始工具调用。 */
+  toolCall?: { id: string; name: string; arguments: string };
 }
 
 export type AgentDecision = 'execute' | 'finish' | 'ask';

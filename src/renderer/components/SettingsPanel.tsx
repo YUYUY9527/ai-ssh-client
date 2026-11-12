@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock, Server } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
+import { AcpSettings } from './AcpSettings';
 import { McpSettings } from './McpSettings';
 import { clearRememberedRiskDecisions } from '../assistant/risk-approval-memory';
-import { useI18n, useI18nStore, localeNames } from '../i18n';
+import { useI18n, useI18nStore, localeNames, detectSystemLocale } from '../i18n';
 import type { Locale } from '../i18n';
 import type { AppSettings, HostTrustRecord } from '../../shared/types';
 import {
@@ -36,6 +37,12 @@ interface SettingsPanelProps {
 }
 
 type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password';
+
+const AGENT_PERMISSION_MODES = ['ask', 'auto', 'full', 'readonly'] as const;
+
+function normalizeAgentPermissionMode(value: string): (typeof AGENT_PERMISSION_MODES)[number] {
+  return (AGENT_PERMISSION_MODES as readonly string[]).includes(value) ? (value as (typeof AGENT_PERMISSION_MODES)[number]) : 'ask';
+}
 
 // Web 部署下才提供修改登录密码入口（桌面端无 Web 登录概念）。
 const IS_WEB = typeof window !== 'undefined' && window.__AISSH_WEB__ === true;
@@ -488,13 +495,26 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   </SettingsItem>
 
                   <SettingsItem
-                    label={t('settings.agent.readOnlyMode')}
-                    description={t('settings.agent.readOnlyModeDesc')}
+                    label={t('settings.agent.permissionMode')}
+                    description={t('settings.agent.permissionModeDesc')}
+                    controlClassName="w-full sm:w-56"
                   >
-                    <ToggleSwitch
-                      enabled={localSettings.agentReadOnlyMode ?? false}
-                      label={t('settings.agent.readOnlyMode')}
-                      onChange={(value) => setLocalSettings({ ...localSettings, agentReadOnlyMode: value })}
+                    <IndustrialSelect
+                      value={localSettings.agentPermissionMode ?? 'ask'}
+                      options={[
+                        { value: 'ask', label: t('settings.agent.permissionAsk') },
+                        { value: 'auto', label: t('settings.agent.permissionAuto') },
+                        { value: 'full', label: t('settings.agent.permissionFull') },
+                        { value: 'readonly', label: t('settings.agent.permissionReadonly') },
+                      ]}
+                      onChange={(value) => setLocalSettings({
+                        ...localSettings,
+                        agentPermissionMode: normalizeAgentPermissionMode(value),
+                        // 同步落一份旧开关，便于旧逻辑/读回兼容。
+                        agentReadOnlyMode: value === 'readonly',
+                        approveHighRisk: value !== 'full',
+                        approveMediumRisk: value !== 'full' && value !== 'auto',
+                      })}
                     />
                   </SettingsItem>
 
@@ -520,31 +540,32 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       className="industrial-input w-full"
                     />
                   </SettingsItem>
+
+                  <SettingsItem
+                    label={t('settings.agent.contextBudget')}
+                    description={t('settings.agent.contextBudgetDesc')}
+                    controlClassName="w-full sm:w-36"
+                  >
+                    <input
+                      type="number"
+                      min={20000}
+                      step={10000}
+                      value={localSettings.agentContextBudgetChars ?? 120000}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value, 10);
+                        if (!isNaN(value)) {
+                          setLocalSettings({
+                            ...localSettings,
+                            agentContextBudgetChars: Math.max(20000, value),
+                          });
+                        }
+                      }}
+                      className="industrial-input w-full"
+                    />
+                  </SettingsItem>
                 </SettingsSection>
 
                 <SettingsSection title={t('settings.agent.commandApproval')}>
-                  <SettingsItem
-                    label={t('settings.security.approveHighRisk')}
-                    description={t('settings.security.approveHighRiskDesc')}
-                  >
-                    <ToggleSwitch
-                      enabled={localSettings.approveHighRisk ?? true}
-                      label={t('settings.security.approveHighRisk')}
-                      onChange={(value) => setLocalSettings({ ...localSettings, approveHighRisk: value })}
-                    />
-                  </SettingsItem>
-
-                  <SettingsItem
-                    label={t('settings.security.approveMediumRisk')}
-                    description={t('settings.security.approveMediumRiskDesc')}
-                  >
-                    <ToggleSwitch
-                      enabled={localSettings.approveMediumRisk ?? true}
-                      label={t('settings.security.approveMediumRisk')}
-                      onChange={(value) => setLocalSettings({ ...localSettings, approveMediumRisk: value })}
-                    />
-                  </SettingsItem>
-
                   <SettingsItem
                     label={t('settings.security.rememberChoice')}
                     description={t('settings.security.rememberChoiceDesc')}
@@ -561,6 +582,10 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       }}
                     />
                   </SettingsItem>
+                </SettingsSection>
+
+                <SettingsSection title={t('settings.acp.title')}>
+                  <AcpSettings />
                 </SettingsSection>
               </SettingsPage>
             )}
@@ -579,6 +604,33 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 description={t('settings.language.selectLanguageDesc')}
               >
                 <div className="grid gap-2">
+                  {(() => {
+                    const autoSelected = !localSettings.language;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocalSettings({ ...localSettings, language: '' });
+                          useI18nStore.getState().setLocale(detectSystemLocale());
+                        }}
+                        aria-pressed={autoSelected}
+                        className={`flex items-start gap-3 rounded-md border px-4 py-3 text-sm transition-colors ${
+                          autoSelected
+                            ? 'border-[color-mix(in_srgb,var(--accent-primary)_60%,var(--border-color))] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-fg dark:text-white'
+                            : 'border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] text-fg-secondary hover:bg-[color-mix(in_srgb,var(--bg-hover)_60%,transparent)] dark:text-fg-secondary'
+                        }`}
+                      >
+                        <Globe className="mt-0.5 h-4 w-4" />
+                        <span className="flex flex-col items-start gap-0.5">
+                          <span className="font-medium">{t('settings.language.auto')}</span>
+                          <span className="text-xs text-fg-muted dark:text-fg-muted">
+                            {t('settings.language.autoDesc')}
+                          </span>
+                        </span>
+                        {autoSelected && <Check className="ml-auto h-4 w-4 text-accent" />}
+                      </button>
+                    );
+                  })()}
                   {(Object.entries(localeNames) as Array<[Locale, string]>).map(([locale, name]) => {
                     const selected = localSettings.language === locale;
                     return (

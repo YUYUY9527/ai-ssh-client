@@ -1051,7 +1051,7 @@ async function streamWebChat(
     const response = await fetch('/api/ai/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ providerId, messages, options: { requestId: options.requestId } }),
+      body: JSON.stringify({ providerId, messages, options: { requestId: options.requestId, tools: options.tools } }),
     });
     if (!response.ok || !response.body) {
       return makeError(await response.text() || `AI stream failed (${response.status})`);
@@ -1079,7 +1079,7 @@ async function streamWebChat(
         options.onEvent(event);
         if (event.type === 'delta') {
           content += event.delta;
-        } else {
+        } else if (event.type !== 'tool_call_start') {
           terminal = event;
           break;
         }
@@ -1096,11 +1096,12 @@ async function streamWebChat(
       return {
         success: true,
         data: {
-          content,
+          content: terminal.content ?? content,
           requestId: terminal.requestId,
           model: terminal.model,
           finishReason: terminal.finishReason,
           usage: terminal.usage,
+          toolCalls: terminal.toolCalls,
         },
       };
     }
@@ -1791,6 +1792,53 @@ const webApi: Window['electronAPI'] = {
       body: JSON.stringify({ remotePath, content }),
       ...(sudoPassword ? { headers: { 'x-sudo-password': sudoPassword } } : {}),
     },
+  ),
+  // Agent 结构化文件工具（list_dir / read_file / search_files / write_file）。
+  // 与普通 SFTP 操作一样会被动失败，不在连接未就绪时触发自动重连。
+  runAgentTool: (connectionId, tool, args = {}, root) => sftpApiRequest<unknown>(
+    connectionId,
+    `/api/ssh/${connectionId}/agent/tool`,
+    { method: 'POST', body: JSON.stringify({ tool, args, root }) },
+  ),
+  // Agent 工具调用审计（只读，最近 200 条）。
+  getAgentAudit: (connectionId) => sftpApiRequest<{ records: Array<{ at: string; tool: string; root?: string; path?: string; write?: boolean }> }>(
+    connectionId,
+    `/api/ssh/${connectionId}/agent/audit`,
+  ),
+  // —— Agent 会话持久化 ——
+  listAgentConversations: () => request<{ conversations: Array<{ key: string; connectionId: string; messageCount: number; updatedAt: number }> }>(
+    '/api/agent/conversations',
+  ),
+  getAgentConversation: (connectionId: string) => request<{ connectionId: string; messages: Message[]; updatedAt: number }>(
+    `/api/agent/conversations/${connectionId}`,
+  ),
+  saveAgentConversation: (connectionId: string, messages: Message[]) => request<{ connectionId: string; messages: Message[]; updatedAt: number }>(
+    `/api/agent/conversations/${connectionId}`,
+    { method: 'PUT', body: JSON.stringify({ messages }) },
+  ),
+  deleteAgentConversation: (connectionId: string) => request<{ removed: boolean }>(
+    `/api/agent/conversations/${connectionId}`,
+    { method: 'DELETE' },
+  ),
+  // —— Agent 附件 ——
+  uploadAgentAttachment: (input: { name?: string; type: string; dataBase64: string }) => request<{ id: string; name: string; type: string; size: number }>(
+    '/api/agent/attachments',
+    { method: 'POST', body: JSON.stringify(input) },
+  ),
+  getAgentAttachment: (attachmentId: string) => request<{ id: string; name: string; type: string; size: number }>(
+    `/api/agent/attachments/${attachmentId}`,
+  ),
+  // —— Agent 外部智能体（ACP，服务端默认关闭，需显式启用）——
+  getAcpConfig: () => request<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>(
+    '/api/agent/acp/config',
+  ),
+  saveAcpConfig: (config: { enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }) => request<{ enabled: boolean; agents: Array<{ name: string; command: string; args: string[] }> }>(
+    '/api/agent/acp/config',
+    { method: 'PUT', body: JSON.stringify(config) },
+  ),
+  testAcpAgent: (name: string) => request<{ ok: boolean; sessionId: string | null }>(
+    `/api/agent/acp/${encodeURIComponent(name)}/test`,
+    { method: 'POST', body: JSON.stringify({}) },
   ),
   // 监控采集是被动轮询：会话未就绪时直接失败即可，绝不在这里触发自动重连，
   // 否则底栏每 5 秒一次的轮询会在「连接中」窗口里反复拉起新的 SSH 连接，

@@ -32,6 +32,12 @@ const { execCommand } = require('./ssh-exec.cjs');
 const { openTransport } = require('./ssh-transport.cjs');
 const { createPortForwardManager } = require('./port-forward.cjs');
 const { sudoReadTextFile, sudoWriteTextFile } = require('./sudo-fs.cjs');
+const agentTools = require('./agent-tools.cjs');
+const { createAgentConversationStore } = require('./agent-conversations.cjs');
+const { createAgentAttachmentStore } = require('./agent-attachments.cjs');
+const { createAcpRegistry } = require('./agent-acp-registry.cjs');
+const { createAcpClient } = require('./agent-acp.cjs');
+const aiProviders = require('./ai-providers/index.cjs');
 const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
 const {
   listContainers,
@@ -68,6 +74,9 @@ const HOST = process.env.WEB_HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'config.json');
 const SFTP_TRANSFERS_PATH = path.join(DATA_DIR, 'sftp-transfers.json');
+const agentConversationStore = createAgentConversationStore({ dataDir: DATA_DIR });
+const agentAttachmentStore = createAgentAttachmentStore({ dataDir: DATA_DIR });
+const agentAcpRegistry = createAcpRegistry({ dataDir: DATA_DIR });
 const AI_DEBUG_LOG_FILE = process.env.AI_DEBUG_LOG_FILE || '';
 const AI_DEBUG_LOG_STDOUT = process.env.AI_DEBUG_LOG === '1';
 
@@ -113,7 +122,8 @@ const TLS_OPTIONS = (() => {
 })();
 
 const defaultSettings = {
-  language: 'zh-CN',
+  // 空字符串 = 跟随系统语言；非受支持语言回退英文
+  language: '',
   theme: 'dark',
   fontSize: 14,
   fontFamily: "Consolas, 'Courier New', monospace",
@@ -352,7 +362,31 @@ function defaultModel(provider) {
   }
 }
 
-async function chatWithProvider(provider, messages, requestId) {
+/**
+ * 把消息里只带 id 的附件补全为 base64 内容（供多模态请求）。
+ * 无法读取的附件直接丢弃并留下文本标记，避免静默失败。
+ */
+function resolveAgentAttachments(messages) {
+  if (!Array.isArray(messages)) return messages;
+  return messages.map((message) => {
+    if (!Array.isArray(message.attachments) || message.attachments.length === 0) return message;
+    const resolved = [];
+    for (const attachment of message.attachments) {
+      if (typeof attachment.dataBase64 === 'string' && attachment.dataBase64) {
+        resolved.push(attachment);
+        continue;
+      }
+      if (typeof attachment.id === 'string') {
+        const stored = agentAttachmentStore.read(attachment.id);
+        if (stored) resolved.push({ ...attachment, type: attachment.type || stored.type, dataBase64: stored.dataBase64 });
+      }
+    }
+    return { ...message, attachments: resolved };
+  });
+}
+
+async function chatWithProvider(provider, messages, requestId, options = {}) {
+  messages = resolveAgentAttachments(messages);
   if (!provider) {
     throw new Error('Provider not found or not active');
   }
@@ -365,25 +399,20 @@ async function chatWithProvider(provider, messages, requestId) {
   const controller = new AbortController();
   const effectiveRequestId = requestId || `${provider.id}-${Date.now()}`;
   activeAiRequests.set(effectiveRequestId, controller);
+  const adapter = aiProviders.resolveAdapter(provider);
 
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey}`;
-    }
-
-    const response = await fetch(`${defaultBaseUrl(provider)}/chat/completions`, {
+    const response = await fetch(adapter.endpoint(defaultBaseUrl(provider)), {
       method: 'POST',
-      headers,
+      headers: adapter.headers(apiKey),
       signal: controller.signal,
-      body: JSON.stringify({
+      body: JSON.stringify(adapter.buildBody({
         model: defaultModel(provider),
-        temperature: 0.7,
-        messages: messages.map((message) => ({
-          role: ['system', 'assistant', 'user'].includes(message.role) ? message.role : 'user',
-          content: message.content,
-        })),
-      }),
+        messages,
+        stream: false,
+        tools: options.tools,
+        temperature: typeof options.temperature === 'number' ? options.temperature : 0.7,
+      })),
     });
 
     if (!response.ok) {
@@ -391,28 +420,23 @@ async function chatWithProvider(provider, messages, requestId) {
       throw new Error(`AI service error ${response.status}: ${body.slice(0, 500)}`);
     }
 
-    const data = await response.json();
-    const choice = data.choices?.[0];
-    if (!choice?.message) {
+    const parsed = adapter.parseMessage(await response.json());
+    if (!parsed.content && parsed.toolCalls.length === 0) {
       throw new Error('AI 响应格式无效');
     }
 
     const result = {
-      content: choice.message.content || '',
-      model: data.model || defaultModel(provider),
-      finishReason: choice.finish_reason,
+      content: parsed.content || '',
+      toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
+      model: parsed.model || defaultModel(provider),
+      finishReason: parsed.finishReason,
       requestId: effectiveRequestId,
-      usage: data.usage
-        ? {
-            promptTokens: data.usage.prompt_tokens,
-            completionTokens: data.usage.completion_tokens,
-            totalTokens: data.usage.total_tokens,
-          }
-        : undefined,
+      usage: parsed.usage,
     };
     writeAiDebug('response', effectiveRequestId, provider.id, result.content, {
       model: result.model,
       finishReason: result.finishReason,
+      toolCalls: result.toolCalls,
     });
     return result;
   } finally {
@@ -420,7 +444,8 @@ async function chatWithProvider(provider, messages, requestId) {
   }
 }
 
-async function streamChatWithProvider(provider, messages, requestId, sendEvent) {
+async function streamChatWithProvider(provider, messages, requestId, sendEvent, options = {}) {
+  messages = resolveAgentAttachments(messages);
   if (!provider) throw new Error('Provider not found or not active');
   const apiKey = provider.apiKey?.trim() || '';
   if (provider.type !== 'ollama' && !apiKey) throw new Error('缺少 API Key');
@@ -429,22 +454,20 @@ async function streamChatWithProvider(provider, messages, requestId, sendEvent) 
 
   const controller = new AbortController();
   activeAiRequests.set(requestId, controller);
+  const adapter = aiProviders.resolveAdapter(provider);
+  const decoder = adapter.createStreamDecoder();
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    const response = await fetch(`${defaultBaseUrl(provider)}/chat/completions`, {
+    const response = await fetch(adapter.endpoint(defaultBaseUrl(provider)), {
       method: 'POST',
-      headers,
+      headers: adapter.headers(apiKey),
       signal: controller.signal,
-      body: JSON.stringify({
+      body: JSON.stringify(adapter.buildBody({
         model: defaultModel(provider),
-        temperature: 0.7,
+        messages,
         stream: true,
-        messages: messages.map((message) => ({
-          role: ['system', 'assistant', 'user'].includes(message.role) ? message.role : 'user',
-          content: message.content,
-        })),
-      }),
+        tools: options.tools,
+        temperature: typeof options.temperature === 'number' ? options.temperature : 0.7,
+      })),
     });
     if (!response.ok || !response.body) {
       const body = await response.text().catch(() => '');
@@ -452,53 +475,48 @@ async function streamChatWithProvider(provider, messages, requestId, sendEvent) 
     }
 
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const textDecoder = new TextDecoder();
     let buffer = '';
-    let model = defaultModel(provider);
-    let finishReason;
-    let usage;
-    let responseContent = '';
     let providerDone = false;
     while (!providerDone) {
       const { value, done } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
+      buffer += textDecoder.decode(value, { stream: !done });
       const records = buffer.split(/\r?\n\r?\n/);
       buffer = records.pop() || '';
       for (const record of records) {
-        const data = record.split(/\r?\n/)
+        const payload = record.split(/\r?\n/)
           .filter((line) => line.startsWith('data:'))
           .map((line) => line.slice(5).trimStart())
           .join('\n');
-        if (!data) continue;
-        if (data === '[DONE]') {
+        if (!payload) continue;
+        const { done: streamDone, events } = decoder.ingest(payload);
+        for (const event of events) {
+          sendEvent({ ...event, requestId });
+        }
+        if (streamDone) {
           providerDone = true;
           break;
-        }
-        const chunk = JSON.parse(data);
-        model = chunk.model || model;
-        const choice = chunk.choices?.[0];
-        if (typeof choice?.delta?.content === 'string' && choice.delta.content) {
-          responseContent += choice.delta.content;
-          sendEvent({ type: 'delta', requestId, delta: choice.delta.content });
-        }
-        if (choice?.finish_reason) finishReason = choice.finish_reason;
-        if (chunk.usage) {
-          usage = {
-            promptTokens: chunk.usage.prompt_tokens,
-            completionTokens: chunk.usage.completion_tokens,
-            totalTokens: chunk.usage.total_tokens,
-          };
         }
       }
       if (done) break;
     }
     if (!providerDone) throw new Error('AI stream disconnected before completion');
-    writeAiDebug('stream_response', requestId, provider.id, responseContent, {
-      model,
-      finishReason,
-      usage,
+    const result = decoder.result();
+    writeAiDebug('stream_response', requestId, provider.id, result.content, {
+      model: result.model,
+      finishReason: result.finishReason,
+      usage: result.usage,
+      toolCalls: result.toolCalls,
     });
-    sendEvent({ type: 'done', requestId, model, finishReason, usage });
+    sendEvent({
+      type: 'done',
+      requestId,
+      model: result.model,
+      finishReason: result.finishReason,
+      usage: result.usage,
+      content: result.content,
+      toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
+    });
   } catch (error) {
     if (controller.signal.aborted) sendEvent({ type: 'canceled', requestId });
     else sendEvent({ type: 'error', requestId, error: error instanceof Error ? error.message : String(error) });
@@ -1927,6 +1945,174 @@ app.post('/api/sftp/:id/permissions', route(async (request) => {
   return success(await setSftpPermissions(sftp, remotePath, mode));
 }));
 
+// Agent 结构化文件工具：供 AI 助手用 list_dir/read_file/search_files/write_file 操作远端文件。
+// root 为沙箱根目录，缺省取当前 SFTP 会话的家目录（'.'）。
+app.post('/api/ssh/:id/agent/tool', route(async (request) => {
+  const clientId = requireClientId(request);
+  const body = request.body || {};
+  const tool = String(body.tool || '');
+  if (!agentTools.TOOL_NAMES.includes(tool)) {
+    throw new Error(`unknown agent tool: ${tool}`);
+  }
+  const args = body.args && typeof body.args === 'object' ? body.args : {};
+  const sftp = await getSftp(request.params.id, clientId);
+  let root = typeof body.root === 'string' && body.root.trim() ? body.root.trim() : '';
+  if (!root) {
+    root = await new Promise((resolve) => {
+      sftp.realpath('.', (error, resolved) => resolve(error || !resolved ? '/' : resolved));
+    });
+  }
+  let data;
+  if (tool === 'list_dir') {
+    data = await agentTools.listDir(sftp, { root, path: args.path, limit: args.limit });
+  } else if (tool === 'read_file') {
+    data = await agentTools.readFileText(sftp, { root, path: args.path, maxBytes: args.maxBytes });
+  } else if (tool === 'write_file') {
+    // dryRun=true 时只返回 diff 预览，不落盘（供审批前给用户看）。
+    data = args.dryRun
+      ? await agentTools.previewWriteFile(sftp, { root, path: args.path, content: args.content })
+      : await agentTools.writeFileText(sftp, { root, path: args.path, content: args.content });
+  } else {
+    data = await agentTools.searchFiles(sftp, {
+      root,
+      path: args.path,
+      query: args.query,
+      contentQuery: args.contentQuery,
+    });
+  }
+
+  // 轻量审计：记录每次工具调用的时间/工具/路径/是否写入，供排查与后续审计视图使用。
+  const session = getSession(request.params.id, clientId);
+  if (session) {
+    auditAgentToolCall(session, { tool, root, path: args.path, write: tool === 'write_file' && !args.dryRun });
+  }
+  return success(data);
+}));
+
+/** 每个 SSH 会话保留最近 200 条 Agent 工具调用审计记录。 */
+function auditAgentToolCall(session, entry) {
+  if (!Array.isArray(session.agentAudit)) {
+    session.agentAudit = [];
+  }
+  session.agentAudit.push({ at: new Date().toISOString(), ...entry });
+  if (session.agentAudit.length > 200) {
+    session.agentAudit.splice(0, session.agentAudit.length - 200);
+  }
+}
+
+// Agent 工具调用审计记录（只读）。
+app.get('/api/ssh/:id/agent/audit', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  return success({ records: session?.agentAudit ? [...session.agentAudit] : [] });
+}));
+
+// —— Agent 会话持久化（按 clientId + connectionId）——
+
+app.get('/api/agent/conversations', route((request) => {
+  return success({ conversations: agentConversationStore.list(requireClientId(request)) });
+}));
+
+app.get('/api/agent/conversations/:connectionId', route((request) => {
+  return success(agentConversationStore.get(requireClientId(request), request.params.connectionId));
+}));
+
+app.put('/api/agent/conversations/:connectionId', route((request) => {
+  const body = request.body || {};
+  return success(agentConversationStore.save(requireClientId(request), request.params.connectionId, {
+    messages: body.messages,
+  }));
+}));
+
+app.delete('/api/agent/conversations/:connectionId', route((request) => {
+  const removed = agentConversationStore.remove(requireClientId(request), request.params.connectionId);
+  return success({ removed });
+}));
+
+// —— Agent 附件（仅元数据入库；真实字节存本地临时文件）——
+
+app.post('/api/agent/attachments', route((request) => {
+  const body = request.body || {};
+  const meta = agentAttachmentStore.save({
+    name: body.name,
+    type: body.type,
+    dataBase64: body.dataBase64,
+  });
+  return success(meta);
+}));
+
+app.get('/api/agent/attachments/:attachmentId', route((request) => {
+  const meta = agentAttachmentStore.read(String(request.params.attachmentId || ''));
+  if (!meta) throw new Error('attachment not found');
+  if (String(request.query.include || '') === '1') return success(meta);
+  return success({ id: meta.id, name: meta.name, type: meta.type, size: meta.size });
+}));
+
+app.delete('/api/agent/attachments/:attachmentId', route((request) => {
+  const removed = agentAttachmentStore.remove(String(request.params.attachmentId || ''));
+  return success({ removed });
+}));
+
+// —— Agent 外部智能体（ACP，默认关闭，需显式启用）——
+
+app.get('/api/agent/acp/config', route((request) => {
+  return success(agentAcpRegistry.load());
+}));
+
+app.put('/api/agent/acp/config', route((request) => {
+  return success(agentAcpRegistry.save(request.body || {}));
+}));
+
+// 测试某个外部智能体能否完成 ACP 握手（不执行任何任务）。
+app.post('/api/agent/acp/:name/test', route(async (request) => {
+  const agent = agentAcpRegistry.get(String(request.params.name || ''));
+  if (!agent) throw new Error('acp agent not found');
+  const config = agentAcpRegistry.load();
+  if (!config.enabled) throw new Error('acp disabled');
+  const client = createAcpClient({ command: agent.command, args: agent.args, cwd: DATA_DIR, timeoutMs: 20000 });
+  try {
+    await client.initialize({ protocolVersion: 1 });
+    const session = await client.newSession({ cwd: DATA_DIR, mcpServers: [] });
+    return success({ ok: true, sessionId: (session && session.sessionId) || null });
+  } finally {
+    client.close();
+  }
+}));
+
+// 一次性委托：把一段 prompt 发给外部智能体并等待回合结束。
+// 安全边界：权限请求一律拒绝，外部智能体的任何「总是允许/绕过」都不生效。
+app.post('/api/agent/acp/:name/prompt', route(async (request) => {
+  const agent = agentAcpRegistry.get(String(request.params.name || ''));
+  if (!agent) throw new Error('acp agent not found');
+  const config = agentAcpRegistry.load();
+  if (!config.enabled) throw new Error('acp disabled');
+  const body = request.body || {};
+  const prompt = String(body.prompt || '').trim();
+  if (!prompt) throw new Error('prompt is empty');
+  const timeoutMs = Math.min(Math.max(Number(body.timeoutMs) || 120000, 5000), 600000);
+  const client = createAcpClient({
+    command: agent.command,
+    args: agent.args,
+    cwd: DATA_DIR,
+    timeoutMs,
+    gate: () => false,
+  });
+  const updates = [];
+  client.onNotification((message) => {
+    if (message && message.method === 'session/update') updates.push(message.params ?? null);
+  });
+  try {
+    await client.initialize({ protocolVersion: 1 });
+    const session = await client.newSession({ cwd: DATA_DIR, mcpServers: [] });
+    const result = await client.prompt({
+      sessionId: session && session.sessionId,
+      prompt: [{ type: 'text', text: prompt }],
+    });
+    return success({ sessionId: (session && session.sessionId) || null, stopReason: (result && result.stopReason) || null, updates });
+  } finally {
+    client.close();
+  }
+}));
+
 // 判断 SFTP 权限错误（codes: 3 = PERMISSION_DENIED；部分实现给 EACCES）
 function isSftpPermissionError(error) {
   if (!error) return false;
@@ -2121,7 +2307,9 @@ app.get('/api/sftp/:id/download', async (request, response) => {
 });
 
 function requireClientId(request) {
-  const clientId = request.get('x-sftp-client-id');
+  // 两个头都认：SFTP 专用请求发 x-sftp-client-id，
+  // 通用 request()（Agent 会话/附件等）发 x-ssh-client-id，语义相同。
+  const clientId = request.get('x-sftp-client-id') || request.get('x-ssh-client-id');
   if (!clientId || clientId.length > 200) {
     throw new Error('Missing SFTP client identity');
   }
@@ -2294,7 +2482,7 @@ app.post('/api/ai/chat/stream', async (request, response) => {
     if (!closed && !response.writableEnded) response.write(`data: ${JSON.stringify(event)}\n\n`);
   };
   try {
-    await streamChatWithProvider(getProvider(providerId), messages || [], requestId, sendEvent);
+    await streamChatWithProvider(getProvider(providerId), messages || [], requestId, sendEvent, options || {});
   } catch (error) {
     sendEvent({
       type: 'error',
@@ -2308,7 +2496,7 @@ app.post('/api/ai/chat', route(async (request) => {
   const { providerId, messages, options } = request.body;
   const provider = getProvider(providerId);
 
-  return success(await chatWithProvider(provider, messages || [], options?.requestId));
+  return success(await chatWithProvider(provider, messages || [], options?.requestId, options || {}));
 }));
 app.post('/api/ai/test', route(async (request) => {
   const provider = request.body.provider;

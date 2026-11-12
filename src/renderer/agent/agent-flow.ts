@@ -37,9 +37,16 @@ type FallbackText = {
   duplicateCommand: (command: string) => string;
 };
 
+export interface AgentToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
 export type AgentGraphAction =
   | { type: 'execute'; response: AgentResponse; command: string }
-  | { type: 'approval'; response: AgentResponse; command: string; riskLevel: RiskLevel }
+  | { type: 'approval'; response: AgentResponse; command: string; riskLevel: RiskLevel; toolCall?: AgentToolCall }
+  | { type: 'tool'; response: AgentResponse | null; toolCall: AgentToolCall }
   | { type: 'ask'; response: AgentResponse; question: string }
   | { type: 'finish'; response: AgentResponse; reason: string }
   | { type: 'retryParse'; message: string }
@@ -62,6 +69,8 @@ interface RunAgentRoundGraphInput {
   analyzeCommand: AnalyzeCommand;
   shouldBlockRepeatedCommand: ShouldBlockRepeatedCommand;
   needsApproval: NeedsApproval;
+  executeTool?: (call: AgentToolCall) => Promise<string>;
+  tools?: import('../../shared/ipc-types').AIToolDefinition[];
   fallbackText: FallbackText;
 }
 
@@ -201,6 +210,7 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
 }): Promise<AgentRoundGraphResult> {
   interface RoundState {
     rawContent?: string;
+    toolCalls?: AgentToolCall[];
     response: AgentResponse | null;
     nextAction: AgentGraphAction | null;
     execution?: AgentExecutionGraphResult;
@@ -212,13 +222,17 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
     const result = await input.aiChatStream(input.providerId, input.messages, {
       requestId: input.requestId,
       onEvent: (event) => input.onStreamEvent?.(event),
+      tools: input.tools,
     });
 
     if (!result.success || !result.data) {
       throw new Error(result.success ? 'AI response is empty' : result.error);
     }
 
-    return { rawContent: result.data.content };
+    return {
+      rawContent: result.data.content,
+      toolCalls: result.data.toolCalls,
+    };
   };
 
   const parseModelResponse = (state: Readonly<RoundState>): Patch<RoundState> => {
@@ -228,7 +242,70 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
     return { response: input.parseResponse(state.rawContent) };
   };
 
+  const syntheticExecuteResponse = (command: string): AgentResponse => ({
+    thought: { reasoning: '', observation: '' },
+    decision: 'execute',
+    command,
+  });
+
+  const summarizeToolArgs = (call: AgentToolCall): string => {
+    try {
+      const args = JSON.parse(call.arguments || '{}') as Record<string, unknown>;
+      const target = args.path || args.query || args.command;
+      return typeof target === 'string' ? target : '';
+    } catch {
+      return '';
+    }
+  };
+
+  const routeToolCall = (call: AgentToolCall): Patch<RoundState> => {
+    if (call.name === 'run_command') {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(call.arguments || '{}') as Record<string, unknown>;
+      } catch {
+        args = {};
+      }
+      const command = typeof args.command === 'string' ? args.command.trim() : '';
+      if (!command) {
+        return { nextAction: { type: 'fail', reason: '工具调用缺少 command 参数' } };
+      }
+      if (input.shouldBlockRepeatedCommand(command)) {
+        return {
+          nextAction: { type: 'fail', reason: input.fallbackText.duplicateCommand(command) },
+        };
+      }
+      const risk = input.analyzeCommand(command);
+      const response = syntheticExecuteResponse(command);
+      if (input.needsApproval(risk.riskLevel)) {
+        return {
+          nextAction: { type: 'approval', response, command, riskLevel: risk.riskLevel },
+        };
+      }
+      return { nextAction: { type: 'execute', response, command } };
+    }
+
+    const target = summarizeToolArgs(call);
+    const label = target ? `${call.name} ${target}` : call.name;
+    if (call.name === 'write_file' && input.needsApproval('medium')) {
+      return {
+        nextAction: {
+          type: 'approval',
+          response: syntheticExecuteResponse(label),
+          command: label,
+          riskLevel: 'medium',
+          toolCall: call,
+        },
+      };
+    }
+    return { nextAction: { type: 'tool', response: null, toolCall: call } };
+  };
+
   const routeDecision = (state: Readonly<RoundState>): Patch<RoundState> => {
+    if (state.toolCalls && state.toolCalls.length > 0) {
+      return routeToolCall(state.toolCalls[0]);
+    }
+
     const response = state.response;
     if (!response) {
       return {
@@ -302,6 +379,35 @@ export async function runAgentRoundGraph(input: RunAgentRoundGraphInput & {
 
   const executeAction = async (state: Readonly<RoundState>): Promise<Patch<RoundState>> => {
     const action = state.nextAction;
+
+    if (action?.type === 'tool') {
+      const label = `工具 ${action.toolCall.name}`;
+      try {
+        if (!input.executeTool) throw new Error('当前环境不支持结构化工具');
+        const output = await input.executeTool(action.toolCall);
+        return {
+          execution: {
+            command: label,
+            output: output || '',
+            observation: input.summarizeOutput(label, output || '') || '',
+            nextDecisionContext: input.buildNextDecisionContext(label, output || '') || '',
+          },
+        };
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        const message = messageOf(error);
+        return {
+          execution: {
+            command: label,
+            output: '',
+            observation: message,
+            nextDecisionContext: message,
+            error: message,
+          },
+        };
+      }
+    }
+
     if (action?.type !== 'execute') {
       return {};
     }
