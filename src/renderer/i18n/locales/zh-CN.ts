@@ -199,6 +199,7 @@ const zhCN = {
     closedTitle: '会话已断开',
     closedDescription: '终端输出会保留在这里。需要继续操作时请重新连接。',
     errorTitle: '会话异常',
+    toolbar: '终端工具',
     changeTheme: '切换主题',
     zoomOut: '缩小字号',
     broadcastOn: '命令广播：开（输入同步到其它可见面板）',

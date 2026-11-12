@@ -205,6 +205,7 @@ const enUS: DeepStringify<typeof zhCN> = {
     closedTitle: 'Session disconnected',
     closedDescription: 'Terminal output stays here. Reconnect when you need to continue working.',
     errorTitle: 'Session error',
+    toolbar: 'Terminal tools',
     changeTheme: 'Change theme',
     zoomOut: 'Decrease font size',
     broadcastOn: 'Command broadcast: on (input mirrored to other visible panes)',

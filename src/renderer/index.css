@@ -1159,6 +1159,8 @@
 
   .terminal-shell {
     @apply relative flex-1 overflow-hidden;
+    container-type: inline-size;
+    container-name: terminal-pane;
     background:
       linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 3%, transparent) 1px, transparent 1px),
       linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 2%, transparent) 1px, transparent 1px),
@@ -1167,11 +1169,35 @@
   }
 
   .terminal-toolbar {
-    @apply absolute right-3 top-3 z-20 flex items-center gap-1 rounded-md border p-1;
+    @apply absolute right-3 top-3 z-20 flex w-max max-w-[calc(100%_-_1rem)] items-center gap-1 rounded-md border p-1;
     background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 22%, var(--border-color));
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     backdrop-filter: blur(16px);
+  }
+
+  .terminal-toolbar-content {
+    @apply flex max-w-full flex-wrap items-center justify-end gap-1;
+  }
+
+  .terminal-toolbar-trigger { @apply hidden shrink-0; }
+  .terminal-toolbar-menu-head { @apply hidden; }
+
+  @container terminal-pane (max-width: 560px) {
+    .terminal-toolbar { @apply flex-row-reverse; }
+    .terminal-toolbar-trigger { @apply inline-flex; }
+    .terminal-toolbar-content { @apply hidden; }
+
+    .terminal-toolbar.is-open {
+      @apply absolute flex max-w-[calc(100%_-_1rem)] flex-col items-stretch;
+      width: min(460px, calc(100cqw - 16px));
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+    }
+
+    .terminal-toolbar.is-open .terminal-toolbar-trigger { @apply self-end; }
+    .terminal-toolbar-menu-head { @apply flex items-center justify-between text-xs font-medium text-fg-secondary; }
+    .terminal-toolbar.is-open .terminal-toolbar-content { @apply flex w-full; }
   }
 
   .terminal-toolbar-badge {
