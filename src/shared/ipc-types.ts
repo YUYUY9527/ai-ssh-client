@@ -1,6 +1,4 @@
-export type IPCResult<T = void> = SuccessResult<T> | ErrorResult;
-
-export type SuccessResult<T = void> = T extends void
+export type IPCResult<T = void> = SuccessResult<T> | ErrorResult;export type SuccessResult<T = void> = T extends void
   ? {
       success: true;
     }
@@ -506,4 +504,23 @@ export interface AgentTaskHistoryResult<T = any> {
 
 export interface ExportDataResult<T = any> {
   data: T;
+}
+
+/** 一条端口转发规则的运行状态。 */
+export interface PortForwardRuntimeState {
+  ruleId: string;
+  type: 'local' | 'dynamic';
+  status: 'running' | 'error';
+  bindHost: string;
+  bindPort: number;
+  address: string;
+  targetHost?: string;
+  targetPort?: number;
+  connections: number;
+  error?: string | null;
+}
+
+export interface PortForwardListResult {
+  rules: import('./types').PortForwardRule[];
+  active: PortForwardRuntimeState[];
 }

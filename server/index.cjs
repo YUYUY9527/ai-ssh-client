@@ -30,6 +30,7 @@ const { buildDownloadEtag, readSftpFileEdges, readSftpSmallFile, EDGE_BYTES } = 
 const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
 const { execCommand } = require('./ssh-exec.cjs');
 const { openTransport } = require('./ssh-transport.cjs');
+const { createPortForwardManager } = require('./port-forward.cjs');
 const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
 const { readSftpPreview, resolveInlineMime } = require('./sftp-preview.cjs');
@@ -892,6 +893,11 @@ function disposeSessionByKey(key) {
   } catch {
     // 忽略
   }
+  try {
+    portForwards.stopAllForConnection(session.connectionId, session.clientId);
+  } catch {
+    // 忽略
+  }
   return session;
 }
 
@@ -1205,6 +1211,17 @@ function getSession(connectionId, clientId) {
   }
   return session;
 }
+
+// 端口转发管理器：按「客户端 + 连接」维护本地监听器，底层走 SSH forwardOut。
+const portForwards = createPortForwardManager({
+  getClientForSession: (connectionId, clientId) => {
+    try {
+      return getSession(connectionId, clientId);
+    } catch {
+      return null;
+    }
+  },
+});
 
 /** 拼接远端展示路径，保持 ~ 前缀语义。/home 是真实目录，不按家目录处理。 */
 function joinRemoteDisplayPath(parent, name) {
@@ -1707,6 +1724,41 @@ app.post('/api/ssh/test', route(async (request) => {
       });
   });
 }));
+
+app.get('/api/ssh/:id/forwards', route((request) => {
+  const connection = (readStore().connections || []).find((item) => item.id === request.params.id);
+  if (!connection) {
+    return failure(new Error('Connection not found'));
+  }
+  return success({
+    rules: connection.portForwards || [],
+    active: portForwards.list({ clientId: requestClientId(request), connectionId: request.params.id }),
+  });
+}));
+
+app.post('/api/ssh/:id/forwards/:ruleId/start', route((request) => {
+  const connection = (readStore().connections || []).find((item) => item.id === request.params.id);
+  if (!connection) {
+    return failure(new Error('Connection not found'));
+  }
+  const rule = (connection.portForwards || []).find((item) => item.id === request.params.ruleId);
+  if (!rule) {
+    return failure(new Error('Port forward rule not found'));
+  }
+  return success(portForwards.start({
+    clientId: requestClientId(request),
+    connectionId: request.params.id,
+    rule,
+  }));
+}));
+
+app.post('/api/ssh/:id/forwards/:ruleId/stop', route((request) => success({
+  stopped: portForwards.stop({
+    clientId: requestClientId(request),
+    connectionId: request.params.id,
+    ruleId: request.params.ruleId,
+  }),
+})));
 
 app.get('/api/sftp/:id/list', route(async (request) => {
   const requestedPath = String(request.query.path || '~');

@@ -31,6 +31,8 @@ import type {
   QuickCommandGroupsResult,
   ConnectionGroupsResult,
   ServerMonitorMetrics,
+  PortForwardListResult,
+  PortForwardRuntimeState,
   SftpSearchMode,
   SftpSearchResult,
   SftpPreviewResult,
@@ -73,6 +75,9 @@ declare global {
       sshProbePwd?: (connectionId: string) => Promise<IPCResult<{ cwd: string }>>;
       sshResize: (connectionId: string, cols: number, rows: number) => Promise<IPCResult>;
       sshTestConnection: (connection: SSHConnection) => Promise<IPCResult>;
+      listPortForwards?: (connectionId: string) => Promise<IPCResult<PortForwardListResult>>;
+      startPortForward?: (connectionId: string, ruleId: string) => Promise<IPCResult<PortForwardRuntimeState>>;
+      stopPortForward?: (connectionId: string, ruleId: string) => Promise<IPCResult<{ stopped: boolean }>>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
       sshListHostTrustRecords: () => Promise<IPCResult<{ records: HostTrustRecord[] }>>;
       sshUpsertHostTrustRecord: (record: HostTrustRecord) => Promise<IPCResult>;

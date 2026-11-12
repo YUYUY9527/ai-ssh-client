@@ -1,5 +1,5 @@
-import { ChevronDown, Plus, Trash2, ArrowUp, ArrowDown, Waypoints, ShieldCheck } from 'lucide-react';
-import type { SSHConnection, SshJumpHost, SshProxyConfig } from '../../shared/types';
+import { ChevronDown, Plus, Trash2, ArrowUp, ArrowDown, Waypoints, ShieldCheck, ArrowLeftRight } from 'lucide-react';
+import type { SSHConnection, SshJumpHost, SshProxyConfig, PortForwardRule } from '../../shared/types';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
 
 type Translate = (key: string) => string;
@@ -26,6 +26,36 @@ export function ConnectionAdvancedFields({
 }: ConnectionAdvancedFieldsProps) {
   const proxy = connection.proxy;
   const jumpHosts = connection.jumpHosts ?? [];
+  const portForwards = connection.portForwards ?? [];
+
+  const setForwards = (list: PortForwardRule[]) => {
+    onChange((previous) => (previous ? { ...previous, portForwards: list.length > 0 ? list : undefined } : null));
+  };
+
+  const patchForward = (index: number, patch: Partial<PortForwardRule>) => {
+    const list = [...portForwards];
+    if (!list[index]) return;
+    list[index] = { ...list[index], ...patch };
+    setForwards(list);
+  };
+
+  const addForward = () => {
+    const id = `pf_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    setForwards([
+      ...portForwards,
+      { id, type: 'local', bindHost: '127.0.0.1', bindPort: 0, targetHost: '127.0.0.1', targetPort: 22 },
+    ]);
+  };
+
+  const moveForward = (index: number, delta: number) => {
+    const target = index + delta;
+    if (target < 0 || target >= portForwards.length) return;
+    const list = [...portForwards];
+    const [item] = list.splice(index, 1);
+    list.splice(target, 0, item);
+    setForwards(list);
+  };
+
   const importableConnections = connections.filter((item) => item.id !== connection.id);
 
   const patchProxy = (patch: Partial<SshProxyConfig> | null) => {
@@ -285,6 +315,115 @@ export function ConnectionAdvancedFields({
               )}
             </div>
           ))}
+        </div>
+
+        <div className="mt-5 border-t border-line-subtle pt-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-medium text-fg">
+              <ArrowLeftRight className="h-3.5 w-3.5 text-accent" />
+              <span>{translate('connection.form.portForwards')}</span>
+            </div>
+            <button type="button" className="toolbar-button px-2 py-1 text-xs" onClick={addForward}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              {translate('connection.form.addPortForward')}
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] text-fg-muted">{translate('connection.form.portForwardsHint')}</p>
+          {portForwards.length === 0 ? (
+            <p className="mt-2 text-[11px] text-fg-subtle">{translate('connection.form.portForwardsEmpty')}</p>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {portForwards.map((rule, index) => (
+                <div key={rule.id} className="rounded-md border border-line bg-surface-raised p-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={rule.label || ''}
+                      onChange={(event) => patchForward(index, { label: event.target.value })}
+                      className="industrial-input min-w-0 flex-1"
+                      placeholder={translate('connection.form.portForwardLabel')}
+                    />
+                    <IndustrialSelect
+                      value={rule.type}
+                      options={[
+                        { value: 'local', label: translate('connection.form.portForwardTypeLocal') },
+                        { value: 'dynamic', label: translate('connection.form.portForwardTypeDynamic') },
+                      ]}
+                      onChange={(value) => patchForward(index, { type: value as PortForwardRule['type'] })}
+                      className="w-28"
+                    />
+                    <button
+                      type="button"
+                      className="icon-button h-7 w-7"
+                      title={translate('connection.form.moveUp')}
+                      onClick={() => moveForward(index, -1)}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button h-7 w-7"
+                      title={translate('connection.form.moveDown')}
+                      onClick={() => moveForward(index, 1)}
+                    >
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button h-7 w-7 text-danger"
+                      title={translate('connection.form.remove')}
+                      onClick={() => setForwards(portForwards.filter((item) => item.id !== rule.id))}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="text-[11px] text-fg-muted">
+                      {translate('connection.form.portForwardBindHost')}
+                      <input
+                        value={rule.bindHost || ''}
+                        onChange={(event) => patchForward(index, { bindHost: event.target.value })}
+                        className="industrial-input mt-1 w-full"
+                        placeholder="127.0.0.1"
+                      />
+                    </label>
+                    <label className="text-[11px] text-fg-muted">
+                      {translate('connection.form.portForwardBindPort')}
+                      <input
+                        type="number"
+                        value={Number.isFinite(rule.bindPort) ? rule.bindPort : 0}
+                        onChange={(event) => patchForward(index, { bindPort: Number(event.target.value) || 0 })}
+                        className="industrial-input mt-1 w-full"
+                        placeholder="0"
+                      />
+                    </label>
+                    {rule.type === 'local' && (
+                      <>
+                        <label className="text-[11px] text-fg-muted">
+                          {translate('connection.form.portForwardTargetHost')}
+                          <input
+                            value={rule.targetHost || ''}
+                            onChange={(event) => patchForward(index, { targetHost: event.target.value })}
+                            className="industrial-input mt-1 w-full"
+                            placeholder="127.0.0.1"
+                          />
+                        </label>
+                        <label className="text-[11px] text-fg-muted">
+                          {translate('connection.form.portForwardTargetPort')}
+                          <input
+                            type="number"
+                            value={Number.isFinite(rule.targetPort) ? rule.targetPort : 0}
+                            onChange={(event) => patchForward(index, { targetPort: Number(event.target.value) || 0 })}
+                            className="industrial-input mt-1 w-full"
+                            placeholder="22"
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </details>

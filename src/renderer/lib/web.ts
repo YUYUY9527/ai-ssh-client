@@ -1471,6 +1471,17 @@ const webApi: Window['electronAPI'] = {
     method: 'POST',
     body: JSON.stringify({ connection }),
   }),
+  listPortForwards: (connectionId) => sftpRequest<import('../../shared/ipc-types').PortForwardListResult>(
+    `/api/ssh/${connectionId}/forwards`,
+  ),
+  startPortForward: (connectionId, ruleId) => sftpRequest<import('../../shared/ipc-types').PortForwardRuntimeState>(
+    `/api/ssh/${connectionId}/forwards/${ruleId}/start`,
+    { method: 'POST' },
+  ),
+  stopPortForward: (connectionId, ruleId) => sftpRequest<{ stopped: boolean }>(
+    `/api/ssh/${connectionId}/forwards/${ruleId}/stop`,
+    { method: 'POST' },
+  ),
   sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
     `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
   ),
