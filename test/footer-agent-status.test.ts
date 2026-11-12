@@ -76,8 +76,8 @@ afterEach(() => {
 });
 
 describe('FooterAgentStatus — 什么时候出现', () => {
-  it('没有任务时不占位置', () => {
-    expect(text()).toBe('');
+  it('没有任务时占位显示「空闲中」（不再消失）', () => {
+    expect(text()).toBe(t('terminal.agentStatusIdle'));
   });
 
   it('本会话有任务在跑时显示阶段与耗时', () => {
@@ -92,7 +92,7 @@ describe('FooterAgentStatus — 什么时候出现', () => {
       .toContain(t('terminal.agentStatusEscapeHint'));
   });
 
-  it('任务属于别的标签页时不显示', () => {
+  it('任务属于别的标签页时只显示空闲、不报该任务进度', () => {
     act(() => {
       useAgentStore.setState({
         activeConnectionId: 'conn-2',
@@ -101,10 +101,11 @@ describe('FooterAgentStatus — 什么时候出现', () => {
       } as never);
     });
 
-    expect(text()).toBe('');
+    expect(text()).toBe(t('terminal.agentStatusIdle'));
+    expect(text()).not.toContain(t('agent.states.executing'));
   });
 
-  it('任务结束后立刻消失，不留「执行中」', () => {
+  it('任务结束后回到「空闲中」，不留「执行中」', () => {
     act(() => {
       useAgentStore.setState({ currentTask: task(), agentState: 'executing' } as never);
     });
@@ -116,7 +117,7 @@ describe('FooterAgentStatus — 什么时候出现', () => {
         agentState: 'finished',
       } as never);
     });
-    expect(text()).toBe('');
+    expect(text()).toBe(t('terminal.agentStatusIdle'));
   });
 
   it('运行时状态是 paused 时如实显示已暂停', () => {
@@ -197,10 +198,12 @@ describe('AppFooter — Agent 状态的位置', () => {
     expect(connection!.compareDocumentPosition(agent!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('没有任务时底栏不出现 Agent 那一块', () => {
+  it('没有任务时底栏仍显示 Agent「空闲中」占位', () => {
     render(footerNode());
 
-    expect(container.querySelector('.app-footer-agent')).toBeNull();
+    const agent = container.querySelector('.app-footer-agent');
+    expect(agent).not.toBeNull();
+    expect(text()).toContain(t('terminal.agentStatusIdle'));
   });
 });
 

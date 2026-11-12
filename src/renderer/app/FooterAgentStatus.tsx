@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Circle } from 'lucide-react';
 
 import { isAgentTaskRunningInSession } from '../agent/terminal-agent-chat';
 import { useI18n } from '../i18n';
@@ -55,7 +55,19 @@ export function FooterAgentStatus() {
     return () => window.clearInterval(timer);
   }, [isRunning, taskStartTime]);
 
-  if (!isRunning) return null;
+  if (!isRunning) {
+    // 不运行时也占位显示「空闲中」，让底栏的 Agent 状态始终可见、位置固定，
+    // 不会在任务开始/结束时整块出现或消失导致左侧布局跳动。
+    return (
+      <div
+        className="app-footer-meta app-footer-agent min-w-0 text-slate-400 dark:text-slate-500"
+        title={t('terminal.agentStatusIdle')}
+      >
+        <Circle className="h-2.5 w-2.5 shrink-0" />
+        <span className="truncate">{t('terminal.agentStatusIdle')}</span>
+      </div>
+    );
+  }
 
   // 阶段优先：等人时必须说「等待回答 / 等待确认」，不能沿用 agentState 的「观察中」。
   const phase = resolveFooterAgentPhase(agentState);

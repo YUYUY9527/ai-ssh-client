@@ -398,9 +398,6 @@ export function WorkspaceHeader({
         </div>
         <div className="mr-2 leading-tight">
           <h1 className="text-sm font-semibold tracking-tight">AI SSH Client</h1>
-          <p className="text-[10px] text-slate-500 dark:text-slate-500">
-            secure shell workspace
-          </p>
         </div>
 
         <div className="relative" ref={connectionDropdownRef}>

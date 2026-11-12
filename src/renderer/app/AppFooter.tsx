@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { AlertCircle, FileText, FolderUp, Loader2 } from 'lucide-react';
 
 import { FooterAgentStatus } from './FooterAgentStatus';
+import { FooterServerMonitor } from './FooterServerMonitor';
 
 interface CommandStatus {
   command: string;
@@ -82,7 +83,11 @@ export function AppFooter({
           </div>
         )}
       </div>
-      <span className="shrink-0 opacity-80">AI SSH Client v{__APP_VERSION__}</span>
+      <div className="flex min-w-0 items-center justify-end gap-3">
+        <div className="hidden md:block">
+          <FooterServerMonitor />
+        </div>
+      </div>
     </footer>
   );
 }

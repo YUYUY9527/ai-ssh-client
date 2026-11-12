@@ -194,6 +194,7 @@ const enUS: DeepStringify<typeof zhCN> = {
     agentStatusAwaitingApproval: 'Waiting for approval',
     agentStatusEscapeHint: 'Esc to interrupt',
     agentStatusInputHint: 'Terminal input goes to the shell',
+    agentStatusIdle: 'Idle',
     agentInterrupted: 'Agent task interrupted.',
     agentExecutionResult: '{mark} {status} · {duration}s',
     saveLog: 'Save session log',

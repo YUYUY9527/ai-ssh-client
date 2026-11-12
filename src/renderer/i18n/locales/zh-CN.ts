@@ -188,6 +188,7 @@ const zhCN = {
     agentStatusAwaitingApproval: '等待确认',
     agentStatusEscapeHint: 'Esc 中断',
     agentStatusInputHint: '终端输入照常发给 Shell',
+    agentStatusIdle: '空闲中',
     agentInterrupted: '已中断 Agent 任务。',
     agentExecutionResult: '{mark} {status} · {duration}s',
     saveLog: '保存会话日志',
