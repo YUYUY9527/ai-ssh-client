@@ -87,6 +87,14 @@ function stripCompleteSentinelArtifacts(input) {
 }
 
 function stripVisibleAgentArtifacts(session, text) {
+  // 全屏程序（vim/nano/less 等）的重绘流不能做行级清洗：既不该剥离，
+  // 也不能把尾部裸 '\r' 暂存到下一块（alt 屏重绘帧常以 '\r' 结尾，暂存会丢掉该 CR
+  // → 画面错位）。重置行缓冲，退出全屏后重新累积。
+  if (session.altScreen) {
+    session.sentinelStripper = null;
+    return text;
+  }
+
   let nextText = text;
   if (session.agentEchoPending) {
     const lineEnd = nextText.search(/[\r\n]/);

@@ -8,6 +8,24 @@ export function isMultiLinePaste(text: string): boolean {
   return /[\r\n]/.test(text);
 }
 
+/** bracketed paste 模式的起止标记（由远端程序用 DECSET 2004 开启）。 */
+export const BRACKETED_PASTE_START = '\x1b[200~';
+export const BRACKETED_PASTE_END = '\x1b[201~';
+
+/**
+ * 远端程序开启了 bracketed paste（DECSET 2004）时，把粘贴内容包进起止标记，
+ * 让 vim/nano 等按字面插入，而不是逐行当成回车执行、也不会被 autoindent 逐层缩进。
+ * 未开启（普通 shell）时原样返回，行为不变。
+ */
+export function wrapBracketedPaste(text: string, bracketedPasteMode: boolean | undefined): string {
+  if (!text || !bracketedPasteMode) {
+    return text;
+  }
+  // 内容里若混入结束标记会提前截断，先剔除，避免粘贴被切成两段。
+  const safe = text.split(BRACKETED_PASTE_END).join('');
+  return `${BRACKETED_PASTE_START}${safe}${BRACKETED_PASTE_END}`;
+}
+
 /** 当前输入行的本地追踪状态：input 是已知内容，reliable 表示它是否等于屏幕上的那一行。 */
 export interface PastedInputTracking {
   input: string;

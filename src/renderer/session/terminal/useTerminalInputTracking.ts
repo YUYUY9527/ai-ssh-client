@@ -35,17 +35,26 @@ function tailText(input: string, maxChars: number): string {
 }
 
 /**
- * xterm 对 OSC/CSI 查询的自动应答（挂起期间应丢弃，防 PTY 回显死循环）。
- * 特征：所有以 ESC（0x1b）或单字节 CSI（0x9b）开头的序列。
- * 注意：用户方向键等也是 \x1b[ 开头，但回放挂起窗口为毫秒级，期间丢弃可接受；
- * 普通字符、回车、退格、制表符等真实输入不受影响。
+ * xterm 对 OSC/CSI 查询的自动应答（回放挂起期间应丢弃，防 PTY 回显死循环）。
+ *
+ * 只匹配真正的应答报文，绝不能像早期实现那样"凡是 ESC 开头就丢"——
+ * 用户的 ↑↓←→、Home/End、F 键、Alt+字母同样是 \x1b 开头，误丢会让全屏程序里
+ * 方向键短暂失灵（SUSPEND_INPUT_FORWARD_TIMEOUT_MS 最多 1.5s）。
  */
-function isXtermAutoReply(data: string): boolean {
-  if (!data) {
+const XTERM_AUTO_REPLY_PATTERNS: readonly RegExp[] = [
+  /^\x1b\[\??[\d;]*[cnR]$/, // DA1/DA2 设备属性应答、DSR 光标位置应答
+  /^\x1b\[[?>][\d;]*[cn]$/, // 私有设备属性应答
+  /^\x1b\[\?[\d;]*\$y$/, // DECRPM 模式报告应答
+  /^\x1b\[[IO]$/, // 焦点进入 / 离开
+  /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)$/, // OSC 应答
+  /^\x1bP[^\x1b]*\x1b\\$/, // DCS 应答
+];
+
+export function isXtermAutoReply(data: string): boolean {
+  if (!data || data.charCodeAt(0) !== 0x1b) {
     return false;
   }
-  const code = data.charCodeAt(0);
-  return code === 0x1b || code === 0x9b;
+  return XTERM_AUTO_REPLY_PATTERNS.some((pattern) => pattern.test(data));
 }
 
 function parsePromptCommand(line: string): string | null {
@@ -245,7 +254,11 @@ export function useTerminalInputTracking({
     };
 
     const onDataDisposable = term.onData((data: string) => {
-      if (data === '\x16') {
+      // 先判断是否处于全屏程序（vim/nano）：下面 \x16(^V) 的吞键只针对普通 shell，
+      // 全屏程序里 ^V 是它自己的命令，必须原样转发。
+      const inAlternateScreen = syncAlternateScreenState();
+
+      if (data === '\x16' && !inAlternateScreen) {
         return;
       }
 
@@ -260,7 +273,7 @@ export function useTerminalInputTracking({
         }
       }
 
-      if (syncAlternateScreenState()) {
+      if (inAlternateScreen) {
         if (window.electronAPI) {
           try {
             window.electronAPI.sshExecuteSync(connectionId, data);

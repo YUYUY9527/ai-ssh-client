@@ -33,6 +33,10 @@ describe('terminal-progress-wrap helpers', () => {
     expect(looksLikeProgressText(' 9%|███| 10/20 [00:01<00:01, 12.3it/s]')).toBe(true);
     expect(looksLikeProgressText('normal output 100% complete')).toBe(false);
     expect(looksLikeProgressText('-rw-r--r-- 1 root root 1024 file.bin')).toBe(false);
+    // 收紧后：单个 '|' 分隔的状态栏、单纯百分比不再算进度条（避免误关自动换行）
+    expect(looksLikeProgressText(' 50% | 文件.txt  已保存')).toBe(false);
+    expect(looksLikeProgressText('Line 12, Col 3   50%')).toBe(false);
+    expect(looksLikeProgressText('100%')).toBe(false);
   });
 
   it('disables autowrap after a bare CR progress segment and restores it at newline', () => {

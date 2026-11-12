@@ -45,6 +45,16 @@ import {
   guardCarriageReturnProgress,
   releaseProgressWrap,
 } from './terminal-progress-wrap';
+import { prepareTerminalPaste, wrapBracketedPaste } from './paste-safety';
+import {
+  createTerminalModeState,
+  emitTerminalModeRestore,
+  loadTerminalModeState,
+  saveTerminalModeState,
+  scanTerminalModes,
+  type TerminalModeState,
+} from './terminal-modes';
+import { ALT_ENTER_SEQUENCE } from './terminal-alt';
 import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
 import { useTerminalSearch } from './useTerminalSearch';
@@ -89,6 +99,26 @@ const THEME_NAMES: Record<string, string> = {
   ubuntu: 'Ubuntu',
 };
 
+/**
+ * 把 replay 前记录的模式恢复序列并入待写入内容：
+ * 若重放内容以 1049h 开头（进入 alt screen），恢复序列插在其后（进 alt 再设模式），
+ * 否则直接前置（normal buffer 下也一样）。
+ */
+function withModeRestore(restore: string, chunk: string): string {
+  if (!restore) {
+    return chunk;
+  }
+  if (chunk.startsWith(ALT_ENTER_SEQUENCE)) {
+    return ALT_ENTER_SEQUENCE + restore + chunk.slice(ALT_ENTER_SEQUENCE.length);
+  }
+  return restore + chunk;
+}
+
+/** 终端模式持久化用的 storage（浏览器无 sessionStorage 时返回 null，交由调用方降级）。 */
+function getModeStorage(): Storage | null {
+  return typeof sessionStorage !== 'undefined' ? sessionStorage : null;
+}
+
 /** Terminal view that owns xterm rendering and delegates runtime sub-concerns to hooks. */
 export function TerminalView({
   liveConnectionId,
@@ -125,6 +155,36 @@ export function TerminalView({
   const progressWrapTimerRef = useRef<number | null>(null);
   /** Agent 期间清理裸提示符的延迟任务；输出可能分多帧落地，等一批写完再擦。 */
   const agentPromptClearTimerRef = useRef<number | null>(null);
+  /** 远端全屏程序一次性声明的终端模式（bracketed paste / 鼠标 / 光标键…），replay 后恢复。 */
+  const terminalModeStateRef = useRef<TerminalModeState>(createTerminalModeState());
+  const lastModePersistRef = useRef(0);
+
+  // 会话切换/首次挂载时从 sessionStorage 载入该会话上次记录的模式（覆盖缓冲已截断的场景）。
+  useEffect(() => {
+    terminalModeStateRef.current = sessionId
+      ? loadTerminalModeState(getModeStorage(), sessionId)
+      : createTerminalModeState();
+  }, [sessionId]);
+
+  const persistModes = useCallback(() => {
+    saveTerminalModeState(getModeStorage(), sessionId, terminalModeStateRef.current);
+  }, [sessionId]);
+
+  // 每段输出增量扫描模式，并节流持久化（写 sessionStorage 是同步的，避免高频写）。
+  const feedModes = useCallback(
+    (chunk: string) => {
+      if (!chunk) {
+        return;
+      }
+      scanTerminalModes(terminalModeStateRef.current, chunk);
+      const now = Date.now();
+      if (now - lastModePersistRef.current >= 1000) {
+        lastModePersistRef.current = now;
+        persistModes();
+      }
+    },
+    [persistModes],
+  );
 
   const runtimeSettings = resolveTerminalRuntimeSettings(settings);
 
@@ -527,6 +587,12 @@ export function TerminalView({
     }
   }, [onSettingsPatch, settings]);
 
+  // 稳定的判断函数：供搜索 hook 判断当前是否在全屏程序，避免每次渲染重挂监听。
+  const isAlternateScreenActive = useCallback(
+    () => isAlternateScreenRef.current,
+    [],
+  );
+
   const {
     closeSearch,
     searchNext,
@@ -540,6 +606,7 @@ export function TerminalView({
     minFontSize: MIN_TERMINAL_FONT_SIZE,
     searchAddonRef,
     setFontSize: setFontSizeAndPersist,
+    isAlternateScreenActive,
   });
 
   const {
@@ -637,6 +704,13 @@ export function TerminalView({
   // 终端右键菜单
   const handleContextMenu = (e: React.MouseEvent) => {
     if (!sessionId) return;
+    // 全屏程序自己在处理鼠标（vim: set mouse=a）时，右键是它的操作，
+    // 只拦掉浏览器默认菜单，不弹我们自己的菜单，免得把 vim 的右键操作吞掉。
+    const term = xtermRef.current;
+    if (term?.buffer.active.type === 'alternate' && term.modes?.mouseTrackingMode !== 'none') {
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     xtermRef.current?.focus();
     setContextMenu({ x: e.clientX, y: e.clientY });
@@ -669,7 +743,9 @@ export function TerminalView({
       let probedCwd: string | null = null;
       try {
         const probe = window.electronAPI?.sshProbePwd;
-        if (probe) {
+        // 全屏程序（vim/nano）前台时，探测命令的字符会被打进编辑器缓冲区、改坏文件，
+        // 此时跳过探测，退回到屏幕/追踪/story 解析。
+        if (probe && xtermRef.current?.buffer.active.type !== 'alternate') {
           const result = await probe(connectionId);
           if (result.success && result.data?.cwd?.trim()) {
             probedCwd = result.data.cwd.trim();
@@ -764,7 +840,11 @@ export function TerminalView({
     if (text && liveConnectionId && window.electronAPI) {
       // 多行粘贴会被远端逐行执行：让输入行追踪失效，避免残留内容混进下一次提交
       recordPastedInput(text);
-      window.electronAPI.sshExecuteSync(liveConnectionId, text);
+      const bracketed = xtermRef.current?.modes?.bracketedPasteMode;
+      window.electronAPI.sshExecuteSync(
+        liveConnectionId,
+        wrapBracketedPaste(prepareTerminalPaste(text), bracketed),
+      );
     }
   }, [canSubmitPastedAgentInput, handleTerminalAgentInput, liveConnectionId, pastePreview, recordPastedInput]);
 
@@ -832,6 +912,7 @@ export function TerminalView({
       if (!chunk) {
         return;
       }
+      feedModes(chunk);
       consumeOutputChunk(chunk);
       consumeShellIntegration(chunk);
       writeProgressGuarded(chunk, clearStrayAgentPrompt);
@@ -869,13 +950,22 @@ export function TerminalView({
       }
       // reset() 会把 DECAWM 恢复为开启，状态必须同步复位，否则重放时不会再关闭自动换行。
       progressWrapStateRef.current.active = false;
+      // 先扫描本次重放内容里的 DECSET，再与已持久化的历史模式合并；reset 会清空全部
+      // 一次性模式声明，重放后按记录补回来（否则 vim 鼠标/ bracketed paste/光标键失效）。
+      if (plan.chunk) {
+        // 重放窗口是完整独立的一段，不能与上一次 append 残留的悬挂尾拼接。
+        terminalModeStateRef.current.pendingTail = '';
+        scanTerminalModes(terminalModeStateRef.current, plan.chunk);
+      }
+      persistModes();
       term.reset();
       resetInputTracking();
+      const modeRestore = emitTerminalModeRestore(terminalModeStateRef.current);
       if (plan.chunk) {
         consumeOutputChunk(plan.chunk);
         consumeShellIntegration(plan.chunk);
         // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
-        writeProgressGuarded(plan.chunk, () => {
+        writeProgressGuarded(withModeRestore(modeRestore, plan.chunk), () => {
           clearStrayAgentPrompt();
           if (isAgentTaskRunningHere()) {
             scheduleAgentPromptClear();
@@ -884,6 +974,13 @@ export function TerminalView({
           calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
         });
       } else {
+        if (modeRestore) {
+          try {
+            term.write(modeRestore);
+          } catch {
+            // 忽略：模式恢复失败不影响后续输出
+          }
+        }
         releaseSuspend();
         calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
       }
@@ -899,7 +996,9 @@ export function TerminalView({
     consumeOutputChunk,
     consumeShellIntegration,
     endSuspendInputForward,
+    feedModes,
     isAgentTaskRunningHere,
+    persistModes,
     renderedOutput,
     scheduleAgentPromptClear,
     resetInputTracking,

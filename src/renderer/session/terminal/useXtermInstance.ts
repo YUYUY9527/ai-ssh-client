@@ -14,7 +14,7 @@ import {
 import { resolveTerminalRuntimeSettings } from './terminal-settings';
 import { isOpenableHttpUrl, ShellIntegrationParser, type ShellIntegrationState } from './shell-integration';
 import { parseTerminalAgentPaste } from '../../agent/terminal-agent-chat';
-import { createClipboardPasteFallback, gateTerminalPaste } from './paste-safety';
+import { createClipboardPasteFallback, gateTerminalPaste, wrapBracketedPaste } from './paste-safety';
 import { useSessionStore } from '../useSessionStore';
 
 interface XtermInstanceOptions {
@@ -228,9 +228,14 @@ export function useXtermInstance({
     if (liveConnectionIdRef.current && window.electronAPI) {
       // 补记进输入行追踪：粘贴不走 onData，否则紧接着的回车只会提交手打的部分
       recordPastedInputRef.current?.(gated.text);
-      window.electronAPI.sshExecuteSync(liveConnectionIdRef.current, gated.text);
+      // 远端开了 bracketed paste（vim/nano）时用起止标记包裹，避免逐行执行/缩进错乱
+      const bracketed = xtermRef.current?.modes?.bracketedPasteMode;
+      window.electronAPI.sshExecuteSync(
+        liveConnectionIdRef.current,
+        wrapBracketedPaste(gated.text, bracketed),
+      );
     }
-  }, []);
+  }, [xtermRef]);
 
   useEffect(() => {
     if (!sessionId || !terminalRef.current) {
@@ -345,10 +350,25 @@ export function useXtermInstance({
       }
 
       if (event.ctrlKey && key === 'c' && event.type === 'keydown') {
+        // 全屏程序（vim/nano）里 ^C 是它自己的命令（nano 显示光标位置、vim 中断），
+        // 不能被"有选区就复制"劫持；此时放行给远端（复制请用 Ctrl+Shift+C 或右键菜单）。
+        if (xtermRef.current?.buffer.active.type === 'alternate') {
+          return true;
+        }
         return !copyTerminalSelectionToClipboard();
       }
 
       if (event.ctrlKey && key === 'v') {
+        // 全屏程序（vim 可视块 / nano 下一页）里 ^V 是它自己的命令：
+        // 纯 Ctrl+V 放行给远端；要粘贴请用 Ctrl+Shift+V 或右键菜单。
+        if (
+          event.type === 'keydown'
+          && !event.shiftKey
+          && !event.altKey
+          && xtermRef.current?.buffer.active.type === 'alternate'
+        ) {
+          return true;
+        }
         // 只阻止 xterm 把 Ctrl+V 当作 \x16 发给远端，粘贴交给浏览器原生 paste 事件；
         // 窗口期内没等到 paste 事件（个别 webview 不派发）才用 Clipboard API 兜底。
         if (event.type === 'keydown' && liveConnectionIdRef.current && window.electronAPI) {
@@ -367,6 +387,11 @@ export function useXtermInstance({
       }
 
       if (event.ctrlKey && key === 'f') {
+        // 全屏程序里 ^F 是翻页 / 前移一个字符：放行给远端；
+        // 普通 shell 里仍交给搜索栏（xterm 不发 ^F）。
+        if (xtermRef.current?.buffer.active.type === 'alternate') {
+          return true;
+        }
         return false;
       }
       return true;

@@ -17,13 +17,24 @@ export function visibleTextWidth(text: string): number {
   return text.replace(ANSI_ESCAPE_RE, '').replace(/[\x00-\x1f\x7f]/g, '').length;
 }
 
-/** 是否像下载/任务进度条文本（例如 `24%|████| 918M/3.72G [39:47, 543kB/s]`）。 */
+/** 进度条填充块（tqdm 用 █▓▒░、wget 用 #/=/->、pipes 等）。 */
+const PROGRESS_BAR_RUN_RE = /[█▓▒░#=\u2501\u2500]{3,}/;
+
+/**
+ * 是否像下载/任务进度条文本（例如 `24%|████| 918M/3.72G [39:47, 543kB/s]`）。
+ *
+ * 收紧判定（避免把含 "50% | 文件" 的状态栏误当进度条）：除了必须带百分比，
+ * 还必须出现「连续 3 个以上的进度填充块」或「速率单位（B/s、it/s）」这类
+ * 真正的动态进度特征，单个 `|` 分隔符不再算数。
+ */
 export function looksLikeProgressText(text: string): boolean {
   const plain = text.replace(ANSI_ESCAPE_RE, '');
   if (!/\d{1,3}(?:\.\d+)?%/.test(plain)) {
     return false;
   }
-  return plain.includes('|') || /\d+(?:\.\d+)?\s*[kKMGT]?B\/s/.test(plain) || /\d+(?:\.\d+)?\s*it\/s/.test(plain);
+  return PROGRESS_BAR_RUN_RE.test(plain)
+    || /\d+(?:\.\d+)?\s*[kKMGT]?B\/s/.test(plain)
+    || /\d+(?:\.\d+)?\s*it\/s/.test(plain);
 }
 
 export interface ProgressWrapState {

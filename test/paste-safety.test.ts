@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
   CLIPBOARD_PASTE_FALLBACK_MS,
   createClipboardPasteFallback,
   gateTerminalPaste,
@@ -7,6 +9,7 @@ import {
   prepareTerminalPaste,
   resolvePasteConfirmation,
   trackPastedInput,
+  wrapBracketedPaste,
 } from '../src/renderer/session/terminal/paste-safety';
 
 /** 手动调度的定时器替身：只在测试显式 flush 时执行。 */
@@ -99,6 +102,27 @@ describe('trackPastedInput — 粘贴文本不得丢失', () => {
   it('空粘贴不改动追踪', () => {
     const state = { input: 'ls', reliable: true };
     expect(trackPastedInput(state, '')).toBe(state);
+  });
+});
+
+describe('wrapBracketedPaste — 全屏程序字面插入', () => {
+  it('未开启 bracketed paste 时原样返回（普通 shell 行为不变）', () => {
+    expect(wrapBracketedPaste('ls -la', false)).toBe('ls -la');
+    expect(wrapBracketedPaste('ls -la', undefined)).toBe('ls -la');
+  });
+
+  it('开启时用起止标记包裹', () => {
+    expect(wrapBracketedPaste('a\rb', true))
+      .toBe(`${BRACKETED_PASTE_START}a\rb${BRACKETED_PASTE_END}`);
+  });
+
+  it('剔除内容里混入的结束标记，避免被提前截断成两段', () => {
+    const evil = `x${BRACKETED_PASTE_END}y`;
+    expect(wrapBracketedPaste(evil, true)).toBe(`${BRACKETED_PASTE_START}xy${BRACKETED_PASTE_END}`);
+  });
+
+  it('空文本不包裹', () => {
+    expect(wrapBracketedPaste('', true)).toBe('');
   });
 });
 

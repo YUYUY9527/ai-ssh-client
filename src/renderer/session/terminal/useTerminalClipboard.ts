@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { Terminal as XTerm } from '@xterm/xterm';
 
 import { t } from '../../i18n';
-import { gateTerminalPaste, prepareTerminalPaste } from './paste-safety';
+import { gateTerminalPaste, prepareTerminalPaste, wrapBracketedPaste } from './paste-safety';
 import { parseTerminalAgentPaste } from '../../agent/terminal-agent-chat';
 
 interface TerminalClipboardOptions {
@@ -17,12 +17,16 @@ interface TerminalClipboardOptions {
   recordPastedInput?: (text: string) => void;
 }
 
-function inputTerminalText(connectionId: string | null, text: string): void {
+function inputTerminalText(
+  connectionId: string | null,
+  text: string,
+  bracketedPasteMode?: boolean,
+): void {
   if (!text) {
     return;
   }
 
-  const terminalText = prepareTerminalPaste(text);
+  const terminalText = wrapBracketedPaste(prepareTerminalPaste(text), bracketedPasteMode);
   if (connectionId && window.electronAPI) {
     window.electronAPI.sshExecuteSync(connectionId, terminalText);
   }
@@ -36,6 +40,7 @@ function sendGatedPaste(
   onAgentInput?: (text: string) => void,
   canSubmitPastedAgentInput?: () => boolean,
   recordPastedInput?: (text: string) => void,
+  bracketedPasteMode?: boolean,
 ): void {
   const agentCommand = parseTerminalAgentPaste(text);
   const gated = gateTerminalPaste(text, false);
@@ -52,7 +57,7 @@ function sendGatedPaste(
   }
   // 补记进输入行追踪：粘贴不走 onData，否则紧接着的回车只会提交手打的部分
   recordPastedInput?.(gated.text);
-  inputTerminalText(connectionId, gated.text);
+  inputTerminalText(connectionId, gated.text, bracketedPasteMode);
 }
 
 function copyText(text: string): void {
@@ -131,9 +136,10 @@ export function useTerminalClipboard({
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
         recordPastedInputRef.current,
+        xtermRef.current?.modes?.bracketedPasteMode,
       );
     }
-  }, [liveConnectionId]);
+  }, [liveConnectionId, xtermRef]);
 
   const handleCopy = useCallback(() => {
     copyTerminalSelectionToClipboard();
@@ -154,6 +160,7 @@ export function useTerminalClipboard({
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
         recordPastedInputRef.current,
+        xtermRef.current?.modes?.bracketedPasteMode,
       );
       closeContextMenu();
     }).catch((error) => {
@@ -165,6 +172,7 @@ export function useTerminalClipboard({
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
         recordPastedInputRef.current,
+        xtermRef.current?.modes?.bracketedPasteMode,
       );
       xtermRef.current?.focus();
       closeContextMenu();
@@ -198,6 +206,7 @@ export function useTerminalClipboard({
         onAgentInputRef.current,
         canSubmitPastedAgentInputRef.current,
         recordPastedInputRef.current,
+        xtermRef.current?.modes?.bracketedPasteMode,
       );
       xtermRef.current?.focus();
       closeContextMenu();

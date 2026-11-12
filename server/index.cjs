@@ -812,6 +812,13 @@ function appendSessionOutput(session, text) {
     return;
   }
   const next = `${session.outputBuffer || ''}${text}`;
+  // 增量维护 alt screen 状态（供 sentinel 清洗跳过全屏重绘流，见 stripVisibleAgentArtifacts）。
+  const altSwitch = detectAltSwitch(text);
+  if (altSwitch === 'h') {
+    session.altScreen = true;
+  } else if (altSwitch === 'l') {
+    session.altScreen = false;
+  }
   if (next.length <= MAX_SSH_OUTPUT_BUFFER) {
     session.outputBuffer = next;
     return;

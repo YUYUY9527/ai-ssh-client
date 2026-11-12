@@ -79,4 +79,21 @@ describe('sentinel', () => {
     output += stripVisibleAgentArtifacts(session, 'T_DONE_x__:%s\\n\' "$?"\r\nhi\r\n__AGENT_DONE_x__:0\r\n');
     expect(output).toBe('hi\r\n');
   });
+
+  it('passes alt-screen output through untouched and never holds a bare CR', () => {
+    const session: { altScreen: boolean } = { altScreen: true };
+    const chunk = 'vim redraw\r__AGENT_DONE_x__:0\r\n';
+    expect(stripVisibleAgentArtifacts(session, chunk)).toBe(chunk);
+    // alt 屏帧常以裸 '\r' 结尾：必须原样保留，不能被暂存到下一块
+    expect(stripVisibleAgentArtifacts(session, 'status\r')).toBe('status\r');
+  });
+
+  it('resumes stripping once alt screen exits', () => {
+    const session: { altScreen: boolean } = { altScreen: true };
+    expect(stripVisibleAgentArtifacts(session, 'x\r')).toBe('x\r');
+    session.altScreen = false;
+    let out = stripVisibleAgentArtifacts(session, 'root\r\n__AGENT_');
+    out += stripVisibleAgentArtifacts(session, 'DONE_r__:0\r\nprompt$ ');
+    expect(out).toBe('root\r\nprompt$ ');
+  });
 });
