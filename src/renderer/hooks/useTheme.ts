@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import type { AppSettings } from '../../shared/types';
 import { DEFAULT_SETTINGS } from '../../shared/constants';
 import { useAgentStore } from '../store/useAgentStore';
-import { useI18nStore } from '../i18n';
+import { useI18nStore, resolveLocale } from '../i18n';
 import type { Locale } from '../i18n';
 
 export type Theme = 'dark' | 'light' | 'system';
@@ -25,8 +25,8 @@ export function useTheme() {
 
             // 同步智能体配置
             useAgentStore.getState().syncFromSettings(loadedSettings);
-            // 同步语言
-            useI18nStore.getState().setLocale((loadedSettings.language || 'zh-CN') as Locale);
+            // 同步语言：显式设置优先，未设置时按系统语言自动选择（不支持则英文）
+            useI18nStore.getState().setLocale(resolveLocale(loadedSettings.language) as Locale);
           }
         } catch (error) {
           console.error('Failed to load settings:', error);

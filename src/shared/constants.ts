@@ -136,7 +136,8 @@ export const COMMAND_DESCRIPTIONS: Record<string, string> = {
 
 // 默认应用设置
 export const DEFAULT_SETTINGS = {
-  language: 'zh-CN' as const,
+  // 语言：空字符串表示「跟随系统」，非受支持语言回退英文
+  language: '' as const,
   theme: 'dark' as const,
   fontSize: 14,
   fontFamily: 'Consolas, \'Courier New\', monospace',

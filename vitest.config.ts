@@ -8,6 +8,8 @@ export default defineConfig({
     // Windows 沙箱环境下 results.json 缓存写入偶发 EPERM，禁用缓存
     cache: false,
     include: ['test/**/*.test.{ts,cts,mts}'],
+    // 统一锁定测试语言为简体中文，避免受宿主系统语言影响
+    setupFiles: ['test/setup.ts'],
     coverage: {
       provider: 'v8',
       include: [
