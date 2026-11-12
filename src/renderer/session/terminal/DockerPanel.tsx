@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Container, Play, RotateCcw, ScrollText, Square, TerminalSquare, X } from 'lucide-react';
 import type { DockerContainerDetail, DockerContainerSummary } from '../../../shared/ipc-types';
@@ -21,6 +21,9 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
   const [logs, setLogs] = useState<{ containerId: string; text: string } | null>(null);
+  const [logSearch, setLogSearch] = useState('');
+  const [follow, setFollow] = useState(true);
+  const logPreRef = useRef<HTMLPreElement | null>(null);
   const [execTarget, setExecTarget] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
@@ -78,12 +81,50 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const openLogs = async (container: DockerContainerSummary) => {
     const api = window.electronAPI?.dockerContainerLogs;
     if (!api) return;
-    const result = await api(connectionId, container.id, 300);
+    const result = await api(connectionId, container.id, 500);
+    setLogSearch('');
+    setFollow(true);
     setLogs({
       containerId: container.id,
       text: result.success ? result.data.logs : (result.error || 'logs failed'),
     });
   };
+
+  // 跟随模式：每 2 秒拉取最新 500 行并贴底；关闭即冻结当前内容。
+  useEffect(() => {
+    if (!logs || !follow) return undefined;
+    const api = window.electronAPI?.dockerContainerLogs;
+    if (!api) return undefined;
+    const containerId = logs.containerId;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        const result = await api(connectionId, containerId, 500);
+        if (result.success) {
+          setLogs((current) =>
+            current && current.containerId === containerId ? { ...current, text: result.data.logs } : current,
+          );
+        }
+      })();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [logs, follow, connectionId]);
+
+  // 内容更新后（且处于跟随/首次打开）自动滚到最下方，显示最新日志。
+  useEffect(() => {
+    if (!logs || !follow) return;
+    const pre = logPreRef.current;
+    if (pre) pre.scrollTop = pre.scrollHeight;
+  }, [logs, follow]);
+
+  const visibleLogs = useMemo(() => {
+    if (!logs) return '';
+    const keyword = logSearch.trim().toLowerCase();
+    if (!keyword) return logs.text;
+    return logs.text
+      .split('\n')
+      .filter((line) => line.toLowerCase().includes(keyword))
+      .join('\n');
+  }, [logs, logSearch]);
 
   const filtered = useMemo(() => {
     const keyword = filter.trim().toLowerCase();
@@ -248,9 +289,25 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
           <div className="industrial-modal relative my-auto flex h-[70vh] w-full max-w-5xl flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
             <div className="industrial-modal-header shrink-0 text-sm font-semibold text-fg">
               <span>{translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}</span>
-              <button type="button" className="icon-button" onClick={() => setLogs(null)}><X className="h-4 w-4" /></button>
+              <div className="flex items-center gap-2">
+                <input
+                  className="industrial-input h-7 w-52 text-xs"
+                  placeholder={translate('terminal.docker.logsSearchPlaceholder')}
+                  value={logSearch}
+                  onChange={(event) => setLogSearch(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className={`toolbar-button h-7 px-2 text-xs ${follow ? 'text-accent' : 'text-fg-muted'}`}
+                  onClick={() => setFollow((value) => !value)}
+                  title={follow ? translate('terminal.docker.logsFollowOn') : translate('terminal.docker.logsFollowOff')}
+                >
+                  {follow ? translate('terminal.docker.logsFollowing') : translate('terminal.docker.logsPaused')}
+                </button>
+                <button type="button" className="icon-button" onClick={() => setLogs(null)}><X className="h-4 w-4" /></button>
+              </div>
             </div>
-            <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-surface p-3 font-mono text-[11px] text-fg-secondary">{logs.text || translate('terminal.docker.logsEmpty')}</pre>
+            <pre ref={logPreRef} className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-surface p-3 font-mono text-[11px] text-fg-secondary">{visibleLogs || translate('terminal.docker.logsEmpty')}</pre>
           </div>
         </div>
       ) : null}
