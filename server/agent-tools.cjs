@@ -4,7 +4,9 @@
  * Agent 结构化文件工具（批次一）。
  *
  * 设计要点：
- * - 所有远端路径都相对「沙箱根目录」解析，禁止 `..` 逃逸与 NUL。
+ * - 所有远端路径都相对「沙箱根目录」解析，禁止 `..` 逃逸与 NUL；
+ *   并且对每个操作路径做 realpath 符号链接边界检查（ensureInsideRoot），
+ *   跟随链接后的真实路径越出沙箱即拒绝，搜索时不递归/不读取符号链接。
  * - 大小/数量/深度都有上限，避免把大文件或目录树灌进模型上下文。
  * - 依赖注入 `sftp`（ssh2 SFTPWrapper 形状），便于用假对象做确定性单测。
  */
@@ -49,6 +51,47 @@ function call(sftp, method, ...args) {
   });
 }
 
+/** realpath 失败（含路径不存在）时返回 null，由调用方决定回退策略。 */
+async function realpathSafe(sftp, target) {
+  try {
+    return await call(sftp, 'realpath', target);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 词法检查 + 符号链接边界检查：先做词法 resolveInsideRoot，
+ * 再对目标（或其父目录）做 realpath，跟随链接后的真实路径仍必须在沙箱内。
+ *
+ * - root 本身是符号链接时，以 realpath 后的根为边界（否则正常路径会被误拦）。
+ * - 目标不存在（write 新文件）：realpath 整路径失败时退而 realpath 父目录，
+ *   防止「穿过符号链接父目录创建文件」逃出沙箱；父目录也不存在时按词法路径放行。
+ * - 返回用于实际 IO 的路径（真实路径或词法路径）。
+ */
+async function ensureInsideRoot(sftp, root, target) {
+  const rootReal = await realpathSafe(sftp, root || '/');
+  const rootPath = rootReal !== null ? posix.resolve(String(rootReal)) : posix.resolve(normalizeRemotePath(root || '/'));
+  const resolved = resolveInsideRoot(rootPath, target);
+  let real = await realpathSafe(sftp, resolved);
+  if (real === null) {
+    const parent = posix.dirname(resolved);
+    if (parent !== resolved) {
+      const parentReal = await realpathSafe(sftp, parent);
+      if (parentReal !== null) {
+        real = posix.join(posix.resolve(String(parentReal)), posix.basename(resolved));
+      }
+    }
+  }
+  if (real === null) {
+    // 路径（含父目录）尚不存在：SFTP 上没有可跟随的链接，词法检查已足够。
+    return resolved;
+  }
+  const realResolved = posix.resolve(String(real));
+  resolveInsideRoot(rootPath, realResolved);
+  return realResolved;
+}
+
 function entryType(entry) {
   const attrs = entry.attrs || {};
   if (typeof entry.directory === 'boolean') {
@@ -65,7 +108,7 @@ function entryType(entry) {
 
 async function listDir(sftp, options = {}) {
   const root = options.root || '/';
-  const resolved = resolveInsideRoot(root, options.path || '.');
+  const resolved = await ensureInsideRoot(sftp, root, options.path || '.');
   const limit = Math.min(Math.max(Number(options.limit) || MAX_LIST_ENTRIES, 1), MAX_LIST_ENTRIES);
   const raw = await call(sftp, 'readdir', resolved);
   const entries = (raw || []).map((entry) => {
@@ -89,7 +132,7 @@ async function listDir(sftp, options = {}) {
 }
 
 async function statPath(sftp, root, target) {
-  const resolved = resolveInsideRoot(root, target);
+  const resolved = await ensureInsideRoot(sftp, root, target);
   const attrs = await call(sftp, 'stat', resolved);
   return { path: resolved, attrs };
 }
@@ -114,7 +157,7 @@ async function writeFileText(sftp, options = {}) {
   if (typeof options.content !== 'string') {
     throw new Error('content is required');
   }
-  const resolved = resolveInsideRoot(root, options.path);
+  const resolved = await ensureInsideRoot(sftp, root, options.path);
   await call(sftp, 'writeFile', resolved, Buffer.from(options.content, 'utf8'));
   return { path: resolved, bytes: Buffer.byteLength(options.content, 'utf8') };
 }
@@ -172,7 +215,7 @@ async function previewWriteFile(sftp, options = {}) {
   if (typeof options.content !== 'string') {
     throw new Error('content is required');
   }
-  const resolved = resolveInsideRoot(root, options.path);
+  const resolved = await ensureInsideRoot(sftp, root, options.path);
   const existing = await readExistingText(sftp, resolved);
   const diff = buildPreviewDiff(resolved, existing ?? '', options.content);
   return {
@@ -185,9 +228,16 @@ async function previewWriteFile(sftp, options = {}) {
 
 async function walk(sftp, root, dir, query, contentQuery, depth, state) {
   if (depth > MAX_SEARCH_DEPTH || state.results.length >= MAX_SEARCH_RESULTS) return;
+  // 每层目录都重新做符号链接边界检查：目录树里任何一级链接指到沙箱外就停止下探。
+  let safeDir;
+  try {
+    safeDir = await ensureInsideRoot(sftp, root, dir);
+  } catch {
+    return;
+  }
   let raw;
   try {
-    raw = await call(sftp, 'readdir', dir);
+    raw = await call(sftp, 'readdir', safeDir);
   } catch {
     return;
   }
@@ -196,7 +246,24 @@ async function walk(sftp, root, dir, query, contentQuery, depth, state) {
     const type = entryType(entry);
     const name = entry.filename;
     if (name === '.' || name === '..') continue;
-    const child = posix.join(dir, name);
+    const child = posix.join(safeDir, name);
+    if (type === 'dir') {
+      await walk(sftp, root, child, query, contentQuery, depth + 1, state);
+      continue;
+    }
+    if (type === 'symlink') {
+      // 不跟随符号链接：既不递归也不读内容；按名称匹配仍可报告链接本身。
+      if (query && name.toLowerCase().includes(query.toLowerCase())) {
+        const attrs = entry.attrs || {};
+        state.results.push({
+          path: child,
+          name,
+          type,
+          size: typeof attrs.size === 'number' ? attrs.size : 0,
+        });
+      }
+      continue;
+    }
     if (type === 'dir') {
       await walk(sftp, root, child, query, contentQuery, depth + 1, state);
       continue;
@@ -221,7 +288,7 @@ async function walk(sftp, root, dir, query, contentQuery, depth, state) {
 
 async function searchFiles(sftp, options = {}) {
   const root = options.root || '/';
-  const start = resolveInsideRoot(root, options.path || '.');
+  const start = await ensureInsideRoot(sftp, root, options.path || '.');
   const query = typeof options.query === 'string' ? options.query.trim() : '';
   const contentQuery = typeof options.contentQuery === 'string' ? options.contentQuery.trim() : '';
   const state = { results: [] };
@@ -240,6 +307,8 @@ module.exports = {
   MAX_SEARCH_DEPTH,
   normalizeRemotePath,
   resolveInsideRoot,
+  ensureInsideRoot,
+  realpathSafe,
   listDir,
   readFileText,
   writeFileText,

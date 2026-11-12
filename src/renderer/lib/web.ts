@@ -358,6 +358,15 @@ async function streamSftpUpload(
 
   const controller = new AbortController();
   uploadAbortControllers.set(taskId, controller);
+  // 排队期间（并发上限未轮到）就被暂停：不启动上传，直接按暂停收尾。
+  if (uploadPauseRequests.has(taskId)) {
+    uploadAbortControllers.delete(taskId);
+    uploadPauseRequests.delete(taskId);
+    const paused = publishUploadPaused(baselinetask, 0);
+    return paused
+      ? { success: true, data: { task: paused } }
+      : makeError('Upload paused', 'canceled');
+  }
   let offset = Math.max(0, Math.min(resumeOffset, file.size));
   let latestTask = baselinetask;
   let retryCount = 0;
@@ -398,7 +407,8 @@ async function streamSftpUpload(
               'x-sftp-client-id': sftpClientId,
               'content-type': 'application/octet-stream',
               'x-sftp-source-size': String(file.size),
-              'x-sftp-source-mtime': String(file.lastModified),
+              // ssh2 的 utimes 数字时间戳按 Unix 秒处理；File.lastModified 是毫秒。
+              'x-sftp-source-mtime': String(Math.floor(file.lastModified / 1000)),
               'x-sftp-source-head': edges.head,
               'x-sftp-source-tail': edges.tail,
               'x-sftp-resume-offset': String(offset),
@@ -807,6 +817,13 @@ async function streamWebDownload(
       totalBytes: metaInfo?.size || task.totalBytes,
     });
   };
+
+  // 排队期间（并发上限未轮到）就被暂停：绝不启动本地写盘，
+  // 直接按暂停收尾（服务端已标记 paused，续传时凭 checkpoint 续）。
+  if (downloadPauseRequests.has(task.taskId)) {
+    pushPaused();
+    return;
+  }
 
   try {
     // 外层循环：可重试失败（网络抖动/SSH 掉线/5xx）后退避重连，
@@ -1629,13 +1646,20 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/list?path=${encodeURIComponent(remotePath)}`,
   ),
   // 文件夹递归下载：BFS 展开远端目录树，收集所有文件的绝对路径（跳过符号链接目录防环）。
+  // truncated 只在「确实还有第 5001 个文件 / 更深目录未展开」时才置 true——
+  // 恰好等于上限但没超限的文件夹仍然可以完整下载。
   listSftpFolderFiles: async (connectionId, rootPath) => {
     const MAX_FILES = 5000;
     const MAX_DEPTH = 64;
     const files: string[] = [];
+    let truncated = false;
     let level: string[] = [rootPath];
     let depth = 0;
-    while (level.length > 0 && depth < MAX_DEPTH) {
+    while (level.length > 0) {
+      if (depth >= MAX_DEPTH) {
+        truncated = true;
+        break;
+      }
       const next: string[] = [];
       for (const dir of level) {
         const res = await sftpApiRequest<DirectoryListResult>(
@@ -1648,18 +1672,21 @@ const webApi: Window['electronAPI'] = {
         for (const item of res.data.files) {
           if (item.isDirectory) {
             if (!item.isSymbolicLink) next.push(item.path);
-          } else {
+          } else if (files.length < MAX_FILES) {
             files.push(item.path);
-            if (files.length >= MAX_FILES) {
-              return { success: true, data: { files, truncated: true } };
-            }
+          } else {
+            // 已装满上限还遇到新文件 → 确实超限，停止遍历
+            truncated = true;
+            break;
           }
         }
+        if (truncated) break;
       }
+      if (truncated) break;
       level = next;
       depth += 1;
     }
-    return { success: true, data: { files, truncated: false } };
+    return { success: true, data: { files, truncated } };
   },
   selectSftpFiles: () => new Promise((resolve) => {
     const input = document.createElement('input');
@@ -2065,9 +2092,13 @@ const webApi: Window['electronAPI'] = {
     if (!result.success) return result;
     if (result.data.direction === 'upload') {
       uploadPauseRequests.add(taskId);
+      // 还在排队、尚未启动的任务直接移出队列，避免暂停后仍开传。
+      webUploadQueue.remove(taskId);
       uploadAbortControllers.get(taskId)?.abort();
     } else {
       downloadPauseRequests.add(taskId);
+      // 排队未启动的下载移出队列；已启动的由 abort 走暂停收尾。
+      webDownloadQueue.remove(taskId);
       webDownloadConflictResolvers.get(taskId)?.reject(new DOMException('Aborted', 'AbortError'));
       downloadAbortControllers.get(taskId)?.abort();
     }

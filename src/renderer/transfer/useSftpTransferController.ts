@@ -114,6 +114,10 @@ export function useSftpTransferController(
     if (!window.electronAPI?.listSftpFolderFiles) return 'Folder download is not supported in this environment';
     const listed = await window.electronAPI.listSftpFolderFiles(connectionId, remoteFolderPath);
     if (!listed.success) return listed.error || 'Unable to list the remote folder';
+    if (listed.data.truncated) {
+      // 文件数或深度超上限：只拿到部分文件，静默下载会让用户误以为完整，直接取消
+      return '该文件夹超过下载上限（5000 个文件或 64 层嵌套），已取消下载，请分批下载子目录';
+    }
     if (listed.data.files.length === 0) return undefined;
 
     const selection = await window.electronAPI.selectSftpDownloadDestination();

@@ -53,6 +53,17 @@ function callSftp(sftp, method, ...args) {
   });
 }
 
+/**
+ * 归一化「源文件修改时间」为 Unix 秒。
+ * ssh2 的 utimes 数字时间戳按秒处理；历史 Web 客户端发的是毫秒（File.lastModified）。
+ * >1e12 的值只可能是毫秒（2001-09 之后的毫秒时间戳），统一换算成秒。
+ */
+function normalizeSourceMtimeSeconds(value) {
+  const raw = Number(value || 0);
+  if (!Number.isFinite(raw)) return 0;
+  return raw > 1e12 ? Math.floor(raw / 1000) : raw;
+}
+
 async function pathExists(sftp, remotePath) {
   try {
     await callSftp(sftp, 'lstat', remotePath);
@@ -476,7 +487,8 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
         || snapshot.totalBytes
         || 0,
       );
-      const sourceMtime = Number(request.headers?.['x-sftp-source-mtime'] || 0);
+      // 兼容历史客户端：早先版本发的是毫秒时间戳，而 ssh2 的 utimes 数字按 Unix 秒处理。
+      const sourceMtime = normalizeSourceMtimeSeconds(request.headers?.['x-sftp-source-mtime']);
       const sourceHead = String(request.headers?.['x-sftp-source-head'] || '');
       const sourceTail = String(request.headers?.['x-sftp-source-tail'] || '');
       task._sourceHead = sourceHead;
@@ -1146,6 +1158,7 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
 module.exports = {
   checkpointRemotePath,
   createSftpTransferService,
+  normalizeSourceMtimeSeconds,
   suggestedRemotePath,
   temporaryRemotePath,
 };
