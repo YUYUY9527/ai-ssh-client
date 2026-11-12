@@ -468,8 +468,8 @@ export function AppController() {
 
   const getConnectionStatus = () => {
     const currentTab = openTabs.find(tab => tab.id === activeTabId);
-    if (!currentTab) return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.disconnected'), color: 'text-slate-500' };
-    if (currentTab.restoredFromScrollback) return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.restored'), color: 'text-slate-500' };
+    if (!currentTab) return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.disconnected'), color: 'text-fg-muted' };
+    if (currentTab.restoredFromScrollback) return { icon: <WifiOff className="w-3 h-3" />, text: t('connection.status.restored'), color: 'text-fg-muted' };
     if (currentTab.state === 'reconnecting') return { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: t('connection.status.reconnecting'), color: 'text-warning' };
     if (currentTab.isConnecting) return { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: t('connection.status.connecting'), color: 'text-warning' };
     if (currentTab.isConnected) return { icon: <Wifi className="w-3 h-3" />, text: t('connection.status.connected'), color: 'text-success' };
@@ -859,43 +859,43 @@ export function AppController() {
             >
               <button
                 onClick={handleCopyConnection}
-                className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                className="app-popover-row text-sm text-fg-secondary"
               >
                 <Copy className="w-4 h-4" />
                 {t('connection.copyConnection')}
               </button>
               <button
                 onClick={handleEditConnection}
-                className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                className="app-popover-row text-sm text-fg-secondary"
               >
                 <Edit3 className="w-4 h-4" />
                 {t('connection.editConnection')}
               </button>
               <button
                 onClick={handleReconnectTab}
-                className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                className="app-popover-row text-sm text-fg-secondary"
               >
                 <RefreshCw className="w-4 h-4" />
                 {t('connection.reconnect')}
               </button>
-              <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+              <div className="border-t border-line-subtle dark:border-line my-1" />
               <button
                 onClick={handleCloseCurrentTab}
-                className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                className="app-popover-row text-sm text-fg-secondary"
               >
                 <X className="w-4 h-4" />
                 {t('tab.closeTab')}
               </button>
               <button
                 onClick={handleCloseOtherTabs}
-                className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                className="app-popover-row text-sm text-fg-secondary"
               >
                 <ChevronRight className="w-4 h-4" />
                 {t('tab.closeOtherTabs')}
               </button>
               <button
                 onClick={handleCloseAllTabs}
-                className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+                className="app-popover-row text-sm text-fg-secondary"
               >
                 <MoreVertical className="w-4 h-4" />
                 {t('tab.closeAllTabs')}

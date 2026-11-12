@@ -240,7 +240,7 @@ export function WorkspaceHeader({
     >
       {canReorder && (
         <span
-          className="mr-1 flex h-7 w-4 shrink-0 items-center justify-center text-slate-400"
+          className="mr-1 flex h-7 w-4 shrink-0 items-center justify-center text-fg-subtle"
           title={translate('connection.dragToReorder')}
           aria-hidden
         >
@@ -256,10 +256,10 @@ export function WorkspaceHeader({
           <Server className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
+          <div className="truncate text-sm font-medium text-fg dark:text-white">
             {connection.name}
           </div>
-          <div className="truncate text-xs text-slate-500">
+          <div className="truncate text-xs text-fg-muted">
             {connection.username}@{connection.host}:{connection.port}
           </div>
           {connection.tags && connection.tags.length > 0 && (
@@ -267,7 +267,7 @@ export function WorkspaceHeader({
               {connection.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center gap-0.5 rounded-sm border border-teal-500/20 bg-teal-500/10 px-1 py-0.5 text-[10px] text-teal-600 dark:text-teal-400"
+                  className="inline-flex items-center gap-0.5 rounded-sm border border-accent bg-accent-muted px-1 py-0.5 text-[10px] text-accent dark:text-accent-hover"
                 >
                   <Tag className="h-2.5 w-2.5" />
                   {tag}
@@ -325,14 +325,14 @@ export function WorkspaceHeader({
                 <button
                   type="button"
                   onClick={() => toggleGroupCollapsed(group.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-slate-600 dark:text-slate-300"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-fg-secondary"
                 >
                   <ChevronRight
-                    className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
+                    className={`h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
                   />
-                  <Folder className="h-3.5 w-3.5 shrink-0 text-teal-500" />
+                  <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
                   <span className="truncate">{group.name}</span>
-                  <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none text-slate-500 dark:text-slate-400">
+                  <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none text-fg-muted">
                     {members.length}
                   </span>
                 </button>
@@ -358,7 +358,7 @@ export function WorkspaceHeader({
               {!collapsed && (
                 <div className="ml-4 border-l border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pl-1">
                   {members.length === 0 ? (
-                    <p className="px-2 py-1 text-xs text-slate-400 dark:text-slate-500">
+                    <p className="px-2 py-1 text-xs text-fg-subtle">
                       {translate('features.connectionGroups.emptyGroup')}
                     </p>
                   ) : (
@@ -372,7 +372,7 @@ export function WorkspaceHeader({
         {ungrouped.length > 0 && (
           <div className="mb-1">
             {sortedGroups.length > 0 && (
-              <div className="flex items-center gap-1.5 px-1.5 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1.5 px-1.5 py-1 text-xs font-semibold text-fg-muted">
                 <Folder className="h-3.5 w-3.5 shrink-0" />
                 <span>{translate('features.connectionGroups.ungrouped')}</span>
                 <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none">
@@ -436,9 +436,9 @@ export function WorkspaceHeader({
               {groupModal.open && (
                 <div className="flex items-center gap-1.5 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-2 py-2">
                   {groupModal.editing ? (
-                    <Pencil className="h-3.5 w-3.5 shrink-0 text-teal-500" />
+                    <Pencil className="h-3.5 w-3.5 shrink-0 text-accent" />
                   ) : (
-                    <FolderPlus className="h-3.5 w-3.5 shrink-0 text-teal-500" />
+                    <FolderPlus className="h-3.5 w-3.5 shrink-0 text-accent" />
                   )}
                   <input
                     type="text"
@@ -458,7 +458,7 @@ export function WorkspaceHeader({
                   <button
                     type="button"
                     onClick={() => void handleSaveGroup()}
-                    className="icon-button h-7 w-7 text-teal-600 dark:text-teal-400"
+                    className="icon-button h-7 w-7 text-accent dark:text-accent-hover"
                     title={translate('common.save')}
                     aria-label={translate('common.save')}
                   >
@@ -488,11 +488,11 @@ export function WorkspaceHeader({
                 </div>
               )}
               {connections.length === 0 ? (
-                <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
+                <div className="p-4 text-center text-fg-muted text-sm">
                   {translate('connection.noConnections')}
                 </div>
               ) : filteredConnections.length === 0 ? (
-                <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-sm">
+                <div className="p-4 text-center text-fg-muted text-sm">
                   {translate('connection.noMatches')}
                 </div>
               ) : (
@@ -502,7 +502,7 @@ export function WorkspaceHeader({
                   ) : (
                     <>
                       {canReorder && (
-                        <div className="px-3 pb-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="px-3 pb-1 text-[11px] text-fg-muted">
                           {translate('connection.dragToReorder')}
                         </div>
                       )}

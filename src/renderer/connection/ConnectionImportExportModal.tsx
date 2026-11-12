@@ -227,10 +227,10 @@ export function ConnectionImportExportModal({
       <div className="space-y-4 p-4 sm:p-5">
         {mode === 'export' ? (
           <>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
+            <p className="text-sm text-fg-secondary dark:text-fg-muted">
               {t('connection.importExport.exportDesc')}
             </p>
-            <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <label className="flex items-start gap-2 text-sm text-fg-secondary">
               <input
                 type="checkbox"
                 className="mt-0.5"
@@ -242,12 +242,12 @@ export function ConnectionImportExportModal({
                   <KeyRound className="h-3.5 w-3.5" />
                   {t('connection.importExport.includeSecrets')}
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-500">
+                <span className="mt-0.5 block text-xs text-fg-muted">
                   {t('connection.importExport.includeSecretsDesc')}
                 </span>
               </span>
             </label>
-            <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <label className="flex items-start gap-2 text-sm text-fg-secondary">
               <input
                 type="checkbox"
                 className="mt-0.5"
@@ -259,7 +259,7 @@ export function ConnectionImportExportModal({
                   <Shield className="h-3.5 w-3.5" />
                   {t('connection.importExport.encryptBackup')}
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-500">
+                <span className="mt-0.5 block text-xs text-fg-muted">
                   {t('connection.importExport.encryptBackupDesc')}
                 </span>
               </span>
@@ -276,7 +276,7 @@ export function ConnectionImportExportModal({
           </>
         ) : (
           <>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
+            <p className="text-sm text-fg-secondary dark:text-fg-muted">
               {t('connection.importExport.importDesc')}
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -304,7 +304,7 @@ export function ConnectionImportExportModal({
               </button>
             </div>
 
-            <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <label className="flex items-start gap-2 text-sm text-fg-secondary">
               <input
                 type="checkbox"
                 className="mt-0.5"
@@ -313,7 +313,7 @@ export function ConnectionImportExportModal({
               />
               <span>
                 <span className="font-medium">{t('connection.importExport.mergeMode')}</span>
-                <span className="mt-0.5 block text-xs text-slate-500">
+                <span className="mt-0.5 block text-xs text-fg-muted">
                   {merge
                     ? t('connection.importExport.mergeModeDesc')
                     : t('connection.importExport.replaceModeDesc')}
@@ -341,7 +341,7 @@ export function ConnectionImportExportModal({
                 {t('connection.importExport.chooseFile')}
               </button>
               {previewCount > 0 && (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-fg-muted">
                   {t('connection.importExport.previewConnections', { count: previewCount })}
                 </span>
               )}
@@ -359,11 +359,11 @@ export function ConnectionImportExportModal({
 
             {pendingPayload && (
               <div className="industrial-card space-y-2 p-3">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                <p className="text-sm font-medium text-fg">
                   {conflictSummary}
                 </p>
                 {conflicts.length > 0 && (
-                  <ul className="max-h-36 space-y-1 overflow-y-auto text-xs text-slate-500">
+                  <ul className="max-h-36 space-y-1 overflow-y-auto text-xs text-fg-muted">
                     {conflicts.slice(0, 20).map((item) => (
                       <li key={`${item.incoming.id}-${item.existing.id}`}>
                         {item.incoming.name} ← {item.existing.name}
@@ -375,7 +375,7 @@ export function ConnectionImportExportModal({
                     ))}
                   </ul>
                 )}
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-fg-muted">
                   {merge
                     ? t('connection.importExport.conflictMergeHint')
                     : t('connection.importExport.conflictReplaceHint')}
@@ -389,8 +389,8 @@ export function ConnectionImportExportModal({
           <div
             className={`rounded-sm border px-3 py-2 text-sm ${
               status.type === 'success'
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                : 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-300'
+                ? 'border-success bg-success-muted text-success dark:text-success-fg'
+                : 'border-danger bg-danger-muted text-danger dark:text-danger-fg'
             }`}
           >
             {status.text}

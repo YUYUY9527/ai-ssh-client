@@ -75,7 +75,7 @@ export function SftpConflictDialog({
       closeLabel={translate('common.close')}
     >
       <div className="space-y-3 p-4">
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-fg-secondary">
           {translate('fileTransfer.conflictMessage', {
             name: task.name,
             path: task.conflict?.destinationPath || task.remotePath || task.localPath || task.name,
@@ -88,7 +88,7 @@ export function SftpConflictDialog({
             ['skip', 'fileTransfer.conflictSkip'],
             ['rename', 'fileTransfer.conflictRename'],
           ] as const).map(([value, labelKey]) => (
-            <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-fg-secondary">
               <input
                 type="radio"
                 name="sftp-conflict-policy"
@@ -103,7 +103,7 @@ export function SftpConflictDialog({
 
         {policy === 'rename' && (
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-500">
+            <label className="block text-xs font-medium text-fg-muted">
               {translate('fileTransfer.conflictRenameLabel')}
             </label>
             <input
@@ -119,7 +119,7 @@ export function SftpConflictDialog({
         )}
 
         {task.batchId && (
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-secondary">
             <input
               type="checkbox"
               checked={applyToBatch}
@@ -130,7 +130,7 @@ export function SftpConflictDialog({
           </label>
         )}
 
-        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="text-xs text-danger dark:text-danger-fg">{error}</p>}
       </div>
 
       <div className="industrial-modal-footer">

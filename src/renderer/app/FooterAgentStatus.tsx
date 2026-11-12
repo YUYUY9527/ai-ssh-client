@@ -60,7 +60,7 @@ export function FooterAgentStatus() {
     // 不会在任务开始/结束时整块出现或消失导致左侧布局跳动。
     return (
       <div
-        className="app-footer-meta app-footer-agent min-w-0 text-slate-400 dark:text-slate-500"
+        className="app-footer-meta app-footer-agent min-w-0 text-fg-subtle"
         title={t('terminal.agentStatusIdle')}
       >
         <Circle className="h-2.5 w-2.5 shrink-0" />

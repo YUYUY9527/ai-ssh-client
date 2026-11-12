@@ -70,7 +70,7 @@ export function TerminalContextMenu({
     >
       <button
         onClick={(event) => { event.stopPropagation(); onCopy(); }}
-        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+        className="app-popover-row text-sm text-fg-secondary"
       >
         <Copy className="w-4 h-4" />
         {translate('terminal.copy')}
@@ -78,7 +78,7 @@ export function TerminalContextMenu({
       <button
         onClick={(event) => { event.stopPropagation(); onPaste(); }}
         disabled={!canPasteToTerminal}
-        className="app-popover-row text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-300"
+        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45 dark:text-fg-secondary"
       >
         <Clipboard className="w-4 h-4" />
         {translate('terminal.paste')}
@@ -87,14 +87,14 @@ export function TerminalContextMenu({
       <button
         onClick={(event) => { event.stopPropagation(); onPasteToInput(); }}
         disabled={!canPasteToTerminal}
-        className="app-popover-row text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-300"
+        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45 dark:text-fg-secondary"
       >
         <Edit3 className="w-4 h-4" />
         {translate('terminal.pasteToInput')}
       </button>
       <button
         onClick={(event) => { event.stopPropagation(); onPasteToAI(); }}
-        className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+        className="app-popover-row text-sm text-fg-secondary"
       >
         <Edit3 className="w-4 h-4" />
         {translate('terminal.pasteToAI')}
@@ -103,7 +103,7 @@ export function TerminalContextMenu({
       <button
         onClick={(event) => { event.stopPropagation(); onOpenFileTransfer(); }}
         disabled={!canOpenFileTransfer}
-        className="app-popover-row text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-slate-300"
+        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45 dark:text-fg-secondary"
       >
         <FolderOpen className="h-4 w-4" />
         {translate('terminal.fileTransfer')}

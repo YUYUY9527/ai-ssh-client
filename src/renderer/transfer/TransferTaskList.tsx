@@ -74,8 +74,8 @@ export function TransferTaskList({
   const speeds = useTransferSpeeds(tasks);
   if (tasks.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-slate-500 dark:text-slate-400">
-        <Download className="h-6 w-6 text-slate-400" />
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-fg-muted">
+        <Download className="h-6 w-6 text-fg-subtle" />
         <p>{translate('fileTransfer.noTransferTasks')}</p>
       </div>
     );
@@ -84,7 +84,7 @@ export function TransferTaskList({
   return (
     <div className="file-transfer-scroll h-full w-full min-w-0 overflow-y-auto overflow-x-hidden bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
       <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-3">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+        <h3 className="text-sm font-semibold text-fg dark:text-white">
           {translate('fileTransfer.transferTasks')}
         </h3>
       </div>
@@ -101,18 +101,18 @@ export function TransferTaskList({
             || task.status === 'skipped';
           const canRemove = isSftpTransferTerminal(task.status);
           const statusTone = task.status === 'completed' || task.status === 'handed-off'
-            ? 'border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-400'
+            ? 'border-success bg-success-muted text-success dark:text-success-fg'
             : failed
-            ? 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400'
+            ? 'border-danger bg-danger-muted text-danger dark:text-danger-fg'
             : task.status === 'transferring' || task.status === 'committing'
             ? 'border-[color-mix(in_srgb,var(--accent-primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-accent'
-            : 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+            : 'border-warning bg-warning-muted text-warning dark:text-warning-fg';
           const progressTone = task.status === 'completed' || task.status === 'handed-off'
-            ? 'bg-green-500'
+            ? 'bg-success'
             : failed
-            ? 'bg-red-500'
+            ? 'bg-danger'
             : task.status === 'queued' || task.status === 'checking' || task.status === 'waiting-conflict'
-            ? 'bg-amber-500'
+            ? 'bg-warning'
             : 'bg-[var(--accent-primary)]';
           const statusKey = getStatusKey(task);
 
@@ -121,11 +121,11 @@ export function TransferTaskList({
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-1.5">
                   {task.direction === 'upload' ? (
-                    <Upload className="h-3.5 w-3.5 flex-shrink-0 text-teal-500" />
+                    <Upload className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
                   ) : (
                     <Download className="h-3.5 w-3.5 flex-shrink-0 text-success" />
                   )}
-                  <span className="truncate text-sm text-slate-700 dark:text-slate-300" title={task.name}>
+                  <span className="truncate text-sm text-fg-secondary" title={task.name}>
                     {task.name}
                   </span>
                 </div>
@@ -188,12 +188,12 @@ export function TransferTaskList({
                   {translate(`fileTransfer.taskStatus.${statusKey}`)}
                   {task.attempt > 1 ? ` #${task.attempt}` : ''}
                 </span>
-                <span className="tabular-nums text-slate-500 dark:text-slate-400">
+                <span className="tabular-nums text-fg-muted">
                   {progressValue}%
                 </span>
               </div>
 
-              <div className="h-1.5 overflow-hidden rounded-sm bg-slate-200 dark:bg-slate-700">
+              <div className="h-1.5 overflow-hidden rounded-sm bg-surface-raised">
                 <div
                   className={`h-full rounded-sm transition-all ${progressTone}`}
                   style={{ width: `${progressValue}%` }}
@@ -206,7 +206,7 @@ export function TransferTaskList({
                     <Gauge className="h-3 w-3" />
                     {formatTransferSpeed(speeds[task.taskId] ?? 0)}
                   </span>
-                  <span className="truncate text-slate-500 dark:text-slate-400">
+                  <span className="truncate text-fg-muted">
                     {formatByteSize(task.transferredBytes)}
                     {task.totalBytes ? ` / ${formatByteSize(task.totalBytes)}` : ''}
                   </span>
@@ -214,15 +214,15 @@ export function TransferTaskList({
               )}
 
               {task.status === 'waiting-conflict' && (
-                <div className="mt-3 rounded-sm border border-amber-500/35 bg-amber-500/10 p-2.5">
-                  <p className="break-words text-xs text-amber-700 dark:text-amber-300">
+                <div className="mt-3 rounded-sm border border-warning bg-warning-muted p-2.5">
+                  <p className="break-words text-xs text-warning dark:text-warning-fg">
                     {translate('fileTransfer.conflictMessage', {
                       name: task.name,
                       path: task.conflict?.destinationPath || task.remotePath || '-',
                     })}
                   </p>
                   {task.batchId && (
-                    <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                    <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-warning dark:text-warning-fg">
                       <input
                         type="checkbox"
                         checked={applyToBatch}
@@ -268,7 +268,7 @@ export function TransferTaskList({
 
               {(task.remotePath || task.localPath) && (
                 <p
-                  className="mt-2 truncate text-[11px] text-slate-500 dark:text-slate-400"
+                  className="mt-2 truncate text-[11px] text-fg-muted"
                   title={task.remotePath || task.localPath}
                 >
                   {task.direction === 'upload'
@@ -277,18 +277,18 @@ export function TransferTaskList({
                 </p>
               )}
 
-              <div className="mt-1 text-[11px] tabular-nums text-slate-400">
+              <div className="mt-1 text-[11px] tabular-nums text-fg-subtle">
                 {formatUpdatedAt(task.updatedAt)}
               </div>
 
               {task.notice && (
-                <p className="mt-2 break-words text-xs text-amber-600 dark:text-amber-400" title={task.notice}>
+                <p className="mt-2 break-words text-xs text-warning dark:text-warning-fg" title={task.notice}>
                   {task.notice}
                 </p>
               )}
 
               {failed && task.error?.message && (
-                <p className="mt-2 line-clamp-2 break-words text-xs text-red-600 dark:text-red-400" title={task.error.message}>
+                <p className="mt-2 line-clamp-2 break-words text-xs text-danger dark:text-danger-fg" title={task.error.message}>
                   {task.error.message}
                 </p>
               )}

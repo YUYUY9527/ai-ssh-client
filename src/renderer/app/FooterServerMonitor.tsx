@@ -40,7 +40,7 @@ function Segment({
   icon,
   title,
   value,
-  tone = 'text-teal-600 dark:text-teal-400',
+  tone = 'text-accent dark:text-accent-hover',
 }: {
   icon: ReactNode;
   title: string;
@@ -49,7 +49,7 @@ function Segment({
 }) {
   return (
     <span className="flex shrink-0 items-center gap-1" title={title}>
-      <span className="text-slate-400 dark:text-slate-500">{icon}</span>
+      <span className="text-fg-subtle">{icon}</span>
       <span className={`tabular-nums ${tone}`}>{value}</span>
     </span>
   );
@@ -123,7 +123,7 @@ export function FooterServerMonitor() {
           icon={<MemoryStick className="h-3 w-3" />}
           title={t('features.monitor.swap')}
           value={`${t('features.monitor.swap')} ${formatKb(mem?.swapUsedKb ?? 0)}/${formatKb(swapTotalKb)}`}
-          tone="text-slate-500 dark:text-slate-400"
+          tone="text-fg-muted"
         />
       )}
       <Segment
@@ -132,21 +132,21 @@ export function FooterServerMonitor() {
         value={`${Math.round(rootDiskPercent)}%`}
       />
       <span className="flex shrink-0 items-center gap-1" title={t('features.monitor.network')}>
-        <ArrowUp className="h-3 w-3 text-emerald-500" />
-        <span className="tabular-nums text-emerald-600 dark:text-emerald-400">{formatRate(txTotal)}</span>
-        <ArrowDown className="h-3 w-3 text-sky-500" />
-        <span className="tabular-nums text-sky-600 dark:text-sky-400">{formatRate(rxTotal)}</span>
+        <ArrowUp className="h-3 w-3 text-success" />
+        <span className="tabular-nums text-success dark:text-success-fg">{formatRate(txTotal)}</span>
+        <ArrowDown className="h-3 w-3 text-info" />
+        <span className="tabular-nums text-info dark:text-info-fg">{formatRate(rxTotal)}</span>
       </span>
       {typeof load1 === 'number' && (
         <span className="hidden shrink-0 items-center gap-1 xl:flex" title={t('features.monitor.avgLoad')}>
-          <Gauge className="h-3 w-3 text-slate-400 dark:text-slate-500" />
-          <span className="tabular-nums text-slate-500 dark:text-slate-400">{load1.toFixed(2)}</span>
+          <Gauge className="h-3 w-3 text-fg-subtle" />
+          <span className="tabular-nums text-fg-muted">{load1.toFixed(2)}</span>
         </span>
       )}
       {typeof metrics.latencyMs === 'number' && (
         <span className="flex shrink-0 items-center gap-1" title={t('features.monitor.latency')}>
-          <Gauge className="h-3 w-3 text-amber-500" />
-          <span className="tabular-nums text-amber-600 dark:text-amber-400">
+          <Gauge className="h-3 w-3 text-warning" />
+          <span className="tabular-nums text-warning dark:text-warning-fg">
             {Math.round(metrics.latencyMs)} {t('features.monitor.ms')}
           </span>
         </span>

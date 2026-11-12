@@ -39,12 +39,12 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
             {isKeyChanged ? <ShieldAlert className="h-6 w-6" /> : <AlertTriangle className="h-6 w-6" />}
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+            <h3 className="text-lg font-semibold text-fg dark:text-white">
               {isKeyChanged
                 ? t('hostTrust.keyChangedTitle')
                 : t('hostTrust.firstConnectTitle')}
             </h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            <p className="mt-1 text-sm text-fg-secondary dark:text-fg-muted">
               {isKeyChanged
                 ? t('hostTrust.keyChangedDesc')
                 : t('hostTrust.firstConnectDesc')}
@@ -56,14 +56,14 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
       <div className="space-y-4 p-4 sm:p-5">
         <div className="industrial-card space-y-2 p-3 text-sm">
           <div className="flex justify-between gap-3">
-            <span className="text-slate-500">{t('hostTrust.host')}</span>
-            <span className="font-mono text-slate-800 dark:text-slate-100">
+            <span className="text-fg-muted">{t('hostTrust.host')}</span>
+            <span className="font-mono text-fg">
               {prompt.host}:{prompt.port}
             </span>
           </div>
           <div className="flex justify-between gap-3">
-            <span className="text-slate-500">{t('hostTrust.algorithm')}</span>
-            <span className="font-mono text-slate-800 dark:text-slate-100">{prompt.algorithm}</span>
+            <span className="text-fg-muted">{t('hostTrust.algorithm')}</span>
+            <span className="font-mono text-fg">{prompt.algorithm}</span>
           </div>
         </div>
 
@@ -98,7 +98,7 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
           </div>
         )}
 
-        <div className="industrial-card p-3 text-xs text-slate-500">
+        <div className="industrial-card p-3 text-xs text-fg-muted">
           <p>
             {isKeyChanged
               ? t('hostTrust.keyChangedHint')

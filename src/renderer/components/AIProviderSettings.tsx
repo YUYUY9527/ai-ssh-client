@@ -228,8 +228,8 @@ export function AIProviderSettings() {
       <div className="grid gap-2">
         {providers.length === 0 ? (
           <div className="industrial-card p-5 text-center">
-            <KeyRound className="mx-auto mb-2 h-6 w-6 text-slate-400" />
-            <p className="text-sm text-slate-500">{t('aiProvider.noProviders')}</p>
+            <KeyRound className="mx-auto mb-2 h-6 w-6 text-fg-subtle" />
+            <p className="text-sm text-fg-muted">{t('aiProvider.noProviders')}</p>
           </div>
         ) : (
           providers.map((provider) => (
@@ -241,12 +241,12 @@ export function AIProviderSettings() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className={`status-dot ${provider.id === activeProviderId ? 'status-dot-connected' : 'status-dot-idle'}`} />
-                    <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">{provider.name}</span>
-                    <span className="rounded-sm border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-1.5 py-0.5 text-[10px] text-slate-500">
+                    <span className="truncate text-sm font-semibold text-fg dark:text-white">{provider.name}</span>
+                    <span className="rounded-sm border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-1.5 py-0.5 text-[10px] text-fg-muted">
                       {getProviderTypeLabel(provider.type)}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-fg-muted">
                     {provider.model || t('aiProvider.noModel')} · API Key {provider.hasApiKey ? provider.maskedApiKey || t('aiProvider.apiKeyConfigured') : t('aiProvider.apiKeyNotConfigured')}
                   </p>
                 </div>
@@ -272,7 +272,7 @@ export function AIProviderSettings() {
       {editingProvider && (
         <div ref={formRef} className="industrial-card p-4">
           <div className="mb-4 flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-slate-900 dark:text-white">
+            <h4 className="text-sm font-semibold text-fg dark:text-white">
               {editingProvider.id ? t('common.edit') + ' ' + t('settings.tabs.providers') : t('aiProvider.addProvider')}
             </h4>
             <button onClick={resetProviderEditor} className="icon-button h-7 w-7">
@@ -307,7 +307,7 @@ export function AIProviderSettings() {
             <div className="sm:col-span-2">
               <label className="industrial-field-label">API Key</label>
               {editingProvider.id && providerSecretState.hasApiKey && (
-                <div className="mb-2 rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-300">
+                <div className="mb-2 rounded-sm border border-success bg-success-muted px-3 py-2 text-xs text-success dark:text-success-fg">
                   API Key: {providerSecretState.isLoading ? '...' : providerSecretState.maskedApiKey || t('aiProvider.apiKeyConfigured')}
                 </div>
               )}
@@ -351,8 +351,8 @@ export function AIProviderSettings() {
           {statusMessage && (
             <div className={`mt-3 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs ${
               statusMessage.type === 'success'
-                ? 'border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-300'
-                : 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-300'
+                ? 'border-success bg-success-muted text-success dark:text-success-fg'
+                : 'border-danger bg-danger-muted text-danger dark:text-danger-fg'
             }`}>
               {statusMessage.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
               {statusMessage.text}

@@ -61,12 +61,12 @@ export function RemoteSearchPanel({ connectionId, currentPath, onNavigate, onClo
 
   return (
     <div
-      className="app-popover right-0 top-full mt-1 w-[380px] p-3 space-y-2 z-50"
+      className="app-popover right-0 top-full mt-1 w-[380px] p-3 space-y-2 z-dropdown"
       data-remote-search-panel
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-          <Search className="w-4 h-4 text-teal-500" />
+        <span className="text-sm font-semibold text-fg flex items-center gap-1.5">
+          <Search className="w-4 h-4 text-accent" />
           {translate('features.search.title')}
         </span>
         <button type="button" onClick={onClose} className="icon-button h-6 w-6" title={translate('common.close')}>
@@ -82,7 +82,7 @@ export function RemoteSearchPanel({ connectionId, currentPath, onNavigate, onClo
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runSearch(); } }}
           placeholder={translate('features.search.placeholder')}
-          className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded-md border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-teal-500"
+          className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded-md border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-transparent text-fg focus:outline-none focus:ring-1 focus:ring-accent"
           data-remote-search-input
         />
         <button
@@ -100,43 +100,43 @@ export function RemoteSearchPanel({ connectionId, currentPath, onNavigate, onClo
         <button
           type="button"
           onClick={() => setMode('name')}
-          className={`px-2 py-0.5 rounded ${mode === 'name' ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+          className={`px-2 py-0.5 rounded ${mode === 'name' ? 'bg-accent-muted text-accent dark:text-accent-hover' : 'text-fg-muted hover:bg-surface-hover'}`}
         >
           {translate('features.search.byName')}
         </button>
         <button
           type="button"
           onClick={() => setMode('content')}
-          className={`px-2 py-0.5 rounded ${mode === 'content' ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+          className={`px-2 py-0.5 rounded ${mode === 'content' ? 'bg-accent-muted text-accent dark:text-accent-hover' : 'text-fg-muted hover:bg-surface-hover'}`}
         >
           {translate('features.search.byContent')}
         </button>
-        <span className="ml-auto text-slate-400 dark:text-slate-500 truncate" title={currentPath}>{currentPath}</span>
+        <span className="ml-auto text-fg-subtle truncate" title={currentPath}>{currentPath}</span>
       </div>
 
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs text-danger dark:text-danger-fg">{error}</p>}
 
       <div className="max-h-[300px] overflow-y-auto -mx-1">
         {loading && (
-          <p className="text-xs text-slate-400 dark:text-slate-500 px-1 py-3">{translate('features.search.searching')}</p>
+          <p className="text-xs text-fg-subtle px-1 py-3">{translate('features.search.searching')}</p>
         )}
         {!loading && searched && results.length === 0 && !error && (
-          <p className="text-xs text-slate-400 dark:text-slate-500 px-1 py-3">{translate('features.search.noResults')}</p>
+          <p className="text-xs text-fg-subtle px-1 py-3">{translate('features.search.noResults')}</p>
         )}
         {!loading && results.map((item) => (
           <button
             key={item.path}
             type="button"
             onClick={() => { onNavigate(targetDirFor(item)); onClose(); }}
-            className="w-full flex items-start gap-2 px-1.5 py-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-left"
+            className="w-full flex items-start gap-2 px-1.5 py-1.5 rounded hover:bg-surface-hover text-left"
             title={translate('features.search.openLocation')}
           >
             {item.isDirectory
-              ? <Folder className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-              : <File className="w-4 h-4 shrink-0 mt-0.5 text-slate-400" />}
+              ? <Folder className="w-4 h-4 shrink-0 mt-0.5 text-warning" />
+              : <File className="w-4 h-4 shrink-0 mt-0.5 text-fg-subtle" />}
             <span className="min-w-0">
-              <span className="block text-sm text-slate-800 dark:text-slate-100 truncate">{item.name}</span>
-              <span className="block text-[11px] text-slate-400 dark:text-slate-500 truncate">{item.path}</span>
+              <span className="block text-sm text-fg truncate">{item.name}</span>
+              <span className="block text-[11px] text-fg-subtle truncate">{item.path}</span>
             </span>
           </button>
         ))}

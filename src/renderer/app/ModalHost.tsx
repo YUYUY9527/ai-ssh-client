@@ -55,9 +55,9 @@ interface ModalHostProps {
 
 function LazyModalFallback({ translate }: { translate: ModalHostProps['translate'] }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-dropdown flex items-center justify-center p-4">
       <div className="modal-backdrop" />
-      <div className="industrial-modal relative z-10 flex items-center gap-3 px-6 py-5 text-sm text-slate-600 dark:text-slate-300">
+      <div className="industrial-modal relative z-raised flex items-center gap-3 px-6 py-5 text-sm text-fg-secondary">
         <Loader2 className="h-5 w-5 animate-spin text-accent" />
         {translate('common.loading')}
       </div>
@@ -254,7 +254,7 @@ export function ModalHost({
                     <label className="industrial-field-label mb-0">
                       {translate('connection.form.authByKey')}
                     </label>
-                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                    <p className="truncate text-xs text-fg-muted">
                       {translate('connection.form.privateKey')}
                     </p>
                   </div>
@@ -335,8 +335,8 @@ export function ModalHost({
             {connectionTestResult && (
               <div className={`industrial-card flex items-center gap-2 px-3 py-2 ${
                 connectionTestResult.success
-                  ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
-                  : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                  ? 'bg-success dark:bg-success-muted text-success dark:text-success-fg'
+                  : 'bg-danger dark:bg-danger-muted text-danger dark:text-danger-fg'
               }`}
               >
                 {connectionTestResult.success ? (

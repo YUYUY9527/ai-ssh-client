@@ -300,7 +300,7 @@ function AgentThinkingStep({ step }: { step: ThinkingStep }) {
 
   return (
     <div className={`agent-chat-step ${showFull ? 'agent-chat-step-expanded' : ''}`}>
-      <span className="font-medium text-slate-600 dark:text-slate-300">{step.title}</span>
+      <span className="font-medium text-fg-secondary">{step.title}</span>
       <p ref={paragraphRef}>{step.content}</p>
       {(isOverflowing || showFull) && (
         <button
@@ -329,7 +329,7 @@ function AgentExecutionStep({
 
   return (
     <div className="agent-chat-step agent-chat-step-execution">
-      <span className="font-medium text-slate-600 dark:text-slate-300">
+      <span className="font-medium text-fg-secondary">
         {step.title || t('agent.conversation.executeCommand')}
       </span>
       <code className="agent-chat-command">
@@ -344,7 +344,7 @@ function AgentExecutionStep({
                 : t('agent.execution.exitCode', { code: execution.exitCode })}
             </span>
             {durationMs > 0 && (
-              <span className="text-slate-500">
+              <span className="text-fg-muted">
                 {t('agent.execution.duration', { seconds: (durationMs / 1000).toFixed(1) })}
               </span>
             )}
@@ -430,7 +430,7 @@ function AgentTaskConversation({
             )}
           </div>
 
-          <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-200">
+          <p className="whitespace-pre-wrap text-sm leading-6 text-fg-secondary dark:text-fg">
             {getTaskSummary(task)}
           </p>
 
@@ -521,10 +521,10 @@ function AgentHistoryList({
                   {t('agent.conversation.rounds', { count: conversation.taskCount })}
                 </span>
               </div>
-              <p className="mt-2 truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+              <p className="mt-2 truncate text-sm font-medium text-fg">
                 {conversation.title}
               </p>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-fg-muted">
                 {getTaskSummary(conversation.latestTask)}
               </p>
             </button>
@@ -618,12 +618,12 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
     }
     const analysis = analyzeCommandRisk(effectiveApprovalCommand);
     const className = analysis.riskLevel === 'critical'
-      ? 'border-red-500 text-danger bg-red-500/10'
+      ? 'border-danger text-danger bg-danger-muted'
       : analysis.riskLevel === 'high'
-        ? 'border-orange-500 text-orange-500 bg-orange-500/10'
+        ? 'border-accent-strong text-accent-strong bg-accent-strong-muted'
         : analysis.riskLevel === 'medium'
-          ? 'border-yellow-500 text-warning bg-yellow-500/10'
-          : 'border-green-500 text-success bg-green-500/10';
+          ? 'border-warning text-warning bg-warning-muted'
+          : 'border-success text-success bg-success-muted';
     return { className, reason: (analysis.reasons ?? []).slice(0, 2).join('；'), riskLevel: analysis.riskLevel };
   })();
   const approvalDraftEdited = Boolean(
@@ -1030,10 +1030,10 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white">{t('agent.title')}</h2>
+                  <h2 className="truncate text-sm font-semibold text-fg dark:text-white">{t('agent.title')}</h2>
                   {isBusy && <span className="status-dot status-dot-connecting" />}
                 </div>
-                <p className="truncate text-xs text-slate-500">
+                <p className="truncate text-xs text-fg-muted">
                   {activeConnection ? `${activeConnection.username}@${activeConnection.host}` : t('agent.notConnected')}
                 </p>
               </div>
@@ -1110,8 +1110,8 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
               <div className="agent-pet-empty">
                 <RobotFaceMini />
                 <div>
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{t('agent.empty.title')}</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{t('agent.empty.description')}</p>
+                  <p className="text-sm font-medium text-fg">{t('agent.empty.title')}</p>
+                  <p className="mt-1 text-xs leading-5 text-fg-secondary dark:text-fg-muted">{t('agent.empty.description')}</p>
                 </div>
               </div>
             )}
@@ -1133,7 +1133,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
               <div className="agent-pet-approval">
                 <div className="mb-2 flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-warning" />
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white">{t('agent.approval.title')}</span>
+                  <span className="text-sm font-semibold text-fg dark:text-white">{t('agent.approval.title')}</span>
                   <span className={`ml-auto rounded-sm border px-1.5 py-0.5 text-[10px] font-medium ${approvalRiskTone.className}`}>
                     {t(`commandApproval.riskLevels.${approvalRiskTone.riskLevel}`)}
                   </span>
@@ -1148,7 +1148,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
                       className="industrial-input w-full font-mono text-xs"
                       aria-label={t('agent.approval.edit')}
                     />
-                    <p className="mt-1 text-[11px] leading-4 text-slate-500">{t('agent.approval.editHint')}</p>
+                    <p className="mt-1 text-[11px] leading-4 text-fg-muted">{t('agent.approval.editHint')}</p>
                   </>
                 ) : (
                   <code className="agent-pet-approval-command">
@@ -1156,7 +1156,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
                   </code>
                 )}
                 {getCommandDescription(effectiveApprovalCommand) && (
-                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">{getCommandDescription(effectiveApprovalCommand)}</p>
+                  <p className="mt-2 text-xs leading-5 text-fg-secondary dark:text-fg-muted">{getCommandDescription(effectiveApprovalCommand)}</p>
                 )}
                 {approvalRiskTone.reason && (
                   <p className="mt-1 text-xs leading-5 text-warning">{approvalRiskTone.reason}</p>
@@ -1180,7 +1180,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
                   </button>
                 )}
                 {isRememberableRisk(approvalRiskTone.riskLevel) ? (
-                  <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-slate-500">
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-fg-muted">
                     <input
                       type="checkbox"
                       className="mt-0.5"
@@ -1188,7 +1188,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
                       onChange={(event) => setRememberApprovalChoice(event.target.checked)}
                     />
                     <span className="inline-flex flex-col gap-0.5">
-                      <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300">
+                      <span className="inline-flex items-center gap-1 text-fg-secondary">
                         <Save className="h-3 w-3" />
                         {t('commandApproval.rememberChoice')}
                       </span>
@@ -1196,7 +1196,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
                     </span>
                   </label>
                 ) : (
-                  <p className="mt-3 text-xs leading-5 text-slate-500">{t('commandApproval.criticalCannotRemember')}</p>
+                  <p className="mt-3 text-xs leading-5 text-fg-muted">{t('commandApproval.criticalCannotRemember')}</p>
                 )}
                 <div className="mt-3 flex gap-2">
                   <button onClick={() => handleApproval('rejected')} className="industrial-button-secondary flex-1 px-3 py-1.5 text-xs">{t('agent.approval.reject')}</button>
@@ -1208,7 +1208,7 @@ export function AgentPet({ input, onInputChange, focusInputToken, isOpen, isHome
             {pendingQuestion && (
               <div className="agent-pet-question">
                 <MessageCircle className="h-4 w-4 text-accent" />
-                <p className="text-sm leading-6 text-slate-700 dark:text-slate-200">{pendingQuestion}</p>
+                <p className="text-sm leading-6 text-fg-secondary dark:text-fg">{pendingQuestion}</p>
               </div>
             )}
 

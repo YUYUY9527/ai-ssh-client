@@ -43,9 +43,9 @@ export function SettingsPage({
     <div className="mx-auto w-full max-w-2xl space-y-5">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">{title}</h2>
+          <h2 className="text-base font-semibold text-fg dark:text-white">{title}</h2>
           {description && (
-            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+            <p className="text-xs leading-5 text-fg-muted">{description}</p>
           )}
         </div>
         {actions && <div className="shrink-0">{actions}</div>}
@@ -73,12 +73,12 @@ export function SettingsSection({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-0.5">
             {title && (
-              <h3 className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">
+              <h3 className="text-[13px] font-semibold text-fg-secondary dark:text-fg">
                 {title}
               </h3>
             )}
             {description && (
-              <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+              <p className="text-xs leading-5 text-fg-muted">{description}</p>
             )}
           </div>
           {actions && <div className="shrink-0">{actions}</div>}
@@ -116,15 +116,15 @@ export function SettingsItem({
       {htmlFor ? (
         <label
           htmlFor={htmlFor}
-          className="block text-sm font-medium text-slate-800 dark:text-slate-100"
+          className="block text-sm font-medium text-fg"
         >
           {label}
         </label>
       ) : (
-        <div className="text-sm font-medium text-slate-800 dark:text-slate-100">{label}</div>
+        <div className="text-sm font-medium text-fg">{label}</div>
       )}
       {description && (
-        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+        <p className="text-xs leading-5 text-fg-muted">{description}</p>
       )}
     </div>
   );

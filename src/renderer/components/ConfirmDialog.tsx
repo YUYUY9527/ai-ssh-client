@@ -52,14 +52,14 @@ export function ConfirmDialog({
           ) : (
             <Info className="h-5 w-5 text-accent" />
           )}
-          <h3 id={titleId} className="font-semibold text-slate-900 dark:text-white">
+          <h3 id={titleId} className="font-semibold text-fg dark:text-white">
             {title}
           </h3>
         </div>
       </div>
 
       <div className="p-4">
-        <p id={messageId} className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+        <p id={messageId} className="text-sm leading-6 text-fg-secondary">
           {message}
         </p>
       </div>

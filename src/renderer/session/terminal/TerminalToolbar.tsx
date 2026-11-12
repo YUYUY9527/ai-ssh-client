@@ -130,12 +130,12 @@ export function TerminalToolbar({
                 className={`app-popover-row text-sm ${
                   terminalTheme === themeKey
                     ? 'bg-[color-mix(in_srgb,var(--accent-primary)_85%,transparent)] text-white'
-                    : 'text-slate-700 dark:text-slate-300'
+                    : 'text-fg-secondary'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <div
-                    className="w-4 h-4 rounded-sm border border-slate-300 dark:border-slate-600"
+                    className="w-4 h-4 rounded-sm border border-line-subtle dark:border-line"
                     style={{ background: themes[themeKey].background }}
                   />
                   {themeNames[themeKey].startsWith('terminal.') ? translate(themeNames[themeKey]) : themeNames[themeKey]}
@@ -162,7 +162,7 @@ export function TerminalToolbar({
             data-terminal-settings-panel
           >
             <div>
-              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              <label className="mb-1 block text-xs text-fg-muted">
                 {translate('terminal.scrollback')}
               </label>
               <input
@@ -177,7 +177,7 @@ export function TerminalToolbar({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+              <label className="mb-1 block text-xs text-fg-muted">
                 {translate('terminal.cursorStyle')}
               </label>
               <IndustrialSelect
@@ -192,7 +192,7 @@ export function TerminalToolbar({
               />
             </div>
 
-            <label className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <label className="flex items-center justify-between gap-2 text-xs text-fg-secondary">
               <span>{translate('terminal.cursorBlink')}</span>
               <input
                 type="checkbox"
@@ -202,7 +202,7 @@ export function TerminalToolbar({
               />
             </label>
 
-            <label className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <label className="flex items-center justify-between gap-2 text-xs text-fg-secondary">
               <span>{translate('terminal.copyOnSelect')}</span>
               <input
                 type="checkbox"
@@ -212,7 +212,7 @@ export function TerminalToolbar({
               />
             </label>
 
-            <label className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <label className="flex items-center justify-between gap-2 text-xs text-fg-secondary">
               <span>{translate('terminal.shellIntegration')}</span>
               <input
                 type="checkbox"
@@ -224,7 +224,7 @@ export function TerminalToolbar({
 
             {shellIntegration && shellCwd && (
               <div
-                className="truncate rounded border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-2 py-1 text-[11px] text-slate-500 dark:text-slate-400"
+                className="truncate rounded border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-2 py-1 text-[11px] text-fg-muted"
                 title={shellCwd}
                 data-terminal-shell-cwd
               >

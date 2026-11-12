@@ -27,31 +27,31 @@ export function CommandApproval({
     switch (command.riskLevel) {
       case 'critical':
         return {
-          bg: 'bg-red-500/10',
-          border: 'border-red-500',
+          bg: 'bg-danger-muted',
+          border: 'border-danger',
           text: 'text-danger',
-          iconBg: 'bg-red-500',
+          iconBg: 'bg-danger',
         };
       case 'high':
         return {
-          bg: 'bg-orange-500/10',
-          border: 'border-orange-500',
-          text: 'text-orange-500',
-          iconBg: 'bg-orange-500',
+          bg: 'bg-accent-strong-muted',
+          border: 'border-accent-strong',
+          text: 'text-accent-strong',
+          iconBg: 'bg-accent-strong',
         };
       case 'medium':
         return {
-          bg: 'bg-yellow-500/10',
-          border: 'border-yellow-500',
+          bg: 'bg-warning-muted',
+          border: 'border-warning',
           text: 'text-warning',
-          iconBg: 'bg-yellow-500',
+          iconBg: 'bg-warning',
         };
       default:
         return {
-          bg: 'bg-green-500/10',
-          border: 'border-green-500',
+          bg: 'bg-success-muted',
+          border: 'border-success',
           text: 'text-success',
-          iconBg: 'bg-green-500',
+          iconBg: 'bg-success',
         };
     }
   };
@@ -115,12 +115,12 @@ export function CommandApproval({
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{t('commandApproval.title')}</h3>
+                <h3 className="text-lg font-semibold text-fg dark:text-white">{t('commandApproval.title')}</h3>
                 <span className={`rounded-sm border px-2 py-0.5 text-xs font-medium ${colors.bg} ${colors.border} ${colors.text}`}>
                   {getRiskLabel()}
                 </span>
               </div>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{command.description}</p>
+              <p className="mt-1 text-sm text-fg-secondary dark:text-fg-muted">{command.description}</p>
             </div>
           </div>
         </div>
@@ -167,16 +167,16 @@ export function CommandApproval({
                 )}
               </button>
               <div className="flex-1">
-                <span className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300">
+                <span className="flex items-center gap-1.5 text-sm text-fg-secondary">
                   <Save className="w-3.5 h-3.5" />
                   {t('commandApproval.rememberChoice')}
                 </span>
-                <p className="text-xs text-slate-500">{t('commandApproval.rememberCommandChoiceDesc')}</p>
+                <p className="text-xs text-fg-muted">{t('commandApproval.rememberCommandChoiceDesc')}</p>
               </div>
             </div>
           )}
 
-          <div className="text-xs text-slate-500 industrial-card p-3">
+          <div className="text-xs text-fg-muted industrial-card p-3">
             <p>{t('commandApproval.confirmHint')}</p>
           </div>
         </div>

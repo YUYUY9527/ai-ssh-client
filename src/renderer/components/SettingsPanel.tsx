@@ -197,11 +197,11 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+    <div className="fixed inset-0 z-dropdown flex items-center justify-center p-3 sm:p-4">
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="industrial-modal relative z-10 flex h-[84vh] max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
+      <div className="industrial-modal relative z-raised flex h-[84vh] max-h-[84vh] w-full max-w-3xl flex-col overflow-hidden">
         <div className="industrial-modal-header">
-          <h2 className="font-semibold text-slate-900 dark:text-white">{t('settings.title')}</h2>
+          <h2 className="font-semibold text-fg dark:text-white">{t('settings.title')}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -245,7 +245,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                         className="settings-range flex-1"
                         aria-label={t('settings.terminal.fontSize')}
                       />
-                      <span className="w-12 shrink-0 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                      <span className="w-12 shrink-0 text-right text-sm tabular-nums text-fg-secondary">
                         {localSettings.fontSize}px
                       </span>
                     </div>
@@ -409,7 +409,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 <SettingsSection
                   title={(
                     <span className="flex items-center gap-1.5">
-                      <Shield className="h-3.5 w-3.5 text-teal-500" />
+                      <Shield className="h-3.5 w-3.5 text-accent" />
                       {t('settings.ssh.trustedHosts')}
                     </span>
                   )}
@@ -426,15 +426,15 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 >
                   <div className="space-y-2 py-3.5">
                     {hostTrustLoading ? (
-                      <div className="py-4 text-center text-sm text-slate-500">
+                      <div className="py-4 text-center text-sm text-fg-muted">
                         {t('common.loading')}
                       </div>
                     ) : hostTrustError ? (
-                      <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+                      <div className="rounded-md border border-danger bg-danger-muted px-3 py-2 text-sm text-danger dark:text-danger-fg">
                         {hostTrustError}
                       </div>
                     ) : hostTrustRecords.length === 0 ? (
-                      <div className="rounded-md border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-4 text-center text-sm text-slate-500">
+                      <div className="rounded-md border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-4 text-center text-sm text-fg-muted">
                         {t('settings.ssh.noTrustedHosts')}
                       </div>
                     ) : (
@@ -444,13 +444,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           className="industrial-card flex items-start justify-between gap-3 p-3"
                         >
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                            <div className="truncate text-sm font-medium text-fg dark:text-white">
                               {record.host}:{record.port}
                             </div>
-                            <div className="mt-1 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                            <div className="mt-1 font-mono text-[11px] text-fg-muted">
                               {record.algorithm} · {record.fingerprint}
                             </div>
-                            <div className="mt-1 text-[11px] text-slate-400">
+                            <div className="mt-1 text-[11px] text-fg-subtle">
                               {t('settings.ssh.trustedAt')}: {new Date(record.trustedAt).toLocaleString()}
                             </div>
                           </div>
@@ -592,13 +592,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                         aria-pressed={selected}
                         className={`flex items-center gap-3 rounded-md border px-4 py-3 text-sm transition-colors ${
                           selected
-                            ? 'border-[color-mix(in_srgb,var(--accent-primary)_60%,var(--border-color))] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-slate-900 dark:text-white'
-                            : 'border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] text-slate-600 hover:bg-[color-mix(in_srgb,var(--bg-hover)_60%,transparent)] dark:text-slate-300'
+                            ? 'border-[color-mix(in_srgb,var(--accent-primary)_60%,var(--border-color))] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-fg dark:text-white'
+                            : 'border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] text-fg-secondary hover:bg-[color-mix(in_srgb,var(--bg-hover)_60%,transparent)] dark:text-fg-secondary'
                         }`}
                       >
                         <Globe className="h-4 w-4" />
                         <span className="font-medium">{name}</span>
-                        {selected && <Check className="ml-auto h-4 w-4 text-teal-500" />}
+                        {selected && <Check className="ml-auto h-4 w-4 text-accent" />}
                       </button>
                     );
                   })}
@@ -643,8 +643,8 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     />
                   </div>
 
-                  {pwError && <p className="text-xs text-red-500">{pwError}</p>}
-                  {pwSuccess && <p className="text-xs text-teal-500">{t('settings.password.success')}</p>}
+                  {pwError && <p className="text-xs text-danger">{pwError}</p>}
+                  {pwSuccess && <p className="text-xs text-accent">{t('settings.password.success')}</p>}
 
                   <button
                     type="button"

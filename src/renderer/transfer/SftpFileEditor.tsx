@@ -241,7 +241,7 @@ export function SftpFileEditor({
             </button>
           )}
         </div>
-        <span className={`text-[11px] tabular-nums ${overLimit ? 'text-danger' : 'text-slate-500'}`}>
+        <span className={`text-[11px] tabular-nums ${overLimit ? 'text-danger' : 'text-fg-muted'}`}>
           {formatBytes(draftBytes)} / {formatBytes(maxBytes)}
           {overLimit ? ` · ${t('fileTransfer.editOverLimit')}` : ''}
         </span>
@@ -250,7 +250,7 @@ export function SftpFileEditor({
       {/* 中间编辑区占满剩余高度，便于长文本编辑 */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {loading ? (
-          <div className="flex h-full min-h-[360px] items-center justify-center gap-2 text-sm text-slate-500">
+          <div className="flex h-full min-h-[360px] items-center justify-center gap-2 text-sm text-fg-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
             {t('common.loading')}
           </div>
@@ -261,7 +261,7 @@ export function SftpFileEditor({
         ) : (
           <Suspense
             fallback={(
-              <div className="flex h-full min-h-[360px] items-center justify-center gap-2 text-sm text-slate-500">
+              <div className="flex h-full min-h-[360px] items-center justify-center gap-2 text-sm text-fg-muted">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {t('common.loading')}
               </div>
@@ -282,7 +282,7 @@ export function SftpFileEditor({
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-4 py-2 text-xs">
-        <span className="min-w-0 truncate text-slate-500">
+        <span className="min-w-0 truncate text-fg-muted">
           {error ? <span className="text-danger">{error}</span> : (status || t('fileTransfer.editHint'))}
         </span>
         <button type="button" className="industrial-button-secondary px-3 py-1.5 text-xs" onClick={handleClose}>

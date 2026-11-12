@@ -77,7 +77,7 @@ export function WorkspaceEmptyState({
         <div className="workspace-dashboard-top">
           <section className="industrial-card flex min-w-0 flex-col overflow-hidden">
             <header className="workspace-home-panel-header">
-              <Server className="h-4 w-4 text-teal-500" />
+              <Server className="h-4 w-4 text-accent" />
               <h2>{t('workspace.home.quickStart')}</h2>
             </header>
             <div className="flex-1">
@@ -87,10 +87,10 @@ export function WorkspaceEmptyState({
                     <Server className="h-5 w-5" />
                   </span>
                   <div className="space-y-1">
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                    <p className="text-sm font-medium text-fg">
                       {t('workspace.home.noConnections')}
                     </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-fg-muted">
                       {t('workspace.home.noConnectionsHint')}
                     </p>
                   </div>
@@ -118,17 +118,17 @@ export function WorkspaceEmptyState({
                           <Server className="h-4 w-4" />
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                          <div className="truncate text-sm font-medium text-fg">
                             {connection.name}
                           </div>
-                          <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                          <div className="truncate text-xs text-fg-muted">
                             {endpoint}
                           </div>
                         </div>
                       </button>
                       <button
                         type="button"
-                        className="icon-button h-7 w-7 shrink-0 text-slate-400 opacity-70 transition-opacity hover:opacity-100"
+                        className="icon-button h-7 w-7 shrink-0 text-fg-subtle opacity-70 transition-opacity hover:opacity-100"
                         title={t('workspace.home.copyConnection')}
                         aria-label={t('workspace.home.copyConnection')}
                         onClick={() => {
@@ -138,7 +138,7 @@ export function WorkspaceEmptyState({
                           );
                         }}
                       >
-                        {copied ? <Check className="h-3.5 w-3.5 text-teal-500" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copied ? <Check className="h-3.5 w-3.5 text-accent" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
                     </div>
                   );
@@ -146,7 +146,7 @@ export function WorkspaceEmptyState({
               )}
             </div>
             {connections.length > visibleConnections.length && (
-              <div className="px-4 pb-3 text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="px-4 pb-3 text-[11px] text-fg-muted">
                 {t('workspace.home.moreConnections', { count: connections.length - visibleConnections.length })}
               </div>
             )}
@@ -154,7 +154,7 @@ export function WorkspaceEmptyState({
 
           <section className="industrial-card flex min-w-0 flex-col overflow-hidden">
             <header className="workspace-home-panel-header">
-              <Settings className="h-4 w-4 text-slate-400" />
+              <Settings className="h-4 w-4 text-fg-subtle" />
               <h2>{t('workspace.home.commonActions')}</h2>
             </header>
             <div className="flex flex-col gap-1 p-2">
@@ -189,15 +189,15 @@ export function WorkspaceEmptyState({
             </span>
             <div className="min-w-0 flex-1 space-y-3">
               <div className="space-y-1">
-                <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <h2 className="text-sm font-semibold text-fg">
                   {t('workspace.home.aiTitle')}
                 </h2>
-                <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                <p className="text-xs leading-5 text-fg-muted">
                   {t('workspace.home.aiDescription')}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <code className="rounded-sm border border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-secondary)_70%,transparent)] px-2 py-1 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                <code className="rounded-sm border border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-secondary)_70%,transparent)] px-2 py-1 font-mono text-[11px] text-fg-secondary">
                   npm run mcp
                 </code>
                 <button
@@ -209,11 +209,11 @@ export function WorkspaceEmptyState({
                     void copyText('mcp-command', 'npm run mcp');
                   }}
                 >
-                  {copiedKey === 'mcp-command' ? <Check className="h-3.5 w-3.5 text-teal-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedKey === 'mcp-command' ? <Check className="h-3.5 w-3.5 text-accent" /> : <Copy className="h-3.5 w-3.5" />}
                 </button>
                 <button
                   type="button"
-                  className="ml-1 inline-flex items-center gap-1 text-xs text-teal-600 transition-colors hover:text-teal-500 dark:text-teal-400"
+                  className="ml-1 inline-flex items-center gap-1 text-xs text-accent transition-colors hover:text-accent dark:text-accent-hover"
                   onClick={() => onOpenSettings(aiSettingsTab)}
                 >
                   {t('workspace.home.learnMore')}

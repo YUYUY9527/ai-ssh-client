@@ -154,16 +154,16 @@ export function CommandHistoryPanel({
 
           <div className="shrink-0 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] px-2 py-1.5">
             <div className="flex items-center gap-1.5 rounded-sm border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_60%,transparent)] px-2 py-1">
-              <Search className="h-3 w-3 flex-shrink-0 text-slate-400" />
+              <Search className="h-3 w-3 flex-shrink-0 text-fg-subtle" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('commandHistory.searchPlaceholder')}
-                className="flex-1 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400 dark:text-white"
+                className="flex-1 bg-transparent text-xs text-fg outline-none placeholder:text-fg-subtle dark:text-white"
                 autoFocus
               />
-              <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
+              <span className="shrink-0 text-[10px] tabular-nums text-fg-subtle">
                 {filteredEntries.length}
               </span>
             </div>
@@ -171,11 +171,11 @@ export function CommandHistoryPanel({
 
           <div className="command-history-list scrollbar-modern p-1">
             {isLoading && entries.length === 0 ? (
-              <div className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              <div className="py-6 text-center text-sm text-fg-muted">
                 {t('common.loading')}
               </div>
             ) : filteredEntries.length === 0 ? (
-              <div className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              <div className="py-6 text-center text-sm text-fg-muted">
                 {searchQuery.trim() ? t('commandHistory.noMatches') : t('commandHistory.empty')}
               </div>
             ) : (
@@ -190,14 +190,14 @@ export function CommandHistoryPanel({
                     title={entry.command}
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-mono text-xs text-slate-900 dark:text-white">
+                      <span className="block truncate font-mono text-xs text-fg dark:text-white">
                         {entry.command}
                       </span>
                       {(timeText || entry.executedBy === 'ai') && (
-                        <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                        <span className="mt-0.5 flex items-center gap-1 text-[10px] text-fg-muted">
                           {timeText && <span>{timeText}</span>}
                           {entry.executedBy === 'ai' && (
-                            <span className="rounded-sm bg-violet-500/15 px-1 text-violet-500">AI</span>
+                            <span className="rounded-sm bg-accent-alt-muted px-1 text-accent-alt">AI</span>
                           )}
                         </span>
                       )}

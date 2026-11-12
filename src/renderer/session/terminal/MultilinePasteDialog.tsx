@@ -36,20 +36,20 @@ export function MultilinePasteDialog({
       <div className="industrial-modal-header">
         <div className="flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-warning" />
-          <h3 id={titleId} className="font-semibold text-slate-900 dark:text-white">
+          <h3 id={titleId} className="font-semibold text-fg dark:text-white">
             {translate('terminal.multilinePasteTitle')}
           </h3>
         </div>
       </div>
 
       <div className="space-y-3 p-4">
-        <p id={messageId} className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+        <p id={messageId} className="text-sm leading-6 text-fg-secondary">
           {translate('terminal.multilinePasteHint')}
         </p>
-        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <div className="flex items-center justify-between text-xs text-fg-muted">
           <span>{translate('terminal.multilinePasteLines', { count: lineCount })}</span>
         </div>
-        <pre className="scrollbar-modern max-h-64 overflow-auto rounded-md border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_70%,transparent)] p-3 text-xs leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-all">
+        <pre className="scrollbar-modern max-h-64 overflow-auto rounded-md border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_70%,transparent)] p-3 text-xs leading-5 text-fg whitespace-pre-wrap break-all">
           {previewText}
         </pre>
       </div>

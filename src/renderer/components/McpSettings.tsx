@@ -201,14 +201,14 @@ export function McpSettings() {
 
   if (loading) {
     return (
-      <div className="py-8 text-center text-sm text-slate-500">{t('common.loading')}</div>
+      <div className="py-8 text-center text-sm text-fg-muted">{t('common.loading')}</div>
     );
   }
 
   if (!draft) {
     return (
       <div className="space-y-3">
-        <div className="rounded-sm border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+        <div className="rounded-sm border border-danger bg-danger-muted px-3 py-2 text-sm text-danger dark:text-danger-fg">
           {error || t('settings.mcp.loadFailed')}
         </div>
         <button type="button" onClick={() => void load()} className="industrial-button-secondary">
@@ -228,7 +228,7 @@ export function McpSettings() {
     <SettingsPage
       title={(
         <span className="flex items-center gap-2">
-          <Server className="h-4 w-4 text-teal-500" />
+          <Server className="h-4 w-4 text-accent" />
           {t('settings.mcp.title')}
         </span>
       )}
@@ -238,24 +238,24 @@ export function McpSettings() {
       <div className="industrial-card space-y-1 p-3 text-xs">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-medium text-slate-700 dark:text-slate-300">
+            <div className="font-medium text-fg-secondary">
               {t('settings.mcp.policyFile')}
             </div>
-            <div className="mt-1 break-all font-mono text-[11px] text-slate-500">
+            <div className="mt-1 break-all font-mono text-[11px] text-fg-muted">
               {snapshot?.path}
             </div>
           </div>
           {snapshot && !snapshot.exists && (
-            <span className="shrink-0 rounded-sm bg-amber-500/10 px-2 py-0.5 text-amber-600 dark:text-amber-400">
+            <span className="shrink-0 rounded-sm bg-warning-muted px-2 py-0.5 text-warning dark:text-warning-fg">
               {t('settings.mcp.notCreated')}
             </span>
           )}
         </div>
-        <p className="text-slate-500">{t('settings.mcp.restartHint')}</p>
+        <p className="text-fg-muted">{t('settings.mcp.restartHint')}</p>
       </div>
 
       {snapshot && snapshot.envOverrides.length > 0 && (
-        <div className="flex items-start gap-2 rounded-sm border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="flex items-start gap-2 rounded-sm border border-warning bg-warning-muted px-3 py-2 text-xs text-warning dark:text-warning-fg">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <div className="font-medium">{t('settings.mcp.envOverride')}</div>
@@ -266,12 +266,12 @@ export function McpSettings() {
       )}
 
       {error && (
-        <div className="rounded-sm border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+        <div className="rounded-sm border border-danger bg-danger-muted px-3 py-2 text-sm text-danger dark:text-danger-fg">
           {error}
         </div>
       )}
       {saved && (
-        <div className="rounded-sm border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-sm text-teal-600 dark:text-teal-400">
+        <div className="rounded-sm border border-accent bg-accent-muted px-3 py-2 text-sm text-accent dark:text-accent-hover">
           {t('settings.mcp.saved')}
         </div>
       )}
@@ -359,7 +359,7 @@ export function McpSettings() {
       >
         <div className="max-h-72 space-y-2 overflow-y-auto py-3.5 pr-1">
           {snapshot?.connections.length === 0 && (
-            <div className="rounded-md border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-3 text-center text-xs text-slate-500">
+            <div className="rounded-md border border-dashed border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-3 py-3 text-center text-xs text-fg-muted">
               {t('settings.mcp.noConnections')}
             </div>
           )}
@@ -369,10 +369,10 @@ export function McpSettings() {
               className="industrial-card flex items-center justify-between gap-3 p-3"
             >
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                <div className="truncate text-sm font-medium text-fg dark:text-white">
                   {connection.name || connection.host}
                 </div>
-                <div className="truncate font-mono text-[11px] text-slate-500">
+                <div className="truncate font-mono text-[11px] text-fg-muted">
                   {connection.username}@{connection.host}:{connection.port}
                 </div>
               </div>
@@ -408,10 +408,10 @@ export function McpSettings() {
       </SettingsSection>
 
       <details className="rounded-md border border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] px-3 py-2">
-        <summary className="cursor-pointer text-sm font-medium text-slate-900 dark:text-white">
+        <summary className="cursor-pointer text-sm font-medium text-fg dark:text-white">
           {t('settings.mcp.denyRules')}
         </summary>
-        <p className="mt-2 text-xs text-slate-500">{t('settings.mcp.denyRulesDesc')}</p>
+        <p className="mt-2 text-xs text-fg-muted">{t('settings.mcp.denyRulesDesc')}</p>
         <textarea
           value={denyText}
           onChange={(event) => setDenyText(event.target.value)}

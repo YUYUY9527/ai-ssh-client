@@ -143,7 +143,7 @@ export function Modal({
 
   // Portal 到 body：避免 header 的 backdrop-filter / relative 祖先把 fixed 弹层裁切或偏移
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4">
+    <div className="fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4">
       <div
         className="modal-backdrop"
         onClick={closeOnBackdrop ? onClose : undefined}
@@ -159,7 +159,7 @@ export function Modal({
       >
         {title != null && (
           <div className="industrial-modal-header shrink-0">
-            <h3 className="min-w-0 flex-1 font-semibold text-slate-900 dark:text-white">{title}</h3>
+            <h3 className="min-w-0 flex-1 font-semibold text-fg dark:text-white">{title}</h3>
             {showClose && (
               <button
                 type="button"

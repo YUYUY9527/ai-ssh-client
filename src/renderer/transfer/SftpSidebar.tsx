@@ -81,8 +81,8 @@ export function SftpSidebar({ connectionId, isLive, onClose }: SftpSidebarProps)
           onClose={onClose}
         />
       ) : (
-        <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-slate-500 dark:text-slate-400">
-          <FolderX className="h-6 w-6 text-slate-400" />
+        <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-fg-muted">
+          <FolderX className="h-6 w-6 text-fg-subtle" />
           <p>{t('fileTransfer.noConnection')}</p>
         </div>
       )}

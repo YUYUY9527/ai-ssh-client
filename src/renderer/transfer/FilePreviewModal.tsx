@@ -79,9 +79,9 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
   const isPdf = preview?.mime === 'application/pdf';
 
   const titleIcon =
-    kind === 'video' ? <FileVideo className="w-4 h-4 shrink-0 text-teal-500" />
-      : kind === 'audio' ? <FileAudio className="w-4 h-4 shrink-0 text-teal-500" />
-        : <FileImage className="w-4 h-4 shrink-0 text-teal-500" />;
+    kind === 'video' ? <FileVideo className="w-4 h-4 shrink-0 text-accent" />
+      : kind === 'audio' ? <FileAudio className="w-4 h-4 shrink-0 text-accent" />
+        : <FileImage className="w-4 h-4 shrink-0 text-accent" />;
 
   return (
     <Modal
@@ -98,7 +98,7 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
     >
       <div className="p-4">
         {isStreaming && (
-          <div className="flex items-center justify-center bg-slate-100 dark:bg-slate-950/40 rounded-lg p-2 min-h-[200px]">
+          <div className="flex items-center justify-center bg-surface rounded-lg p-2 min-h-[200px]">
             {kind === 'video' ? (
               <video
                 src={mediaUrl ?? undefined}
@@ -119,11 +119,11 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
           </div>
         )}
         {isStreaming && error && (
-          <p className="mt-3 text-sm text-red-600 dark:text-red-400 text-center">{error}</p>
+          <p className="mt-3 text-sm text-danger dark:text-danger-fg text-center">{error}</p>
         )}
 
         {!isStreaming && loading && (
-          <div className="flex items-center justify-center py-16 text-sm text-slate-400 dark:text-slate-500">
+          <div className="flex items-center justify-center py-16 text-sm text-fg-subtle">
             <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
             {translate('features.preview.loading')}
           </div>
@@ -131,11 +131,11 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
 
         {!isStreaming && !loading && error && (
           <div className="py-10 text-center space-y-3">
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-sm text-danger dark:text-danger-fg">{error}</p>
             <button
               type="button"
               onClick={() => { void load(); }}
-              className="text-sm text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1"
+              className="text-sm text-accent dark:text-accent-hover hover:underline inline-flex items-center gap-1"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               {translate('features.preview.retry')}
@@ -144,7 +144,7 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
         )}
 
         {!isStreaming && !loading && !error && dataUri && (
-          <div className="flex items-center justify-center bg-slate-100 dark:bg-slate-950/40 rounded-lg p-2 min-h-[200px]">
+          <div className="flex items-center justify-center bg-surface rounded-lg p-2 min-h-[200px]">
             {isPdf ? (
               <iframe
                 src={dataUri}
@@ -162,13 +162,13 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
         )}
 
         {unsupported && !error && (
-          <div className="py-16 text-center text-sm text-slate-500 dark:text-slate-400">
+          <div className="py-16 text-center text-sm text-fg-muted">
             {translate('features.preview.unsupported')}
           </div>
         )}
 
         {preview && (
-          <p className="mt-3 text-xs text-slate-400 dark:text-slate-500 text-right tabular-nums">
+          <p className="mt-3 text-xs text-fg-subtle text-right tabular-nums">
             {formatBytes(preview.size)}
           </p>
         )}

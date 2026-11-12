@@ -246,15 +246,15 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <Server className="w-3 h-3 text-slate-400 flex-shrink-0" />
-            <span className="font-medium text-sm truncate text-slate-900 dark:text-white">{connection.name}</span>
+            <Server className="w-3 h-3 text-fg-subtle flex-shrink-0" />
+            <span className="font-medium text-sm truncate text-fg dark:text-white">{connection.name}</span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate flex items-center gap-1">
+          <p className="text-xs text-fg-muted mt-1 truncate flex items-center gap-1">
             <Globe className="w-3 h-3" />
             {connection.username}@{connection.host}:{connection.port}
           </p>
           {connection.privateKey && (
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
+            <p className="text-xs text-fg-subtle mt-0.5 flex items-center gap-1">
               <Key className="w-3 h-3" />
               密钥认证
             </p>
@@ -262,7 +262,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
           {connection.tags && connection.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               {connection.tags.map(tag => (
-                <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[10px] bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+                <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[10px] bg-accent-muted text-accent dark:text-accent-hover border border-accent">
                   <Tag className="w-2.5 h-2.5" />
                   {tag}
                 </span>
@@ -275,7 +275,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
         {activeConnectionId === connection.id ? (
           <button
             onClick={() => handleDisconnect(connection.id)}
-            className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-500 rounded-sm transition-colors text-white"
+            className="flex items-center gap-1 px-2 py-1 text-xs bg-danger hover:bg-danger rounded-sm transition-colors text-white"
           >
             <Square className="w-3 h-3" />
             断开
@@ -323,12 +323,12 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               <div className="flex items-center gap-1 px-1 py-1 group">
                 <button
                   onClick={() => toggleGroup(group.id)}
-                  className="flex items-center gap-1 flex-1 min-w-0 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                  className="flex items-center gap-1 flex-1 min-w-0 text-left text-xs font-semibold text-fg-secondary hover:text-fg dark:hover:text-white"
                 >
                   {collapsed ? <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />}
-                  <Folder className="w-3.5 h-3.5 flex-shrink-0 text-teal-500" />
+                  <Folder className="w-3.5 h-3.5 flex-shrink-0 text-accent" />
                   <span className="truncate">{group.name}</span>
-                  <span className="text-slate-400 font-normal">({members.length})</span>
+                  <span className="text-fg-subtle font-normal">({members.length})</span>
                 </button>
                 <button
                   onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
@@ -348,7 +348,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               {!collapsed && (
                 <div className="pl-2">
                   {members.length === 0 ? (
-                    <p className="text-xs text-slate-400 dark:text-slate-500 px-2 py-1">{t('features.connectionGroups.emptyGroup')}</p>
+                    <p className="text-xs text-fg-subtle px-2 py-1">{t('features.connectionGroups.emptyGroup')}</p>
                   ) : (
                     members.map(renderConnectionCard)
                   )}
@@ -360,7 +360,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
         {ungrouped.length > 0 && (
           <div className="mb-2">
             {sortedGroups.length > 0 && (
-              <div className="flex items-center gap-1 px-1 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1 px-1 py-1 text-xs font-semibold text-fg-muted">
                 <Folder className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>{t('features.connectionGroups.ungrouped')}</span>
                 <span className="font-normal">({ungrouped.length})</span>
@@ -380,7 +380,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       {/* Search */}
       <div className="p-2 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] flex-shrink-0">
         <div className="relative">
-          <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-fg-subtle" />
           <input
             type="text"
             value={searchTerm}
@@ -412,9 +412,9 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
       </div>
 
       {/* Connection List */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500">
+      <div className="flex-1 overflow-y-auto px-2 pb-2 scrollbar-thin">
         {filteredConnections.length === 0 ? (
-          <div className="text-center text-slate-500 dark:text-slate-400 py-8">
+          <div className="text-center text-fg-muted py-8">
             <Server className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p className="text-sm">{searchTerm ? '没有找到匹配的连接' : '暂无连接'}</p>
             <p className="text-xs mt-1">点击上方"新建连接"开始</p>
@@ -435,14 +435,14 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
         >
           <button
             onClick={() => handleCopyConnection(contextMenu.connection)}
-            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+            className="app-popover-row text-sm text-fg-secondary"
           >
             <Copy className="w-4 h-4" />
             复制连接
           </button>
           <button
             onClick={() => handleReconnect(contextMenu.connection)}
-            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+            className="app-popover-row text-sm text-fg-secondary"
           >
             <RefreshCw className="w-4 h-4" />
             重新连接
@@ -453,7 +453,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               handleEditConnection(contextMenu.connection);
               closeContextMenu();
             }}
-            className="app-popover-row text-sm text-slate-700 dark:text-slate-300"
+            className="app-popover-row text-sm text-fg-secondary"
           >
             编辑
           </button>
@@ -463,7 +463,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               closeContextMenu();
               handleDeleteConnection(connId);
             }}
-            className="app-popover-row text-sm text-red-600 dark:text-red-400"
+            className="app-popover-row text-sm text-danger dark:text-danger-fg"
           >
             <Trash2 className="w-4 h-4" />
             删除
@@ -473,10 +473,10 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
 
       {/* Add/Edit Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-dropdown p-4">
           <div className="industrial-modal w-full max-w-md">
             <div className="industrial-modal-header">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              <h3 className="text-lg font-semibold text-fg dark:text-white">
                 {editingConnection ? '编辑连接' : '新建连接'}
               </h3>
               <button onClick={() => setShowAddModal(false)} className="icon-button">
@@ -519,7 +519,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 placeholder="密码"
                 className="industrial-input w-full"
               />
-              <div className="text-xs text-slate-500">或者使用私钥认证：</div>
+              <div className="text-xs text-fg-muted">或者使用私钥认证：</div>
               <textarea
                 value={formData.privateKey}
                 onChange={(e) => setFormData(prev => ({ ...prev, privateKey: e.target.value }))}
@@ -529,7 +529,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               />
               <button
                 onClick={handleSelectFile}
-                className="text-xs font-medium text-teal-600 hover:text-teal-500 dark:text-teal-400"
+                className="text-xs font-medium text-accent hover:text-accent dark:text-accent-hover"
               >
                 选择私钥文件
               </button>
@@ -545,7 +545,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               {groupsSupported && (
                 <>
                   <div>
-                    <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">{t('features.connectionGroups.group')}</label>
+                    <label className="text-xs text-fg-muted mb-1 block">{t('features.connectionGroups.group')}</label>
                     <select
                       value={formData.groupId}
                       onChange={(e) => setFormData(prev => ({ ...prev, groupId: e.target.value }))}
@@ -558,7 +558,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">{t('features.connectionGroups.tags')}</label>
+                    <label className="text-xs text-fg-muted mb-1 block">{t('features.connectionGroups.tags')}</label>
                     <input
                       type="text"
                       value={formData.tags}
@@ -590,10 +590,10 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
 
       {/* 分组新建/重命名 Modal */}
       {groupModal.open && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-dropdown p-4">
           <div className="industrial-modal w-full max-w-sm">
             <div className="industrial-modal-header">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              <h3 className="text-lg font-semibold text-fg dark:text-white">
                 {groupModal.editing ? t('features.connectionGroups.renameGroup') : t('features.connectionGroups.newGroup')}
               </h3>
               <button onClick={() => setGroupModal({ open: false, editing: null, name: '' })} className="icon-button">

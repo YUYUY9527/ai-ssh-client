@@ -138,8 +138,8 @@ export function IndustrialSelect({
               aria-selected={isActive}
               className={`app-popover-row text-sm ${
                 isActive
-                  ? 'bg-[color-mix(in_srgb,var(--accent-primary)_22%,transparent)] text-slate-900 dark:text-white'
-                  : 'text-slate-700 dark:text-slate-300'
+                  ? 'bg-[color-mix(in_srgb,var(--accent-primary)_22%,transparent)] text-fg dark:text-white'
+                  : 'text-fg-secondary'
               }`}
               onClick={() => {
                 onChange(option.value);
@@ -174,7 +174,7 @@ export function IndustrialSelect({
       >
         <span className="min-w-0 flex-1 truncate text-left">{displayLabel}</span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          className={`h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         />
       </button>
       {menu}

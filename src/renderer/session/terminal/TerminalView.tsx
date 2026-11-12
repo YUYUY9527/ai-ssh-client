@@ -1124,7 +1124,7 @@ export function TerminalView({
       {/* Search Bar */}
       {showSearch && (
         <div className="terminal-search-panel">
-          <Search className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+          <Search className="w-4 h-4 text-fg-muted" />
           <input
             type="text"
             value={searchQuery}
@@ -1135,7 +1135,7 @@ export function TerminalView({
               }
             }}
             placeholder={t('common.search')}
-            className="w-48 bg-transparent text-sm text-slate-900 outline-none dark:text-white"
+            className="w-48 bg-transparent text-sm text-fg outline-none dark:text-white"
             autoFocus
           />
           <button onClick={searchPrevious} className="icon-button h-7 w-7">
@@ -1204,8 +1204,8 @@ export function TerminalView({
             <div className="terminal-empty-icon">
               {terminalStatus.icon}
             </div>
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{terminalStatus.title}</p>
-            <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500 dark:text-slate-400">{terminalStatus.body}</p>
+            <p className="text-sm font-medium text-fg-secondary dark:text-fg">{terminalStatus.title}</p>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-fg-muted">{terminalStatus.body}</p>
           </div>
         </div>
       )}

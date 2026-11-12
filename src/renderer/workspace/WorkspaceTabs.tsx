@@ -51,7 +51,7 @@ export function WorkspaceTabs({
 
   return (
     <div
-      className="workspace-tabbar scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent"
+      className="workspace-tabbar scrollbar-thin"
       onWheel={(event) => {
         // 标签溢出时将纵向滚轮转为横向滚动，方便浏览大量标签
         if (event.deltaY !== 0) {

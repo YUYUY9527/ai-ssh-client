@@ -43,17 +43,17 @@ function formatRate(bytesPerSec: number): string {
 
 function Meter({ label, percent, detail }: { label: string; percent: number; detail: string }) {
   const clamped = Math.max(0, Math.min(100, percent));
-  const tone = clamped >= 90 ? 'bg-red-500' : clamped >= 70 ? 'bg-amber-500' : 'bg-teal-500';
+  const tone = clamped >= 90 ? 'bg-danger' : clamped >= 70 ? 'bg-warning' : 'bg-accent';
   return (
     <div>
       <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-slate-600 dark:text-slate-300 font-medium truncate" title={label}>{label}</span>
-        <span className="text-slate-500 dark:text-slate-400 tabular-nums shrink-0 ml-2">{clamped.toFixed(0)}%</span>
+        <span className="text-fg-secondary font-medium truncate" title={label}>{label}</span>
+        <span className="text-fg-muted tabular-nums shrink-0 ml-2">{clamped.toFixed(0)}%</span>
       </div>
-      <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+      <div className="h-1.5 rounded-full bg-surface-raised overflow-hidden">
         <div className={`h-full ${tone} transition-all`} style={{ width: `${clamped}%` }} />
       </div>
-      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 tabular-nums">{detail}</p>
+      <p className="text-[11px] text-fg-subtle mt-0.5 tabular-nums">{detail}</p>
     </div>
   );
 }
@@ -76,7 +76,7 @@ function Sparkline({ values }: { values: number[] }) {
   }, [values]);
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="w-full h-7 text-teal-500">
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="w-full h-7 text-accent">
       <polyline
         points={points || `0,${height}`}
         fill="none"
@@ -103,9 +103,9 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] p-2.5 space-y-2">
+    <div className="rounded-xl bg-surface border border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] p-2.5 space-y-2">
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-fg-secondary dark:text-fg">
           <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md ${tint}`}>{icon}</span>
           {title}
         </span>
@@ -119,8 +119,8 @@ function Card({
 function Field({ label, value, className = '' }: { label: string; value: string; className?: string }) {
   return (
     <div className={`min-w-0 ${className}`}>
-      <div className="text-[11px] text-slate-400 dark:text-slate-500">{label}</div>
-      <div className="text-slate-700 dark:text-slate-200 truncate tabular-nums" title={value}>{value || '—'}</div>
+      <div className="text-[11px] text-fg-subtle">{label}</div>
+      <div className="text-fg-secondary dark:text-fg truncate tabular-nums" title={value}>{value || '—'}</div>
     </div>
   );
 }
@@ -213,12 +213,12 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
 
       {open && (
         <div
-          className="app-popover right-0 top-full mt-1 w-[340px] max-h-[75vh] overflow-y-auto p-3 space-y-2.5 z-50"
+          className="app-popover right-0 top-full mt-1 w-[340px] max-h-[75vh] overflow-y-auto p-3 space-y-2.5 z-dropdown"
           data-terminal-monitor-panel
         >
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-              <Activity className="w-4 h-4 text-teal-500" />
+            <span className="text-sm font-semibold text-fg flex items-center gap-1.5">
+              <Activity className="w-4 h-4 text-accent" />
               {translate('features.monitor.title')}
             </span>
             <div className="flex items-center gap-1">
@@ -243,12 +243,12 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
           </div>
 
           {error && (
-            <div className="text-xs text-red-600 dark:text-red-400 space-y-1">
+            <div className="text-xs text-danger dark:text-danger-fg space-y-1">
               <p>{translate('features.monitor.failed')}：{error}</p>
               <button
                 type="button"
                 onClick={() => { void fetchMetrics(); }}
-                className="text-teal-600 dark:text-teal-400 hover:underline"
+                className="text-accent dark:text-accent-hover hover:underline"
               >
                 {translate('features.monitor.retry')}
               </button>
@@ -256,15 +256,15 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
           )}
 
           {!metrics && !error && (
-            <p className="text-xs text-slate-400 dark:text-slate-500 py-2">{translate('features.monitor.loading')}</p>
+            <p className="text-xs text-fg-subtle py-2">{translate('features.monitor.loading')}</p>
           )}
 
           {metrics && (
             <>
               {/* 系统 */}
               <Card
-                icon={<Server className="w-3 h-3 text-amber-600 dark:text-amber-400" />}
-                tint="bg-amber-500/15"
+                icon={<Server className="w-3 h-3 text-warning dark:text-warning-fg" />}
+                tint="bg-warning-muted"
                 title={translate('features.monitor.system')}
               >
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
@@ -293,7 +293,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                   />
                 </div>
                 {metrics.processes && (
-                  <div className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+                  <div className="text-[11px] text-fg-subtle tabular-nums">
                     {translate('features.monitor.processes')}: {metrics.processes.running} / {metrics.processes.total}
                     {metrics.loggedInUsers != null && (
                       <span className="ml-3">{translate('features.monitor.loggedUsers')}: {metrics.loggedInUsers}</span>
@@ -304,31 +304,31 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
 
               {/* CPU */}
               <Card
-                icon={<Cpu className="w-3 h-3 text-teal-600 dark:text-teal-400" />}
-                tint="bg-teal-500/15"
+                icon={<Cpu className="w-3 h-3 text-accent dark:text-accent-hover" />}
+                tint="bg-accent-muted"
                 title={translate('features.monitor.cpu')}
                 right={coreCount > 0 ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 tabular-nums">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-raised text-fg-secondary tabular-nums">
                     {translate('features.monitor.coreCount', { count: coreCount })}
                   </span>
                 ) : undefined}
               >
                 <div className="flex items-end gap-2">
-                  <span className="text-3xl font-semibold text-teal-600 dark:text-teal-400 tabular-nums leading-none">
+                  <span className="text-3xl font-semibold text-accent dark:text-accent-hover tabular-nums leading-none">
                     {metrics.cpuPercent.toFixed(0)}<span className="text-base font-normal">%</span>
                   </span>
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500 pb-0.5">{translate('features.monitor.avgUsage')}</span>
+                  <span className="text-[11px] text-fg-subtle pb-0.5">{translate('features.monitor.avgUsage')}</span>
                 </div>
                 <Sparkline values={history} />
                 {metrics.cpuCores && metrics.cpuCores.length > 1 && (
-                  <div className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+                  <div className="text-[11px] text-fg-subtle tabular-nums">
                     {translate('features.monitor.perCore')}:{' '}
                     {metrics.cpuCores.map((value, index) => `${value}%`).join(' · ')}
                   </div>
                 )}
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400 dark:text-slate-500">{translate('features.monitor.avgLoad')}</span>
-                  <span className="text-slate-600 dark:text-slate-300 tabular-nums">
+                  <span className="text-fg-subtle">{translate('features.monitor.avgLoad')}</span>
+                  <span className="text-fg-secondary tabular-nums">
                     {metrics.load.load1.toFixed(2)} · {metrics.load.load5.toFixed(2)} · {metrics.load.load15.toFixed(2)}
                   </span>
                 </div>
@@ -336,8 +336,8 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
 
               {/* 内存 */}
               <Card
-                icon={<MemoryStick className="w-3 h-3 text-violet-600 dark:text-violet-400" />}
-                tint="bg-violet-500/15"
+                icon={<MemoryStick className="w-3 h-3 text-accent-alt" />}
+                tint="bg-accent-alt-muted"
                 title={translate('features.monitor.memory')}
               >
                 <Meter
@@ -357,18 +357,18 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
               {/* 网络 */}
               {networkList.length > 0 && (
                 <Card
-                  icon={<Network className="w-3 h-3 text-sky-600 dark:text-sky-400" />}
-                  tint="bg-sky-500/15"
+                  icon={<Network className="w-3 h-3 text-info dark:text-info-fg" />}
+                  tint="bg-info-muted"
                   title={translate('features.monitor.network')}
                 >
                   <div className="space-y-1">
                     {networkList.map((net) => (
                       <div key={net.name} className="flex items-center justify-between text-[11px]">
-                        <span className="text-slate-600 dark:text-slate-300 truncate mr-2" title={net.name}>{net.name}</span>
+                        <span className="text-fg-secondary truncate mr-2" title={net.name}>{net.name}</span>
                         <span className="tabular-nums shrink-0">
-                          <span className="text-amber-600 dark:text-amber-400">↑</span> {formatRate(net.txBytesPerSec)}
-                          <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
-                          <span className="text-teal-600 dark:text-teal-400">↓</span> {formatRate(net.rxBytesPerSec)}
+                          <span className="text-warning dark:text-warning-fg">↑</span> {formatRate(net.txBytesPerSec)}
+                          <span className="mx-1.5 text-fg-faint">·</span>
+                          <span className="text-accent dark:text-accent-hover">↓</span> {formatRate(net.rxBytesPerSec)}
                         </span>
                       </div>
                     ))}
@@ -378,8 +378,8 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
 
               {/* 磁盘 */}
               <Card
-                icon={<HardDrive className="w-3 h-3 text-orange-600 dark:text-orange-400" />}
-                tint="bg-orange-500/15"
+                icon={<HardDrive className="w-3 h-3 text-accent-strong" />}
+                tint="bg-accent-strong-muted"
                 title={translate('features.monitor.disks')}
               >
                 <div className="space-y-2">
@@ -401,12 +401,12 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                       )}
                 </div>
                 {metrics.diskIo && (
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center justify-between text-[11px] text-fg-muted">
                     <span>{translate('features.monitor.diskIo')}</span>
                     <span className="tabular-nums">
-                      <span className="text-teal-600 dark:text-teal-400">↓</span> {formatRate(metrics.diskIo.readBytesPerSec)}
-                      <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
-                      <span className="text-amber-600 dark:text-amber-400">↑</span> {formatRate(metrics.diskIo.writeBytesPerSec)}
+                      <span className="text-accent dark:text-accent-hover">↓</span> {formatRate(metrics.diskIo.readBytesPerSec)}
+                      <span className="mx-1.5 text-fg-faint">·</span>
+                      <span className="text-warning dark:text-warning-fg">↑</span> {formatRate(metrics.diskIo.writeBytesPerSec)}
                     </span>
                   </div>
                 )}
