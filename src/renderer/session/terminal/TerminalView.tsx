@@ -136,7 +136,6 @@ export function TerminalView({
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const [fontSize, setFontSize] = useState(() => clampTerminalFontSize(settings?.fontSize));
   const [showThemeSelector, setShowThemeSelector] = useState(false);
-  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [terminalTheme, setTerminalTheme] = useState(settings?.terminalTheme || 'dark');
   const [terminalInstanceVersion, setTerminalInstanceVersion] = useState(0);
   const [isAlternateScreen, setIsAlternateScreen] = useState(false);
@@ -576,19 +575,6 @@ export function TerminalView({
     const next = typeof value === 'function' ? value(prev) : value;
     commitFontSize(next);
   }, [commitFontSize]);
-
-  /** 局部终端设置 patch 并持久化。 */
-  const patchTerminalSetting = useCallback((patch: Partial<AppSettings>) => {
-    if (onSettingsPatch) {
-      void onSettingsPatch(patch);
-      return;
-    }
-    if (settings && window.electronAPI) {
-      void window.electronAPI.saveSettings({ ...settings, ...patch }).catch((error) => {
-        console.error('Failed to save terminal settings:', error);
-      });
-    }
-  }, [onSettingsPatch, settings]);
 
   // 稳定的判断函数：供搜索 hook 判断当前是否在全屏程序，避免每次渲染重挂监听。
   const isAlternateScreenActive = useCallback(
@@ -1094,33 +1080,14 @@ export function TerminalView({
         themes={TERMINAL_THEMES}
         translate={t}
         isThemeSelectorOpen={showThemeSelector}
-        isSettingsOpen={showSettingsPanel}
-        scrollback={runtimeSettings.scrollback}
-        cursorStyle={runtimeSettings.cursorStyle}
-        cursorBlink={runtimeSettings.cursorBlink}
-        copyOnSelect={runtimeSettings.copyOnSelect}
-        shellIntegration={runtimeSettings.shellIntegration}
-        shellCwd={shellState?.cwd ?? null}
         canInsertAgentPrefix={isLive}
         connectionId={liveConnectionId}
         onDecreaseFontSize={() => commitFontSize(fontSizeRef.current - 2)}
         onInsertAgentPrefix={handleInsertAgentPrefix}
         onIncreaseFontSize={() => commitFontSize(fontSizeRef.current + 2)}
         onToggleSearch={() => setShowSearch(prev => !prev)}
-        onToggleThemeSelector={() => {
-          setShowThemeSelector(prev => !prev);
-          setShowSettingsPanel(false);
-        }}
-        onToggleSettings={() => {
-          setShowSettingsPanel(prev => !prev);
-          setShowThemeSelector(false);
-        }}
+        onToggleThemeSelector={() => setShowThemeSelector(prev => !prev)}
         onSelectTheme={handleThemeChange}
-        onScrollbackChange={(value) => patchTerminalSetting({ terminalScrollback: clampTerminalScrollback(value) })}
-        onCursorStyleChange={(value: TerminalCursorStyle) => patchTerminalSetting({ terminalCursorStyle: value })}
-        onCursorBlinkChange={(value) => patchTerminalSetting({ terminalCursorBlink: value })}
-        onCopyOnSelectChange={(value) => patchTerminalSetting({ terminalCopyOnSelect: value })}
-        onShellIntegrationChange={(value) => patchTerminalSetting({ terminalShellIntegration: value })}
         onSaveLog={handleSaveLog}
       />
 

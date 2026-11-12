@@ -41,6 +41,21 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
   useEffect(() => {
     setData(null);
     setError(null);
+    if (!connectionId) return;
+    const api = window.electronAPI?.listPortForwards;
+    if (!api) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await api(connectionId);
+        if (!cancelled && result.success) setData(result.data);
+      } catch {
+        // 忽略：取不到规则时按钮保持隐藏。
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [connectionId]);
 
   useEffect(() => {
@@ -52,7 +67,8 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
     return () => window.clearInterval(timer);
   }, [open, connectionId, fetchForwards]);
 
-  if (!supported) return null;
+  // 该连接未配置任何端口转发规则时，整个入口隐藏。
+  if (!supported || !data || data.rules.length === 0) return null;
 
   const activeFor = (ruleId: string): PortForwardRuntimeState | undefined =>
     data?.active.find((item) => item.ruleId === ruleId);
