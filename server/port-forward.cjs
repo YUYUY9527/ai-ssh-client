@@ -164,7 +164,11 @@ function createPortForwardManager({ getClientForSession } = {}) {
     if (!rule || !rule.id) throw new Error('Port forward rule is required');
     const key = ruleKey(clientId, connectionId, rule.id);
     if (active.has(key)) {
-      return describe(active.get(key));
+      const existing = active.get(key);
+      // 上次启动失败（如端口被占用）的记录允许直接重试：清掉旧记录后走完整启动流程
+      if (!existing.error) return describe(existing);
+      try { existing.server?.close(); } catch { /* ignore */ }
+      active.delete(key);
     }
     if (rule.type !== 'local' && rule.type !== 'dynamic') {
       throw new Error(`Unsupported port forward type: ${rule.type}`);
@@ -205,6 +209,14 @@ function createPortForwardManager({ getClientForSession } = {}) {
     entry.server = server;
     server.on('error', (error) => {
       entry.error = error.message;
+      // 绑定失败（如 EADDRINUSE）后从 active 移除，列表回到「未启动」状态，用户可直接重试
+      try { server.close(); } catch { /* ignore */ }
+      for (const [k, v] of active.entries()) {
+        if (v === entry) {
+          active.delete(k);
+          break;
+        }
+      }
     });
     server.on('listening', () => {
       const address = server.address();

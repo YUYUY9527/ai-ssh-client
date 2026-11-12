@@ -890,6 +890,7 @@ const enUS: DeepStringify<typeof zhCN> = {
       running: 'Running · {count} connection(s)',
       stopped: 'Stopped',
       failed: 'Failed to start',
+      autoPort: '(auto-assigned)',
       start: 'Start',
       stop: 'Stop',
     },

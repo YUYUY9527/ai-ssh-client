@@ -144,7 +144,8 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
                       </span>
                     </div>
                     <div className="text-[11px] text-fg-subtle">
-                      {rule.bindHost || '127.0.0.1'}:{rule.bindPort || 0}
+                      {rule.bindHost || '127.0.0.1'}:{running && runtime?.bindPort ? runtime.bindPort : rule.bindPort || 0}
+                      {running && rule.bindPort === 0 ? <span className="ml-1 text-fg-faint">{translate('features.portForward.autoPort')}</span> : null}
                       {rule.type === 'local' && rule.targetHost ? ` → ${rule.targetHost}:${rule.targetPort || 0}` : ''}
                     </div>
                     <div className="flex items-center justify-between">

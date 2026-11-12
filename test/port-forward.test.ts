@@ -137,4 +137,31 @@ describe('port-forward manager', () => {
     expect(() => offline.start({ clientId: 'c3', connectionId: 'conn3', rule: { id: 'x', type: 'local', bindPort: 0, targetHost: 'h', targetPort: 1 } }))
       .toThrow(/session is not connected/);
   });
+
+  it('端口被占用时报错且记录可重试：错误记录从列表移除，释放端口后能重新启动', async () => {
+    // 占住一个端口，制造 EADDRINUSE
+    const blocker = await createEchoServer();
+    try {
+      const manager = createPortForwardManager({ getClientForSession: () => fakeSession() });
+      const rule = { id: 'retry-1', type: 'local', bindHost: '127.0.0.1', bindPort: blocker.port, targetHost: '127.0.0.1', targetPort: echo.port };
+      manager.start({ clientId: 'c4', connectionId: 'conn4', rule });
+      // 等监听失败被登记（错误记录已从 active 移除）
+      let errored = false;
+      for (let attempt = 0; attempt < 100 && !errored; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        errored = !manager.list({ clientId: 'c4', connectionId: 'conn4' }).some((item: any) => item.ruleId === 'retry-1');
+      }
+      expect(errored).toBe(true);
+
+      // 释放端口后同一规则可直接重试启动
+      await blocker.close();
+      manager.start({ clientId: 'c4', connectionId: 'conn4', rule });
+      const port = await waitForPort(manager, 'c4', 'conn4', 'retry-1');
+      expect(port).toBe(blocker.port);
+      manager.stop({ clientId: 'c4', connectionId: 'conn4', ruleId: 'retry-1' });
+    } finally {
+      // blocker.close 可能已被上面调用，重复关闭是安全的（close 回调幂等等待）
+      await blocker.close().catch(() => undefined);
+    }
+  });
 });

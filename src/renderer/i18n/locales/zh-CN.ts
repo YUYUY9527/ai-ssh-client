@@ -884,6 +884,7 @@ const zhCN = {
       running: '运行中 · {count} 个连接',
       stopped: '未启动',
       failed: '启动失败',
+      autoPort: '（自动分配）',
       start: '启动',
       stop: '停止',
     },
