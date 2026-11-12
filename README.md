@@ -1,5 +1,7 @@
 # AI SSH Client
 
+**English** | [简体中文](README.zh-CN.md)
+
 A self-hosted, browser-based SSH workspace: a full terminal, SFTP file manager, server monitoring, Docker management and an optional AI assistant — all served from a single Node.js process. No desktop install; open a URL and work.
 
 <p align="center">

@@ -1,5 +1,7 @@
 # AI SSH Client
 
+[English](README.md) | **简体中文**
+
 一款自托管、浏览器直接使用的 SSH 工作台：完整终端、SFTP 文件管理、服务器监控、Docker 管理与可选的 AI 助手，全部由一个 Node.js 进程提供。无需安装桌面客户端，打开网址即可使用。
 
 <p align="center">
