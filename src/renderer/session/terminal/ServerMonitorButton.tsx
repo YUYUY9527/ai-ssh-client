@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Activity, Cpu, HardDrive, MemoryStick, Network, RefreshCw, Server, X } from 'lucide-react';
 import type { ServerMonitorMetrics } from '../../../shared/ipc-types';
 import { useConnectionStore } from '../../store/useConnectionStore';
@@ -138,7 +139,10 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   const [history, setHistory] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
   const requestSeq = useRef(0);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const connections = useConnectionStore(state => state.connections);
   const loadConnections = useConnectionStore(state => state.loadConnections);
@@ -188,7 +192,45 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
     setHistory([]);
     setError(null);
     setOpen(false);
+    setPanelPosition(null);
   }, [connectionId]);
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+
+    const updatePosition = () => {
+      const trigger = triggerRef.current;
+      const panel = panelRef.current;
+      if (!trigger || !panel) return;
+
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const margin = 12;
+      const width = Math.max(0, Math.min(340, viewportWidth - margin * 2));
+      const maxHeight = Math.max(0, Math.min(viewportHeight * 0.75, viewportHeight - margin * 2));
+      panel.style.width = `${width}px`;
+      panel.style.maxHeight = `${maxHeight}px`;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const panelHeight = panel.getBoundingClientRect().height;
+      const maxLeft = Math.max(margin, viewportWidth - width - margin);
+      const left = Math.min(maxLeft, Math.max(margin, triggerRect.right - width));
+      const maxTop = Math.max(margin, viewportHeight - panelHeight - margin);
+      const below = triggerRect.bottom + 8;
+      const preferredTop = below <= maxTop ? below : triggerRect.top - panelHeight - 8;
+      const top = Math.min(maxTop, Math.max(margin, preferredTop));
+
+      setPanelPosition({ left, top });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
 
   if (!supported || !connectionId) return null;
 
@@ -201,6 +243,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(prev => !prev)}
         className={`terminal-control ${open ? 'terminal-control-active' : ''}`}
@@ -211,10 +254,18 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
         <Activity className="w-4 h-4" />
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
-          className="app-popover right-0 top-full mt-1 w-[340px] max-h-[75vh] overflow-y-auto p-3 space-y-2.5 z-dropdown"
+          ref={panelRef}
+          className="app-popover fixed left-3 top-3 mt-0 max-h-[75vh] w-[340px] overflow-y-auto p-3 space-y-2.5 z-popover"
           data-terminal-monitor-panel
+          data-terminal-toolbar-popup
+          style={{
+            position: 'fixed',
+            left: panelPosition?.left ?? 12,
+            top: panelPosition?.top ?? 12,
+            visibility: panelPosition ? 'visible' : 'hidden',
+          }}
         >
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-fg flex items-center gap-1.5">
@@ -413,7 +464,8 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
               </Card>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

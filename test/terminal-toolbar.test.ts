@@ -93,4 +93,22 @@ describe('TerminalToolbar compact menu', () => {
 
     expect(trigger().getAttribute('aria-expanded')).toBe('false');
   });
+
+  it('stays open while the user interacts with a portaled toolbar popup', async () => {
+    await act(async () => renderToolbar());
+    await act(async () => trigger().click());
+
+    const popup = document.createElement('div');
+    popup.dataset.terminalToolbarPopup = '';
+    const popupButton = document.createElement('button');
+    popup.appendChild(popupButton);
+    document.body.appendChild(popup);
+
+    await act(async () => {
+      popupButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    });
+
+    expect(trigger().getAttribute('aria-expanded')).toBe('true');
+    popup.remove();
+  });
 });

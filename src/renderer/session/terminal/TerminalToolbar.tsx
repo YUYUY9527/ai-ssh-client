@@ -53,9 +53,10 @@ export function TerminalToolbar({
     if (!compactOpen) return;
 
     const closeOnPointerDown = (event: PointerEvent) => {
-      if (toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
-        setCompactOpen(false);
-      }
+      const target = event.target;
+      const clickedToolbar = toolbarRef.current?.contains(target as Node);
+      const clickedToolbarPopup = target instanceof Element && target.closest('[data-terminal-toolbar-popup]');
+      if (!clickedToolbar && !clickedToolbarPopup) setCompactOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
