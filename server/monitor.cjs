@@ -3,22 +3,28 @@
 /**
  * 服务器监控采集（目标机零安装）。
  *
- * 经独立 exec 通道跑一段 POSIX shell，读取 /proc、df、uname，输出 key=value 行，
+ * 经独立 exec 通道跑一段 POSIX shell，读取 /proc、/sys、df、uname，输出 key=value 行，
  * 再由 parseMonitorOutput 解析成结构化指标。CPU（总体 + 各核）、磁盘 IO、各网卡
  * 上下行都用 0.5s 两次采样求差得到瞬时值。仅依赖 Linux 标准接口
- * （/proc、df、awk、uname、hostname、who），常见发行版均可用。
+ * （/proc、/sys、df、awk、uname、hostname、who），常见发行版均可用。
  */
 
 // 注意：脚本里避免出现 JS 模板字符串的 ${}（本文件本身是模板字符串），
 // 因此所有 shell 变量引用都用 $name / $(...) / $(( )) 形式。
-// /proc/diskstats：统计整盘（不含分区/loop/dm/md）的累计读/写扇区（第 6、10 列）。
+// /sys/block/*/stat 提供整块设备的累计扇区数；跳过有 slaves 的映射层，避免重复统计。
 const MONITOR_SCRIPT = `
 tmp1=/tmp/.ais_mon_$$_1
 tmp2=/tmp/.ais_mon_$$_2
 trap 'rm -f "$tmp1" "$tmp2"' 0
 snap() {
   echo '##DISKSTAT'
-  cat /proc/diskstats 2>/dev/null
+  for disk in /sys/block/*; do
+    [ -r "$disk/stat" ] || continue
+    disk_name=$(basename "$disk")
+    case "$disk_name" in loop*) continue ;; esac
+    if [ -d "$disk/slaves" ] && [ -n "$(ls -A "$disk/slaves" 2>/dev/null)" ]; then continue; fi
+    awk -v name="$disk_name" '{ print name "|" $3 "|" $7 }' "$disk/stat"
+  done
   echo '##STAT'
   cat /proc/stat 2>/dev/null
   echo '##NETDEV'
@@ -33,8 +39,9 @@ FNR==1 { phase++; section="" }
 /^##STAT$/ { section="stat"; next }
 /^##NETDEV$/ { section="net"; next }
 section=="disk" {
-  if ($3 ~ /^(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+|hd[a-z]+)$/) {
-    if (phase==1) { r1+=$6; w1+=$10 } else { r2+=$6; w2+=$10 }
+  split($0, fields, "|")
+  if (fields[1] != "") {
+    if (phase==1) { r1+=fields[2]; w1+=fields[3] } else { r2+=fields[2]; w2+=fields[3] }
   }
   next
 }

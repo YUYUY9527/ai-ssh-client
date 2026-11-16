@@ -167,7 +167,7 @@ export interface ConnectionGroupsResult<T = any> {
   groups: T[];
 }
 
-/** 服务器监控指标（SSH 采集 /proc + df 解析所得）。 */
+/** 服务器监控指标（SSH 采集 /proc、/sys + df 解析所得）。 */
 export interface ServerMonitorMetrics {
   cpuPercent: number;
   /** 各逻辑核的瞬时使用率（顺序对应 cpu0..cpuN）。旧版服务端可能不返回。 */

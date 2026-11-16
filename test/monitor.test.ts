@@ -2,13 +2,18 @@ import { describe, it, expect } from 'vitest';
 import { buildMonitorCommand, parseMonitorOutput } from '../server/monitor.cjs';
 
 describe('monitor 采集命令与解析', () => {
-  it('采集命令读取 /proc 与 df，且不含会被 JS 误插值的 ${}', () => {
+  it('采集命令读取 /proc、/sys 与 df，且不含会被 JS 误插值的 ${}', () => {
     const command = buildMonitorCommand();
     expect(command).toContain('/proc/stat');
     expect(command).toContain('/proc/meminfo');
     expect(command).toContain('/proc/loadavg');
-    expect(command).toContain('/proc/diskstats');
     expect(command).toContain('/proc/net/dev');
+    expect(command).toContain('for disk in /sys/block/*');
+    expect(command).toContain('"$disk/stat"');
+    expect(command).toContain('$3 "|" $7');
+    expect(command).toContain('"$disk/slaves"');
+    expect(command).toContain('loop*) continue');
+    expect(command).not.toContain('sd[a-z]+|vd[a-z]+');
     expect(command).toContain('cpu_cores=');
     expect(command).toContain('disk_mount|');
     expect(command).toContain('df -Pk /');
