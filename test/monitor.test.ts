@@ -8,6 +8,9 @@ describe('monitor 采集命令与解析', () => {
     expect(command).toContain('/proc/meminfo');
     expect(command).toContain('/proc/loadavg');
     expect(command).toContain('/proc/net/dev');
+    expect(command).toContain('/proc/[0-9]*/stat');
+    expect(command).toContain('process_cpu|');
+    expect(command).toContain('rank<=10');
     expect(command).toContain('for disk in /sys/block/*');
     expect(command).toContain('"$disk/stat"');
     expect(command).toContain('$3 "|" $7');
@@ -68,6 +71,8 @@ describe('monitor 采集命令与解析', () => {
       'disk_io_interval_ms=500',
       'net_rate|eth0|1000|500',
       'net_rate|docker0|0|0',
+      'process_cpu|4321|node|38.5',
+      'process_cpu|876|postgres|14.2',
       'disk_mount|/|100|40|60|40%',
       'disk_mount|/home|200|100|100|50%',
       'mem_total_kb=1600000',
@@ -97,6 +102,10 @@ describe('monitor 采集命令与解析', () => {
       { name: 'eth0', rxBytesPerSec: 2000, txBytesPerSec: 1000 },
       { name: 'docker0', rxBytesPerSec: 0, txBytesPerSec: 0 },
     ]);
+    expect(metrics.processCpu).toEqual([
+      { pid: 4321, name: 'node', percent: 38.5 },
+      { pid: 876, name: 'postgres', percent: 14.2 },
+    ]);
     expect(metrics.disks).toEqual([
       { mount: '/', totalKb: 100, usedKb: 40, availableKb: 60, percent: 40 },
       { mount: '/home', totalKb: 200, usedKb: 100, availableKb: 100, percent: 50 },
@@ -121,6 +130,7 @@ describe('monitor 采集命令与解析', () => {
     expect(metrics.hostname).toBe('');
     expect(metrics.cpuCores).toEqual([]);
     expect(metrics.network).toEqual([]);
+    expect(metrics.processCpu).toEqual([]);
     expect(metrics.disks).toEqual([]);
     expect(metrics.processes).toEqual({ running: 0, total: 0 });
   });

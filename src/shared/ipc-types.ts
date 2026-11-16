@@ -196,6 +196,8 @@ export interface ServerMonitorMetrics {
   disks?: Array<{ mount: string; totalKb: number; usedKb: number; availableKb: number; percent: number }>;
   /** 磁盘 I/O 速率。旧版服务端可能不返回，前端需容错。 */
   diskIo?: { readBytesPerSec: number; writeBytesPerSec: number };
+  /** CPU 使用率最高的进程（最多 10 个）。旧版服务端可能不返回。 */
+  processCpu?: Array<{ pid: number; name: string; percent: number }>;
   /** 各网卡实时上下行速率。旧版服务端可能不返回。 */
   network?: Array<{ name: string; rxBytesPerSec: number; txBytesPerSec: number }>;
   /** 进程数（running / 总）。 */

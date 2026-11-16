@@ -29,6 +29,18 @@ snap() {
   cat /proc/stat 2>/dev/null
   echo '##NETDEV'
   cat /proc/net/dev 2>/dev/null
+  echo '##PROC'
+  awk '{
+    pid=$1; comm=$0; rest=$0
+    sub(/^[^(]*\\(/, "", comm)
+    sub(/\\) [^)]*$/, "", comm)
+    sub(/^.*\\) /, "", rest)
+    n=split(rest, fields, " ")
+    if (n >= 13) {
+      gsub(/[|[:cntrl:]]/, "_", comm)
+      print pid "|" fields[12] "|" fields[13] "|" comm
+    }
+  }' /proc/[0-9]*/stat 2>/dev/null
 }
 snap > "$tmp1"
 sleep 0.5
@@ -38,6 +50,7 @@ FNR==1 { phase++; section="" }
 /^##DISKSTAT$/ { section="disk"; next }
 /^##STAT$/ { section="stat"; next }
 /^##NETDEV$/ { section="net"; next }
+/^##PROC$/ { section="proc"; next }
 section=="disk" {
   split($0, fields, "|")
   if (fields[1] != "") {
@@ -52,7 +65,7 @@ section=="stat" {
     else { dt=tot-ct[$1]; di=idle-ci[$1]; cp[$1]=(dt>0)?int(100*(dt-di)/dt):0 }
   } else if ($1=="cpu") {
     tot=$2+$3+$4+$5+$6+$7+$8+$9; idle=$5+$6
-    if (phase==1) { at=tot; ai=idle } else { dt=tot-at; di=idle-ai; cpu=(dt>0)?int(100*(dt-di)/dt):0 }
+    if (phase==1) { at=tot; ai=idle } else { dt=tot-at; all_dt=dt; di=idle-ai; cpu=(dt>0)?int(100*(dt-di)/dt):0 }
   }
   next
 }
@@ -68,6 +81,16 @@ section=="net" {
   }
   next
 }
+section=="proc" {
+  split($0, fields, "|")
+  if (fields[1] ~ /^[0-9]+$/) {
+    pid=fields[1]
+    ticks=fields[2]+fields[3]
+    if (phase==1) { pt1[pid]=ticks }
+    else if ((pid in pt1) && ticks >= pt1[pid]) { pd[pid]=ticks-pt1[pid]; pn[pid]=fields[4] }
+  }
+  next
+}
 END {
   print "cpu=" cpu
   s=""
@@ -79,6 +102,18 @@ END {
   print "disk_read_sectors=" rd
   print "disk_write_sectors=" wd
   print "disk_io_interval_ms=500"
+  if (all_dt > 0) {
+    for (rank=1;rank<=10;rank++) {
+      best=""; bestTicks=0
+      for (pid in pd) {
+        if (!(pid in picked) && pd[pid] > bestTicks) { best=pid; bestTicks=pd[pid] }
+      }
+      if (best == "") break
+      picked[best]=1
+      pct=100*bestTicks*cn/all_dt
+      printf "process_cpu|%s|%s|%.1f\\n", best, pn[best], pct
+    }
+  }
 }
 ' "$tmp1" "$tmp2"
 mt=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
@@ -122,6 +157,7 @@ function parseMonitorOutput(text) {
   const map = {};
   const netLines = [];
   const diskMountLines = [];
+  const processCpuLines = [];
   for (const rawLine of String(text || '').split('\n')) {
     const line = rawLine.replace(/\r$/, '');
     if (!line) continue;
@@ -131,6 +167,10 @@ function parseMonitorOutput(text) {
     }
     if (line.startsWith('disk_mount|')) {
       diskMountLines.push(line);
+      continue;
+    }
+    if (line.startsWith('process_cpu|')) {
+      processCpuLines.push(line);
       continue;
     }
     const index = line.indexOf('=');
@@ -160,6 +200,11 @@ function parseMonitorOutput(text) {
       rxBytesPerSec: perSec(toNumber(rx)),
       txBytesPerSec: perSec(toNumber(tx)),
     };
+  });
+
+  const processCpu = processCpuLines.map((line) => {
+    const [, pid, name, percent] = line.split('|');
+    return { pid: toNumber(pid), name: String(name || ''), percent: toNumber(percent) };
   });
 
   const disks = diskMountLines.map((line) => {
@@ -217,6 +262,7 @@ function parseMonitorOutput(text) {
       readBytesPerSec: perSec(readSectors * bytesPerSector),
       writeBytesPerSec: perSec(writeSectors * bytesPerSector),
     },
+    processCpu,
     network,
     processes: { running: procRunning, total: procTotal },
     loggedInUsers: toNumber(map.logged_users),

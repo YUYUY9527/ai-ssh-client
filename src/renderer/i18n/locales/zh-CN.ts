@@ -907,7 +907,10 @@ const zhCN = {
       perCore: '每核',
       ms: '毫秒',
       processes: '进程',
+      topProcesses: 'CPU 占用进程',
       loggedUsers: '登录用户',
+      showAllInterfaces: '全部接口 ({count})',
+      showLess: '收起',
     },
     portForward: {
       title: '端口转发',

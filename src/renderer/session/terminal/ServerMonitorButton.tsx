@@ -12,6 +12,7 @@ interface ServerMonitorButtonProps {
 const REFRESH_INTERVAL_MS = 5000;
 /** sparkline 保留最近多少个采样点（5s × 60 = 5 分钟）。 */
 const HISTORY_LIMIT = 60;
+const MAX_VISIBLE_NETWORKS = 5;
 
 /** KB → 人类可读（监控指标以 KB 计）。 */
 function formatKb(kb: number): string {
@@ -128,7 +129,7 @@ function Field({ label, value, className = '' }: { label: string; value: string;
 
 /**
  * 终端工具栏的服务器监控按钮：点击在下方弹出指标卡片，再次点击收起。
- * 数据经 SSH 采集命令（/proc + df + uname）获得，目标机零安装。仅在 Web 端
+ * 数据经 SSH 采集命令（/proc + /sys + df + uname）获得，目标机零安装。仅在 Web 端
  * （getServerMonitor 可用）且存在活动连接时渲染；桌面端方法缺失时自动隐藏。
  */
 export function ServerMonitorButton({ connectionId, translate }: ServerMonitorButtonProps) {
@@ -139,6 +140,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   const [history, setHistory] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAllNetworks, setShowAllNetworks] = useState(false);
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
   const requestSeq = useRef(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -192,6 +194,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
     setHistory([]);
     setError(null);
     setOpen(false);
+    setShowAllNetworks(false);
     setPanelPosition(null);
   }, [connectionId]);
 
@@ -237,6 +240,13 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   const address = connection ? `${connection.username}@${connection.host}` : '';
   const coreCount = metrics?.coreCount ?? metrics?.cpuCores?.length ?? 0;
   const networkList = metrics?.network ?? [];
+  const sortedNetworkList = [...networkList]
+    .filter((network) => network.name !== 'lo')
+    .sort((a, b) => (b.rxBytesPerSec + b.txBytesPerSec) - (a.rxBytesPerSec + a.txBytesPerSec));
+  const visibleNetworkList = showAllNetworks
+    ? sortedNetworkList
+    : sortedNetworkList.slice(0, MAX_VISIBLE_NETWORKS);
+  const processCpu = (metrics?.processCpu ?? []).slice(0, 10);
   const diskList = metrics?.disks && metrics.disks.length > 0 ? metrics.disks : null;
   const memory = metrics?.memory;
 
@@ -383,6 +393,25 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                     {metrics.load.load1.toFixed(2)} · {metrics.load.load5.toFixed(2)} · {metrics.load.load15.toFixed(2)}
                   </span>
                 </div>
+                {processCpu.length > 0 && (
+                  <div className="border-t border-line-subtle pt-2">
+                    <div className="mb-1.5 text-[11px] font-medium text-fg-subtle">
+                      {translate('features.monitor.topProcesses')}
+                    </div>
+                    <div className="space-y-1">
+                      {processCpu.map((process) => (
+                        <div key={process.pid} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-[11px]">
+                          <span className="truncate text-fg-secondary" title={`${process.name} (${process.pid})`}>
+                            {process.name}<span className="ml-1.5 text-fg-faint">{process.pid}</span>
+                          </span>
+                          <span className="tabular-nums text-accent dark:text-accent-hover">
+                            {process.percent.toFixed(1)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Card>
 
               {/* 内存 */}
@@ -406,14 +435,25 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
               </Card>
 
               {/* 网络 */}
-              {networkList.length > 0 && (
+              {sortedNetworkList.length > 0 && (
                 <Card
                   icon={<Network className="w-3 h-3 text-info dark:text-info-fg" />}
                   tint="bg-info-muted"
                   title={translate('features.monitor.network')}
+                  right={sortedNetworkList.length > MAX_VISIBLE_NETWORKS ? (
+                    <button
+                      type="button"
+                      className="text-[10px] text-accent hover:text-accent-hover"
+                      onClick={() => setShowAllNetworks((shown) => !shown)}
+                    >
+                      {showAllNetworks
+                        ? translate('features.monitor.showLess')
+                        : translate('features.monitor.showAllInterfaces', { count: sortedNetworkList.length })}
+                    </button>
+                  ) : undefined}
                 >
                   <div className="space-y-1">
-                    {networkList.map((net) => (
+                    {visibleNetworkList.map((net) => (
                       <div key={net.name} className="flex items-center justify-between text-[11px]">
                         <span className="text-fg-secondary truncate mr-2" title={net.name}>{net.name}</span>
                         <span className="tabular-nums shrink-0">

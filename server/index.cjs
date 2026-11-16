@@ -1688,7 +1688,7 @@ app.get('/api/ssh/:id/output-buffer', route((request) => {
     data: session.outputBuffer || '',
   });
 }));
-// 服务器监控仪表盘：独立 exec 通道采集 /proc + df，不干扰交互 shell 与 Agent 执行。
+// 服务器监控仪表盘：独立 exec 通道采集 /proc、/sys 与 df，不干扰交互 shell 与 Agent 执行。
 app.get('/api/ssh/:id/monitor', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
   // 先跑一次极轻量命令测一次往返延迟（失败不影响主采集）。

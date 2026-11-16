@@ -913,7 +913,10 @@ const enUS: DeepStringify<typeof zhCN> = {
       perCore: 'Per core',
       ms: 'ms',
       processes: 'Processes',
+      topProcesses: 'Top CPU processes',
       loggedUsers: 'Users',
+      showAllInterfaces: 'All interfaces ({count})',
+      showLess: 'Show less',
     },
     portForward: {
       title: 'Port forwarding',
