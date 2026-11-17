@@ -565,6 +565,10 @@ export interface DockerContainerSummary {
   createdAt: string;
   runningFor: string;
   size: string;
+  /** docker compose 项目名（非 compose 容器为空）。 */
+  composeProject?: string;
+  /** docker compose 服务名（非 compose 容器为空）。 */
+  composeService?: string;
 }
 
 export interface DockerContainerListResult {
@@ -615,3 +619,14 @@ export interface DockerActionResult {
   containerId: string;
   output: string;
 }
+
+/** 容器「更新」结果：compose 容器走 pull + up -d，非 compose 仅拉镜像。 */
+export interface DockerUpdateResult {
+  mode: 'compose' | 'pull';
+  project: string;
+  service: string;
+  image: string;
+  output: string;
+  message: string;
+}
+

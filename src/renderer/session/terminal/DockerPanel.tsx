@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, Box, Container, Layers3, Loader2, Play, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, X } from 'lucide-react';
+import { Activity, ArrowUpCircle, Box, Container, Layers3, Loader2, Play, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, X } from 'lucide-react';
 import type { DockerContainerDetail, DockerContainerSummary } from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
 import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
@@ -12,7 +12,7 @@ interface DockerPanelProps {
   onClose: () => void;
 }
 
-type ActionKind = 'start' | 'stop' | 'restart';
+type ActionKind = 'start' | 'stop' | 'restart' | 'update';
 type ContainerFilter = 'all' | 'running' | 'stopped';
 
 /** 容器管理弹窗：列表 + 详情 + 启停/重启 + 日志 + 进入容器 shell。 */
@@ -20,6 +20,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [available, setAvailable] = useState<boolean | null>(null);
   const [version, setVersion] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<ActionKind | null>(null);
@@ -64,11 +65,35 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   }, [refresh]);
 
   const runAction = async (container: DockerContainerSummary, action: ActionKind) => {
-    const api = window.electronAPI?.dockerContainerAction;
-    if (!api) return;
+    setError(null);
+    setNotice(null);
     setBusyId(container.id);
     setBusyAction(action);
     try {
+      if (action === 'update') {
+        const api = window.electronAPI?.updateDockerContainer;
+        if (!api) {
+          setError(translate('terminal.docker.updateUnavailable'));
+          return;
+        }
+        const result = await api(connectionId, container.id);
+        if (!result.success) {
+          setError(result.error || translate('terminal.docker.updateFailed'));
+        } else if (result.data) {
+          setNotice(
+            result.data.mode === 'compose'
+              ? translate('terminal.docker.updateDoneCompose', {
+                project: result.data.project,
+                service: result.data.service,
+              })
+              : translate('terminal.docker.updateDonePull'),
+          );
+        }
+        await refresh();
+        return;
+      }
+      const api = window.electronAPI?.dockerContainerAction;
+      if (!api) return;
       const result = await api(connectionId, container.id, action);
       if (!result.success) setError(result.error || `${action} failed`);
       await refresh();
@@ -332,6 +357,22 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                           <RotateCcw className="h-3.5 w-3.5" />
                         )}
                       </button>
+                      <button
+                        type="button"
+                        className="docker-action-button is-update"
+                        disabled={busyId === container.id}
+                        title={container.composeService
+                          ? translate('terminal.docker.update')
+                          : translate('terminal.docker.updatePullOnly')}
+                        aria-label={translate('terminal.docker.update')}
+                        onClick={() => setPendingAction({ container, action: 'update' })}
+                      >
+                        {busyId === container.id && busyAction === 'update' ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ArrowUpCircle className="h-3.5 w-3.5" />
+                        )}
+                      </button>
                       <button type="button" className="docker-action-button is-logs" title={translate('terminal.docker.logs')} aria-label={translate('terminal.docker.logs')} onClick={() => { void openLogs(container); }}>
                         <ScrollText className="h-3.5 w-3.5" />
                       </button>
@@ -353,6 +394,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
           </div>
         )}
 
+        {notice && available !== false ? <div className="border-t border-accent-muted bg-accent-muted px-4 py-1.5 text-xs text-accent dark:text-accent-hover">{notice}</div> : null}
         {error && available !== false ? <div className="border-t border-danger-muted bg-danger-muted px-4 py-1.5 text-xs text-danger">{error}</div> : null}
       </div>
 
@@ -436,10 +478,14 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
         title={translate('terminal.docker.confirmTitle', {
           action: pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : '',
         })}
-        message={translate('terminal.docker.confirmMessage', {
-          action: pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : '',
-          name: pendingAction?.container.name || pendingAction?.container.id.slice(0, 12) || '',
-        })}
+        message={pendingAction?.action === 'update'
+          ? translate('terminal.docker.updateConfirmMessage', {
+            name: pendingAction?.container.name || pendingAction?.container.id.slice(0, 12) || '',
+          })
+          : translate('terminal.docker.confirmMessage', {
+            action: pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : '',
+            name: pendingAction?.container.name || pendingAction?.container.id.slice(0, 12) || '',
+          })}
         confirmText={pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : undefined}
         onConfirm={() => {
           const pending = pendingAction;

@@ -9,6 +9,7 @@ const {
   listContainers,
   inspectContainer,
   containerAction,
+  updateContainer,
   containerLogs,
   openContainerLogStream,
 } = require('../server/docker-manager.cjs');
@@ -156,5 +157,63 @@ describe('docker-manager', () => {
         resolve();
       });
     });
+  });
+
+  it('parseContainerLines 解析 compose 项目/服务标签', () => {
+    const output = JSON.stringify({
+      ID: 'abc', Names: 'web', Image: 'nginx', State: 'running',
+      Labels: 'com.docker.compose.project=shop,com.docker.compose.service=web,other=1',
+    });
+    const list = parseContainerLines(output);
+    expect(list[0]).toMatchObject({ composeProject: 'shop', composeService: 'web' });
+  });
+
+  it('updateContainer 对 compose 容器执行 pull + up -d', async () => {
+    const commands: string[] = [];
+    const client = fakeClient((command) => {
+      commands.push(command);
+      if (command.includes('Config.Labels')) {
+        return {
+          stdout: JSON.stringify({
+            'com.docker.compose.project': 'shop',
+            'com.docker.compose.service': 'web',
+            'com.docker.compose.project.working_dir': '/srv/shop',
+            'com.docker.compose.project.config_files': '/srv/shop/docker-compose.yml',
+          }),
+          code: 0,
+        };
+      }
+      if (command.includes('compose') && command.includes(' pull ')) return { stdout: 'pulled\n', code: 0 };
+      if (command.includes('compose') && command.includes(' up -d ')) return { stdout: 'started\n', code: 0 };
+      return { code: 1, stderr: 'unexpected' };
+    });
+    const result = await updateContainer(client, 'cid');
+    expect(result).toMatchObject({ mode: 'compose', project: 'shop', service: 'web' });
+    expect(commands.some((command) => command.includes('compose --project-directory /srv/shop -f /srv/shop/docker-compose.yml -p shop pull web'))).toBe(true);
+    expect(commands.some((command) => command.includes('compose --project-directory /srv/shop -f /srv/shop/docker-compose.yml -p shop up -d web'))).toBe(true);
+  });
+
+  it('updateContainer 对非 compose 容器只拉取镜像', async () => {
+    const commands: string[] = [];
+    const client = fakeClient((command) => {
+      commands.push(command);
+      if (command.includes('Config.Labels')) return { stdout: '{}', code: 0 };
+      if (command.includes('Config.Image')) return { stdout: 'nginx:latest\n', code: 0 };
+      if (command.startsWith('docker pull')) return { stdout: 'pulled\n', code: 0 };
+      return { code: 1 };
+    });
+    const result = await updateContainer(client, 'cid');
+    expect(result).toMatchObject({ mode: 'pull', image: 'nginx:latest' });
+    expect(result.message).toContain('手动重建');
+    expect(commands.some((command) => command.includes('docker pull nginx:latest'))).toBe(true);
+  });
+
+  it('updateContainer 在 pull 失败时抛出错误', async () => {
+    const client = fakeClient((command) => {
+      if (command.includes('Config.Labels')) return { stdout: '{}', code: 0 };
+      if (command.includes('Config.Image')) return { stdout: 'nginx:latest', code: 0 };
+      return { stderr: 'pull access denied', code: 1 };
+    });
+    await expect(updateContainer(client, 'cid')).rejects.toThrow(/pull access denied/);
   });
 });

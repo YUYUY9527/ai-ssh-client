@@ -12,6 +12,8 @@ const { execCommand } = require('./ssh-exec.cjs');
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_LOG_TAIL = 300;
+/** docker pull / compose up 可能耗时数分钟，单独给更长的超时。 */
+const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 function quoteArg(value) {
   const text = String(value ?? '');
@@ -34,6 +36,17 @@ function runDocker(client, args, options = {}) {
   });
 }
 
+/** `docker ps --format '{{json .}}'` 的 Labels 是 `k=v,k=v` 字符串；拆成对象。 */
+function parseLabelString(text) {
+  const labels = {};
+  for (const pair of String(text || '').split(',')) {
+    const index = pair.indexOf('=');
+    if (index <= 0) continue;
+    labels[pair.slice(0, index).trim()] = pair.slice(index + 1);
+  }
+  return labels;
+}
+
 /** 解析 `docker ps --format '{{json .}}'` 的逐行 JSON。 */
 function parseContainerLines(output) {
   const containers = [];
@@ -42,6 +55,7 @@ function parseContainerLines(output) {
     if (!trimmed) continue;
     try {
       const raw = JSON.parse(trimmed);
+      const labels = parseLabelString(raw.Labels);
       containers.push({
         id: raw.ID || '',
         name: raw.Names || '',
@@ -53,6 +67,8 @@ function parseContainerLines(output) {
         createdAt: raw.CreatedAt || '',
         runningFor: raw.RunningFor || '',
         size: raw.Size || '',
+        composeProject: labels['com.docker.compose.project'] || '',
+        composeService: labels['com.docker.compose.service'] || '',
       });
     } catch {
       // 忽略无法解析的行（例如 docker 的提示信息）
@@ -204,6 +220,99 @@ async function containerAction(client, containerId, action) {
   return { action, containerId, output: String(result.output || '').trim() };
 }
 
+/**
+ * 读取容器的 compose 归属信息（非 compose 容器返回空字段）。
+ * 用 inspect 的 Config.Labels 而不是 ps，避免 Labels 字段被截断。
+ */
+async function containerComposeMeta(client, containerId) {
+  const result = await runDocker(client, ['inspect', '--format', '{{json .Config.Labels}}', containerId]);
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || '').trim() || 'docker inspect failed');
+  }
+  let labels = {};
+  try {
+    labels = JSON.parse(String(result.output || '{}').trim() || '{}') || {};
+  } catch {
+    throw new Error('Unexpected docker inspect output');
+  }
+  return {
+    project: String(labels['com.docker.compose.project'] || ''),
+    service: String(labels['com.docker.compose.service'] || ''),
+    workingDir: String(labels['com.docker.compose.project.working_dir'] || ''),
+    configFiles: String(labels['com.docker.compose.project.config_files'] || ''),
+  };
+}
+
+async function containerImageName(client, containerId) {
+  const result = await runDocker(client, ['inspect', '--format', '{{.Config.Image}}', containerId]);
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || '').trim() || 'docker inspect failed');
+  }
+  const image = String(result.output || '').trim();
+  if (!image) throw new Error('无法确定容器镜像');
+  return image;
+}
+
+/**
+ * 「更新」容器：compose 容器执行 `docker compose ... pull <service>` + `up -d <service>`；
+ * 非 compose 容器只能 `docker pull <image>`（不做自动重建，避免丢失运行参数）。
+ */
+async function updateContainer(client, containerId) {
+  const meta = await containerComposeMeta(client, containerId);
+  if (!meta.project || !meta.service) {
+    const image = await containerImageName(client, containerId);
+    const pull = await runDocker(client, ['pull', image], {
+      timeoutMs: UPDATE_TIMEOUT_MS,
+      maxBytes: 4 * 1024 * 1024,
+    });
+    const output = `${pull.output || ''}${pull.stderr || ''}`.trim();
+    if (pull.exitCode !== 0) {
+      throw new Error(output || `docker pull ${image} failed`);
+    }
+    return {
+      mode: 'pull',
+      project: '',
+      service: '',
+      image,
+      output,
+      message: '非 compose 容器：已拉取最新镜像，请手动重建容器以使用新镜像。',
+    };
+  }
+
+  const composeArgs = ['compose'];
+  if (meta.workingDir) composeArgs.push('--project-directory', meta.workingDir);
+  const files = meta.configFiles.split(',').map((item) => item.trim()).filter(Boolean);
+  for (const file of files) composeArgs.push('-f', file);
+  composeArgs.push('-p', meta.project);
+
+  const pull = await runDocker(client, [...composeArgs, 'pull', meta.service], {
+    timeoutMs: UPDATE_TIMEOUT_MS,
+    maxBytes: 4 * 1024 * 1024,
+  });
+  const pullOutput = `${pull.output || ''}${pull.stderr || ''}`.trim();
+  if (pull.exitCode !== 0) {
+    throw new Error(pullOutput || `docker compose pull ${meta.service} failed`);
+  }
+
+  const up = await runDocker(client, [...composeArgs, 'up', '-d', meta.service], {
+    timeoutMs: UPDATE_TIMEOUT_MS,
+    maxBytes: 4 * 1024 * 1024,
+  });
+  const upOutput = `${up.output || ''}${up.stderr || ''}`.trim();
+  if (up.exitCode !== 0) {
+    throw new Error(upOutput || `docker compose up -d ${meta.service} failed`);
+  }
+
+  return {
+    mode: 'compose',
+    project: meta.project,
+    service: meta.service,
+    image: '',
+    output: [pullOutput, upOutput].filter(Boolean).join('\n'),
+    message: `已更新 ${meta.project}/${meta.service}（pull + up -d）。`,
+  };
+}
+
 module.exports = {
   quoteArg,
   parseContainerLines,
@@ -213,5 +322,6 @@ module.exports = {
   containerLogs,
   openContainerLogStream,
   containerAction,
+  updateContainer,
   ALLOWED_ACTIONS,
 };

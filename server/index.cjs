@@ -43,6 +43,7 @@ const {
   containerLogs,
   openContainerLogStream,
   containerAction,
+  updateContainer,
   quoteArg: quoteDockerArg,
 } = require('./docker-manager.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
@@ -1773,6 +1774,14 @@ app.get('/api/ssh/:id/docker/containers/:containerId/logs/stream', (request, res
     stream.close();
   });
 });
+
+// 容器「更新」：compose 容器 pull + up -d，非 compose 仅 pull。必须注册在通用 :action 路由之前。
+app.post('/api/ssh/:id/docker/containers/:containerId/update', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const result = await updateContainer(session.client, request.params.containerId);
+  emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
+  return success(result);
+}));
 
 app.post('/api/ssh/:id/docker/containers/:containerId/:action', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));

@@ -1517,6 +1517,10 @@ const webApi: Window['electronAPI'] = {
     `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}/${encodeURIComponent(action)}`,
     { method: 'POST' },
   ),
+  updateDockerContainer: (connectionId, containerId) => sftpRequest<import('../../shared/ipc-types').DockerUpdateResult>(
+    `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}/update`,
+    { method: 'POST' },
+  ),
   sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
     `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
   ),

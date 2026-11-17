@@ -1490,6 +1490,12 @@
     border-color: color-mix(in srgb, var(--warning) 32%, var(--border-color));
   }
 
+  .docker-action-button.is-update {
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
+  }
+
   .docker-action-button.is-logs {
     color: var(--info-fg);
     background: var(--info-muted);
@@ -1524,6 +1530,12 @@
     color: var(--warning-fg);
     background: color-mix(in srgb, var(--warning) 20%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--warning) 40%, var(--border-color));
+  }
+
+  .docker-action-button.is-update:hover:not(:disabled) {
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-color));
   }
 
   .docker-action-button.is-logs:hover:not(:disabled) {

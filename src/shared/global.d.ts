@@ -37,6 +37,7 @@ import type {
   DockerContainerDetail,
   DockerLogsResult,
   DockerActionResult,
+  DockerUpdateResult,
   SftpSearchMode,
   SftpSearchResult,
   SftpPreviewResult,
@@ -86,6 +87,8 @@ declare global {
       inspectDockerContainer?: (connectionId: string, containerId: string) => Promise<IPCResult<DockerContainerDetail>>;
       dockerContainerLogs?: (connectionId: string, containerId: string, tail?: number) => Promise<IPCResult<DockerLogsResult>>;
       dockerContainerAction?: (connectionId: string, containerId: string, action: string) => Promise<IPCResult<DockerActionResult>>;
+      /** 更新容器：compose 容器 pull + up -d，非 compose 仅拉取镜像。 */
+      updateDockerContainer?: (connectionId: string, containerId: string) => Promise<IPCResult<DockerUpdateResult>>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
       sshListHostTrustRecords: () => Promise<IPCResult<{ records: HostTrustRecord[] }>>;
       sshUpsertHostTrustRecord: (record: HostTrustRecord) => Promise<IPCResult>;
