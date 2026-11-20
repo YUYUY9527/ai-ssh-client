@@ -296,6 +296,9 @@ const enUS: DeepStringify<typeof zhCN> = {
     multilinePasteConfirm: 'Paste',
     multilinePasteCancel: 'Cancel',
     multilinePasteLines: '{count} lines',
+    multilinePasteVimHint:
+      'This looks like an old Vim that lacks bracketed paste. Pasting multiple lines makes Vim treat each newline as Enter and auto-indent/continue comments — e.g. a leading # makes every following line start with #. Use "Safe paste (Vim)": it temporarily enables :set paste, pastes, then restores.',
+    multilinePasteVimConfirm: 'Safe paste (Vim)',
     cursorBlock: 'Block',
     cursorUnderline: 'Underline',
     cursorBar: 'Bar',

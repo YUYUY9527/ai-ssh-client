@@ -46,6 +46,7 @@ import {
   releaseProgressWrap,
 } from './terminal-progress-wrap';
 import { prepareTerminalPaste, wrapBracketedPaste } from './paste-safety';
+import { buildVimSafePasteSequence, isVimWithoutBracketedPaste } from './vim-paste';
 import {
   createTerminalModeState,
   emitTerminalModeRestore,
@@ -139,7 +140,7 @@ export function TerminalView({
   const [terminalTheme, setTerminalTheme] = useState(settings?.terminalTheme || 'dark');
   const [terminalInstanceVersion, setTerminalInstanceVersion] = useState(0);
   const [isAlternateScreen, setIsAlternateScreen] = useState(false);
-  const [pastePreview, setPastePreview] = useState<{ previewText: string; preparedText: string } | null>(null);
+  const [pastePreview, setPastePreview] = useState<{ previewText: string; preparedText: string; vimSafe: boolean } | null>(null);
   const [shellState, setShellState] = useState<ShellIntegrationState | null>(null);
   const isAlternateScreenRef = useRef(false);
   const agentFollowUpModeRef = useRef(false);
@@ -496,7 +497,7 @@ export function TerminalView({
   }, []);
 
   const handleMultilinePasteRequest = useCallback((previewText: string, preparedText: string) => {
-    setPastePreview({ previewText, preparedText });
+    setPastePreview({ previewText, preparedText, vimSafe: isVimWithoutBracketedPaste(xtermRef.current) });
   }, []);
 
   const handleShellIntegrationStateChange = useCallback((state: ShellIntegrationState) => {
@@ -842,6 +843,20 @@ export function TerminalView({
     setPastePreview(null);
   }, []);
 
+  /** 旧版 Vim：临时开启 :set paste 粘贴，避免 autoindent/注释符污染。 */
+  const handleVimSafePaste = useCallback(() => {
+    if (!pastePreview) {
+      return;
+    }
+    const text = pastePreview.previewText;
+    setPastePreview(null);
+    if (!text || !liveConnectionId || !window.electronAPI) {
+      return;
+    }
+    recordPastedInput(text);
+    window.electronAPI.sshExecuteSync(liveConnectionId, buildVimSafePasteSequence(text));
+  }, [liveConnectionId, pastePreview, recordPastedInput]);
+
   /**
    * 重放后校准终端状态（见 terminal-replay）：
    * - chunk 被行截断时可能丢失 \x1b[?1049h，xterm 停在 normal buffer
@@ -1155,6 +1170,8 @@ export function TerminalView({
         translate={t}
         onConfirm={handleConfirmPaste}
         onCancel={handleCancelPaste}
+        vimSafeAvailable={Boolean(pastePreview?.vimSafe)}
+        onVimSafePaste={handleVimSafePaste}
       />
 
       {/* No Connection State */}

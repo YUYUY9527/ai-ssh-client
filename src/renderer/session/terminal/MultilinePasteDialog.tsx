@@ -8,6 +8,9 @@ interface MultilinePasteDialogProps {
   translate: (key: string, params?: Record<string, string | number>) => string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** 当前是旧版 Vim（不支持 bracketed paste）时为 true，提示并提供安全粘贴。 */
+  vimSafeAvailable?: boolean;
+  onVimSafePaste?: () => void;
 }
 
 /** 多行粘贴预览与安全确认弹窗。 */
@@ -17,6 +20,8 @@ export function MultilinePasteDialog({
   translate,
   onConfirm,
   onCancel,
+  vimSafeAvailable = false,
+  onVimSafePaste,
 }: MultilinePasteDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -46,6 +51,12 @@ export function MultilinePasteDialog({
         <p id={messageId} className="text-sm leading-6 text-fg-secondary">
           {translate('terminal.multilinePasteHint')}
         </p>
+        {vimSafeAvailable && (
+          <div className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs leading-5 text-fg-secondary">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>{translate('terminal.multilinePasteVimHint')}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between text-xs text-fg-muted">
           <span>{translate('terminal.multilinePasteLines', { count: lineCount })}</span>
         </div>
@@ -62,6 +73,11 @@ export function MultilinePasteDialog({
         >
           {translate('terminal.multilinePasteCancel')}
         </button>
+        {vimSafeAvailable && onVimSafePaste && (
+          <button type="button" onClick={onVimSafePaste} className="industrial-button-primary">
+            {translate('terminal.multilinePasteVimConfirm')}
+          </button>
+        )}
         <button
           type="button"
           ref={confirmButtonRef}

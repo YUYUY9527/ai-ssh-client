@@ -290,6 +290,9 @@ const zhCN = {
     multilinePasteConfirm: '确认粘贴',
     multilinePasteCancel: '取消',
     multilinePasteLines: '{count} 行',
+    multilinePasteVimHint:
+      '检测到当前是旧版 Vim（不支持 bracketed paste）。直接粘贴多行时，Vim 会把换行当作回车并按自动缩进续行，例如首行以 # 开头会让后续每行都被补上 #。请用「安全粘贴（Vim）」：它会临时开启 :set paste 粘贴，完成后再关闭。',
+    multilinePasteVimConfirm: '安全粘贴（Vim）',
     cursorBlock: '方块',
     cursorUnderline: '下划线',
     cursorBar: '竖线',
