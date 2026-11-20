@@ -3,10 +3,12 @@ import type { ReactNode } from 'react';
 interface WorkspaceLayoutProps {
   children: ReactNode;
   sidebar?: ReactNode;
+  /** 会话级弹层挂载宿主：渲染在 .app-main 内，不遮挡顶栏与会话标签栏。 */
+  overlays?: ReactNode;
 }
 
 /** Layout for the active session area and optional session-bound sidebars. */
-export function WorkspaceLayout({ children, sidebar }: WorkspaceLayoutProps) {
+export function WorkspaceLayout({ children, sidebar, overlays }: WorkspaceLayoutProps) {
   return (
     <div className="app-main">
       <div className="flex min-w-0 flex-1">
@@ -16,6 +18,7 @@ export function WorkspaceLayout({ children, sidebar }: WorkspaceLayoutProps) {
           {children}
         </div>
       </div>
+      {overlays}
     </div>
   );
 }

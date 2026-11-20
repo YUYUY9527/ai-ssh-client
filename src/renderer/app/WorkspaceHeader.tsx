@@ -256,10 +256,10 @@ export function WorkspaceHeader({
           <Server className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-fg dark:text-white">
+          <div className="truncate text-[13px] font-semibold text-fg">
             {connection.name}
           </div>
-          <div className="truncate text-xs text-fg-muted">
+          <div className="truncate font-mono text-[11px] text-fg-muted">
             {connection.username}@{connection.host}:{connection.port}
           </div>
           {connection.tags && connection.tags.length > 0 && (
@@ -396,9 +396,10 @@ export function WorkspaceHeader({
         <div className="app-title-mark">
           <AppIcon className="h-6 w-6" />
         </div>
-        <div className="mr-2 leading-tight">
-          <h1 className="text-sm font-semibold tracking-tight">AI SSH Client</h1>
+        <div className="leading-tight">
+          <h1 className="text-[13.5px] font-semibold tracking-tight text-fg">AI SSH Client</h1>
         </div>
+        <span className="mx-1.5 h-4 w-px bg-line-subtle" aria-hidden="true" />
 
         <div className="relative" ref={connectionDropdownRef}>
           <button

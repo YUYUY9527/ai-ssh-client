@@ -1,6 +1,7 @@
 const posixPath = require('node:path').posix;
 const { randomUUID } = require('node:crypto');
 const { ensureRemoteDirectory, sftpProtocolPath } = require('./sftp-items.cjs');
+const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
 const { writePipelined } = require('./sftp-pipelined-write.cjs');
 
 const CHUNK_SIZE = 64 * 1024;
@@ -184,12 +185,25 @@ async function removeRemoteQuiet(sftp, remotePath) {
   }
 }
 
-function makeSnapshot({ connectionId, batchId, direction, name, localPath, remotePath, totalBytes, conflictPolicy }) {
+function makeSnapshot({
+  connectionId,
+  batchId,
+  direction,
+  name,
+  localPath,
+  remotePath,
+  totalBytes,
+  conflictPolicy,
+  targetConnectionId,
+  targetConnectionName,
+}) {
   const timestamp = now();
   return {
     taskId: randomUUID(),
     batchId,
     connectionId,
+    ...(targetConnectionId ? { targetConnectionId } : {}),
+    ...(targetConnectionName ? { targetConnectionName } : {}),
     attempt: 1,
     sequence: 0,
     direction,
@@ -288,7 +302,17 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
           };
           restored.completedAt = now();
         }
-        tasks.set(restored.taskId, { clientId: record.clientId, canceled: false, snapshot: restored });
+        const restoredTask = { clientId: record.clientId, canceled: false, snapshot: restored };
+        if (restored.targetConnectionId && restored.localPath && restored.remotePath) {
+          restoredTask.crossServer = {
+            sourceConnectionId: restored.connectionId,
+            sourcePath: restored.localPath,
+            targetConnectionId: restored.targetConnectionId,
+            targetDirectory: posixPath.dirname(restored.remotePath),
+            targetName: restored.name || taskName(restored.remotePath),
+          };
+        }
+        tasks.set(restored.taskId, restoredTask);
       }
     } catch {
       // 持久化文件损坏按空处理，不阻塞服务启动。
@@ -912,8 +936,9 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
     let resumeFrom = 0;
     if (task.snapshot.direction === 'upload' && task.snapshot.remotePath) {
       try {
-        const sftp = await getSftp(task.snapshot.connectionId, task.clientId);
-        const temporaryPath = temporaryRemotePath(task.snapshot.remotePath, task.snapshot.taskId);
+        const targetConnId = task.crossServer ? task.crossServer.targetConnectionId : task.snapshot.connectionId;
+        const sftp = await getSftp(targetConnId, task.clientId);
+        const temporaryPath = temporaryRemotePath(sftpProtocolPath(task.snapshot.remotePath), task.snapshot.taskId);
         const checkpoint = await readRemoteJson(sftp, checkpointRemotePath(temporaryPath));
         const partSize = await remoteFileSize(sftp, temporaryPath);
         if (checkpoint && checkpoint.taskId === task.snapshot.taskId) {
@@ -924,7 +949,7 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       }
     }
 
-    return update(task, (snapshot) => {
+    const updated = update(task, (snapshot) => {
       snapshot.attempt += 1;
       snapshot.status = 'queued';
       snapshot.sequence = 0;
@@ -938,6 +963,10 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       snapshot.completedAt = undefined;
       snapshot.commitGuarantee = 'none';
     });
+    if (task.crossServer) {
+      void runCrossServerTransfer(task);
+    }
+    return updated;
   }
 
   /**
@@ -980,8 +1009,9 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
     let resumeFrom = task.snapshot.transferredBytes || 0;
     if (task.snapshot.direction === 'upload' && task.snapshot.remotePath) {
       try {
-        const sftp = await getSftp(task.snapshot.connectionId, task.clientId);
-        const temporaryPath = temporaryRemotePath(task.snapshot.remotePath, task.snapshot.taskId);
+        const targetConnId = task.crossServer ? task.crossServer.targetConnectionId : task.snapshot.connectionId;
+        const sftp = await getSftp(targetConnId, task.clientId);
+        const temporaryPath = temporaryRemotePath(sftpProtocolPath(task.snapshot.remotePath), task.snapshot.taskId);
         const checkpoint = await readRemoteJson(sftp, checkpointRemotePath(temporaryPath));
         const partSize = await remoteFileSize(sftp, temporaryPath);
         if (checkpoint && checkpoint.taskId === task.snapshot.taskId) {
@@ -992,7 +1022,7 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       }
     }
 
-    return update(task, (snapshot) => {
+    const updated = update(task, (snapshot) => {
       snapshot.status = 'queued';
       snapshot.sequence = 0;
       snapshot.transferredBytes = resumeFrom;
@@ -1005,6 +1035,10 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
       snapshot.completedAt = undefined;
       snapshot.commitGuarantee = 'none';
     });
+    if (task.crossServer) {
+      void runCrossServerTransfer(task);
+    }
+    return updated;
   }
 
   /**
@@ -1108,8 +1142,9 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
     }
     if (task.snapshot.remotePath) {
       try {
-        const sftp = await getSftp(task.snapshot.connectionId, task.clientId);
-        const temporaryPath = temporaryRemotePath(task.snapshot.remotePath, task.snapshot.taskId);
+        const targetConnId = task.crossServer ? task.crossServer.targetConnectionId : task.snapshot.connectionId;
+        const sftp = await getSftp(targetConnId, task.clientId);
+        const temporaryPath = temporaryRemotePath(sftpProtocolPath(task.snapshot.remotePath), task.snapshot.taskId);
         await removeRemoteQuiet(sftp, temporaryPath);
         await removeRemoteQuiet(sftp, checkpointRemotePath(temporaryPath));
       } catch {
@@ -1118,6 +1153,343 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
     }
     tasks.delete(task.snapshot.taskId);
     schedulePersist();
+  }
+
+  /**
+   * 解析远端绝对路径（支持 ~ / ~/ 与相对路径）；sftp.realpath 不可用或路径尚不存在时回退协议路径。
+   */
+  async function resolveSftpRealPath(sftp, remotePath) {
+    const protocolPath = sftpProtocolPath(remotePath);
+    if (typeof sftp.realpath !== 'function') {
+      return protocolPath;
+    }
+    try {
+      const resolved = await callSftp(sftp, 'realpath', protocolPath);
+      return resolved ? String(resolved) : protocolPath;
+    } catch {
+      return protocolPath;
+    }
+  }
+
+  /** 查找不冲突的目标路径（重命名策略使用）。 */
+  async function findUniqueRemotePath(sftp, basePath, taskId) {
+    const candidate = suggestedRemotePath(basePath, taskId);
+    if (!(await pathExists(sftp, candidate))) {
+      return candidate;
+    }
+    const ext = posixPath.extname(basePath);
+    const stem = posixPath.basename(basePath, ext) || 'transfer';
+    const dir = posixPath.dirname(basePath);
+    for (let index = 1; index <= 99; index += 1) {
+      const next = posixPath.join(dir, `${stem} (${index})${ext}`);
+      if (!(await pathExists(sftp, next))) {
+        return next;
+      }
+    }
+    return posixPath.join(dir, `${stem} (${Date.now()})${ext}`);
+  }
+
+  /**
+   * 后台执行跨服务器流式文件传输：从源服务器流水线读取，直接流水线写入目标服务器。
+   * 复用临时文件 + 原子提交 + 断点续传 + 取消/暂停控制 + WebSocket 进度推送。
+   */
+  async function runCrossServerTransfer(task) {
+    const meta = task.crossServer;
+    if (!meta) return;
+
+    let readStream = null;
+    let targetHandle = null;
+    let targetSftp = null;
+    let temporaryPath = null;
+
+    const cleanupStream = () => {
+      if (readStream && typeof readStream.destroy === 'function') {
+        try { readStream.destroy(); } catch { /* ignore */ }
+      }
+      readStream = null;
+    };
+
+    try {
+      if (task.canceled) {
+        finish(task, 'canceled');
+        return;
+      }
+      if (task.paused) {
+        update(task, (snapshot) => { snapshot.status = 'paused'; });
+        return;
+      }
+
+      update(task, (snapshot) => {
+        snapshot.status = 'checking';
+        snapshot.error = undefined;
+      });
+
+      const sourceSftp = await getSftp(meta.sourceConnectionId, task.clientId);
+      targetSftp = await getSftp(meta.targetConnectionId, task.clientId);
+
+      const sourceProtocolPath = sftpProtocolPath(meta.sourcePath);
+      let sourceAttrs;
+      try {
+        sourceAttrs = await callSftp(sourceSftp, 'stat', sourceProtocolPath);
+      } catch {
+        sourceAttrs = await callSftp(sourceSftp, 'lstat', sourceProtocolPath);
+      }
+      const isDir = typeof sourceAttrs?.isDirectory === 'function'
+        ? sourceAttrs.isDirectory()
+        : Boolean(sourceAttrs?.isDirectory);
+      if (isDir) {
+        throw new TransferError('Cross-server transfer supports files only', 'invalid-path', false);
+      }
+
+      const totalBytes = Math.max(0, Number(sourceAttrs?.size || 0));
+      const sourceMtimeSeconds = normalizeSourceMtimeSeconds(sourceAttrs?.mtime);
+
+      const targetDirProtocol = sftpProtocolPath(meta.targetDirectory);
+      await ensureRemoteDirectory(targetSftp, targetDirProtocol);
+      const resolvedTargetDir = await resolveSftpRealPath(targetSftp, meta.targetDirectory);
+      const resolvedSourceFile = await resolveSftpRealPath(sourceSftp, meta.sourcePath);
+
+      let finalDisplayPath = posixPath.join(resolvedTargetDir, meta.targetName);
+      let finalProtocolPath = sftpProtocolPath(finalDisplayPath);
+
+      if (meta.sourceConnectionId === meta.targetConnectionId && resolvedSourceFile === finalProtocolPath) {
+        throw new TransferError('Source and destination are the same file', 'invalid-path', false);
+      }
+
+      update(task, (snapshot) => {
+        snapshot.totalBytes = totalBytes;
+        snapshot.remotePath = finalDisplayPath;
+      });
+
+      const lockKey = `${task.clientId}:${meta.targetConnectionId}:${finalProtocolPath}`;
+      await withTargetLock(lockKey, async () => {
+        if (task.canceled) {
+          finish(task, 'canceled');
+          return;
+        }
+        if (task.paused) {
+          update(task, (snapshot) => { snapshot.status = 'paused'; });
+          return;
+        }
+
+        const exists = await pathExists(targetSftp, finalProtocolPath);
+        if (exists) {
+          const policy = task.snapshot.conflictPolicy || 'overwrite';
+          if (policy === 'skip') {
+            finish(task, 'skipped');
+            return;
+          }
+          if (policy === 'rename') {
+            finalDisplayPath = await findUniqueRemotePath(targetSftp, finalDisplayPath, task.snapshot.taskId);
+            finalProtocolPath = sftpProtocolPath(finalDisplayPath);
+            update(task, (snapshot) => {
+              snapshot.remotePath = finalDisplayPath;
+              snapshot.name = taskName(finalDisplayPath);
+            });
+          }
+        }
+
+        temporaryPath = temporaryRemotePath(finalProtocolPath, task.snapshot.taskId);
+        let resumeFrom = Math.max(0, Number(task.snapshot.resumedFrom || 0));
+        if (resumeFrom > 0) {
+          const existingPartSize = await remoteFileSize(targetSftp, temporaryPath);
+          if (existingPartSize < resumeFrom) {
+            resumeFrom = 0;
+          }
+        }
+
+        const openFlags = resumeFrom > 0 ? 'r+' : 'w';
+        targetHandle = await callSftp(targetSftp, 'open', temporaryPath, openFlags);
+
+        update(task, (snapshot) => {
+          snapshot.status = 'transferring';
+          snapshot.transferredBytes = resumeFrom;
+          snapshot.resumedFrom = resumeFrom;
+          snapshot.progress = totalBytes > 0
+            ? Math.min(99, Math.round((resumeFrom / totalBytes) * 100))
+            : 0;
+        });
+
+        let lastEmitAt = now();
+        let lastCheckpointAt = lastEmitAt;
+        let lastCheckpointOffset = resumeFrom;
+        let latestConfirmed = resumeFrom;
+
+        readStream = createPipelinedReadStream(sourceSftp, sourceProtocolPath, { start: resumeFrom });
+
+        let writeResult;
+        try {
+          writeResult = await writePipelined(targetSftp, targetHandle, readStream, resumeFrom, {
+            shouldCancel: () => Boolean(task.canceled || task.paused),
+            onAck: async (confirmedOffset) => {
+              latestConfirmed = confirmedOffset;
+              const currentTime = now();
+              task.snapshot.transferredBytes = confirmedOffset;
+              task.snapshot.progress = totalBytes > 0
+                ? Math.min(99, Math.round((confirmedOffset / totalBytes) * 100))
+                : 0;
+              if (currentTime - lastEmitAt >= PROGRESS_EMIT_MS) {
+                lastEmitAt = currentTime;
+                task.snapshot.sequence += 1;
+                task.snapshot.updatedAt = currentTime;
+                emit(task);
+              }
+              if (
+                confirmedOffset - lastCheckpointOffset >= CHECKPOINT_BYTES
+                || currentTime - lastCheckpointAt >= CHECKPOINT_MS
+              ) {
+                lastCheckpointOffset = confirmedOffset;
+                lastCheckpointAt = currentTime;
+                await writeCheckpoint(targetSftp, temporaryPath, {
+                  taskId: task.snapshot.taskId,
+                  confirmedOffset,
+                  totalBytes,
+                  updatedAt: currentTime,
+                }).catch(() => undefined);
+              }
+            },
+          });
+        } catch (error) {
+          cleanupStream();
+          if (targetHandle != null) {
+            await callSftp(targetSftp, 'close', targetHandle).catch(() => undefined);
+            targetHandle = null;
+          }
+          if (task.canceled) {
+            await removeRemoteQuiet(targetSftp, temporaryPath);
+            await removeRemoteQuiet(targetSftp, checkpointRemotePath(temporaryPath));
+            finish(task, 'canceled');
+            return;
+          }
+          if (task.paused) {
+            const confirmed = Number.isFinite(error?.confirmedOffset) ? error.confirmedOffset : latestConfirmed;
+            await writeCheckpoint(targetSftp, temporaryPath, {
+              taskId: task.snapshot.taskId,
+              confirmedOffset: confirmed,
+              totalBytes,
+              updatedAt: now(),
+            }).catch(() => undefined);
+            update(task, (snapshot) => {
+              snapshot.status = 'paused';
+              snapshot.transferredBytes = confirmed;
+              snapshot.resumedFrom = confirmed;
+              snapshot.progress = totalBytes > 0
+                ? Math.min(99, Math.round((confirmed / totalBytes) * 100))
+                : 0;
+              snapshot.completedAt = undefined;
+            });
+            return;
+          }
+          throw error;
+        }
+
+        cleanupStream();
+        await callSftp(targetSftp, 'close', targetHandle);
+        targetHandle = null;
+
+        if (task.canceled) {
+          await removeRemoteQuiet(targetSftp, temporaryPath);
+          await removeRemoteQuiet(targetSftp, checkpointRemotePath(temporaryPath));
+          finish(task, 'canceled');
+          return;
+        }
+
+        update(task, (snapshot) => {
+          snapshot.status = 'committing';
+          snapshot.transferredBytes = writeResult.confirmedOffset;
+          snapshot.progress = 99;
+        });
+
+        const commitGuarantee = await commitRemoteTemp(
+          targetSftp,
+          temporaryPath,
+          finalProtocolPath,
+          task.snapshot.taskId,
+        );
+        await removeRemoteQuiet(targetSftp, checkpointRemotePath(temporaryPath));
+
+        if (task.snapshot.preserveTimestamps !== false && sourceMtimeSeconds > 0) {
+          await callSftp(targetSftp, 'utimes', finalProtocolPath, sourceMtimeSeconds, sourceMtimeSeconds)
+            .catch(() => undefined);
+        }
+
+        finish(task, 'completed', undefined, commitGuarantee);
+      });
+    } catch (error) {
+      cleanupStream();
+      if (targetSftp && targetHandle != null) {
+        await callSftp(targetSftp, 'close', targetHandle).catch(() => undefined);
+        targetHandle = null;
+      }
+      if (!isTerminal(task.snapshot.status)) {
+        finish(task, 'failed', error);
+      }
+    }
+  }
+
+  /**
+   * 发起跨服务器单文件传输（A 服务器 → B 服务器指定目录）。
+   * 立即返回初始任务快照，并在服务端后台流式执行，通过 sftp-transfer-event 推送实时进度。
+   */
+  function startCrossServerTransfer(clientId, request) {
+    const sourceConnectionId = String(request?.sourceConnectionId || '').trim();
+    const targetConnectionId = String(request?.targetConnectionId || '').trim();
+    const sourcePath = String(request?.sourcePath || '').trim();
+    const targetDirectory = String(request?.targetDirectory || '~').trim() || '~';
+    const rawTargetName = String(request?.targetName || '').trim() || taskName(sourcePath);
+    const targetConnectionName = String(request?.targetConnectionName || '').trim();
+    const conflictPolicy = ['overwrite', 'skip', 'rename'].includes(request?.conflictPolicy)
+      ? request.conflictPolicy
+      : 'overwrite';
+
+    if (!sourceConnectionId || !targetConnectionId) {
+      throw new TransferError('Source and target connections are required', 'invalid-path', false);
+    }
+    if (!sourcePath || sourcePath === '/') {
+      throw new TransferError('Invalid source file path', 'invalid-path', false);
+    }
+    if (
+      !rawTargetName
+      || rawTargetName === '.'
+      || rawTargetName === '..'
+      || rawTargetName.includes('/')
+      || rawTargetName.includes('\\')
+      || rawTargetName.includes('\0')
+    ) {
+      throw new TransferError('Invalid target file name', 'invalid-path', false);
+    }
+
+    const destinationPath = posixPath.join(targetDirectory, rawTargetName);
+    const task = {
+      clientId,
+      canceled: false,
+      paused: false,
+      crossServer: {
+        sourceConnectionId,
+        sourcePath,
+        targetConnectionId,
+        targetDirectory,
+        targetName: rawTargetName,
+      },
+      snapshot: makeSnapshot({
+        connectionId: sourceConnectionId,
+        batchId: randomUUID(),
+        direction: 'upload',
+        name: rawTargetName,
+        localPath: sourcePath,
+        remotePath: destinationPath,
+        totalBytes: Number.isFinite(request?.sourceSize) ? Math.max(0, Number(request.sourceSize)) : undefined,
+        conflictPolicy,
+        targetConnectionId,
+        targetConnectionName: targetConnectionName || undefined,
+      }),
+    };
+    task.snapshot.preserveTimestamps = request?.preserveTimestamps !== false;
+    tasks.set(task.snapshot.taskId, task);
+    emit(task);
+    schedulePersist();
+    void runCrossServerTransfer(task);
+    return { task: task.snapshot };
   }
 
   function list(clientId, connectionId) {
@@ -1138,6 +1510,7 @@ function createSftpTransferService({ getSftp, emitEvent, storage }) {
     resolveConflict,
     resume,
     retry,
+    startCrossServerTransfer,
     startDownload,
     startUpload,
     upload: async (clientId, taskId, request) => {

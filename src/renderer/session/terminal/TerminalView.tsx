@@ -39,7 +39,6 @@ import {
 } from './terminal-cwd';
 import { planTerminalOutputSync } from './terminal-output-sync';
 import { planReplayCalibration } from './terminal-replay';
-import { readLogicalBufferLine, resolveAgentPromptEraseSequence } from './terminal-input-line';
 import {
   createProgressWrapState,
   guardCarriageReturnProgress,
@@ -60,23 +59,24 @@ import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
 import { useTerminalSearch } from './useTerminalSearch';
 import { useXtermInstance } from './useXtermInstance';
-import { useTerminalAgentOutput } from './useTerminalAgentOutput';
 import {
-  formatAgentExitNotice,
-  formatAgentTerminalText,
+  TerminalAgentDock,
+  type TerminalAgentDraftPaste,
+  type TerminalAgentNotice,
+} from './TerminalAgentDock';
+import {
   isAgentTaskRunningInSession,
   isShellPromptReadyForAgent,
   parseTerminalAgentPaste,
   resolveTerminalAgentEscapeAction,
   submitAgentInput,
-  TERMINAL_AGENT_EXIT_REPAINT,
-  TERMINAL_AGENT_PREFIX,
   type AgentSubmissionError,
 } from '../../agent/terminal-agent-chat';
 
 interface TerminalProps {
   liveConnectionId: string | null;
   onPasteToAI?: (text: string) => void;
+  onOpenAISettings?: () => void;
   sessionId: string | null;
   theme?: 'dark' | 'light' | 'system';
   settings?: AppSettings;
@@ -126,6 +126,7 @@ function getModeStorage(): Storage | null {
 export function TerminalView({
   liveConnectionId,
   onPasteToAI,
+  onOpenAISettings,
   sessionId,
   theme: themeProp,
   settings,
@@ -142,22 +143,21 @@ export function TerminalView({
   const [isAlternateScreen, setIsAlternateScreen] = useState(false);
   const [pastePreview, setPastePreview] = useState<{ previewText: string; preparedText: string; vimSafe: boolean } | null>(null);
   const [shellState, setShellState] = useState<ShellIntegrationState | null>(null);
+  const [agentDockOpenToken, setAgentDockOpenToken] = useState(0);
+  const [agentDockFocusToken, setAgentDockFocusToken] = useState(0);
+  const [agentDockCollapseToken, setAgentDockCollapseToken] = useState(0);
+  const [agentDockPastedDraft, setAgentDockPastedDraft] = useState<TerminalAgentDraftPaste | null>(null);
+  const [agentDockNotice, setAgentDockNotice] = useState<TerminalAgentNotice | null>(null);
   const isAlternateScreenRef = useRef(false);
-  const agentFollowUpModeRef = useRef(false);
-  const agentFirstInputModeRef = useRef(false);
-  const agentFirstInputConnectionRef = useRef<string | null>(null);
-  const forceAgentPrefixAfterExitRef = useRef(false);
-  /** 用户按 Esc 中断过的任务 id：该任务进入结束态时不得再把输入接管回 Agent。 */
-  const agentFollowUpSuppressedTaskIdRef = useRef<string | null>(null);
-  /** `useTerminalInputTracking` 在 handleExitAgentFollowUp 之后才调用，用 ref 打通。 */
+  /** 用户按 Esc 或停止按钮中断过的任务 id：用于停靠面板展示「已中断」状态。 */
+  const interruptedAgentTaskIdRef = useRef<string | null>(null);
+  /** `useTerminalInputTracking` 在 interruptAgentTask 之后才调用，用 ref 打通。 */
   const clearTrackedInputRef = useRef<() => void>(() => {});
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
   /** 进度条原地刷新时临时关闭自动换行，防止超宽进度每帧新增一行。 */
   const progressWrapStateRef = useRef(createProgressWrapState());
   const progressWrapTimerRef = useRef<number | null>(null);
-  /** Agent 期间清理裸提示符的延迟任务；输出可能分多帧落地，等一批写完再擦。 */
-  const agentPromptClearTimerRef = useRef<number | null>(null);
   /** 远端全屏程序一次性声明的终端模式（bracketed paste / 鼠标 / 光标键…），replay 后恢复。 */
   const terminalModeStateRef = useRef<TerminalModeState>(createTerminalModeState());
   const lastModePersistRef = useRef(0);
@@ -195,70 +195,41 @@ export function TerminalView({
   const { theme: hookTheme } = useTheme();
   const { t } = useI18n();
   const theme = themeProp ?? hookTheme;
-  const agentState = useAgentStore((state) => state.agentState);
-  const agentTaskConnectionId = useAgentStore((state) => state.currentTask?.connectionId || null);
   const agentTaskId = useAgentStore((state) => state.currentTask?.id || null);
-  const hasCurrentAgentTask = useAgentStore((state) => Boolean(state.currentTask));
-  const activeConversationId = useAgentStore((state) => state.activeConversationId);
 
   useEffect(() => {
-    // 换任务就丢掉「被中断过」的标记：它只对当初那个任务有效，
-    // 留着会让后来者按 id 比较时出现意外命中。
-    if (agentTaskId && agentFollowUpSuppressedTaskIdRef.current && agentFollowUpSuppressedTaskIdRef.current !== agentTaskId) {
-      agentFollowUpSuppressedTaskIdRef.current = null;
+    // 换任务就丢掉「被中断过」的标记：它只对当初那个任务有效
+    if (agentTaskId && interruptedAgentTaskIdRef.current && interruptedAgentTaskIdRef.current !== agentTaskId) {
+      interruptedAgentTaskIdRef.current = null;
     }
-    if (!sessionId || !hasCurrentAgentTask || (agentTaskConnectionId && agentTaskConnectionId !== sessionId)) {
-      if (agentFirstInputModeRef.current && agentFirstInputConnectionRef.current === sessionId) {
-        agentFollowUpModeRef.current = true;
-        forceAgentPrefixAfterExitRef.current = false;
-        return;
-      }
-      // 注意：这里不再「只要历史里有本会话的对话就自动进入连续对话」。
-      // 旧实现让它每轮 effect 都会重新武装连续对话，用户按 Esc 退出后下一次状态变更
-      // 又会把普通输入劫持给 Agent（真实反馈：「退出后进行普通输入还是会被当成 AI 对话」）。
-      // 现在只有显式发起（@ai / @ai new / 任务刚结束的那一轮）才进入连续对话。
-      agentFirstInputModeRef.current = false;
-      agentFirstInputConnectionRef.current = null;
-      agentFollowUpModeRef.current = false;
-      forceAgentPrefixAfterExitRef.current = Boolean(sessionId);
-      return;
-    }
-    if (agentState === 'finished' || agentState === 'error') {
-      // 用户刚按 Esc 中断/退出过这个任务：结束态也不要把输入接管回去。
-      if (agentFollowUpSuppressedTaskIdRef.current === agentTaskId) {
-        agentFollowUpModeRef.current = false;
-        agentFirstInputModeRef.current = false;
-        agentFirstInputConnectionRef.current = null;
-        forceAgentPrefixAfterExitRef.current = Boolean(sessionId);
-        return;
-      }
-      agentFollowUpModeRef.current = true;
-    }
-  }, [activeConversationId, agentState, agentTaskConnectionId, agentTaskId, hasCurrentAgentTask, sessionId]);
+  }, [agentTaskId]);
+
+  useEffect(() => {
+    setAgentDockNotice(null);
+  }, [sessionId]);
 
   const handleTerminalAgentInput = useCallback((text: string) => {
+    setAgentDockOpenToken((count) => count + 1);
     const result = submitAgentInput(text, sessionId);
     if (result.ok) {
       if (result.action.type === 'new-conversation') {
-        agentFollowUpModeRef.current = true;
-        agentFirstInputModeRef.current = true;
-        agentFirstInputConnectionRef.current = sessionId;
-        forceAgentPrefixAfterExitRef.current = false;
-        window.setTimeout(() => {
-          xtermRef.current?.write(formatAgentTerminalText(t('terminal.agentNewConversation')));
-        }, 50);
+        setAgentDockNotice({
+          id: Date.now(),
+          tone: 'info',
+          message: t('terminal.agentNewConversation'),
+        });
+      } else if (result.action.type === 'approval') {
+        setAgentDockNotice({
+          id: Date.now(),
+          tone: 'info',
+          message: t(
+            result.action.result === 'approved'
+              ? 'terminal.agentApprovalAccepted'
+              : 'terminal.agentApprovalRejected',
+          ),
+        });
       } else {
-        agentFollowUpModeRef.current = false;
-        agentFirstInputModeRef.current = false;
-        agentFirstInputConnectionRef.current = null;
-        forceAgentPrefixAfterExitRef.current = false;
-      }
-      if (result.action.type === 'approval') {
-        xtermRef.current?.write(formatAgentTerminalText(t(
-          result.action.result === 'approved'
-            ? 'terminal.agentApprovalAccepted'
-            : 'terminal.agentApprovalRejected',
-        )));
+        setAgentDockNotice(null);
       }
       return;
     }
@@ -272,78 +243,25 @@ export function TerminalView({
       approvalResponseRequired: 'terminal.agentApprovalReplyRequired',
       wrongSession: 'agent.errors.wrongSession',
     };
-    xtermRef.current?.write(`\x1b[31m${formatAgentTerminalText(t(errorKeys[result.error]))}\x1b[0m`);
-  }, [sessionId, t, xtermRef]);
-
-  /**
-   * 退出连续对话并「断得干净」。
-   *
-   * 两件事以前漏了，直接对应「按 Esc 退出后还得 Ctrl+C」和
-   * 「退出后随便打个字还是被当成 AI 对话」：
-   * 1. 远端那行还留着已回显的 `@ai ...`（xterm 只把 ESC 发给了 PTY，没清行）；
-   * 2. 本地 `currentInputRef` 也还留着同一行，于是下一次键入被拼在 `@ai` 后面，
-   *    `/^@ai/` 继续命中，输入又被送进 Agent。
-   */
-  const resetAgentInputOwnership = useCallback(() => {
-    agentFollowUpModeRef.current = false;
-    agentFirstInputModeRef.current = false;
-    agentFirstInputConnectionRef.current = null;
-    forceAgentPrefixAfterExitRef.current = true;
-    clearTrackedInputRef.current();
-  }, []);
-
-  /**
-   * 退出连续对话的统一收尾：清掉远端那行残留、把提示写成独占一行、
-   * 并（按需）让远端重新画一条提示符。
-   *
-   * 只发 `^U` 是不够的：bash 回完退格和 `\x1b[K` 就把光标停在空行行首，
-   * 不会重画提示符 —— 这正是「退出后看不到 `[root@k8s-slave1 ~]#`」的成因。
-   * Esc 路径因此补一次 `TERMINAL_AGENT_EXIT_REPAINT`。
-   */
-  const notifyAgentFollowUpExit = useCallback((repaintOnRemote: boolean) => {
-    if (repaintOnRemote && liveConnectionId && window.electronAPI) {
-      try {
-        window.electronAPI.sshExecuteSync(liveConnectionId, TERMINAL_AGENT_EXIT_REPAINT);
-      } catch (error) {
-        console.warn('Failed to repaint shell prompt on Agent exit', error);
-      }
-    }
-    xtermRef.current?.write(formatAgentExitNotice(t('terminal.agentContinuationExited')));
-  }, [liveConnectionId, t, xtermRef]);
-
-  const exitAgentFollowUp = useCallback(() => {
-    resetAgentInputOwnership();
-    notifyAgentFollowUpExit(true);
-  }, [notifyAgentFollowUpExit, resetAgentInputOwnership]);
-
-  /**
-   * 回车收到空行时的退出。
-   * 那个回车已经把空行交给远端，bash 会自己补一条新提示符，无需再要求重画
-   * （再发一次会多出一条重复的提示符）。
-   */
-  const handleExitAgentFollowUp = useCallback(() => {
-    if (!agentFollowUpModeRef.current) return;
-    resetAgentInputOwnership();
-    notifyAgentFollowUpExit(false);
-  }, [notifyAgentFollowUpExit, resetAgentInputOwnership]);
+    setAgentDockNotice({
+      id: Date.now(),
+      tone: 'error',
+      message: t(errorKeys[result.error]),
+    });
+  }, [sessionId, t]);
 
   /**
    * 中断正在跑的任务。
-   *
    * 顺序不能反：先让网关掐断远端在途命令（`agentPauseTask`），再让 store 进入结束态。
-   * 反过来运行时先看到「已结束」就直接 abortActiveWork 收工，远端那条命令仍会跑完 ——
-   * 用户看到「已中断」但服务器还在动。
    */
   const interruptAgentTask = useCallback(() => {
     const state = useAgentStore.getState();
     const task = state.currentTask;
-    // 结束态投影时据此跳过「继续追问」的提示，并把结论写成「已中断」
-    agentFollowUpSuppressedTaskIdRef.current = task?.id || null;
-    // 按任务的连接掐断：多标签页下不能把别的会话正在跑的命令也一起取消
+    interruptedAgentTaskIdRef.current = task?.id || null;
     void window.electronAPI?.agentPauseTask?.(task?.connectionId || sessionId || undefined);
     state.cancelTask();
-    resetAgentInputOwnership();
-  }, [resetAgentInputOwnership, sessionId]);
+    clearTrackedInputRef.current();
+  }, [sessionId]);
 
   const isAgentTaskRunningHere = useCallback(
     () => isAgentTaskRunningInSession({
@@ -356,119 +274,35 @@ export function TerminalView({
   );
 
   /**
-   * Agent 任务期间，命令之间远端会重画一次裸提示符。它出现在终端最底部，
-   * 会被误读成「AI 已结束」，所以一落地就擦掉当前行；下一条状态行会复用这一行。
-   */
-  const clearStrayAgentPrompt = useCallback(() => {
-    const term = xtermRef.current;
-    if (!term || !sessionId) {
-      return;
-    }
-    const state = useAgentStore.getState();
-    const running = isAgentTaskRunningInSession({
-      sessionId,
-      currentTaskState: state.currentTask?.state ?? null,
-      currentTaskConnectionId: state.currentTask?.connectionId ?? null,
-      agentState: state.agentState,
-    });
-    // 任务刚结束、状态先落到 finished 时，裸提示符可能比状态投影更早到达；
-    // 连续对话模式（follow-up / 首轮输入）也算 Agent 上下文，同样要清理。
-    const inAgentContext = running
-      || agentFollowUpModeRef.current
-      || agentFirstInputModeRef.current;
-    if (!inAgentContext) {
-      return;
-    }
-    const buffer = term.buffer?.active;
-    if (!buffer) {
-      return;
-    }
-    const currentLine = readLogicalBufferLine((index) => buffer.getLine(index), buffer.cursorY);
-    const previousLine = buffer.cursorY > 0
-      ? readLogicalBufferLine((index) => buffer.getLine(index), buffer.cursorY - 1)
-      : null;
-    const eraseSequence = resolveAgentPromptEraseSequence(currentLine, previousLine);
-    if (eraseSequence) {
-      term.write(eraseSequence);
-    }
-  }, [sessionId]);
-
-  /** 输出分多帧到达，统一在最后一批落地后做一次提示符清理。 */
-  const scheduleAgentPromptClear = useCallback(() => {
-    if (agentPromptClearTimerRef.current != null) {
-      window.clearTimeout(agentPromptClearTimerRef.current);
-    }
-    agentPromptClearTimerRef.current = window.setTimeout(() => {
-      agentPromptClearTimerRef.current = null;
-      clearStrayAgentPrompt();
-    }, 80);
-  }, [clearStrayAgentPrompt]);
-
-  /**
-   * Esc 的统一入口：按当前状态决定含义，Agent 上下文内一律吞掉这次按键。
-   * 判定与语义都在 `resolveTerminalAgentEscapeAction` 里，便于单独验证。
+   * Esc 仅在本会话有 Agent 正在运行时中断任务；全屏程序（vim/less/top）中始终放行。
    */
   const handleEscapeKey = useCallback((): boolean => {
-    // 全屏程序（vim/less/top）里 Esc 是它自己的命令：即便 Agent 在后台跑也不能抢，
-    // 否则用户在编辑器里按 Esc 会莫名其妙把任务中断掉。
     if (isAlternateScreenRef.current) {
       return false;
     }
     const action = resolveTerminalAgentEscapeAction({
       isTaskRunningHere: isAgentTaskRunningHere(),
-      isFollowUpActive: agentFollowUpModeRef.current || agentFirstInputModeRef.current,
+      isFollowUpActive: false,
     });
     if (action === 'interrupt-task') {
       interruptAgentTask();
       return true;
     }
-    if (action === 'exit-follow-up') {
-      exitAgentFollowUp();
-      return true;
-    }
     return false;
-  }, [exitAgentFollowUp, interruptAgentTask, isAgentTaskRunningHere]);
+  }, [interruptAgentTask, isAgentTaskRunningHere]);
 
-  const getAgentReplyMode = useCallback((): 'answer' | 'approval' | 'follow-up' | 'busy' | null => {
-    const state = useAgentStore.getState();
-    if (
-      !sessionId
-      || state.pendingTerminalPrompt
-      || (state.currentTask?.connectionId && state.currentTask.connectionId !== sessionId)
-    ) {
-      return null;
-    }
-    if (state.pendingApproval) return 'approval';
-    if (state.pendingQuestion) return 'answer';
-    if (agentFirstInputModeRef.current) return 'follow-up';
-    if (
-      state.currentTask
-      && state.currentTask.state !== 'finished'
-      && state.currentTask.state !== 'error'
-      && state.agentState !== 'finished'
-      && state.agentState !== 'error'
-    ) {
-      return 'busy';
-    }
-    if (agentFollowUpModeRef.current && (state.agentState === 'finished' || state.agentState === 'error')) {
-      return 'follow-up';
-    }
-    return null;
-  }, [sessionId]);
-
-  const shouldForceAgentPrefix = useCallback(
-    () => forceAgentPrefixAfterExitRef.current,
+  const isAgentTaskInterrupted = useCallback(
+    (taskId: string) => interruptedAgentTaskIdRef.current === taskId,
     [],
   );
 
-  useTerminalAgentOutput({
-    isAlternateScreen,
-    sessionId,
-    terminalInstanceVersion,
-    translate: t,
-    xtermRef,
-    isTaskInterrupted: (taskId) => agentFollowUpSuppressedTaskIdRef.current === taskId,
-  });
+  const handleClearAgentNotice = useCallback(() => {
+    setAgentDockNotice(null);
+  }, []);
+
+  const handleFocusTerminal = useCallback(() => {
+    xtermRef.current?.focus();
+  }, []);
 
   const activeSession = useSessionStore((state) => (
     sessionId ? state.sessions[sessionId] : null
@@ -525,9 +359,6 @@ export function TerminalView({
   } = useTerminalInputTracking({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
-    getAgentReplyMode,
-    shouldForceAgentPrefix,
-    onExitAgentFollowUp: handleExitAgentFollowUp,
     syncAlternateScreenState,
     terminalInstanceVersion,
     xtermRef,
@@ -599,6 +430,15 @@ export function TerminalView({
     isAlternateScreenActive,
   });
 
+  const handlePasteSelectedToAI = useCallback((text: string) => {
+    const cleanText = text.replace(/[\r\n]+$/, '');
+    if (!cleanText) {
+      return;
+    }
+    setAgentDockPastedDraft({ id: Date.now(), text: cleanText });
+    onPasteToAI?.(cleanText);
+  }, [onPasteToAI]);
+
   const {
     closeContextMenu,
     contextMenu,
@@ -612,7 +452,7 @@ export function TerminalView({
     liveConnectionId,
     onAgentInput: handleTerminalAgentInput,
     canSubmitPastedAgentInput,
-    onPasteToAI,
+    onPasteToAI: handlePasteSelectedToAI,
     xtermRef,
     onMultilinePasteRequest: handleMultilinePasteRequest,
     recordPastedInput,
@@ -684,10 +524,6 @@ export function TerminalView({
       window.clearTimeout(progressWrapTimerRef.current);
       progressWrapTimerRef.current = null;
     }
-    if (agentPromptClearTimerRef.current != null) {
-      window.clearTimeout(agentPromptClearTimerRef.current);
-      agentPromptClearTimerRef.current = null;
-    }
     progressWrapStateRef.current.active = false;
   }, []);
 
@@ -707,17 +543,34 @@ export function TerminalView({
   };
 
   const handleTerminalPointerDown = () => {
+    setAgentDockCollapseToken((count) => count + 1);
     xtermRef.current?.focus();
   };
 
-  const handleInsertAgentPrefix = useCallback(() => {
-    const term = xtermRef.current;
-    if (!term || !liveConnectionId) {
+  const handleOpenAgentDock = useCallback(() => {
+    if (!sessionId) {
       return;
     }
-    term.focus();
-    term.input(`${TERMINAL_AGENT_PREFIX} `, true);
-  }, [liveConnectionId, xtermRef]);
+    setAgentDockOpenToken((count) => count + 1);
+    setAgentDockFocusToken((count) => count + 1);
+  }, [sessionId]);
+
+  const handleInsertCommandToTerminal = useCallback((command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed || !liveConnectionId || !window.electronAPI) {
+      return;
+    }
+    if (trimmed.includes('\n')) {
+      handleMultilinePasteRequest(trimmed, trimmed);
+      return;
+    }
+    try {
+      window.electronAPI.sshExecuteSync(liveConnectionId, trimmed);
+      xtermRef.current?.focus();
+    } catch (error) {
+      console.warn('Failed to insert command into terminal', error);
+    }
+  }, [handleMultilinePasteRequest, liveConnectionId]);
 
   const handleOpenFileTransfer = useCallback(() => {
     if (!liveConnectionId) {
@@ -919,10 +772,7 @@ export function TerminalView({
       feedModes(chunk);
       consumeOutputChunk(chunk);
       consumeShellIntegration(chunk);
-      writeProgressGuarded(chunk, clearStrayAgentPrompt);
-      if (isAgentTaskRunningHere()) {
-        scheduleAgentPromptClear();
-      }
+      writeProgressGuarded(chunk);
     };
 
     if (plan.action === 'append') {
@@ -970,10 +820,6 @@ export function TerminalView({
         consumeShellIntegration(plan.chunk);
         // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
         writeProgressGuarded(withModeRestore(modeRestore, plan.chunk), () => {
-          clearStrayAgentPrompt();
-          if (isAgentTaskRunningHere()) {
-            scheduleAgentPromptClear();
-          }
           releaseSuspend();
           calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
         });
@@ -996,15 +842,12 @@ export function TerminalView({
   }, [
     beginSuspendInputForward,
     calibrateAfterReplay,
-    clearStrayAgentPrompt,
     consumeOutputChunk,
     consumeShellIntegration,
     endSuspendInputForward,
     feedModes,
-    isAgentTaskRunningHere,
     persistModes,
     renderedOutput,
-    scheduleAgentPromptClear,
     resetInputTracking,
     setRenderedOutput,
     sessionId,
@@ -1095,10 +938,10 @@ export function TerminalView({
         themes={TERMINAL_THEMES}
         translate={t}
         isThemeSelectorOpen={showThemeSelector}
-        canInsertAgentPrefix={isLive}
+        canInsertAgentPrefix={hasSession}
         connectionId={liveConnectionId}
         onDecreaseFontSize={() => commitFontSize(fontSizeRef.current - 2)}
-        onInsertAgentPrefix={handleInsertAgentPrefix}
+        onInsertAgentPrefix={handleOpenAgentDock}
         onIncreaseFontSize={() => commitFontSize(fontSizeRef.current + 2)}
         onToggleSearch={() => setShowSearch(prev => !prev)}
         onToggleThemeSelector={() => setShowThemeSelector(prev => !prev)}
@@ -1146,6 +989,24 @@ export function TerminalView({
           }}
         />
       </div>
+
+      {/* 终端顶部 AI 助手停靠卡片（向下展开，与终端 PTY 输出彻底分离） */}
+      <TerminalAgentDock
+        sessionId={sessionId}
+        isAlternateScreen={isAlternateScreen}
+        openToken={agentDockOpenToken}
+        focusInputToken={agentDockFocusToken}
+        collapseToken={agentDockCollapseToken}
+        pastedDraft={agentDockPastedDraft}
+        notice={agentDockNotice}
+        onClearNotice={handleClearAgentNotice}
+        isTaskInterrupted={isAgentTaskInterrupted}
+        onInterruptTask={interruptAgentTask}
+        onInsertCommand={handleInsertCommandToTerminal}
+        onOpenSettings={onOpenAISettings}
+        onFocusTerminal={handleFocusTerminal}
+        translate={t}
+      />
 
       {/* 右键菜单 */}
       {contextMenu && (

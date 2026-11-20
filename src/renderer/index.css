@@ -10,20 +10,20 @@
    * spacing: 4px scale via Tailwind
    */
   :root, .dark {
-    --bg-primary: #080c10;
-    --bg-secondary: #0f151b;
-    --bg-tertiary: #172027;
-    --bg-hover: #26323a;
-    --border-color: #31404a;
-    --text-primary: #f5f7f2;
-    --text-secondary: #c9d3cc;
-    --text-muted: #8a9992;
+    --bg-primary: #070b10;
+    --bg-secondary: #0d131a;
+    --bg-tertiary: #131b24;
+    --bg-hover: #1b2633;
+    --border-color: #23303d;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #8b9bb0;
     --accent-primary: #14b8a6;
     --accent-hover: #2dd4bf;
-    --accent-muted: color-mix(in srgb, #14b8a6 16%, transparent);
+    --accent-muted: color-mix(in srgb, #14b8a6 15%, transparent);
     --accent-strong: #f97316;
-    --accent-gradient-from: #14a99b;
-    --accent-gradient-to: #0f766e;
+    --accent-gradient-from: #18c4b0;
+    --accent-gradient-to: #0d8a7f;
     --success: #22c55e;
     --success-muted: color-mix(in srgb, #22c55e 14%, transparent);
     --success-fg: #86efac;
@@ -37,77 +37,77 @@
     --info-muted: color-mix(in srgb, #3b82f6 14%, transparent);
     --info-fg: #93c5fd;
     /* Surfaces / borders / text tiers (semantic scale) */
-    --bg-elevated: #121a21;
-    --bg-sunken: #05080b;
-    --border-subtle: color-mix(in srgb, var(--border-color) 55%, transparent);
-    --border-strong: #3d4d58;
-    --text-subtle: #6b7a73;
-    --text-faint: #55625c;
+    --bg-elevated: #111922;
+    --bg-sunken: #05080c;
+    --border-subtle: color-mix(in srgb, var(--border-color) 52%, transparent);
+    --border-strong: #324354;
+    --text-subtle: #64748b;
+    --text-faint: #475569;
     --accent-alt: #a78bfa; /* violet secondary accent */
     --bg-inverse: #e7ece7;
-    --text-inverse: #1f2a27;
-    --overlay: rgba(3, 6, 8, 0.62);
-    --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --shadow-sm: 0 8px 20px rgba(0, 0, 0, 0.18);
-    --shadow-md: 0 18px 48px rgba(0, 0, 0, 0.28);
-    --shadow-lg: 0 28px 72px rgba(0, 0, 0, 0.42);
-    --surface-shadow: 0 18px 55px rgba(0, 0, 0, 0.32);
+    --text-inverse: #111922;
+    --overlay: rgba(2, 6, 12, 0.68);
+    --radius-sm: 7px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.24);
+    --shadow-md: 0 16px 40px rgba(0, 0, 0, 0.36);
+    --shadow-lg: 0 28px 72px rgba(0, 0, 0, 0.54);
+    --surface-shadow: 0 18px 55px rgba(0, 0, 0, 0.38);
     --duration-chrome: 180ms;
     --ease-chrome: cubic-bezier(0.16, 1, 0.3, 1);
-    --focus-ring: color-mix(in srgb, var(--accent-primary) 70%, #ffffff);
+    --focus-ring: color-mix(in srgb, var(--accent-primary) 72%, #ffffff);
     /* Agent character face (dark shell) */
-    --agent-face-from: #1a2430;
-    --agent-face-to: #0d141b;
+    --agent-face-from: #182330;
+    --agent-face-to: #0b121a;
     --agent-eye: #5eead4;
   }
 
   .light {
-    --bg-primary: #f3f1ea;
-    --bg-secondary: #fcfbf6;
-    --bg-tertiary: #ebe7db;
-    --bg-hover: #ded8c9;
-    --border-color: #c8c0af;
-    --text-primary: #18211f;
-    --text-secondary: #43504a;
-    --text-muted: #6f7b74;
+    --bg-primary: #f4f2ec;
+    --bg-secondary: #fdfcf9;
+    --bg-tertiary: #ece8df;
+    --bg-hover: #e2ddd1;
+    --border-color: #d8d2c5;
+    --text-primary: #141d1b;
+    --text-secondary: #3b4742;
+    --text-muted: #64716b;
     --accent-primary: #0f766e;
     --accent-hover: #0d9488;
-    --accent-muted: color-mix(in srgb, #0f766e 12%, transparent);
+    --accent-muted: color-mix(in srgb, #0f766e 11%, transparent);
     --accent-strong: #c2410c;
-    --accent-gradient-from: #0f8f84;
-    --accent-gradient-to: #0c6f68;
+    --accent-gradient-from: #118c81;
+    --accent-gradient-to: #0c6c64;
     --success: #16a34a;
-    --success-muted: color-mix(in srgb, #16a34a 12%, transparent);
+    --success-muted: color-mix(in srgb, #16a34a 11%, transparent);
     --success-fg: #15803d;
     --warning: #ca8a04;
-    --warning-muted: color-mix(in srgb, #ca8a04 12%, transparent);
+    --warning-muted: color-mix(in srgb, #ca8a04 11%, transparent);
     --warning-fg: #a16207;
     --danger: #dc2626;
-    --danger-muted: color-mix(in srgb, #dc2626 12%, transparent);
+    --danger-muted: color-mix(in srgb, #dc2626 11%, transparent);
     --danger-fg: #b91c1c;
     --info: #2563eb;
-    --info-muted: color-mix(in srgb, #2563eb 12%, transparent);
+    --info-muted: color-mix(in srgb, #2563eb 11%, transparent);
     --info-fg: #1d4ed8;
     /* Surfaces / borders / text tiers (semantic scale) */
     --bg-elevated: #ffffff;
-    --bg-sunken: #ece9df;
+    --bg-sunken: #ebe7dc;
     --border-subtle: color-mix(in srgb, var(--border-color) 55%, transparent);
-    --border-strong: #b3a890;
-    --text-subtle: #8a948d;
-    --text-faint: #9aa39d;
+    --border-strong: #bfb7a6;
+    --text-subtle: #828d87;
+    --text-faint: #98a29c;
     --accent-alt: #7c3aed; /* violet secondary accent */
-    --bg-inverse: #1f2a27;
-    --text-inverse: #f5f7f2;
-    --overlay: rgba(20, 18, 12, 0.42);
-    --shadow-sm: 0 6px 16px rgba(63, 54, 39, 0.08);
-    --shadow-md: 0 14px 36px rgba(63, 54, 39, 0.12);
-    --shadow-lg: 0 24px 56px rgba(63, 54, 39, 0.16);
-    --surface-shadow: 0 16px 42px rgba(63, 54, 39, 0.13);
+    --bg-inverse: #192421;
+    --text-inverse: #f7f9f7;
+    --overlay: rgba(20, 18, 12, 0.44);
+    --shadow-sm: 0 4px 14px rgba(40, 34, 24, 0.06);
+    --shadow-md: 0 12px 32px rgba(40, 34, 24, 0.1);
+    --shadow-lg: 0 24px 56px rgba(40, 34, 24, 0.14);
+    --surface-shadow: 0 16px 42px rgba(40, 34, 24, 0.11);
     /* Light: softer teal face so it doesn't look like a dark-mode leftover */
-    --agent-face-from: #e8f5f3;
-    --agent-face-to: #d5ebe7;
+    --agent-face-from: #e6f5f2;
+    --agent-face-to: #d2ebe6;
     --agent-eye: #0f766e;
   }
 
@@ -193,17 +193,20 @@
 
 @layer components {
   .app-shell {
-    @apply flex h-screen flex-col overflow-hidden text-slate-900 dark:text-slate-100;
+    @apply flex h-screen flex-col overflow-hidden;
+    color: var(--text-primary);
     background:
-      radial-gradient(1200px 480px at 12% -10%, color-mix(in srgb, var(--accent-primary) 12%, transparent), transparent 60%),
-      radial-gradient(900px 420px at 88% 0%, color-mix(in srgb, var(--accent-strong) 8%, transparent), transparent 55%),
+      radial-gradient(1100px 440px at 10% -14%, color-mix(in srgb, var(--accent-primary) 11%, transparent), transparent 58%),
+      radial-gradient(840px 380px at 90% -8%, color-mix(in srgb, var(--accent-strong) 6%, transparent), transparent 52%),
       var(--bg-primary);
   }
 
   .default-password-banner {
-    @apply flex flex-shrink-0 items-center justify-between gap-3 px-3 py-2 text-sm;
-    background: color-mix(in srgb, var(--accent-strong, #f59e0b) 16%, var(--bg-secondary));
-    border-bottom: 1px solid color-mix(in srgb, var(--accent-strong, #f59e0b) 40%, transparent);
+    @apply flex flex-shrink-0 items-center justify-between gap-3 px-3.5 py-2 text-xs font-medium;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-strong) 18%, var(--bg-secondary)), color-mix(in srgb, var(--warning) 10%, var(--bg-secondary)));
+    border-bottom: 1px solid color-mix(in srgb, var(--accent-strong) 38%, transparent);
+    color: var(--text-primary);
   }
 
   .default-password-banner-text {
@@ -215,13 +218,14 @@
   }
 
   .default-password-banner-action {
-    @apply rounded-sm px-2.5 py-1 text-xs font-medium transition-colors;
-    background: color-mix(in srgb, var(--accent-primary) 90%, transparent);
+    @apply rounded-sm px-2.5 py-1 text-xs font-semibold transition-all;
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
     color: #fff;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset;
   }
 
   .default-password-banner-action:hover {
-    background: var(--accent-primary);
+    filter: brightness(1.08);
   }
 
   .default-password-banner-dismiss {
@@ -229,105 +233,145 @@
   }
 
   .app-header {
-    @apply relative z-[80] flex h-12 flex-shrink-0 items-center justify-between border-b px-3;
-    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 86%, transparent);
-    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent-primary) 12%, transparent);
-    backdrop-filter: blur(14px);
+    @apply relative z-[80] flex h-12 flex-shrink-0 items-center justify-between border-b px-3.5;
+    background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #ffffff 5%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
   }
 
   .app-title-mark {
-    @apply flex h-8 w-8 items-center justify-center border text-teal-700 dark:text-teal-200;
-    border-radius: var(--radius-md);
+    @apply flex h-8 w-8 items-center justify-center border;
+    border-radius: 9px;
     background:
-      radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent-primary) 36%, transparent), transparent 54%),
-      color-mix(in srgb, var(--bg-primary) 76%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffffff 10%, transparent), 0 0 20px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+      radial-gradient(circle at 28% 20%, color-mix(in srgb, var(--accent-primary) 34%, transparent), transparent 58%),
+      color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-color));
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent),
+      0 4px 16px color-mix(in srgb, var(--accent-primary) 18%, transparent);
   }
 
   .toolbar-group {
     @apply flex items-center gap-0.5 border p-0.5;
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 74%, transparent);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 66%, transparent);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
   }
 
   .toolbar-button {
-    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-transparent px-2.5 text-sm font-medium text-slate-700 transition-all hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300 dark:hover:text-white;
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border border-transparent px-2.5 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50;
     border-radius: var(--radius-sm);
+    color: var(--text-secondary);
     background: transparent;
     transition-duration: var(--duration-chrome);
     transition-timing-function: var(--ease-chrome);
   }
 
-  .toolbar-button:hover {
-    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
+  .toolbar-button:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--border-strong) 55%, transparent);
+  }
+
+  .toolbar-button:active:not(:disabled) {
+    transform: translateY(0.5px);
   }
 
   .toolbar-button-primary {
-    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border px-3 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 border px-3 text-[13px] font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
     border-radius: var(--radius-sm);
     background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
-    border-color: color-mix(in srgb, var(--accent-primary) 78%, #082f2c);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 10px 24px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+    border-color: color-mix(in srgb, var(--accent-hover) 52%, var(--accent-gradient-to));
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.22) inset,
+      0 6px 18px color-mix(in srgb, var(--accent-primary) 26%, transparent);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
-  .toolbar-button-primary:hover {
-    background: linear-gradient(180deg, var(--accent-hover), var(--accent-gradient-from));
+  .toolbar-button-primary:hover:not(:disabled) {
+    filter: brightness(1.07);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.28) inset,
+      0 8px 22px color-mix(in srgb, var(--accent-primary) 34%, transparent);
+    transform: translateY(-0.5px);
+  }
+
+  .toolbar-button-primary:active:not(:disabled) {
+    transform: translateY(0);
+    filter: brightness(0.98);
   }
 
   .toolbar-button-active {
-    color: color-mix(in srgb, var(--accent-primary) 40%, var(--text-primary));
+    color: var(--text-primary);
     background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 54%, var(--border-color));
+    border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-color));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
   .icon-button {
-    @apply inline-flex h-8 w-8 cursor-pointer items-center justify-center border border-transparent text-slate-500 transition-all hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+    @apply inline-flex h-8 w-8 cursor-pointer items-center justify-center border border-transparent transition-all;
     border-radius: var(--radius-sm);
+    color: var(--text-muted);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
-  .icon-button:hover {
-    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 30%, var(--border-color));
+  .icon-button:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--border-strong) 48%, transparent);
+  }
+
+  .icon-button:active:not(:disabled) {
+    transform: scale(0.95);
   }
 
   .icon-button-active {
-    color: color-mix(in srgb, var(--accent-primary) 35%, var(--text-primary));
-    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 52%, var(--border-color));
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
+
+  .light .icon-button-active {
+    color: var(--accent-primary);
   }
 
   .app-popover {
     @apply absolute top-full z-[90] mt-2 max-h-96 overflow-y-auto border;
     border-radius: var(--radius-md);
     background:
-      linear-gradient(145deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 42%),
-      color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 26%, var(--border-color));
-    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-    backdrop-filter: blur(18px);
+      linear-gradient(150deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 44%),
+      color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 68%, var(--accent-primary));
+    box-shadow:
+      var(--shadow-lg),
+      0 0 0 1px color-mix(in srgb, var(--accent-primary) 8%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(22px) saturate(145%);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
     animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .app-popover-header {
-    @apply flex items-center justify-between border-b px-3 py-2 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400;
-    border-color: color-mix(in srgb, var(--accent-primary) 20%, var(--border-color));
-    letter-spacing: 0;
+    @apply flex items-center justify-between border-b px-3.5 py-2.5 text-[11px] font-semibold uppercase;
+    color: var(--text-muted);
+    border-color: color-mix(in srgb, var(--border-color) 65%, transparent);
+    letter-spacing: 0.05em;
   }
 
   .app-popover-row {
-    @apply flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-all duration-200;
+    @apply flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-all duration-150;
   }
 
   .app-popover-row:hover {
-    background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-hover));
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
   }
 
   /* 历史命令：只让列表滚动，避免弹层和列表各出现一条滚动条 */
@@ -345,36 +389,53 @@
   }
 
   .workspace-tabbar {
-    @apply relative z-[40] flex h-9 flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2;
-    background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
-    border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+    @apply relative z-[40] flex h-10 flex-shrink-0 items-center gap-1.5 overflow-x-auto border-b px-2.5;
+    background: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
   }
 
   .workspace-tab {
-    @apply flex h-7 cursor-pointer items-center gap-2 border border-transparent px-2.5 text-[13px] text-slate-600 transition-all hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
+    @apply relative flex h-7 cursor-pointer items-center gap-2 border border-transparent px-2.5 text-[12.5px] font-medium transition-all;
     border-radius: var(--radius-sm);
+    color: var(--text-muted);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .workspace-tab:hover {
-    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 30%, var(--border-color));
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--bg-hover) 62%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
   }
 
   .workspace-tab-active {
-    @apply text-slate-950 dark:text-white;
-    background: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
-    box-shadow: inset 0 2px 0 var(--accent-primary);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--bg-tertiary) 92%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+    box-shadow:
+      0 2px 10px rgba(0, 0, 0, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .workspace-tab-active::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: -1px;
+    height: 2px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-hover));
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 55%, transparent);
   }
 
   .workspace-tab-close {
-    @apply rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100;
+    @apply rounded p-0.5 opacity-0 transition-all group-hover:opacity-100;
     color: var(--text-muted);
   }
 
   .workspace-tab-close:hover {
-    background: color-mix(in srgb, var(--bg-hover) 80%, transparent);
+    background: color-mix(in srgb, var(--bg-hover) 92%, transparent);
     color: var(--text-primary);
   }
 
@@ -382,25 +443,42 @@
     @apply h-2 w-2 flex-shrink-0 rounded-full;
   }
 
-  .status-dot-connected { background: var(--success); }
-  .status-dot-connecting { background: var(--warning); animation: pulse 1.4s ease-in-out infinite; }
-  .status-dot-error { background: var(--danger); }
-  .status-dot-idle { background: color-mix(in srgb, var(--text-muted) 70%, transparent); }
+  .status-dot-connected {
+    background: var(--success);
+    box-shadow: 0 0 0 2px var(--success-muted), 0 0 8px color-mix(in srgb, var(--success) 55%, transparent);
+  }
+  .status-dot-connecting {
+    background: var(--warning);
+    box-shadow: 0 0 0 2px var(--warning-muted);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .status-dot-error {
+    background: var(--danger);
+    box-shadow: 0 0 0 2px var(--danger-muted);
+  }
+  .status-dot-idle { background: color-mix(in srgb, var(--text-muted) 65%, transparent); }
 
   .app-main {
     @apply relative z-0 flex min-h-0 flex-1 overflow-hidden;
-    background: color-mix(in srgb, var(--bg-primary) 96%, #000000);
+    background: var(--bg-primary);
   }
 
   .agent-pet-button {
-    @apply fixed z-40 flex h-14 w-14 cursor-pointer items-center justify-center rounded-sm border transition-colors;
+    @apply fixed z-40 flex h-14 w-14 cursor-pointer items-center justify-center border transition-all;
+    border-radius: 14px;
     background:
-      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 24%, transparent), transparent 55%),
-      var(--bg-secondary);
-    border-color: color-mix(in srgb, var(--accent-primary) 62%, var(--border-color));
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      linear-gradient(145deg, color-mix(in srgb, var(--accent-primary) 22%, transparent), transparent 58%),
+      color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
+    box-shadow:
+      0 14px 32px rgba(0, 0, 0, 0.34),
+      0 0 0 1px color-mix(in srgb, var(--accent-primary) 12%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(14px);
     touch-action: none;
     user-select: none;
+    transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .agent-pet-launcher {
@@ -420,9 +498,14 @@
   .agent-pet-button:hover,
   .agent-pet-button-open {
     background:
-      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 34%, transparent), transparent 58%),
-      color-mix(in srgb, var(--bg-hover) 72%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 82%, var(--border-color));
+      linear-gradient(145deg, color-mix(in srgb, var(--accent-primary) 32%, transparent), transparent 60%),
+      color-mix(in srgb, var(--bg-hover) 72%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
+    box-shadow:
+      0 18px 40px rgba(0, 0, 0, 0.42),
+      0 0 24px color-mix(in srgb, var(--accent-primary) 24%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    transform: translateY(-2px);
   }
 
   .agent-pet-button-alert {
@@ -1012,22 +1095,24 @@
   }
 
   .app-footer {
-    @apply flex h-7 flex-shrink-0 items-center justify-between border-t px-3 text-xs;
+    @apply flex h-7 flex-shrink-0 items-center justify-between border-t px-3.5 text-[11.5px];
     color: var(--text-muted);
-    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+    background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 3%, transparent);
   }
 
   .app-footer-status {
-    @apply flex min-w-0 items-center gap-2;
+    @apply flex min-w-0 items-center gap-1.5 font-medium;
   }
 
   .app-footer-meta {
-    @apply flex min-w-0 items-center gap-1.5;
+    @apply flex min-w-0 items-center gap-2;
   }
 
   .app-footer-transfer {
     color: var(--accent-primary);
+    transition: color var(--duration-chrome) var(--ease-chrome);
   }
 
   .app-footer-transfer:hover {
@@ -1047,32 +1132,35 @@
   .panel-header {
     @apply border-b p-3;
     background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 14%, transparent), transparent 48%),
-      color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 22%, var(--border-color));
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 48%),
+      color-mix(in srgb, var(--bg-secondary) 90%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
   }
 
   .segmented-control {
     @apply grid grid-cols-2 gap-1 border p-1;
     border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 20%, var(--border-color));
+    background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
   }
 
   .segment-button {
-    @apply cursor-pointer border border-transparent px-3 py-1.5 text-sm font-medium text-slate-600 transition-all dark:text-slate-400;
+    @apply cursor-pointer border border-transparent px-3 py-1.5 text-sm font-medium transition-all;
     border-radius: var(--radius-sm);
+    color: var(--text-muted);
     transition-duration: var(--duration-chrome);
   }
 
   .segment-button:hover {
+    color: var(--text-primary);
     background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
   }
 
   .segment-button-active {
-    @apply text-white dark:text-white;
+    @apply text-white;
     background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
-    border-color: color-mix(in srgb, var(--accent-primary) 64%, #063b36);
+    border-color: color-mix(in srgb, var(--accent-hover) 48%, var(--accent-gradient-to));
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset;
   }
 
   .message-bubble {
@@ -1081,36 +1169,45 @@
 
   .message-bubble-assistant {
     background:
-      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 42%),
+      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 6%, transparent), transparent 42%),
       color-mix(in srgb, var(--bg-primary) 74%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 20%, var(--border-color));
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
   }
 
   .message-bubble-user {
     @apply text-white;
-    background: linear-gradient(180deg, #0f766e, #115e59);
-    border-color: color-mix(in srgb, var(--accent-primary) 76%, #083f3b);
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
+    border-color: color-mix(in srgb, var(--accent-primary) 65%, transparent);
   }
 
   .terminal-control {
-    @apply inline-flex h-8 cursor-pointer items-center justify-center rounded-md border px-2 text-slate-600 shadow-sm shadow-slate-950/5 transition-all duration-200 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white;
-    background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 18%, var(--border-color));
+    @apply inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm border border-transparent transition-all;
+    color: var(--text-muted);
+    background: transparent;
+    transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .terminal-control:hover {
+    color: var(--text-primary);
     background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+    border-color: color-mix(in srgb, var(--border-strong) 45%, transparent);
+  }
+
+  .terminal-control:active {
+    transform: scale(0.94);
   }
 
   .terminal-control-active {
-    @apply text-white hover:text-white dark:text-white;
-    background: linear-gradient(180deg, #0f8f84, #0c6f68);
-    border-color: color-mix(in srgb, var(--accent-primary) 70%, #063b36);
+    @apply text-white hover:text-white;
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
+    border-color: color-mix(in srgb, var(--accent-hover) 50%, var(--accent-gradient-to));
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 4px 12px color-mix(in srgb, var(--accent-primary) 26%, transparent);
   }
 
   .terminal-state-overlay {
-    @apply absolute inset-0 flex items-center justify-center text-slate-500 dark:text-slate-400;
+    @apply absolute inset-0 flex items-center justify-center;
+    color: var(--text-muted);
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 76%, transparent), transparent),
       var(--bg-primary);
@@ -1118,66 +1215,87 @@
 
   .terminal-state-overlay-waiting {
     background:
-      linear-gradient(180deg, color-mix(in srgb, #eab308 9%, var(--bg-secondary)), transparent),
+      linear-gradient(180deg, color-mix(in srgb, #eab308 8%, var(--bg-secondary)), transparent),
       var(--bg-primary);
   }
 
   .terminal-state-overlay-error {
     background:
-      linear-gradient(180deg, color-mix(in srgb, #ef4444 10%, var(--bg-secondary)), transparent),
+      linear-gradient(180deg, color-mix(in srgb, #ef4444 9%, var(--bg-secondary)), transparent),
       var(--bg-primary);
   }
 
   .terminal-state-banner {
-    @apply absolute left-3 top-3 z-10 flex max-w-[min(28rem,calc(100%-1.5rem))] items-center gap-2 rounded-md border px-3 py-2 text-slate-600 shadow-lg dark:text-slate-300;
-    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
-    backdrop-filter: blur(14px);
+    @apply absolute left-3 top-3 z-10 flex max-w-[min(28rem,calc(100%-1.5rem))] items-center gap-2.5 rounded-md border px-3 py-2 shadow-lg;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(18px) saturate(140%);
   }
 
   .terminal-state-banner-icon {
     @apply flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-sm border;
-    background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
   }
 
   .terminal-state-banner-waiting {
-    @apply text-yellow-700 dark:text-yellow-200;
-    border-color: color-mix(in srgb, #eab308 34%, var(--border-color));
+    color: var(--warning-fg);
+    border-color: color-mix(in srgb, var(--warning) 36%, var(--border-color));
   }
 
   .terminal-state-banner-error {
-    @apply text-red-700 dark:text-red-200;
-    border-color: color-mix(in srgb, #ef4444 34%, var(--border-color));
+    color: var(--danger-fg);
+    border-color: color-mix(in srgb, var(--danger) 36%, var(--border-color));
   }
 
   .terminal-empty-icon {
-    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-sm border text-slate-500 shadow-sm dark:text-slate-300;
+    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md border shadow-sm;
+    color: var(--text-secondary);
     background: var(--bg-secondary);
-    border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
   }
 
   .terminal-shell {
     @apply relative flex-1 overflow-hidden;
     container-type: inline-size;
     container-name: terminal-pane;
-    background:
-      linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 3%, transparent) 1px, transparent 1px),
-      linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 2%, transparent) 1px, transparent 1px),
-      color-mix(in srgb, var(--bg-primary) 96%, #000);
-    background-size: 42px 42px, 42px 42px, auto;
+    background: var(--bg-primary);
   }
 
   .terminal-toolbar {
-    @apply absolute right-3 top-3 z-20 flex w-max max-w-[calc(100%_-_1rem)] items-center gap-1 rounded-md border p-1;
-    background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 22%, var(--border-color));
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(16px);
+    @apply absolute right-3 top-2.5 z-20 flex w-max max-w-[calc(100%_-_1rem)] items-center gap-0.5 rounded-md border p-1 transition-all;
+    background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 62%, transparent);
+    box-shadow:
+      0 12px 32px rgba(0, 0, 0, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    opacity: 0.84;
+    transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
+  }
+
+  .terminal-toolbar:hover,
+  .terminal-toolbar:focus-within,
+  .terminal-toolbar.is-open {
+    opacity: 1;
+    border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-strong));
+    box-shadow:
+      0 16px 40px rgba(0, 0, 0, 0.4),
+      0 0 0 1px color-mix(in srgb, var(--accent-primary) 10%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .terminal-toolbar-divider {
+    @apply mx-0.5 h-4 w-px shrink-0;
+    background: color-mix(in srgb, var(--border-strong) 65%, transparent);
   }
 
   .terminal-toolbar-content {
-    @apply flex max-w-full flex-wrap items-center justify-end gap-1;
+    @apply flex max-w-full flex-wrap items-center justify-end gap-0.5;
   }
 
   .terminal-toolbar-trigger { @apply hidden shrink-0; }
@@ -1187,6 +1305,7 @@
     .terminal-toolbar { @apply flex-row-reverse; }
     .terminal-toolbar-trigger { @apply inline-flex; }
     .terminal-toolbar-content { @apply hidden; }
+    .terminal-toolbar-divider { @apply hidden; }
 
     .terminal-toolbar.is-open {
       @apply absolute flex max-w-[calc(100%_-_1rem)] flex-col items-stretch;
@@ -1200,7 +1319,7 @@
     .terminal-toolbar-menu-head { @apply flex items-center justify-between text-xs font-medium text-fg-secondary; }
     .terminal-toolbar.is-open .terminal-toolbar-content {
       @apply grid w-fit max-w-full justify-start;
-      grid-template-columns: repeat(6, minmax(32px, max-content));
+      grid-template-columns: repeat(6, minmax(30px, max-content));
     }
   }
 
@@ -1223,22 +1342,26 @@
   }
 
   .terminal-toolbar-badge {
-    @apply inline-flex h-8 items-center rounded-md border px-2 text-xs font-medium text-slate-500 dark:text-slate-400;
-    background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 18%, var(--border-color));
+    @apply inline-flex h-7 items-center rounded-sm px-1.5 font-mono text-[11px] font-medium tabular-nums;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--bg-primary) 54%, transparent);
   }
 
   .terminal-agent-prefix-hint {
-    @apply relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border font-mono text-xs font-semibold text-slate-600 transition-colors dark:text-slate-300;
-    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 30%, var(--border-color));
+    @apply relative inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm border border-transparent font-mono text-xs font-semibold transition-all;
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  }
+
+  .light .terminal-agent-prefix-hint {
+    color: var(--accent-primary);
   }
 
   .terminal-agent-prefix-hint:hover:not(:disabled),
   .terminal-agent-prefix-hint:focus-visible:not(:disabled) {
-    color: var(--accent-primary);
-    background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--border-color));
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, transparent);
     outline: none;
   }
 
@@ -1247,9 +1370,10 @@
   }
 
   .terminal-agent-prefix-tooltip {
-    @apply pointer-events-none invisible absolute left-1/2 top-[calc(100%+0.55rem)] z-50 w-64 -translate-x-1/2 whitespace-normal rounded-md border px-3 py-2 text-left text-xs font-normal leading-5 text-slate-700 opacity-0 shadow-xl transition-opacity dark:text-slate-200;
-    background: var(--bg-secondary);
-    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+    @apply pointer-events-none invisible absolute left-1/2 top-[calc(100%+0.55rem)] z-50 w-64 -translate-x-1/2 whitespace-normal rounded-md border px-3 py-2 text-left text-xs font-normal leading-5 opacity-0 shadow-xl transition-opacity;
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
   }
 
   .terminal-agent-prefix-hint:hover .terminal-agent-prefix-tooltip,
@@ -1258,37 +1382,165 @@
   }
 
   .terminal-search-panel {
-    @apply absolute left-3 top-3 z-30 flex items-center gap-1 rounded-md border p-2;
-    background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-color));
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(16px);
+    @apply absolute left-3 top-2.5 z-30 flex items-center gap-1 rounded-md border p-1.5;
+    background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 70%, var(--accent-primary));
+    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(18px) saturate(145%);
+    animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .terminal-frame {
-    @apply h-full w-full overflow-hidden rounded-md border;
-    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+    @apply h-full w-full overflow-hidden rounded-md border transition-colors;
+    border-color: color-mix(in srgb, var(--border-color) 74%, transparent);
     box-shadow:
-      inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent),
-      0 0 0 1px color-mix(in srgb, var(--accent-primary) 12%, transparent),
-      0 22px 70px rgba(0, 0, 0, 0.3);
+      inset 0 1px 0 color-mix(in srgb, #ffffff 4%, transparent),
+      0 12px 38px rgba(0, 0, 0, 0.24);
+  }
+
+  /* 终端内 AI 助手独立悬浮停靠卡片（顶部向下展开，彻底与底部终端输入与输出分离） */
+  .terminal-agent-dock {
+    @apply absolute left-3 right-3 top-14 z-raised mx-auto flex max-w-4xl flex-col overflow-hidden border;
+    border-radius: var(--radius-lg);
+    background:
+      linear-gradient(155deg, color-mix(in srgb, var(--accent-primary) 9%, transparent), transparent 46%),
+      color-mix(in srgb, var(--bg-elevated) 93%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-strong));
+    box-shadow:
+      var(--shadow-lg),
+      0 0 0 1px color-mix(in srgb, var(--accent-primary) 10%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    transform-origin: top center;
+    animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
+  }
+
+  .terminal-agent-dock-collapsed {
+    @apply max-w-xl;
+  }
+
+  .terminal-agent-dock-header {
+    @apply flex items-center justify-between gap-2 border-b px-3 py-2;
+    background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
+  }
+
+  .terminal-agent-dock-collapsed .terminal-agent-dock-header {
+    @apply border-b-0;
+  }
+
+  .terminal-agent-dock-body {
+    @apply space-y-2.5 overflow-y-auto px-3.5 py-3;
+    max-height: min(52vh, 420px);
+  }
+
+  .terminal-agent-dock-footer {
+    @apply flex flex-col gap-2 border-t px-3 py-2;
+    background: color-mix(in srgb, var(--bg-primary) 68%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
+  }
+
+  .terminal-agent-step-row {
+    @apply overflow-hidden rounded-sm border transition-colors;
+    background: color-mix(in srgb, var(--bg-primary) 66%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+  }
+
+  .terminal-agent-step-row:hover {
+    border-color: color-mix(in srgb, var(--border-strong) 82%, transparent);
+  }
+
+  .terminal-agent-answer-card {
+    @apply rounded-md border px-3.5 py-3;
+    background: color-mix(in srgb, var(--bg-secondary) 78%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 5%, transparent);
+  }
+
+  /* Agent Markdown 排版（表格、代码块、列表、引用） */
+  .agent-md {
+    @apply space-y-2 text-[13px] leading-6;
+    color: var(--text-primary);
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  .agent-md-h1 { @apply text-[15px] font-semibold tracking-tight text-fg; }
+  .agent-md-h2 { @apply text-[14px] font-semibold text-fg; }
+  .agent-md-h3 { @apply text-[13px] font-semibold text-fg-secondary; }
+  .agent-md-p { @apply text-[13px] leading-6 text-fg; }
+  .agent-md-ul { @apply list-disc space-y-1 pl-5 text-fg; }
+  .agent-md-ol { @apply list-decimal space-y-1 pl-5 text-fg; }
+  .agent-md-quote {
+    @apply border-l-2 pl-3 text-xs leading-5 text-fg-secondary;
+    border-color: var(--accent-primary);
+  }
+  .agent-md-inline-code {
+    @apply rounded-sm border px-1.5 py-0.5 font-mono text-[11.5px];
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-sunken));
+    border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-color));
+  }
+  .light .agent-md-inline-code {
+    color: var(--accent-primary);
+  }
+  .agent-md-code-block {
+    @apply overflow-hidden rounded-sm border;
+    background: var(--bg-sunken);
+    border-color: color-mix(in srgb, var(--border-color) 74%, transparent);
+  }
+  .agent-md-code-head {
+    @apply flex items-center justify-between gap-2 border-b px-2.5 py-1 text-[10.5px] font-mono text-fg-muted;
+    background: color-mix(in srgb, var(--bg-tertiary) 65%, var(--bg-sunken));
+    border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
+  }
+  .agent-md-code-pre {
+    @apply max-h-60 overflow-auto p-2.5 font-mono text-[11.5px] leading-5 text-fg-secondary;
+  }
+  .agent-md-table-wrap {
+    @apply overflow-x-auto rounded-sm border;
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 60%, var(--bg-secondary));
+  }
+  .agent-md-table {
+    @apply w-full border-collapse text-left text-xs;
+  }
+  .agent-md-table th {
+    @apply whitespace-nowrap border-b px-2.5 py-1.5 font-semibold text-fg-secondary;
+    background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+  }
+  .agent-md-table td {
+    @apply border-b px-2.5 py-1.5 align-top text-fg;
+    border-color: color-mix(in srgb, var(--border-color) 46%, transparent);
+  }
+  .agent-md-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .agent-md-table tbody tr:hover td {
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
   }
 
   .industrial-modal {
     border-radius: var(--radius-lg);
-    border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
+    border: 1px solid color-mix(in srgb, var(--border-strong) 70%, var(--accent-primary));
     background:
-      linear-gradient(145deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 44%),
-      color-mix(in srgb, var(--bg-secondary) 96%, transparent);
-    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-    backdrop-filter: blur(18px);
+      linear-gradient(150deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 44%),
+      color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+    box-shadow:
+      var(--shadow-lg),
+      0 0 0 1px color-mix(in srgb, var(--accent-primary) 8%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(22px) saturate(145%);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
     animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .industrial-modal-header {
-    @apply flex items-center justify-between border-b px-4 py-3;
-    background: color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary));
-    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+    @apply flex items-center justify-between border-b px-5 py-3.5;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
   }
 
   .docker-panel-header {
@@ -1346,19 +1598,23 @@
   .docker-stat-tile {
     @apply flex min-w-0 items-center gap-3 border px-3.5 py-3 text-left transition-all;
     border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--bg-tertiary) 62%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--border-color) 72%, transparent);
+    background: color-mix(in srgb, var(--bg-tertiary) 64%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 66%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 5%, transparent);
+    transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .docker-stat-tile:hover {
     background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-tertiary));
-    border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+    border-color: color-mix(in srgb, var(--accent-primary) 36%, var(--border-strong));
+    transform: translateY(-1px);
   }
 
   .docker-stat-tile.is-active {
     background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-tertiary));
-    border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--border-color));
-    box-shadow: inset 0 2px 0 var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 54%, var(--border-color));
+    box-shadow: inset 0 2px 0 var(--accent-primary), 0 6px 16px color-mix(in srgb, var(--accent-primary) 10%, transparent);
   }
 
   .docker-stat-tile.is-running .docker-stat-icon { color: var(--success-fg); background: var(--success-muted); }
@@ -1601,23 +1857,29 @@
   }
 
   .industrial-modal-footer {
-    @apply flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3;
-    background: color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+    @apply flex flex-wrap items-center justify-end gap-2 border-t px-5 py-3.5;
+    background: color-mix(in srgb, var(--bg-primary) 58%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
   }
 
   .industrial-input {
-    @apply border px-3 py-2 text-sm text-slate-900 transition-all dark:text-white;
+    @apply border px-3 py-2 text-[13px] transition-all;
+    color: var(--text-primary);
     border-radius: var(--radius-sm);
-    background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
+  }
+
+  .industrial-input:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--border-strong) 85%, transparent);
   }
 
   .industrial-input:focus {
-    border-color: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 76%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 16%, transparent);
     outline: none;
   }
 
@@ -1660,12 +1922,14 @@
   }
 
   .industrial-card {
-    border-radius: var(--radius-md);
-    border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color));
+    border-radius: var(--radius-lg);
+    border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
     background:
-      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 6%, transparent), transparent 44%),
-      color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      linear-gradient(155deg, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 46%),
+      color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+    box-shadow:
+      var(--shadow-sm),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent);
   }
 
   .mcp-step { @apply space-y-3.5; }
@@ -1853,42 +2117,66 @@
   }
 
   .industrial-button-primary {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-[13px] font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
     border-radius: var(--radius-sm);
     background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
-    border-color: color-mix(in srgb, var(--accent-primary) 76%, #082f2c);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 12px 28px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    border-color: color-mix(in srgb, var(--accent-hover) 48%, var(--accent-gradient-to));
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.2) inset,
+      0 8px 22px color-mix(in srgb, var(--accent-primary) 24%, transparent);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .industrial-button-primary:hover:not(:disabled) {
-    background: linear-gradient(180deg, var(--accent-hover), var(--accent-gradient-from));
+    filter: brightness(1.07);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.25) inset,
+      0 10px 26px color-mix(in srgb, var(--accent-primary) 32%, transparent);
+    transform: translateY(-0.5px);
+  }
+
+  .industrial-button-primary:active:not(:disabled) {
+    transform: translateY(0);
+    filter: brightness(0.98);
   }
 
   .industrial-button-secondary {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-sm font-medium text-slate-700 transition-all disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-200;
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    color: var(--text-secondary);
     border-radius: var(--radius-sm);
-    background: color-mix(in srgb, var(--bg-hover) 46%, transparent);
-    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 5%, transparent);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .industrial-button-secondary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-strong));
+  }
+
+  .industrial-button-secondary:active:not(:disabled) {
+    transform: translateY(0.5px);
   }
 
   .industrial-button-danger {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 border px-4 py-2 text-[13px] font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50;
     border-radius: var(--radius-sm);
-    background: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 80%, #450a0a);
-    box-shadow: 0 12px 28px color-mix(in srgb, var(--danger) 22%, transparent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 94%, #ffffff 6%), var(--danger));
+    border-color: color-mix(in srgb, var(--danger) 76%, #450a0a);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.16) inset,
+      0 8px 22px color-mix(in srgb, var(--danger) 24%, transparent);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .industrial-button-danger:hover:not(:disabled) {
     filter: brightness(1.08);
+    transform: translateY(-0.5px);
   }
 
   .industrial-field-label {
@@ -1898,12 +2186,15 @@
   }
 
   .industrial-setting-row {
-    @apply flex flex-col items-start justify-between gap-3 border p-3 sm:flex-row sm:items-center sm:gap-4;
+    @apply flex flex-col items-start justify-between gap-3 border p-3.5 sm:flex-row sm:items-center sm:gap-4;
     border-radius: var(--radius-md);
-    background:
-      linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 48%),
-      color-mix(in srgb, var(--bg-primary) 60%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 16%, var(--border-color));
+    background: color-mix(in srgb, var(--bg-primary) 54%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+    transition: border-color var(--duration-chrome) var(--ease-chrome);
+  }
+
+  .industrial-setting-row:hover {
+    border-color: color-mix(in srgb, var(--border-strong) 82%, transparent);
   }
 
   .toast-host {
@@ -1911,21 +2202,22 @@
   }
 
   .toast-item {
-    @apply border px-3 py-2.5;
+    @apply border px-3.5 py-3;
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(18px) saturate(140%);
     animation: ui-toast-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
   .toast-item-success {
-    background: color-mix(in srgb, var(--success-muted) 80%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--success) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--success-muted) 65%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--success) 42%, var(--border-color));
     color: var(--success-fg);
   }
 
   .toast-item-error {
-    background: color-mix(in srgb, var(--danger-muted) 80%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--danger-muted) 65%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--danger) 42%, var(--border-color));
     color: var(--danger-fg);
   }
 
@@ -1935,24 +2227,50 @@
   }
 
   .workspace-empty-card-icon-connect {
-    border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
     background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
     color: var(--accent-primary);
   }
 
   .workspace-empty-card-icon-ai {
-    border-color: color-mix(in srgb, var(--info) 40%, var(--border-color));
+    border-color: color-mix(in srgb, var(--info) 34%, var(--border-color));
     background: color-mix(in srgb, var(--info) 12%, transparent);
     color: var(--info);
   }
 
   .workspace-dashboard {
-    @apply absolute inset-0 overflow-y-auto p-5 sm:p-7;
+    @apply absolute inset-0 overflow-y-auto p-5 sm:p-8;
+    background:
+      radial-gradient(640px 300px at 50% 0%, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 70%);
     animation: ui-chrome-in calc(var(--duration-chrome) + 40ms) var(--ease-chrome) both;
   }
 
   .workspace-dashboard-inner {
-    @apply mx-auto flex w-full max-w-5xl flex-col gap-4;
+    @apply mx-auto flex w-full max-w-5xl flex-col gap-5;
+  }
+
+  .workspace-hero {
+    @apply flex flex-col justify-between gap-4 border px-5 py-5 sm:flex-row sm:items-center;
+    border-radius: var(--radius-lg);
+    border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-color));
+    background:
+      radial-gradient(520px 220px at 0% 0%, color-mix(in srgb, var(--accent-primary) 13%, transparent), transparent 65%),
+      radial-gradient(400px 200px at 100% 100%, color-mix(in srgb, var(--accent-strong) 8%, transparent), transparent 60%),
+      color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary));
+    box-shadow:
+      var(--shadow-md),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
+  }
+
+  .workspace-hero-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-medium;
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 32%, transparent);
+  }
+
+  .light .workspace-hero-badge {
+    color: var(--accent-primary);
   }
 
   @media (min-width: 1024px) and (min-height: 760px) {
@@ -1967,18 +2285,21 @@
   }
 
   .workspace-dashboard-top {
-    @apply grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)];
+    @apply grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)];
   }
 
   .workspace-home-panel-header {
-    @apply flex items-center gap-2 border-b px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100;
-    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    @apply flex items-center justify-between gap-2 border-b px-4 py-3 text-[13px] font-semibold;
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
+    background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent);
   }
 
   .workspace-home-row {
-    @apply flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors;
-    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+    @apply flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-all;
+    border-color: color-mix(in srgb, var(--border-color) 48%, transparent);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .workspace-home-row:last-child {
@@ -1986,63 +2307,69 @@
   }
 
   .workspace-home-row:hover {
-    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-hover));
   }
 
   .workspace-home-action {
-    @apply flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm transition-colors;
+    @apply flex w-full items-center gap-2.5 rounded-sm px-3 py-2.5 text-left text-[13px] font-medium transition-all;
     color: var(--text-secondary);
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .workspace-home-action:hover {
-    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-hover));
     color: var(--text-primary);
   }
 
   .workspace-home-hint {
-    @apply mx-3 mb-3 flex items-start gap-2 rounded-sm border px-3 py-2 text-xs leading-5;
-    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
-    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
-    color: var(--text-secondary);
+    @apply mx-3 mb-3 flex items-start gap-2 rounded-sm border px-3 py-2.5 text-xs leading-5;
+    border-color: color-mix(in srgb, var(--border-color) 58%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 54%, transparent);
+    color: var(--text-muted);
   }
 
   .settings-nav-item {
-    @apply flex shrink-0 items-center gap-2 border px-3 py-2 text-sm transition-colors sm:w-full;
+    @apply flex shrink-0 items-center gap-2.5 border px-3 py-2 text-[13px] font-medium transition-all sm:w-full;
     border-radius: var(--radius-sm);
     border-color: transparent;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     transition-duration: var(--duration-chrome);
   }
 
   .settings-nav-item:hover {
-    background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--bg-hover) 68%, transparent);
   }
 
   .settings-nav-item-active {
     background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
-    border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    border-color: color-mix(in srgb, var(--accent-hover) 45%, var(--accent-gradient-to));
     color: #ffffff;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 6px 16px color-mix(in srgb, var(--accent-primary) 24%, transparent);
   }
 
   .ui-toggle {
-    @apply relative inline-flex h-6 w-11 flex-shrink-0 items-center border transition-colors;
+    @apply relative inline-flex h-6 w-11 flex-shrink-0 items-center border transition-all;
     border-radius: 9999px;
+    transition-duration: var(--duration-chrome);
   }
 
   .ui-toggle-on {
-    background: var(--accent-primary);
-    border-color: color-mix(in srgb, var(--accent-primary) 80%, transparent);
+    background: linear-gradient(180deg, var(--accent-gradient-from), var(--accent-gradient-to));
+    border-color: color-mix(in srgb, var(--accent-hover) 55%, var(--accent-gradient-to));
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 26%, transparent);
   }
 
   .ui-toggle-off {
-    background: color-mix(in srgb, var(--bg-hover) 80%, transparent);
+    background: color-mix(in srgb, var(--bg-hover) 82%, transparent);
     border-color: var(--border-color);
   }
 
   .ui-toggle-thumb {
     @apply pointer-events-none absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition-transform;
     transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
   }
 
   .ui-toggle-on .ui-toggle-thumb {
@@ -2075,7 +2402,11 @@
     background: var(--accent-primary);
     border: 2px solid color-mix(in srgb, var(--bg-secondary) 92%, #ffffff);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 16%, transparent);
-    transition: box-shadow var(--duration-chrome) var(--ease-chrome);
+    transition: box-shadow var(--duration-chrome) var(--ease-chrome), transform var(--duration-chrome) var(--ease-chrome);
+  }
+
+  .settings-range::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
   }
 
   .settings-range:focus-visible::-webkit-slider-thumb {
@@ -2098,25 +2429,26 @@
   }
 
   .connection-list-row {
-    @apply mx-2 my-1 flex items-center border px-2 py-2 transition-colors;
+    @apply mx-2 my-1 flex items-center border px-2.5 py-2 transition-all;
     border-radius: var(--radius-sm);
     border-color: transparent;
+    transition-duration: var(--duration-chrome);
   }
 
   .connection-list-row:hover {
-    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
-    border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-color));
   }
 
   .connection-list-row-active {
     background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary));
-    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
+    border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-color));
   }
 
   .sftp-sidebar {
     @apply relative flex h-full min-w-0 flex-col overflow-visible border-r;
-    border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
-    background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+    background: color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-primary));
   }
 
   .sftp-sidebar-left {
@@ -2134,14 +2466,15 @@
 
   .sftp-sidebar-resizer::after {
     content: "";
-    @apply absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors;
-    background: color-mix(in srgb, var(--border-color) 55%, transparent);
+    @apply absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-all;
+    background: transparent;
   }
 
   .sftp-sidebar-resizer:hover::after,
   .sftp-sidebar-resizer-active::after {
-    background: color-mix(in srgb, var(--accent-primary) 70%, transparent);
-    width: 3px;
+    background: color-mix(in srgb, var(--accent-primary) 75%, transparent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--accent-primary) 45%, transparent);
+    width: 2.5px;
   }
 
   /* 文件类型图标：容器定尺，内部 Material 图标 SVG 自适应填满 */
@@ -2156,7 +2489,8 @@
   }
 
   .modal-backdrop {
-    @apply absolute inset-0 bg-black/50 backdrop-blur-sm;
+    @apply absolute inset-0 backdrop-blur-md;
+    background: var(--overlay);
     animation: ui-fade-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
@@ -2412,7 +2746,7 @@
 }
 
 .xterm-viewport::-webkit-scrollbar {
-  width: 10px !important;
+  width: 8px !important;
 }
 
 .xterm-viewport::-webkit-scrollbar-track {
@@ -2420,34 +2754,38 @@
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(20, 184, 166, 0.34) !important;
-  border-radius: 3px !important;
-  min-height: 30px !important;
+  background: rgba(20, 184, 166, 0.28) !important;
+  border-radius: 9999px !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+  min-height: 36px !important;
   cursor: pointer !important;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(20, 184, 166, 0.62) !important;
+  background: rgba(45, 212, 191, 0.56) !important;
+  background-clip: padding-box !important;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:active {
-  background: rgba(20, 184, 166, 0.84) !important;
+  background: rgba(45, 212, 191, 0.78) !important;
+  background-clip: padding-box !important;
 }
 
-/* 纭繚婊氬姩鏉″尯鍩熷彲浠ユ甯镐氦浜?*/
+/* 确保滚动条区域可以正常交互 */
 .xterm-scroll-area,
 .xterm-viewport * {
   pointer-events: auto !important;
 }
 
-/* 鏆楄壊涓婚缁堢 */
+/* 暗色主题终端 */
 .dark .xterm {
-  background-color: #060b10 !important;
+  background-color: #070b10 !important;
 }
 
-/* 娴呰壊涓婚缁堢 */
+/* 浅色主题终端 */
 .light .xterm {
-  background-color: #f6f2e8 !important;
+  background-color: #f6f3eb !important;
 }
 
 /* Chrome open/close motion (modals, popovers, toasts, empty state) */

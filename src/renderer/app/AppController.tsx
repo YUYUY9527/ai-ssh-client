@@ -78,9 +78,6 @@ export function AppController() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password'>('terminal');
   // Web 部署下若仍使用默认登录密码，显示提醒横幅。
   const [showDefaultPasswordBanner, setShowDefaultPasswordBanner] = useState(false);
-  const [showAgentPet, setShowAgentPet] = useState(false);
-  const [agentInput, setAgentInput] = useState('');
-  const [agentInputFocusToken, setAgentInputFocusToken] = useState(0);
   const [pendingCommand, setPendingCommand] = useState<CommandSuggestion | null>(null);
   const [hostTrustQueue, setHostTrustQueue] = useState<HostTrustPromptEvent[]>([]);
   const pendingHostTrust = hostTrustQueue[0] ?? null;
@@ -334,15 +331,8 @@ export function AppController() {
     }
   };
 
-  const handlePasteToAI = useCallback((text: string) => {
-    const cleanText = text.replace(/[\r\n]+$/, '');
-    if (!cleanText) {
-      return;
-    }
-
-    setShowAgentPet(true);
-    setAgentInput((prev) => prev ? `${prev}\n${cleanText}` : cleanText);
-    setAgentInputFocusToken((prev) => prev + 1);
+  const handlePasteToAI = useCallback((_text: string) => {
+    // 终端内部已直接将选中内容粘贴到当前会话的 TerminalAgentDock 输入框并聚焦
   }, []);
 
   const handleRejectCommand = () => {
@@ -1001,7 +991,10 @@ export function AppController() {
           setSettingsInitialTab(tab);
           setShowSettings(true);
         }}
-        onOpenAssistant={() => setShowAgentPet(true)}
+        onOpenAssistant={() => {
+          setSettingsInitialTab('providers');
+          setShowSettings(true);
+        }}
         onFocusTab={handleTabClick}
         theme={theme}
         settings={settings}
@@ -1010,20 +1003,7 @@ export function AppController() {
         draggingTabId={dragState.draggedTabId}
       />
       )}
-      assistant={(
-        <AssistantHost
-        isHome={openTabs.length === 0}
-        input={agentInput}
-        onInputChange={setAgentInput}
-        focusInputToken={agentInputFocusToken}
-        isOpen={showAgentPet}
-        onOpenChange={setShowAgentPet}
-        onOpenSettings={() => {
-          setSettingsInitialTab('providers');
-          setShowSettings(true);
-        }}
-      />
-      )}
+      assistant={<AssistantHost />}
       toasts={<ToastHost toasts={toasts} onDismiss={dismissToast} translate={t} />}
       footer={(
         <AppFooter

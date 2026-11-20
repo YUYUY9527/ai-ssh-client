@@ -483,19 +483,31 @@ function loginPage(lang) {
   const strings = {
     'zh-CN': {
       title: 'AI SSH Client',
-      hint: '请输入密码以继续。',
-      label: '密码',
-      button: '登录',
-      invalid: '密码错误。',
-      network: '网络错误，请重试。',
+      subtitle: '安全、现代的浏览器 SSH 工作台',
+      hint: '请输入访问密码以解锁控制台',
+      label: '访问密码',
+      placeholder: '输入密码...',
+      button: '登录工作台',
+      signingIn: '验证中...',
+      showPw: '显示密码',
+      hidePw: '隐藏密码',
+      invalid: '密码错误，请重新输入。',
+      network: '网络连接异常，请重试。',
+      badge: 'AES-GCM 加密 · 本地会话保护',
     },
     'en-US': {
       title: 'AI SSH Client',
-      hint: 'Enter your password to continue.',
-      label: 'Password',
+      subtitle: 'Secure browser-native SSH workbench',
+      hint: 'Enter your access password to unlock the workspace',
+      label: 'Access Password',
+      placeholder: 'Enter password...',
       button: 'Sign in',
-      invalid: 'Invalid password.',
-      network: 'Network error, please retry.',
+      signingIn: 'Signing in...',
+      showPw: 'Show password',
+      hidePw: 'Hide password',
+      invalid: 'Invalid password. Please try again.',
+      network: 'Network error. Please retry.',
+      badge: 'AES-GCM Encrypted · Protected Session',
     },
   };
   return `<!doctype html>
@@ -503,43 +515,303 @@ function loginPage(lang) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <title>AI SSH Client — Sign in</title>
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    --bg: #070b10;
+    --surface: rgba(13, 19, 26, 0.84);
+    --surface-input: rgba(7, 11, 16, 0.78);
+    --border: rgba(45, 65, 82, 0.62);
+    --border-accent: rgba(20, 184, 166, 0.45);
+    --text: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent: #14b8a6;
+    --accent-hover: #2dd4bf;
+    --accent-deep: #0d8a7f;
+    --danger: #f87171;
+    --danger-bg: rgba(239, 68, 68, 0.12);
+    --danger-border: rgba(239, 68, 68, 0.35);
+  }
   * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
   body {
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    background: #0f1115; color: #e6e8eb;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    font-family: Inter, Geist, 'IBM Plex Sans', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(960px 460px at 18% -8%, rgba(20, 184, 166, 0.16), transparent 62%),
+      radial-gradient(780px 420px at 86% 108%, rgba(249, 115, 22, 0.09), transparent 58%),
+      radial-gradient(rgba(148, 163, 184, 0.11) 1px, transparent 1px);
+    background-size: auto, auto, 28px 28px;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
   }
   .card {
-    width: 100%; max-width: 340px; padding: 32px;
-    background: #171a21; border: 1px solid #262b36; border-radius: 12px;
+    position: relative;
+    width: 100%;
+    max-width: 396px;
+    padding: 36px 32px 28px;
+    background:
+      linear-gradient(155deg, rgba(20, 184, 166, 0.09), transparent 44%),
+      var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow:
+      0 32px 84px rgba(0, 0, 0, 0.56),
+      0 0 0 1px rgba(20, 184, 166, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(22px) saturate(140%);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    animation: card-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  p { font-size: 13px; color: #9aa4b2; margin: 0 0 20px; }
-  label { display: block; font-size: 12px; color: #9aa4b2; margin-bottom: 6px; }
+  .card.shake {
+    animation: card-shake 360ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .brand-mark {
+    width: 46px;
+    height: 46px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    padding: 3px;
+    background: linear-gradient(145deg, rgba(45, 212, 191, 0.24), rgba(15, 118, 110, 0.08));
+    border: 1px solid rgba(45, 212, 191, 0.36);
+    box-shadow: 0 8px 24px rgba(20, 184, 166, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .brand-mark svg { width: 100%; height: 100%; display: block; }
+  .brand-text { min-width: 0; }
+  h1 {
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin: 0;
+    line-height: 1.25;
+  }
+  .subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 3px 0 0;
+    line-height: 1.4;
+  }
+  .hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 20px;
+    line-height: 1.5;
+  }
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    letter-spacing: 0.01em;
+  }
+  .input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .input-icon {
+    position: absolute;
+    left: 12px;
+    width: 16px;
+    height: 16px;
+    color: var(--text-muted);
+    pointer-events: none;
+    transition: color 180ms ease;
+  }
   input {
-    width: 100%; padding: 10px 12px; font-size: 14px;
-    background: #0f1115; color: #e6e8eb; border: 1px solid #2f3540; border-radius: 8px;
+    width: 100%;
+    height: 44px;
+    padding: 0 42px 0 38px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--surface-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
   }
-  input:focus { outline: none; border-color: #3b82f6; }
-  button {
-    width: 100%; margin-top: 16px; padding: 10px 12px; font-size: 14px; font-weight: 600;
-    background: #3b82f6; color: #fff; border: none; border-radius: 8px; cursor: pointer;
+  input::placeholder { color: var(--text-muted); }
+  input:hover { border-color: rgba(100, 116, 139, 0.72); }
+  input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18), inset 0 1px 2px rgba(0, 0, 0, 0.25);
   }
-  button:hover { background: #2f6fe0; }
-  .error { margin-top: 12px; font-size: 12px; color: #f87171; min-height: 16px; }
+  .input-wrap:focus-within .input-icon { color: var(--accent-hover); }
+  .toggle-pw {
+    position: absolute;
+    right: 6px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 160ms ease, background-color 160ms ease;
+  }
+  .toggle-pw:hover { color: var(--text); background: rgba(148, 163, 184, 0.12); }
+  .toggle-pw svg { width: 16px; height: 16px; }
+  .submit-btn {
+    width: 100%;
+    height: 44px;
+    margin-top: 18px;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    letter-spacing: 0.01em;
+    color: #ffffff;
+    background: linear-gradient(180deg, #18c4b0 0%, #0d8a7f 100%);
+    border: 1px solid rgba(45, 212, 191, 0.55);
+    border-radius: 10px;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.22) inset,
+      0 12px 28px rgba(20, 184, 166, 0.26);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), filter 160ms ease, box-shadow 160ms ease;
+  }
+  .submit-btn:hover:not(:disabled) {
+    filter: brightness(1.07);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.26) inset,
+      0 14px 32px rgba(20, 184, 166, 0.34);
+    transform: translateY(-1px);
+  }
+  .submit-btn:active:not(:disabled) { transform: translateY(0); filter: brightness(0.98); }
+  .submit-btn:disabled { opacity: 0.65; cursor: not-allowed; }
+  .error {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--danger);
+    min-height: 18px;
+    line-height: 1.45;
+  }
+  .error.visible {
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+  }
+  .footer-badge {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(45, 65, 82, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(20, 184, 166, 0.75);
+  }
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes card-shake {
+    10%, 90% { transform: translateX(-2px); }
+    20%, 80% { transform: translateX(4px); }
+    30%, 50%, 70% { transform: translateX(-5px); }
+    40%, 60% { transform: translateX(5px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card, .card.shake { animation: none; }
+    .submit-btn:hover:not(:disabled) { transform: none; }
+  }
 </style>
 </head>
 <body>
   <form class="card" id="login-form">
-    <h1 id="title"></h1>
-    <p id="hint"></p>
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 256 256">
+          <defs>
+            <linearGradient id="g-base" x1="42" y1="18" x2="214" y2="238" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#12343a" />
+              <stop offset="0.5" stop-color="#081016" />
+              <stop offset="1" stop-color="#020609" />
+            </linearGradient>
+            <linearGradient id="g-edge" x1="42" y1="24" x2="214" y2="232" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#2dd4bf" />
+              <stop offset="0.58" stop-color="#14b8a6" />
+              <stop offset="1" stop-color="#f97316" />
+            </linearGradient>
+            <linearGradient id="g-bolt" x1="96" y1="58" x2="168" y2="190" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#a7f3d0" />
+              <stop offset="0.42" stop-color="#2dd4bf" />
+              <stop offset="1" stop-color="#0f766e" />
+            </linearGradient>
+          </defs>
+          <rect x="18" y="18" width="220" height="220" rx="44" fill="url(#g-base)" />
+          <rect x="24" y="24" width="208" height="208" rx="38" fill="none" stroke="url(#g-edge)" stroke-width="8" />
+          <path d="M61 78h69l23 50-23 50H61l26-50-26-50Z" fill="#0b1419" stroke="#2dd4bf" stroke-width="10" stroke-linejoin="round" />
+          <path d="M91 76l-25 52 25 52" fill="none" stroke="#f5f7f2" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M126 62l-21 66h39l-16 66 60-84h-42l20-48h-40Z" fill="url(#g-bolt)" stroke="#ccfbf1" stroke-width="5" stroke-linejoin="round" />
+          <path d="M66 202h94" stroke="#f97316" stroke-width="12" stroke-linecap="round" />
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1 id="title"></h1>
+        <div class="subtitle" id="subtitle"></div>
+      </div>
+    </div>
+    <p class="hint" id="hint"></p>
     <label for="password" id="label"></label>
-    <input id="password" name="password" type="password" autocomplete="current-password" autofocus />
-    <button type="submit" id="submit"></button>
-    <div class="error" id="error"></div>
+    <div class="input-wrap">
+      <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus />
+      <button type="button" class="toggle-pw" id="toggle-pw" aria-label="Toggle password visibility">
+        <svg id="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </button>
+    </div>
+    <button type="submit" class="submit-btn" id="submit"></button>
+    <div class="error" id="error" role="alert"></div>
+    <div class="footer-badge">
+      <span class="badge-dot" aria-hidden="true"></span>
+      <span id="badge"></span>
+    </div>
   </form>
 <script>
   var STRINGS = ${JSON.stringify(strings)};
@@ -554,16 +826,41 @@ function loginPage(lang) {
   var s = STRINGS[lang];
   document.documentElement.lang = lang;
   document.getElementById('title').textContent = s.title;
+  document.getElementById('subtitle').textContent = s.subtitle;
   document.getElementById('hint').textContent = s.hint;
   document.getElementById('label').textContent = s.label;
-  document.getElementById('submit').textContent = s.button;
+  document.getElementById('badge').textContent = s.badge;
+  var pwInput = document.getElementById('password');
+  pwInput.placeholder = s.placeholder;
+  var submitBtn = document.getElementById('submit');
+  submitBtn.textContent = s.button;
+  var toggleBtn = document.getElementById('toggle-pw');
+  toggleBtn.title = s.showPw;
+  toggleBtn.setAttribute('aria-label', s.showPw);
+  toggleBtn.addEventListener('click', function () {
+    var hidden = pwInput.type === 'password';
+    pwInput.type = hidden ? 'text' : 'password';
+    toggleBtn.title = hidden ? s.hidePw : s.showPw;
+    toggleBtn.setAttribute('aria-label', hidden ? s.hidePw : s.showPw);
+    pwInput.focus();
+  });
 
   var form = document.getElementById('login-form');
   var errorEl = document.getElementById('error');
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.classList.add('visible');
+    form.classList.remove('shake');
+    void form.offsetWidth;
+    form.classList.add('shake');
+  }
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
     errorEl.textContent = '';
-    var password = document.getElementById('password').value;
+    errorEl.classList.remove('visible');
+    submitBtn.disabled = true;
+    submitBtn.textContent = s.signingIn;
+    var password = pwInput.value;
     try {
       var response = await fetch('/api/login', {
         method: 'POST',
@@ -572,12 +869,15 @@ function loginPage(lang) {
       });
       if (response.ok) {
         window.location.reload();
+        return;
       } else {
-        errorEl.textContent = s.invalid;
+        showError(s.invalid);
       }
     } catch (e) {
-      errorEl.textContent = s.network;
+      showError(s.network);
     }
+    submitBtn.disabled = false;
+    submitBtn.textContent = s.button;
   });
 </script>
 </body>

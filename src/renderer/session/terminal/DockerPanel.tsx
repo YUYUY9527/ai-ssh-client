@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, ArrowUpCircle, Box, Container, Layers3, Loader2, Play, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, X } from 'lucide-react';
+import { Activity, ArrowDownCircle, Box, Container, Layers3, Loader2, Play, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, X } from 'lucide-react';
 import type { DockerContainerDetail, DockerContainerSummary } from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
 import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
 import { getWebSftpClientId } from '../../lib/web';
+import { useSessionOverlay } from '../../workspace/SessionOverlayContext';
 
 interface DockerPanelProps {
   connectionId: string;
@@ -17,6 +18,8 @@ type ContainerFilter = 'all' | 'running' | 'stopped';
 
 /** 容器管理弹窗：列表 + 详情 + 启停/重启 + 日志 + 进入容器 shell。 */
 export function DockerPanel({ connectionId, translate, onClose }: DockerPanelProps) {
+  const overlay = useSessionOverlay();
+  const isSessionScoped = Boolean(overlay.container);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [version, setVersion] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -58,11 +61,34 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     }
   }, [connectionId, translate]);
 
+  // 仅当前会话处于激活可见态时轮询容器状态；切回本会话时自动补刷一次
   useEffect(() => {
+    if (!overlay.isActive) return undefined;
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 5000);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, overlay.isActive]);
+
+  // 激活会话下按 Esc 逐层关闭（容器终端内不拦截 Esc 以免影响 vim；确认框或全局弹层打开时让位）
+  useEffect(() => {
+    if (!overlay.isActive || pendingAction !== null || execTarget !== null) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (document.querySelector('[role="dialog"][data-modal-scope="global"]')) return;
+      if (logs) {
+        event.stopPropagation();
+        setLogs(null);
+      } else if (detail) {
+        event.stopPropagation();
+        setDetail(null);
+      } else {
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, [overlay.isActive, pendingAction, execTarget, logs, detail, onClose]);
 
   const runAction = async (container: DockerContainerSummary, action: ActionKind) => {
     setError(null);
@@ -197,10 +223,18 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     });
   }, [containers, filter, containerFilter]);
 
+  const portalTarget = overlay.container ?? document.body;
+  const layerClass = isSessionScoped
+    ? 'pointer-events-auto absolute inset-0 z-overlay flex items-center justify-center overflow-y-auto p-4'
+    : 'fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4';
+  const mainPanelHeightClass = isSessionScoped ? 'h-[min(94%,860px)] max-h-full' : 'h-[88vh]';
+  const detailPanelHeightClass = isSessionScoped ? 'max-h-[90%]' : 'max-h-[80vh]';
+  const logsPanelHeightClass = isSessionScoped ? 'h-[min(86%,740px)] max-h-full' : 'h-[70vh]';
+
   return createPortal(
-    <div className="fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4">
+    <div className={layerClass}>
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="industrial-modal relative my-auto flex h-[88vh] w-full max-w-6xl flex-col overflow-hidden">
+      <div className={`industrial-modal relative my-auto flex ${mainPanelHeightClass} w-full max-w-6xl flex-col overflow-hidden`}>
         <div className="docker-panel-header shrink-0">
           <div className="flex min-w-0 items-center gap-3">
             <div className="docker-brand-mark"><Container className="h-5 w-5" /></div>
@@ -370,7 +404,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         {busyId === container.id && busyAction === 'update' ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <ArrowUpCircle className="h-3.5 w-3.5" />
+                          <ArrowDownCircle className="h-3.5 w-3.5" />
                         )}
                       </button>
                       <button type="button" className="docker-action-button is-logs" title={translate('terminal.docker.logs')} aria-label={translate('terminal.docker.logs')} onClick={() => { void openLogs(container); }}>
@@ -399,9 +433,9 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
       </div>
 
       {detail ? (
-        <div className="fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4" onClick={() => setDetail(null)}>
+        <div className={layerClass} onClick={() => setDetail(null)}>
           <div className="modal-backdrop" />
-          <div className="industrial-modal relative my-auto flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
+          <div className={`industrial-modal relative my-auto flex ${detailPanelHeightClass} w-full max-w-3xl flex-col overflow-hidden`} onClick={(event) => event.stopPropagation()}>
             <div className="industrial-modal-header shrink-0 text-sm font-semibold text-fg">
               <span>{detail.name}</span>
               <button type="button" className="icon-button" onClick={() => setDetail(null)}><X className="h-4 w-4" /></button>
@@ -434,9 +468,9 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
       ) : null}
 
       {logs ? (
-        <div className="fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4" onClick={() => setLogs(null)}>
+        <div className={layerClass} onClick={() => setLogs(null)}>
           <div className="modal-backdrop" />
-          <div className="industrial-modal relative my-auto flex h-[70vh] w-full max-w-5xl flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
+          <div className={`industrial-modal relative my-auto flex ${logsPanelHeightClass} w-full max-w-5xl flex-col overflow-hidden`} onClick={(event) => event.stopPropagation()}>
             <div className="industrial-modal-header shrink-0 text-sm font-semibold text-fg">
               <span>{translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}</span>
               <div className="flex items-center gap-2">
@@ -468,6 +502,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
           containerId={execTarget}
           shell=""
           translate={translate}
+          scoped={isSessionScoped}
           onClose={() => setExecTarget(null)}
         />
       ) : null}
@@ -495,6 +530,6 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
         onCancel={() => setPendingAction(null)}
       />
     </div>,
-    document.body,
+    portalTarget,
   );
 }

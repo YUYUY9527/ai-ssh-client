@@ -46,6 +46,8 @@ import type {
   PrivateKeyFileResult,
   DirectoryListResult,
   SftpBatchDeleteResult,
+  SftpCrossServerTransferRequest,
+  SftpCrossServerTransferResult,
   SftpDownloadDestinationSelectionResult,
   SftpFilesSelectionResult,
   SftpListTransfersResult,
@@ -157,6 +159,8 @@ declare global {
       deleteSftpItems: (connectionId: string, remotePaths: string[]) => Promise<IPCResult<SftpBatchDeleteResult>>;
       startSftpUpload: (request: SftpStartUploadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
       startSftpDownload: (request: SftpStartDownloadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
+      /** 跨服务器文件传输：将已连接 A 服务器的文件直接流式传输到已连接 B 服务器指定目录（仅 Web 端提供）。 */
+      transferSftpFileCrossServer?: (request: SftpCrossServerTransferRequest) => Promise<IPCResult<SftpCrossServerTransferResult>>;
       resolveSftpConflict: (request: SftpResolveConflictRequest) => Promise<IPCResult>;
       cancelSftpTransfer: (request: SftpTransferTaskRequest) => Promise<IPCResult>;
       /** 暂停任务（保留断点，可继续）。Web 优先；桌面端未实现时按钮隐藏。 */

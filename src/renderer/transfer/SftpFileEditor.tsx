@@ -3,6 +3,7 @@ import { FileCode2, Loader2, RotateCcw, Save, Wand2 } from 'lucide-react';
 
 import { useI18n } from '../i18n';
 import { Modal } from '../shared-ui/Modal';
+import { useSessionOverlay } from '../workspace/SessionOverlayContext';
 import { MAX_SFTP_EDIT_BYTES } from '../../shared/ipc-types';
 import { canSaveSftpDraft } from './sftp-editor-save';
 import { detectCodeLanguage, formatCodeContent } from './code-format';
@@ -37,6 +38,7 @@ export function SftpFileEditor({
   onAlert,
 }: SftpFileEditorProps) {
   const { t } = useI18n();
+  const overlay = useSessionOverlay();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   // 是否成功读取过远端文件。读取失败时为 false，用于阻止任何写回（按钮与快捷键共用）。
@@ -192,9 +194,9 @@ export function SftpFileEditor({
     setStatus(t('fileTransfer.editReset'));
   }, [original, t]);
 
-  // Ctrl/Cmd+S 保存
+  // Ctrl/Cmd+S 保存（仅当前激活会话的编辑器响应，避免后台会话截获快捷键）
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !overlay.isActive) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
@@ -203,7 +205,7 @@ export function SftpFileEditor({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [handleSave, isOpen]);
+  }, [handleSave, isOpen, overlay.isActive]);
 
   const handleClose = () => {
     if (dirty && !window.confirm(t('fileTransfer.editDiscardConfirm'))) {
@@ -218,7 +220,11 @@ export function SftpFileEditor({
       onClose={handleClose}
       size="4xl"
       closeLabel={t('common.close')}
-      panelClassName="flex !h-[min(92vh,900px)] !max-h-[min(92vh,900px)] flex-col !overflow-hidden"
+      panelClassName={
+        overlay.container
+          ? 'flex !h-[min(96%,900px)] !max-h-full flex-col !overflow-hidden'
+          : 'flex !h-[min(92vh,900px)] !max-h-[min(92vh,900px)] flex-col !overflow-hidden'
+      }
       title={(
         <span className="flex min-w-0 items-center gap-2">
           <FileCode2 className="h-4 w-4 shrink-0 text-accent" />

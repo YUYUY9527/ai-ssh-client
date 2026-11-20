@@ -38,6 +38,8 @@ import type {
   ServerMonitorMetrics,
   SettingsResult,
   SftpBatchDeleteResult,
+  SftpCrossServerTransferRequest,
+  SftpCrossServerTransferResult,
   SftpPreviewResult,
   SftpSearchMode,
   SftpSearchResult,
@@ -1892,6 +1894,22 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/items`,
     { method: 'DELETE', body: JSON.stringify({ remotePaths }) },
   ),
+  transferSftpFileCrossServer: async (request: SftpCrossServerTransferRequest) => {
+    const sourceReady = await ensureSshSession(request.sourceConnectionId);
+    if (!sourceReady.success) return sourceReady as IPCResult<SftpCrossServerTransferResult>;
+    const targetReady = await ensureSshSession(request.targetConnectionId);
+    if (!targetReady.success) return targetReady as IPCResult<SftpCrossServerTransferResult>;
+    // 确保事件通道已建立，服务端直传进度可直接推送到任务列表
+    connectEvents();
+    const created = await sftpRequest<SftpCrossServerTransferResult>('/api/sftp/transfers/cross-server', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    if (created.success && created.data?.task) {
+      useSftpTransferStore.getState().upsertSnapshot(created.data.task);
+    }
+    return created;
+  },
   startSftpUpload: async (request: SftpStartUploadRequest) => {
     const ensured = await ensureSshSession(request.connectionId);
     if (!ensured.success) return ensured as IPCResult<SftpStartTransferResult>;
@@ -2045,12 +2063,16 @@ const webApi: Window['electronAPI'] = {
     if (existing) {
       const ensured = await ensureSshSession(existing.connectionId);
       if (!ensured.success) return ensured as IPCResult<SftpTransferTaskSnapshot>;
+      if (existing.targetConnectionId) {
+        const targetEnsured = await ensureSshSession(existing.targetConnectionId);
+        if (!targetEnsured.success) return targetEnsured as IPCResult<SftpTransferTaskSnapshot>;
+      }
     }
     const result = await sftpRequest<SftpTransferTaskSnapshot>(
       `/api/sftp/transfers/${encodeURIComponent(request.taskId)}/retry`,
       { method: 'POST', body: '{}' },
     );
-    if (result.success && result.data.direction === 'upload') {
+    if (result.success && result.data.direction === 'upload' && !result.data.targetConnectionId) {
       enqueueWebUpload(request.taskId, result.data.resumedFrom || 0, result.data);
     } else if (result.success && result.data.direction === 'download') {
       // 服务端已把下载任务状态重置为 queued；重新驱动本地 FSA 流式落盘（可续传 checkpoint）。
@@ -2106,7 +2128,9 @@ const webApi: Window['electronAPI'] = {
     const resumed = result.data;
     if (resumed.direction === 'upload') {
       uploadPauseRequests.delete(taskId);
-      enqueueWebUpload(taskId, resumed.resumedFrom || 0, resumed);
+      if (!resumed.targetConnectionId) {
+        enqueueWebUpload(taskId, resumed.resumedFrom || 0, resumed);
+      }
     } else {
       downloadPauseRequests.delete(taskId);
       const ctx = webSftpDownloadContexts.get(taskId);

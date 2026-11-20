@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   AlertCircle,
+  ArrowRightLeft,
   CheckCircle,
   Clock3,
   Download,
@@ -167,7 +168,9 @@ export function TransferTaskList({
             <div key={task.taskId} className="industrial-card min-w-0 overflow-hidden p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  {task.direction === 'upload' ? (
+                  {task.targetConnectionId ? (
+                    <ArrowRightLeft className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
+                  ) : task.direction === 'upload' ? (
                     <Upload className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
                   ) : (
                     <Download className="h-3.5 w-3.5 flex-shrink-0 text-success" />
@@ -175,6 +178,14 @@ export function TransferTaskList({
                   <span className="truncate text-sm text-fg-secondary" title={task.name}>
                     {task.name}
                   </span>
+                  {task.targetConnectionName && (
+                    <span
+                      className="shrink-0 truncate max-w-[8rem] rounded-sm border border-line-subtle bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium text-fg-muted"
+                      title={task.remotePath}
+                    >
+                      {translate('fileTransfer.crossServer.targetBadge', { target: task.targetConnectionName })}
+                    </span>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {canPause && (

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useSessionOverlay } from '../workspace/SessionOverlayContext';
 
 /** Modal 尺寸档位到最大宽度类的映射 */
 const SIZE_CLASS = {
@@ -43,6 +44,8 @@ interface ModalProps {
   panelClassName?: string;
   labelledBy?: string;
   describedBy?: string;
+  /** 弹层作用域：auto（默认）在会话上下文内绑定当前会话且不遮挡会话标签栏；global 强制覆盖全屏。 */
+  scope?: 'auto' | 'global';
 }
 
 /** 通用模态框基座：统一遮罩、居中、进出动画、Esc 关闭、点遮罩关闭、焦点陷阱与滚动锁定 */
@@ -60,7 +63,12 @@ export function Modal({
   panelClassName,
   labelledBy,
   describedBy,
+  scope = 'auto',
 }: ModalProps) {
+  const overlay = useSessionOverlay();
+  const isSessionScoped = scope !== 'global' && Boolean(overlay.container);
+  const isInteractive = isOpen && (!isSessionScoped || overlay.isActive);
+
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   // 用 ref 持有回调，避免父组件每次渲染新建 onClose 时重跑焦点副作用
@@ -71,15 +79,25 @@ export function Modal({
   closeOnEscRef.current = closeOnEsc;
   initialFocusRefHolder.current = initialFocusRef;
 
-  // 仅在 isOpen 变为 true 时初始化焦点/键盘陷阱；输入过程中的重渲染不得抢焦点
+  // 全局弹窗锁定 body 滚动并在关闭时还原焦点；会话内弹窗不锁 body，避免影响切换标签
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || isSessionScoped) {
       return;
     }
-
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [isOpen, isSessionScoped]);
+
+  // 仅在弹窗打开且所属会话处于激活可见态时绑定快捷键与焦点陷阱，切换至其他会话后互不干扰
+  useEffect(() => {
+    if (!isInteractive) {
+      return;
+    }
 
     const focusFrame = requestAnimationFrame(() => {
       const preferred = initialFocusRefHolder.current?.current;
@@ -88,7 +106,7 @@ export function Modal({
         return;
       }
       const panel = panelRef.current;
-      if (!panel) {
+      if (!panel || panel.offsetParent === null) {
         return;
       }
       const formField = panel.querySelector<HTMLElement>(PREFERRED_FOCUS_SELECTOR);
@@ -97,16 +115,20 @@ export function Modal({
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      const panel = panelRef.current;
+      if (!panel || panel.offsetParent === null) {
+        return;
+      }
+      // 全局弹层（如设置、连接编辑）优先处理键盘事件，避免被底层会话弹窗截走 Esc
+      if (isSessionScoped && document.querySelector('[role="dialog"][data-modal-scope="global"]')) {
+        return;
+      }
       if (event.key === 'Escape' && closeOnEscRef.current) {
         event.stopPropagation();
         onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') {
-        return;
-      }
-      const panel = panelRef.current;
-      if (!panel) {
         return;
       }
       const focusable = Array.from(
@@ -132,18 +154,24 @@ export function Modal({
     return () => {
       cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown, true);
-      document.body.style.overflow = originalOverflow;
-      previouslyFocusedRef.current?.focus?.();
     };
-  }, [isOpen]);
+  }, [isInteractive, isSessionScoped]);
 
   if (!isOpen) {
     return null;
   }
 
-  // Portal 到 body：避免 header 的 backdrop-filter / relative 祖先把 fixed 弹层裁切或偏移
+  const portalTarget = isSessionScoped && overlay.container ? overlay.container : document.body;
+  const wrapperClass = isSessionScoped
+    ? 'pointer-events-auto absolute inset-0 z-overlay flex items-center justify-center overflow-y-auto p-4'
+    : 'fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4';
+  const maxHeightClass = isSessionScoped
+    ? 'max-h-full'
+    : 'max-h-[min(90vh,calc(100vh-2rem))]';
+
+  // 会话内弹层挂载至当前会话专属宿主（.app-main 内），不遮挡顶栏与会话列表；其余全局弹窗挂载至 body
   return createPortal(
-    <div className="fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4">
+    <div className={wrapperClass}>
       <div
         className="modal-backdrop"
         onClick={closeOnBackdrop ? onClose : undefined}
@@ -152,10 +180,11 @@ export function Modal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        data-modal-scope={isSessionScoped ? 'session' : 'global'}
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         tabIndex={-1}
-        className={`industrial-modal relative my-auto max-h-[min(90vh,calc(100vh-2rem))] w-full overflow-y-auto ${SIZE_CLASS[size]} ${panelClassName ?? ''}`}
+        className={`industrial-modal relative my-auto ${maxHeightClass} w-full overflow-y-auto ${SIZE_CLASS[size]} ${panelClassName ?? ''}`}
       >
         {title != null && (
           <div className="industrial-modal-header shrink-0">
@@ -175,6 +204,6 @@ export function Modal({
         {children}
       </div>
     </div>,
-    document.body,
+    portalTarget,
   );
 }

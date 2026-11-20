@@ -9,7 +9,7 @@ import {
 
 describe('工作区分屏布局', () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ paneRoot: null });
+    useWorkspaceStore.setState({ paneRoot: null, dockerPanelBySession: {} });
   });
 
   it('splitPane 从单面板裂成两个面板', () => {
@@ -97,5 +97,17 @@ describe('工作区分屏布局', () => {
     useWorkspaceStore.getState().splitPane('s1', 's2', 'right');
     useWorkspaceStore.getState().resetLayout();
     expect(useWorkspaceStore.getState().paneRoot).toBeNull();
+  });
+
+  it('dockerPanelBySession 按会话独立开关并在关闭标签后自动清理', () => {
+    useWorkspaceStore.getState().setDockerPanelOpen('s1', true);
+    useWorkspaceStore.getState().setDockerPanelOpen('s2', true);
+    expect(useWorkspaceStore.getState().dockerPanelBySession).toEqual({ s1: true, s2: true });
+
+    useWorkspaceStore.getState().setDockerPanelOpen('s1', false);
+    expect(useWorkspaceStore.getState().dockerPanelBySession).toEqual({ s2: true });
+
+    useWorkspaceStore.getState().pruneSessionOverlays(['s1', 's3']);
+    expect(useWorkspaceStore.getState().dockerPanelBySession).toEqual({});
   });
 });

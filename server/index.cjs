@@ -2294,6 +2294,11 @@ app.post('/api/sftp/transfers/download', route((request) => {
   return success(sftpTransfers.startDownload(clientId, request.body, '/api/sftp'));
 }));
 
+app.post('/api/sftp/transfers/cross-server', route((request) => {
+  const clientId = requireClientId(request);
+  return success(sftpTransfers.startCrossServerTransfer(clientId, request.body));
+}));
+
 app.get('/api/sftp/transfers', route((request) => {
   const clientId = requireClientId(request);
   return success(sftpTransfers.list(clientId, request.query.connectionId));

@@ -9,13 +9,22 @@ interface DockerExecTerminalProps {
   shell: string;
   translate: (key: string, params?: Record<string, string | number>) => string;
   onClose: () => void;
+  /** 是否限定在当前会话工作区内展示（不遮挡顶栏与会话标签栏）。 */
+  scoped?: boolean;
 }
 
 /**
  * 容器内交互式 shell：独立 WebSocket（/api/docker-exec）+ docker exec -it。
  * 与主终端会话完全隔离，关闭弹窗即断开。
  */
-export function DockerExecTerminal({ connectionId, containerId, shell, translate, onClose }: DockerExecTerminalProps) {
+export function DockerExecTerminal({
+  connectionId,
+  containerId,
+  shell,
+  translate,
+  onClose,
+  scoped = false,
+}: DockerExecTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
 
@@ -101,10 +110,15 @@ export function DockerExecTerminal({ connectionId, containerId, shell, translate
     };
   }, [connectionId, containerId, shell]);
 
+  const wrapperClass = scoped
+    ? 'pointer-events-auto absolute inset-0 z-overlay flex items-center justify-center overflow-y-auto p-4'
+    : 'fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4';
+  const panelHeightClass = scoped ? 'h-[min(90%,780px)] max-h-full' : 'h-[76vh]';
+
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center overflow-y-auto p-4">
+    <div className={wrapperClass}>
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="industrial-modal relative my-auto flex h-[76vh] w-full max-w-5xl flex-col overflow-hidden">
+      <div className={`industrial-modal relative my-auto flex ${panelHeightClass} w-full max-w-5xl flex-col overflow-hidden`}>
         <div className="industrial-modal-header shrink-0">
           <span className="text-sm font-medium text-fg">
             {translate('terminal.docker.execTitle', { container: containerId.slice(0, 12), shell: shell || 'auto' })}

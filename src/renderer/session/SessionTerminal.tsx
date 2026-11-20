@@ -4,6 +4,7 @@ import { TerminalView } from './terminal/TerminalView';
 interface SessionTerminalProps {
   liveConnectionId: string | null;
   onPasteToAI: (text: string) => void;
+  onOpenAISettings?: () => void;
   sessionId: string | null;
   settings: AppSettings;
   theme: 'dark' | 'light' | 'system';
@@ -15,6 +16,7 @@ interface SessionTerminalProps {
 export function SessionTerminal({
   liveConnectionId,
   onPasteToAI,
+  onOpenAISettings,
   sessionId,
   settings,
   theme,
@@ -25,6 +27,7 @@ export function SessionTerminal({
     <TerminalView
       liveConnectionId={liveConnectionId}
       onPasteToAI={onPasteToAI}
+      onOpenAISettings={onOpenAISettings}
       sessionId={sessionId}
       settings={settings}
       theme={theme}

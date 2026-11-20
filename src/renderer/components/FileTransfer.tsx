@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowRightLeft,
   ChevronRight,
   Copy,
   Download,
@@ -31,10 +32,12 @@ import { useI18n } from '../i18n';
 import { normalizeHistoryPath } from '../history/command-history-index';
 import { useSessionStore } from '../session/useSessionStore';
 import { Modal } from '../shared-ui/Modal';
+import { useSessionOverlay } from '../workspace/SessionOverlayContext';
 import {
   useSftpTransferStore,
 } from '../store/useSftpTransferStore';
 import { SftpFileEditor } from '../transfer/SftpFileEditor';
+import { CrossServerTransferModal } from '../transfer/CrossServerTransferModal';
 import { FilePreviewModal } from '../transfer/FilePreviewModal';
 import { RemoteSearchPanel } from '../transfer/RemoteSearchPanel';
 import { previewKind } from '../transfer/file-preview';
@@ -226,6 +229,7 @@ function formatPermissions(mode?: string): string {
 /** Session-bound SFTP browser used inside the workspace sidebar. */
 export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const { t } = useI18n();
+  const overlay = useSessionOverlay();
   const sessionCwd = useSessionStore((state) => state.sessions[connectionId]?.cwd);
   const browserState = useSftpTransferStore((state) => state.browserByConnection[connectionId]);
   const setBrowserPath = useSftpTransferStore((state) => state.setBrowserPath);
@@ -293,6 +297,8 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const [editAlert, setEditAlert] = useState<string | null>(null);
   /** 远程图片/PDF 预览目标（仅 Web 端 previewSftpFile 可用时展示入口） */
   const [previewTarget, setPreviewTarget] = useState<RemoteFileItem | null>(null);
+  /** 跨服务器传输目标文件（仅 Web 端 transferSftpFileCrossServer 可用时展示入口） */
+  const [crossTransferTarget, setCrossTransferTarget] = useState<RemoteFileItem | null>(null);
   /** 远程搜索弹层开关（仅 Web 端 searchSftpFiles 可用时展示入口） */
   const [remoteSearchOpen, setRemoteSearchOpen] = useState(false);
   const [chmodTarget, setChmodTarget] = useState<RemoteFileItem | null>(null);
@@ -327,6 +333,14 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const refreshedUploadTasksRef = useRef<Set<string>>(new Set());
   const loadRequestRef = useRef(0);
   const handledNavigationVersionRef = useRef(navigationVersion);
+
+  // 切走会话时收起瞬态浮层（右键菜单、更多菜单、悬停详情），保留编辑器/预览等会话状态
+  useEffect(() => {
+    if (overlay.isActive) return;
+    setContextMenu(null);
+    setToolbarMenuOpen(false);
+    setHoverDetail(null);
+  }, [overlay.isActive]);
 
   const visibleTransferTasks = useMemo(
     () => transferTasks
@@ -1789,6 +1803,21 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                       <Download className="h-4 w-4" />
                       {t('common.download')}
                     </button>
+                    {typeof window.electronAPI?.transferSftpFileCrossServer === 'function' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const item = contextMenu.item;
+                          setContextMenu(null);
+                          setCrossTransferTarget(item);
+                        }}
+                        className="app-popover-row text-sm text-fg-secondary"
+                        disabled={!isLive}
+                      >
+                        <ArrowRightLeft className="h-4 w-4" />
+                        {t('fileTransfer.crossServer.menuAction')}
+                      </button>
+                    )}
                     {canPreviewRemoteFile(contextMenu.item.name) && (
                       <button
                         type="button"
@@ -1955,6 +1984,19 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
           file={{ path: previewTarget.path, name: previewTarget.name }}
           onClose={() => setPreviewTarget(null)}
           translate={t}
+        />
+      )}
+
+      {crossTransferTarget && (
+        <CrossServerTransferModal
+          isOpen
+          sourceConnectionId={connectionId}
+          sourceFile={crossTransferTarget}
+          onClose={() => setCrossTransferTarget(null)}
+          onStarted={(targetServerName) => {
+            setBrowserView(connectionId, 'tasks');
+            showStatusNotice(t('fileTransfer.crossServer.started', { target: targetServerName }));
+          }}
         />
       )}
 
@@ -2199,7 +2241,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
         </form>
       </Modal>
 
-      {statusNotice && (
+      {statusNotice && overlay.isActive && (
         <div className="pointer-events-none fixed bottom-8 left-1/2 z-overlay -translate-x-1/2 rounded-md bg-app px-3 py-1.5 text-xs text-white shadow-lg dark:bg-surface-elevated dark:text-fg-faint">
           {statusNotice}
         </div>

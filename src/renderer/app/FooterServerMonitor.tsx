@@ -48,9 +48,12 @@ function Segment({
   tone?: string;
 }) {
   return (
-    <span className="flex shrink-0 items-center gap-1" title={title}>
+    <span
+      className="flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors hover:bg-surface-hover"
+      title={title}
+    >
       <span className="text-fg-subtle">{icon}</span>
-      <span className={`tabular-nums ${tone}`}>{value}</span>
+      <span className={`font-mono tabular-nums ${tone}`}>{value}</span>
     </span>
   );
 }

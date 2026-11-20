@@ -27,10 +27,10 @@ export function getTerminalFontFamily(value: string | undefined): string {
 
 export const TERMINAL_THEMES: Record<string, any> = {
   dark: {
-    background: '#060b10',
-    foreground: '#e7ece7',
-    cursor: '#14b8a6',
-    selectionBackground: '#0d3b38',
+    background: '#070b10',
+    foreground: '#e7eef4',
+    cursor: '#2dd4bf',
+    selectionBackground: '#103c3a',
     black: '#0c1319',
     red: '#f87171',
     green: '#34d399',
@@ -49,8 +49,8 @@ export const TERMINAL_THEMES: Record<string, any> = {
     brightWhite: '#f5f7f2',
   },
   light: {
-    background: '#f6f2e8',
-    foreground: '#1f2a27',
+    background: '#f6f3eb',
+    foreground: '#182421',
     cursor: '#0f766e',
     selectionBackground: '#bfe3de',
     black: '#1f2a27',

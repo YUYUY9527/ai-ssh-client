@@ -120,6 +120,7 @@ export function TerminalToolbar({
         <PortForwardButton connectionId={connectionId} translate={translate} />
         <BroadcastButton translate={translate} />
         <DockerButton connectionId={connectionId} translate={translate} />
+        <span className="terminal-toolbar-divider" aria-hidden="true" />
         <button
           type="button"
           onClick={onSaveLog}
@@ -147,6 +148,7 @@ export function TerminalToolbar({
         >
           <ZoomIn className="w-4 h-4" />
         </button>
+        <span className="terminal-toolbar-divider" aria-hidden="true" />
         <button
           type="button"
           onClick={onToggleSearch}

@@ -34,10 +34,14 @@ interface WorkspaceStoreState {
   isAssistantOpen: boolean;
   /** 分屏布局树；null 表示单面板（跟随当前活动会话全屏显示）。 */
   paneRoot: PaneNode | null;
+  /** 各会话独立打开的容器管理面板状态（按 sessionId 隔离，切换会话保留，关闭会话自动清理）。 */
+  dockerPanelBySession: Record<string, boolean>;
   setSftpSidebarOpen: (isOpen: boolean) => void;
   toggleSftpSidebar: () => void;
   setSftpSidebarWidth: (width: number) => void;
   setAssistantOpen: (isOpen: boolean) => void;
+  setDockerPanelOpen: (sessionId: string, isOpen: boolean) => void;
+  pruneSessionOverlays: (openTabIds: string[]) => void;
   /** 把 newTabId 会话分割到 targetTabId 面板的指定一侧；超过上限返回 false。 */
   splitPane: (targetTabId: string, newTabId: string, side: PaneSide) => boolean;
   /** 用 newTabId 替换 targetTabId 所在面板。 */
@@ -62,10 +66,38 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   sftpSidebarWidth: DEFAULT_SFTP_SIDEBAR_WIDTH,
   isAssistantOpen: false,
   paneRoot: null,
+  dockerPanelBySession: {},
   setSftpSidebarOpen: (isSftpSidebarOpen) => set({ isSftpSidebarOpen }),
   toggleSftpSidebar: () => set((state) => ({ isSftpSidebarOpen: !state.isSftpSidebarOpen })),
   setSftpSidebarWidth: (width) => set({ sftpSidebarWidth: clampSidebarWidth(width) }),
   setAssistantOpen: (isAssistantOpen) => set({ isAssistantOpen }),
+  setDockerPanelOpen: (sessionId, isOpen) => set((state) => {
+    if (!sessionId) return state;
+    const current = Boolean(state.dockerPanelBySession[sessionId]);
+    if (current === isOpen) return state;
+    const next = { ...state.dockerPanelBySession };
+    if (isOpen) {
+      next[sessionId] = true;
+    } else {
+      delete next[sessionId];
+    }
+    return { dockerPanelBySession: next };
+  }),
+  pruneSessionOverlays: (openTabIds) => set((state) => {
+    const keys = Object.keys(state.dockerPanelBySession);
+    if (keys.length === 0) return state;
+    const open = new Set(openTabIds);
+    let changed = false;
+    const next: Record<string, boolean> = {};
+    for (const id of keys) {
+      if (open.has(id) && state.dockerPanelBySession[id]) {
+        next[id] = true;
+      } else {
+        changed = true;
+      }
+    }
+    return changed ? { dockerPanelBySession: next } : state;
+  }),
 
   splitPane: (targetTabId, newTabId, side) => {
     if (!targetTabId || !newTabId || targetTabId === newTabId) return false;

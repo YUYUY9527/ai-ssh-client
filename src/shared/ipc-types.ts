@@ -323,6 +323,10 @@ export interface SftpTransferTaskSnapshot {
   taskId: string;
   batchId?: string;
   connectionId: string;
+  /** 跨服务器传输的目标连接 id（存在时表示 A → B 服务端直传任务）。 */
+  targetConnectionId?: string;
+  /** 跨服务器传输的目标服务器显示名称。 */
+  targetConnectionName?: string;
   attempt: number;
   sequence: number;
   direction: SftpTransferDirection;
@@ -416,6 +420,23 @@ export interface SftpStartDownloadRequest {
 
 export interface SftpStartTransferResult {
   tasks: SftpTransferTaskSnapshot[];
+}
+
+/** 跨服务器文件传输请求（A 服务器文件 → B 服务器指定目录）。 */
+export interface SftpCrossServerTransferRequest {
+  sourceConnectionId: string;
+  sourcePath: string;
+  sourceSize?: number;
+  targetConnectionId: string;
+  targetConnectionName?: string;
+  targetDirectory: string;
+  targetName?: string;
+  conflictPolicy?: Exclude<SftpConflictPolicy, 'ask'>;
+  preserveTimestamps?: boolean;
+}
+
+export interface SftpCrossServerTransferResult {
+  task: SftpTransferTaskSnapshot;
 }
 
 export interface SftpResolveConflictRequest {

@@ -1,8 +1,11 @@
-import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { AppSettings, SSHConnection } from '../../shared/types';
 import type { Session } from '../../shared/types';
+import { useI18n } from '../i18n';
 import { SessionTerminal } from '../session/SessionTerminal';
+import { DockerPanel } from '../session/terminal/DockerPanel';
 import { SftpSidebar } from '../transfer/SftpSidebar';
+import { SessionOverlayProvider } from './SessionOverlayContext';
 import { WorkspaceEmptyState, type WorkspaceHomeSettingsTab } from './WorkspaceEmptyState';
 import { WorkspaceLayout } from './WorkspaceLayout';
 import { X } from 'lucide-react';
@@ -79,6 +82,8 @@ export function SessionWorkspace({
   translate,
   draggingTabId,
 }: SessionWorkspaceProps) {
+  const { t } = useI18n();
+  const resolveTranslate = translate ?? t;
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   // 侧栏绑定活动标签；断线时仍保留会话上下文，方便查看任务与上次路径
   const activeConnectionId = activeTab?.id ?? null;
@@ -89,11 +94,88 @@ export function SessionWorkspace({
   const replacePane = useWorkspaceStore((state) => state.replacePane);
   const swapPanes = useWorkspaceStore((state) => state.swapPanes);
   const setSplitRatioById = useWorkspaceStore((state) => state.setSplitRatioById);
+  const dockerPanelBySession = useWorkspaceStore((state) => state.dockerPanelBySession);
+  const setDockerPanelOpen = useWorkspaceStore((state) => state.setDockerPanelOpen);
+  const pruneSessionOverlays = useWorkspaceStore((state) => state.pruneSessionOverlays);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [draggingDividerId, setDraggingDividerId] = useState<string | null>(null);
   const dividerDragRef = useRef<{ id: string; orientation: 'row' | 'column'; parent: Rect } | null>(null);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
+  /** 每个会话独立的弹层挂载宿主（位于 .app-main 内），切换会话只切换显示与激活态。 */
+  const [overlayHosts, setOverlayHosts] = useState<Record<string, HTMLDivElement | null>>({});
+  /** 按 tabId 缓存稳定 ref 回调，避免内联 ref 每次渲染重建触发 null→node 死循环（React error 185）。 */
+  const overlayHostCallbacksRef = useRef<Map<string, (node: HTMLDivElement | null) => void>>(new Map());
+  /** 记录已打开过 SFTP 的会话 id，切到其他会话时保活其文件编辑器/预览弹窗状态，关闭标签时清理。 */
+  const [mountedSftpIds, setMountedSftpIds] = useState<string[]>([]);
+
+  const getOverlayHostRef = useCallback((tabId: string) => {
+    let callback = overlayHostCallbacksRef.current.get(tabId);
+    if (!callback) {
+      callback = (node: HTMLDivElement | null) => {
+        setOverlayHosts((previous) => {
+          if ((previous[tabId] ?? null) === node) return previous;
+          const next = { ...previous };
+          if (node) {
+            next[tabId] = node;
+          } else {
+            delete next[tabId];
+          }
+          return next;
+        });
+      };
+      overlayHostCallbacksRef.current.set(tabId, callback);
+    }
+    return callback;
+  }, []);
+
+  // 会话列表变更时清理已关闭会话的容器管理、ref 回调缓存与 SFTP 保活实例
+  useEffect(() => {
+    const openIds = tabs.map((tab) => tab.id);
+    const openSet = new Set(openIds);
+    pruneSessionOverlays(openIds);
+    for (const id of overlayHostCallbacksRef.current.keys()) {
+      if (!openSet.has(id)) {
+        overlayHostCallbacksRef.current.delete(id);
+      }
+    }
+    setMountedSftpIds((previous) => {
+      const pruned = previous.filter((id) => openSet.has(id));
+      return pruned.length === previous.length ? previous : pruned;
+    });
+  }, [tabs, pruneSessionOverlays]);
+
+  // 展开 SFTP 侧栏时登记当前会话，以便切走再切回后保留未关闭的编辑器/预览弹窗
+  useEffect(() => {
+    if (!isSftpSidebarOpen || !activeConnectionId) return;
+    setMountedSftpIds((previous) => (
+      previous.includes(activeConnectionId) ? previous : [...previous, activeConnectionId]
+    ));
+  }, [isSftpSidebarOpen, activeConnectionId]);
+
+  const effectiveMountedSftpIds = useMemo(() => {
+    const openSet = new Set(tabs.map((tab) => tab.id));
+    const list = mountedSftpIds.filter((id) => openSet.has(id));
+    if (isSftpSidebarOpen && activeConnectionId && openSet.has(activeConnectionId) && !list.includes(activeConnectionId)) {
+      return [...list, activeConnectionId];
+    }
+    return list;
+  }, [tabs, mountedSftpIds, isSftpSidebarOpen, activeConnectionId]);
+
+  const sftpSessions = useMemo(() => {
+    const tabMap = new Map(tabs.map((tab) => [tab.id, tab]));
+    return effectiveMountedSftpIds
+      .map((id) => {
+        const tab = tabMap.get(id);
+        if (!tab) return null;
+        return {
+          id: tab.id,
+          isLive: Boolean(tab.isConnected),
+          overlayContainer: overlayHosts[tab.id] ?? null,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+  }, [tabs, effectiveMountedSftpIds, overlayHosts]);
 
   // 当前真正显示在屏幕上的面板矩形（未分屏时就是活动会话全屏）
   const leafRects = useMemo(() => {
@@ -244,16 +326,51 @@ export function SessionWorkspace({
     setDraggingDividerId(null);
   };
 
-  const sidebar = isSftpSidebarOpen ? (
+  const sidebar = (isSftpSidebarOpen || sftpSessions.length > 0) ? (
     <SftpSidebar
       connectionId={activeConnectionId}
       isLive={isLive}
+      isOpen={isSftpSidebarOpen}
+      sessions={sftpSessions}
       onClose={onCloseSftpSidebar}
     />
   ) : null;
 
+  const overlays = tabs.length > 0 ? (
+    <>
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          ref={getOverlayHostRef(tab.id)}
+          data-session-overlay-host={tab.id}
+          className={
+            tab.id === activeTabId
+              ? 'pointer-events-none absolute inset-0 z-overlay overflow-hidden'
+              : 'hidden'
+          }
+        />
+      ))}
+      {tabs.map((tab) => (
+        dockerPanelBySession[tab.id] ? (
+          <SessionOverlayProvider
+            key={`docker-${tab.id}`}
+            sessionId={tab.id}
+            container={overlayHosts[tab.id] ?? null}
+            isActive={tab.id === activeTabId}
+          >
+            <DockerPanel
+              connectionId={tab.id}
+              translate={resolveTranslate}
+              onClose={() => setDockerPanelOpen(tab.id, false)}
+            />
+          </SessionOverlayProvider>
+        ) : null
+      ))}
+    </>
+  ) : null;
+
   return (
-    <WorkspaceLayout sidebar={sidebar}>
+    <WorkspaceLayout sidebar={sidebar} overlays={overlays}>
       <div
         ref={containerRef}
         className="absolute inset-0 overflow-hidden"
@@ -281,22 +398,29 @@ export function SessionWorkspace({
               onPointerDown={() => onFocusTab?.(tab.id)}
             >
               {isSplit && (
-                <div className="pointer-events-none absolute right-3 top-[3.25rem] z-raised flex max-w-[70%] items-center gap-1 truncate rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] font-medium text-fg-secondary shadow-sm">
+                <div className="pointer-events-none absolute right-3 top-[3.15rem] z-raised flex max-w-[70%] items-center gap-1.5 truncate rounded-full border border-line-subtle bg-surface-elevated/80 px-2.5 py-0.5 font-mono text-[10.5px] font-medium text-fg-secondary shadow-sm backdrop-blur-md">
                   <span
                     className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${tab.isConnected ? 'bg-success' : tab.isConnecting ? 'bg-warning' : 'bg-danger'}`}
                   />
                   <span className="truncate">{tab.name}</span>
                 </div>
               )}
-              <SessionTerminal
-                liveConnectionId={tab.isConnected ? tab.id : null}
+              <SessionOverlayProvider
                 sessionId={tab.id}
-                onPasteToAI={onPasteToAI}
-                theme={theme}
-                settings={settings}
-                onSettingsPatch={onSettingsPatch}
-                compact={isSplit}
-              />
+                container={overlayHosts[tab.id] ?? null}
+                isActive={isFocused}
+              >
+                <SessionTerminal
+                  liveConnectionId={tab.isConnected ? tab.id : null}
+                  sessionId={tab.id}
+                  onPasteToAI={onPasteToAI}
+                  onOpenAISettings={() => onOpenSettings('providers')}
+                  theme={theme}
+                  settings={settings}
+                  onSettingsPatch={onSettingsPatch}
+                  compact={isSplit}
+                />
+              </SessionOverlayProvider>
             </div>
           );
         })}
@@ -341,14 +465,14 @@ export function SessionWorkspace({
             onClick={() => useWorkspaceStore.getState().resetLayout()}
             title={translate?.('workspace.split.disable') ?? '取消分屏'}
             aria-label={translate?.('workspace.split.disable') ?? '取消分屏'}
-            className="absolute right-1.5 top-1.5 z-popover flex items-center gap-1 rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] text-fg-muted shadow-sm hover:text-danger"
+            className="absolute right-2 top-2 z-popover flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface-elevated/90 text-fg-muted shadow-sm backdrop-blur-md transition-colors hover:border-danger hover:text-danger"
           >
             <X className="h-3 w-3" />
           </button>
         )}
         {dropHint && (
           <div
-            className="pointer-events-none absolute z-popover flex items-center justify-center rounded-md border-2 border-accent bg-accent-muted"
+            className="pointer-events-none absolute z-popover flex items-center justify-center rounded-md border-2 border-accent bg-accent-muted backdrop-blur-[2px] transition-all"
             style={{
               left: `${dropHint.rect.x * 100}%`,
               top: `${dropHint.rect.y * 100}%`,
@@ -356,7 +480,7 @@ export function SessionWorkspace({
               height: `${dropHint.rect.h * 100}%`,
             }}
           >
-            <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-fg shadow-sm">
+            <span className="rounded-full bg-accent px-3 py-1 text-[11px] font-semibold text-accent-fg shadow-md">
               {dropHint.label}
             </span>
           </div>

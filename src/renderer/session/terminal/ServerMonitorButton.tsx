@@ -48,45 +48,64 @@ function Meter({ label, percent, detail }: { label: string; percent: number; det
   const tone = clamped >= 90 ? 'bg-danger' : clamped >= 70 ? 'bg-warning' : 'bg-accent';
   return (
     <div>
-      <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-fg-secondary font-medium truncate" title={label}>{label}</span>
-        <span className="text-fg-muted tabular-nums shrink-0 ml-2">{clamped.toFixed(0)}%</span>
+      <div className="mb-1.5 flex items-center justify-between text-xs">
+        <span className="truncate font-medium text-fg-secondary" title={label}>{label}</span>
+        <span className="ml-2 shrink-0 font-mono text-[11px] font-medium text-fg-muted tabular-nums">{clamped.toFixed(0)}%</span>
       </div>
-      <div className="h-1.5 rounded-full bg-surface-raised overflow-hidden">
-        <div className={`h-full ${tone} transition-all`} style={{ width: `${clamped}%` }} />
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-line-subtle">
+        <div
+          className={`h-full rounded-full ${tone} transition-all duration-500`}
+          style={{ width: `${clamped}%` }}
+        />
       </div>
-      <p className="text-[11px] text-fg-subtle mt-0.5 tabular-nums">{detail}</p>
+      <p className="mt-1 font-mono text-[10.5px] text-fg-subtle tabular-nums">{detail}</p>
     </div>
   );
 }
 
-/** CPU 使用率迷你折线（0–100% 归一化）。 */
+/** CPU 使用率迷你折线（0–100% 归一化，带柔和面积渐变与末端指示点）。 */
 function Sparkline({ values }: { values: number[] }) {
   const width = 100;
-  const height = 28;
-  const points = useMemo(() => {
-    if (values.length === 0) return '';
+  const height = 30;
+  const padY = 2;
+  const { points, areaPoints, lastPoint } = useMemo(() => {
+    if (values.length === 0) {
+      return { points: '', areaPoints: '', lastPoint: null as { x: number; y: number } | null };
+    }
     const step = values.length > 1 ? width / (values.length - 1) : width;
-    return values
-      .map((value, index) => {
-        const clamped = Math.max(0, Math.min(100, value));
-        const x = index * step;
-        const y = height - (clamped / 100) * height;
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(' ');
+    const coords = values.map((value, index) => {
+      const clamped = Math.max(0, Math.min(100, value));
+      const x = index * step;
+      const y = height - padY - (clamped / 100) * (height - padY * 2);
+      return { x, y };
+    });
+    const line = coords.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' ');
+    const area = `0,${height} ${line} ${coords[coords.length - 1].x.toFixed(1)},${height}`;
+    return { points: line, areaPoints: area, lastPoint: coords[coords.length - 1] };
   }, [values]);
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="w-full h-7 text-accent">
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="h-8 w-full text-accent">
+      <defs>
+        <linearGradient id="monitor-sparkline-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.01" />
+        </linearGradient>
+      </defs>
+      {areaPoints && (
+        <polygon points={areaPoints} fill="url(#monitor-sparkline-fill)" />
+      )}
       <polyline
-        points={points || `0,${height}`}
+        points={points || `0,${height - padY}`}
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.2"
+        strokeWidth="1.4"
         strokeLinejoin="round"
         strokeLinecap="round"
       />
+      {lastPoint && (
+        <circle cx={lastPoint.x} cy={lastPoint.y} r="2" fill="currentColor" />
+      )}
     </svg>
   );
 }
@@ -105,10 +124,10 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-xl bg-surface border border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] p-2.5 space-y-2">
+    <div className="space-y-2 rounded-lg border border-line-subtle bg-surface/90 p-3 shadow-sm">
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs font-semibold text-fg-secondary dark:text-fg">
-          <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md ${tint}`}>{icon}</span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-fg">
+          <span className={`inline-flex h-5 w-5 items-center justify-center rounded-sm ${tint}`}>{icon}</span>
           {title}
         </span>
         {right}
