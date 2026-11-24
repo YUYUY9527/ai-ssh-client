@@ -1523,6 +1523,24 @@ const webApi: Window['electronAPI'] = {
     `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}/update`,
     { method: 'POST' },
   ),
+  recreateDockerContainer: (connectionId, containerId) => sftpRequest<import('../../shared/ipc-types').DockerRecreateResult>(
+    `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}/recreate`,
+    { method: 'POST' },
+  ),
+  removeDockerContainer: (connectionId, containerId, force = false) => sftpRequest<import('../../shared/ipc-types').DockerRemoveResult>(
+    `/api/ssh/${connectionId}/docker/containers/${encodeURIComponent(containerId)}/remove`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ force: Boolean(force) }),
+    },
+  ),
+  pruneDocker: (connectionId, target) => sftpRequest<import('../../shared/ipc-types').DockerPruneResult>(
+    `/api/ssh/${connectionId}/docker/prune`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    },
+  ),
   sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
     `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
   ),

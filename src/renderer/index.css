@@ -1806,6 +1806,67 @@
     border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-color));
   }
 
+  .docker-action-button.is-more:hover:not(:disabled),
+  .docker-action-button.is-more.is-open {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-color));
+  }
+
+  .docker-prune-trigger {
+    @apply inline-flex h-9 shrink-0 items-center gap-1.5 border px-2.5 text-xs font-medium text-fg-secondary transition-all disabled:cursor-not-allowed disabled:opacity-45;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 76%, transparent);
+  }
+
+  .docker-prune-trigger:hover:not(:disabled),
+  .docker-prune-trigger.is-open {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--bg-hover) 92%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-strong) 85%, transparent);
+  }
+
+  .docker-dropdown-menu {
+    @apply pointer-events-auto flex w-max min-w-[140px] flex-col border p-1.5;
+    border-radius: var(--radius-md);
+    background:
+      linear-gradient(155deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 46%),
+      color-mix(in srgb, var(--bg-elevated) 96%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-strong) 78%, transparent);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 color-mix(in srgb, var(--text-primary) 6%, transparent);
+    backdrop-filter: blur(14px);
+    animation: fade-in 120ms var(--ease-chrome);
+  }
+
+  .docker-dropdown-item {
+    @apply flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-xs text-fg-secondary transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+    border-radius: var(--radius-sm);
+  }
+
+  .docker-dropdown-item:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-hover));
+  }
+
+  .docker-dropdown-item.is-danger {
+    color: var(--danger-fg);
+  }
+
+  .docker-dropdown-item.is-danger:hover:not(:disabled) {
+    color: var(--danger-fg);
+    background: var(--danger-muted);
+  }
+
+  .docker-dropdown-divider {
+    @apply my-1 border-t;
+    border-color: color-mix(in srgb, var(--border-color) 65%, transparent);
+  }
+
+  .docker-dropdown-hint {
+    @apply ml-auto text-[10px] text-fg-subtle;
+  }
+
   .docker-empty-state {
     @apply flex min-h-40 flex-col items-center justify-center gap-2 text-xs text-fg-muted;
   }

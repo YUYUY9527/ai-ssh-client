@@ -44,6 +44,9 @@ const {
   openContainerLogStream,
   containerAction,
   updateContainer,
+  recreateContainer,
+  removeContainer,
+  pruneDocker,
   quoteArg: quoteDockerArg,
 } = require('./docker-manager.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
@@ -1775,10 +1778,36 @@ app.get('/api/ssh/:id/docker/containers/:containerId/logs/stream', (request, res
   });
 });
 
+// 清理已停止容器或悬空镜像。
+app.post('/api/ssh/:id/docker/prune', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const target = String(request.body?.target || '');
+  const result = await pruneDocker(session.client, target);
+  emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
+  return success(result);
+}));
+
 // 容器「更新」：compose 容器 pull + up -d，非 compose 仅 pull。必须注册在通用 :action 路由之前。
 app.post('/api/ssh/:id/docker/containers/:containerId/update', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
   const result = await updateContainer(session.client, request.params.containerId);
+  emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
+  return success(result);
+}));
+
+// 容器单服务「重建」：compose 容器 stop + rm -f + up -d --no-deps，不影响同 compose 其他服务。
+app.post('/api/ssh/:id/docker/containers/:containerId/recreate', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const result = await recreateContainer(session.client, request.params.containerId);
+  emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
+  return success(result);
+}));
+
+// 删除单个容器（支持 force 强制删除，不删数据卷）。
+app.post('/api/ssh/:id/docker/containers/:containerId/remove', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const force = Boolean(request.body?.force);
+  const result = await removeContainer(session.client, request.params.containerId, { force });
   emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
   return success(result);
 }));

@@ -207,7 +207,8 @@ function openContainerLogStream(client, containerId, tail = DEFAULT_LOG_TAIL, ha
 }
 
 const ALLOWED_ACTIONS = new Set(['start', 'stop', 'restart', 'pause', 'unpause', 'kill']);
-
+const ALLOWED_PRUNE_TARGETS = new Set(['containers', 'images']);
+const PRUNE_TIMEOUT_MS = 60 * 1000;
 
 async function containerAction(client, containerId, action) {
   if (!ALLOWED_ACTIONS.has(action)) {
@@ -241,6 +242,15 @@ async function containerComposeMeta(client, containerId) {
     workingDir: String(labels['com.docker.compose.project.working_dir'] || ''),
     configFiles: String(labels['com.docker.compose.project.config_files'] || ''),
   };
+}
+
+function buildComposeArgs(meta) {
+  const composeArgs = ['compose'];
+  if (meta.workingDir) composeArgs.push('--project-directory', meta.workingDir);
+  const files = meta.configFiles.split(',').map((item) => item.trim()).filter(Boolean);
+  for (const file of files) composeArgs.push('-f', file);
+  composeArgs.push('-p', meta.project);
+  return composeArgs;
 }
 
 async function containerImageName(client, containerId) {
@@ -279,11 +289,7 @@ async function updateContainer(client, containerId) {
     };
   }
 
-  const composeArgs = ['compose'];
-  if (meta.workingDir) composeArgs.push('--project-directory', meta.workingDir);
-  const files = meta.configFiles.split(',').map((item) => item.trim()).filter(Boolean);
-  for (const file of files) composeArgs.push('-f', file);
-  composeArgs.push('-p', meta.project);
+  const composeArgs = buildComposeArgs(meta);
 
   const pull = await runDocker(client, [...composeArgs, 'pull', meta.service], {
     timeoutMs: UPDATE_TIMEOUT_MS,
@@ -313,6 +319,77 @@ async function updateContainer(client, containerId) {
   };
 }
 
+/**
+ * 单服务「重建」容器：compose 容器依次执行 stop -> rm -f -> up -d --no-deps，
+ * 避免使用 `docker compose down` 误拆同 compose 文件下的其他服务，同时重新读取最新配置与挂载。
+ */
+async function recreateContainer(client, containerId) {
+  const meta = await containerComposeMeta(client, containerId);
+  if (!meta.project || !meta.service) {
+    throw new Error('非 compose 容器不支持单服务重建');
+  }
+
+  const composeArgs = buildComposeArgs(meta);
+  const execOptions = { timeoutMs: UPDATE_TIMEOUT_MS, maxBytes: 4 * 1024 * 1024 };
+
+  const stop = await runDocker(client, [...composeArgs, 'stop', meta.service], execOptions);
+  const stopOutput = `${stop.output || ''}${stop.stderr || ''}`.trim();
+  if (stop.exitCode !== 0) {
+    throw new Error(stopOutput || `docker compose stop ${meta.service} failed`);
+  }
+
+  const rm = await runDocker(client, [...composeArgs, 'rm', '-f', meta.service], execOptions);
+  const rmOutput = `${rm.output || ''}${rm.stderr || ''}`.trim();
+  if (rm.exitCode !== 0) {
+    throw new Error(rmOutput || `docker compose rm -f ${meta.service} failed`);
+  }
+
+  const up = await runDocker(client, [...composeArgs, 'up', '-d', '--no-deps', meta.service], execOptions);
+  const upOutput = `${up.output || ''}${up.stderr || ''}`.trim();
+  if (up.exitCode !== 0) {
+    throw new Error(upOutput || `docker compose up -d --no-deps ${meta.service} failed`);
+  }
+
+  return {
+    project: meta.project,
+    service: meta.service,
+    output: [stopOutput, rmOutput, upOutput].filter(Boolean).join('\n'),
+    message: `已重建 ${meta.project}/${meta.service}（stop + rm -f + up -d --no-deps）。`,
+  };
+}
+
+/** 删除单个容器（不传 -v，保留数据卷）。 */
+async function removeContainer(client, containerId, options = {}) {
+  const force = Boolean(options.force);
+  const args = force ? ['rm', '-f', containerId] : ['rm', containerId];
+  const result = await runDocker(client, args);
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || '').trim() || 'docker rm failed');
+  }
+  return { containerId, force, output: String(result.output || '').trim() };
+}
+
+/** 清理已停止容器或悬空镜像。 */
+async function pruneDocker(client, target) {
+  if (!ALLOWED_PRUNE_TARGETS.has(target)) {
+    throw new Error(`Unsupported prune target: ${target}`);
+  }
+  const args = target === 'containers'
+    ? ['container', 'prune', '-f']
+    : ['image', 'prune', '-f'];
+  const result = await runDocker(client, args, {
+    timeoutMs: PRUNE_TIMEOUT_MS,
+    maxBytes: 2 * 1024 * 1024,
+  });
+  const output = `${result.output || ''}${result.stderr || ''}`.trim();
+  if (result.exitCode !== 0) {
+    throw new Error(output || `docker ${args.join(' ')} failed`);
+  }
+  const match = output.match(/Total reclaimed space:\s*(.+)/i);
+  const reclaimedSpace = match ? match[1].trim() : '';
+  return { target, reclaimedSpace, output };
+}
+
 module.exports = {
   quoteArg,
   parseContainerLines,
@@ -323,5 +400,9 @@ module.exports = {
   openContainerLogStream,
   containerAction,
   updateContainer,
+  recreateContainer,
+  removeContainer,
+  pruneDocker,
   ALLOWED_ACTIONS,
+  ALLOWED_PRUNE_TARGETS,
 };

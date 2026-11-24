@@ -38,6 +38,10 @@ import type {
   DockerLogsResult,
   DockerActionResult,
   DockerUpdateResult,
+  DockerRecreateResult,
+  DockerRemoveResult,
+  DockerPruneTarget,
+  DockerPruneResult,
   SftpSearchMode,
   SftpSearchResult,
   SftpPreviewResult,
@@ -91,6 +95,12 @@ declare global {
       dockerContainerAction?: (connectionId: string, containerId: string, action: string) => Promise<IPCResult<DockerActionResult>>;
       /** 更新容器：compose 容器 pull + up -d，非 compose 仅拉取镜像。 */
       updateDockerContainer?: (connectionId: string, containerId: string) => Promise<IPCResult<DockerUpdateResult>>;
+      /** 重建单个 compose 服务容器：stop + rm -f + up -d --no-deps。 */
+      recreateDockerContainer?: (connectionId: string, containerId: string) => Promise<IPCResult<DockerRecreateResult>>;
+      /** 删除单个容器（可选 force，不删数据卷）。 */
+      removeDockerContainer?: (connectionId: string, containerId: string, force?: boolean) => Promise<IPCResult<DockerRemoveResult>>;
+      /** 清理已停止容器或悬空镜像。 */
+      pruneDocker?: (connectionId: string, target: DockerPruneTarget) => Promise<IPCResult<DockerPruneResult>>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
       sshListHostTrustRecords: () => Promise<IPCResult<{ records: HostTrustRecord[] }>>;
       sshUpsertHostTrustRecord: (record: HostTrustRecord) => Promise<IPCResult>;

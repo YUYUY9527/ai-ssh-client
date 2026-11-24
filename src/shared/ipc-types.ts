@@ -651,3 +651,27 @@ export interface DockerUpdateResult {
   message: string;
 }
 
+/** compose 单服务「重建」结果：stop + rm -f + up -d --no-deps。 */
+export interface DockerRecreateResult {
+  project: string;
+  service: string;
+  output: string;
+  message: string;
+}
+
+/** 删除单个容器结果（不删数据卷）。 */
+export interface DockerRemoveResult {
+  containerId: string;
+  force: boolean;
+  output: string;
+}
+
+export type DockerPruneTarget = 'containers' | 'images';
+
+/** 清理已停止容器或悬空镜像的结果。 */
+export interface DockerPruneResult {
+  target: DockerPruneTarget;
+  reclaimedSpace: string;
+  output: string;
+}
+

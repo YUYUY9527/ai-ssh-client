@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, ArrowDownCircle, Box, Container, Layers3, Loader2, Play, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, X } from 'lucide-react';
-import type { DockerContainerDetail, DockerContainerSummary } from '../../../shared/ipc-types';
+import { Activity, ArrowDownCircle, Box, ChevronDown, Container, Copy, Info, Layers3, Loader2, MoreHorizontal, Play, Power, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
+import type { DockerContainerDetail, DockerContainerSummary, DockerPruneTarget } from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
 import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
 import { getWebSftpClientId } from '../../lib/web';
@@ -13,10 +13,49 @@ interface DockerPanelProps {
   onClose: () => void;
 }
 
-type ActionKind = 'start' | 'stop' | 'restart' | 'update';
+type ActionKind = 'start' | 'stop' | 'restart' | 'update' | 'recreate' | 'kill' | 'remove';
 type ContainerFilter = 'all' | 'running' | 'stopped';
 
-/** 容器管理弹窗：列表 + 详情 + 启停/重启 + 日志 + 进入容器 shell。 */
+interface RowMenuState {
+  container: DockerContainerSummary;
+  top: number;
+  bottom: number;
+  right: number;
+  openUp: boolean;
+}
+
+interface PruneMenuState {
+  top: number;
+  right: number;
+}
+
+const MENU_ACTION_SET = new Set<ActionKind>(['update', 'recreate', 'kill', 'remove']);
+
+async function copyText(value: string): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // 无剪贴板权限时走下面的兜底方案
+    }
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 容器管理弹窗：列表 + 详情 + 启停/重启 + 更多操作菜单 + 清理 + 日志 + 容器 shell。 */
 export function DockerPanel({ connectionId, translate, onClose }: DockerPanelProps) {
   const overlay = useSessionOverlay();
   const isSessionScoped = Boolean(overlay.container);
@@ -27,12 +66,19 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<ActionKind | null>(null);
+  const [pruningTarget, setPruningTarget] = useState<DockerPruneTarget | null>(null);
   const [pendingAction, setPendingAction] = useState<{ container: DockerContainerSummary; action: ActionKind } | null>(null);
+  const [pendingPrune, setPendingPrune] = useState<DockerPruneTarget | null>(null);
+  const [openMenu, setOpenMenu] = useState<RowMenuState | null>(null);
+  const [pruneMenu, setPruneMenu] = useState<PruneMenuState | null>(null);
   const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
   const [logs, setLogs] = useState<{ containerId: string; text: string } | null>(null);
   const [logSearch, setLogSearch] = useState('');
   const [follow, setFollow] = useState(true);
   const logPreRef = useRef<HTMLPreElement | null>(null);
+  const rowMenuRef = useRef<HTMLDivElement | null>(null);
+  const pruneMenuRef = useRef<HTMLDivElement | null>(null);
+  const pruneTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [execTarget, setExecTarget] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [containerFilter, setContainerFilter] = useState<ContainerFilter>('all');
@@ -63,19 +109,52 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
 
   // 仅当前会话处于激活可见态时轮询容器状态；切回本会话时自动补刷一次
   useEffect(() => {
-    if (!overlay.isActive) return undefined;
+    if (!overlay.isActive) {
+      setOpenMenu(null);
+      setPruneMenu(null);
+      return undefined;
+    }
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 5000);
     return () => window.clearInterval(timer);
   }, [refresh, overlay.isActive]);
 
+  // 点击外部或窗口尺寸变化时关闭浮动菜单
+  useEffect(() => {
+    if (!openMenu && !pruneMenu) return undefined;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (rowMenuRef.current?.contains(target)) return;
+      if (pruneMenuRef.current?.contains(target)) return;
+      if (pruneTriggerRef.current?.contains(target)) return;
+      if (target.closest('[data-docker-more-trigger]')) return;
+      setOpenMenu(null);
+      setPruneMenu(null);
+    };
+    const handleResize = () => {
+      setOpenMenu(null);
+      setPruneMenu(null);
+    };
+    document.addEventListener('mousedown', handlePointerDown, true);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [openMenu, pruneMenu]);
+
   // 激活会话下按 Esc 逐层关闭（容器终端内不拦截 Esc 以免影响 vim；确认框或全局弹层打开时让位）
   useEffect(() => {
-    if (!overlay.isActive || pendingAction !== null || execTarget !== null) return undefined;
+    if (!overlay.isActive || pendingAction !== null || pendingPrune !== null || execTarget !== null) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (document.querySelector('[role="dialog"][data-modal-scope="global"]')) return;
-      if (logs) {
+      if (openMenu || pruneMenu) {
+        event.stopPropagation();
+        setOpenMenu(null);
+        setPruneMenu(null);
+      } else if (logs) {
         event.stopPropagation();
         setLogs(null);
       } else if (detail) {
@@ -88,7 +167,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     };
     document.addEventListener('keydown', handleKeyDown, true);
     return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [overlay.isActive, pendingAction, execTarget, logs, detail, onClose]);
+  }, [overlay.isActive, pendingAction, pendingPrune, execTarget, openMenu, pruneMenu, logs, detail, onClose]);
 
   const runAction = async (container: DockerContainerSummary, action: ActionKind) => {
     setError(null);
@@ -118,6 +197,44 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
         await refresh();
         return;
       }
+      if (action === 'recreate') {
+        const api = window.electronAPI?.recreateDockerContainer;
+        if (!api) {
+          setError(translate('terminal.docker.recreateUnavailable'));
+          return;
+        }
+        const result = await api(connectionId, container.id);
+        if (!result.success) {
+          setError(result.error || translate('terminal.docker.recreateFailed'));
+        } else if (result.data) {
+          setNotice(translate('terminal.docker.recreateDone', {
+            project: result.data.project,
+            service: result.data.service,
+          }));
+        }
+        await refresh();
+        return;
+      }
+      if (action === 'remove') {
+        const api = window.electronAPI?.removeDockerContainer;
+        if (!api) {
+          setError(translate('terminal.docker.removeUnavailable'));
+          return;
+        }
+        const force = container.state === 'running' || container.state === 'paused';
+        const result = await api(connectionId, container.id, force);
+        if (!result.success) {
+          setError(result.error || translate('terminal.docker.removeFailed'));
+        } else {
+          setNotice(translate('terminal.docker.removeDone', {
+            name: container.name || container.id.slice(0, 12),
+          }));
+          if (detail?.id === container.id) setDetail(null);
+          if (logs?.containerId === container.id) setLogs(null);
+        }
+        await refresh();
+        return;
+      }
       const api = window.electronAPI?.dockerContainerAction;
       if (!api) return;
       const result = await api(connectionId, container.id, action);
@@ -126,6 +243,38 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     } finally {
       setBusyId(null);
       setBusyAction(null);
+    }
+  };
+
+  const runPrune = async (target: DockerPruneTarget) => {
+    const api = window.electronAPI?.pruneDocker;
+    if (!api) {
+      setError(translate('terminal.docker.pruneUnavailable'));
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setPruningTarget(target);
+    try {
+      const result = await api(connectionId, target);
+      if (!result.success) {
+        setError(result.error || translate('terminal.docker.pruneFailed'));
+      } else {
+        const targetLabel = target === 'containers'
+          ? translate('terminal.docker.pruneContainers')
+          : translate('terminal.docker.pruneImages');
+        setNotice(
+          result.data.reclaimedSpace
+            ? translate('terminal.docker.pruneDoneSpace', {
+              target: targetLabel,
+              space: result.data.reclaimedSpace,
+            })
+            : translate('terminal.docker.pruneDone', { target: targetLabel }),
+        );
+      }
+      await refresh();
+    } finally {
+      setPruningTarget(null);
     }
   };
 
@@ -141,6 +290,52 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     setLogSearch('');
     setFollow(true);
     setLogs({ containerId: container.id, text: '' });
+  };
+
+  const toggleRowMenu = (container: DockerContainerSummary, trigger: HTMLButtonElement) => {
+    setPruneMenu(null);
+    if (openMenu?.container.id === container.id) {
+      setOpenMenu(null);
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const estimatedHeight = 336;
+    const right = Math.max(8, window.innerWidth - rect.right);
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < estimatedHeight && rect.top > spaceBelow;
+    setOpenMenu({
+      container,
+      top: Math.max(8, rect.bottom + 6),
+      bottom: Math.max(8, window.innerHeight - rect.top + 6),
+      right,
+      openUp,
+    });
+  };
+
+  const togglePruneMenu = (trigger: HTMLButtonElement) => {
+    setOpenMenu(null);
+    if (pruneMenu) {
+      setPruneMenu(null);
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const right = Math.max(8, window.innerWidth - rect.right);
+    const top = Math.min(rect.bottom + 6, Math.max(8, window.innerHeight - 120));
+    setPruneMenu({ top, right });
+  };
+
+  const handleCopy = async (value: string, labelKey: string) => {
+    setOpenMenu(null);
+    const ok = await copyText(value);
+    if (ok) {
+      setError(null);
+      setNotice(translate('terminal.docker.copied', {
+        label: translate(labelKey),
+        value,
+      }));
+    } else {
+      setError(translate('terminal.docker.copyFailed'));
+    }
   };
 
   // 真流式跟随：SSE 订阅 `docker logs -f`，新日志实时追加；暂停/关闭即断开连接冻结内容。
@@ -223,6 +418,73 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     });
   }, [containers, filter, containerFilter]);
 
+  const confirmDialogConfig = useMemo(() => {
+    if (pendingPrune) {
+      const targetLabel = pendingPrune === 'containers'
+        ? translate('terminal.docker.pruneContainers')
+        : translate('terminal.docker.pruneImages');
+      return {
+        isOpen: true,
+        title: translate('terminal.docker.pruneConfirmTitle', { target: targetLabel }),
+        message: pendingPrune === 'containers'
+          ? translate('terminal.docker.pruneContainersConfirmMessage')
+          : translate('terminal.docker.pruneImagesConfirmMessage'),
+        confirmText: targetLabel,
+        onConfirm: () => {
+          const target = pendingPrune;
+          setPendingPrune(null);
+          void runPrune(target);
+        },
+        onCancel: () => setPendingPrune(null),
+      };
+    }
+    if (!pendingAction) {
+      return {
+        isOpen: false,
+        title: '',
+        message: '',
+        confirmText: undefined,
+        onConfirm: () => undefined,
+        onCancel: () => undefined,
+      };
+    }
+    const { container, action } = pendingAction;
+    const containerName = container.name || container.id.slice(0, 12);
+    const actionLabel = translate(`terminal.docker.${action}`);
+    let message = translate('terminal.docker.confirmMessage', {
+      action: actionLabel,
+      name: containerName,
+    });
+    if (action === 'update') {
+      message = translate('terminal.docker.updateConfirmMessage', { name: containerName });
+    } else if (action === 'recreate') {
+      message = translate('terminal.docker.recreateConfirmMessage', {
+        service: container.composeService || containerName,
+        name: containerName,
+      });
+    } else if (action === 'kill') {
+      message = translate('terminal.docker.killConfirmMessage', { name: containerName });
+    } else if (action === 'remove') {
+      const isActive = container.state === 'running' || container.state === 'paused';
+      message = translate(
+        isActive ? 'terminal.docker.removeForceConfirmMessage' : 'terminal.docker.removeConfirmMessage',
+        { name: containerName },
+      );
+    }
+    return {
+      isOpen: true,
+      title: translate('terminal.docker.confirmTitle', { action: actionLabel }),
+      message,
+      confirmText: actionLabel,
+      onConfirm: () => {
+        const pending = pendingAction;
+        setPendingAction(null);
+        if (pending) void runAction(pending.container, pending.action);
+      },
+      onCancel: () => setPendingAction(null),
+    };
+  }, [pendingPrune, pendingAction, translate]);
+
   const portalTarget = overlay.container ?? document.body;
   const layerClass = isSessionScoped
     ? 'pointer-events-auto absolute inset-0 z-overlay flex items-center justify-center overflow-y-auto p-4'
@@ -261,6 +523,24 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                 </button>
               ) : null}
             </label>
+            <button
+              ref={pruneTriggerRef}
+              type="button"
+              className={`docker-prune-trigger ${pruneMenu ? 'is-open' : ''}`}
+              disabled={available !== true || pruningTarget !== null}
+              aria-haspopup="menu"
+              aria-expanded={pruneMenu !== null}
+              onClick={(event) => togglePruneMenu(event.currentTarget)}
+              title={translate('terminal.docker.prune')}
+            >
+              {pruningTarget !== null ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              <span>{translate('terminal.docker.prune')}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-fg-muted" />
+            </button>
             <button type="button" className="icon-button" onClick={() => { void refresh(); }} title={translate('terminal.docker.refresh')} aria-label={translate('terminal.docker.refresh')}>
               <RefreshCw className={`h-4 w-4 ${available === null ? 'animate-spin' : ''}`} />
             </button>
@@ -283,7 +563,12 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
             </button>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div
+            className="min-h-0 flex-1 overflow-auto"
+            onScroll={() => {
+              if (openMenu) setOpenMenu(null);
+            }}
+          >
             <div className="docker-panel-content">
               <div className="docker-overview">
                 <button type="button" aria-pressed={containerFilter === 'all'} className={`docker-stat-tile ${containerFilter === 'all' ? 'is-active' : ''}`} onClick={() => setContainerFilter('all')}>
@@ -326,103 +611,96 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                       <><Box className="h-5 w-5" /><span>{filter || containerFilter !== 'all' ? translate('terminal.docker.noMatches') : translate('terminal.docker.empty')}</span></>
                     )}
                   </div>
-                ) : filtered.map((container) => (
-                  <div key={container.id} className="docker-container-row">
-                    <div className="docker-identity">
-                      <span className="docker-container-icon"><Container className="h-4 w-4" /></span>
-                      <div className="min-w-0">
-                        <button type="button" className="docker-container-name" onClick={() => { void openDetail(container); }} title={container.name}>
-                          {container.name}
+                ) : filtered.map((container) => {
+                  const isRowBusy = busyId === container.id;
+                  const isMenuBusy = isRowBusy && busyAction !== null && MENU_ACTION_SET.has(busyAction);
+                  const isMenuOpen = openMenu?.container.id === container.id;
+                  return (
+                    <div key={container.id} className="docker-container-row">
+                      <div className="docker-identity">
+                        <span className="docker-container-icon"><Container className="h-4 w-4" /></span>
+                        <div className="min-w-0">
+                          <button type="button" className="docker-container-name" onClick={() => { void openDetail(container); }} title={container.name}>
+                            {container.name}
+                          </button>
+                          <div className="docker-container-id">{container.id.slice(0, 12)}</div>
+                        </div>
+                      </div>
+                      <div className="docker-image-cell" title={container.image}>{container.image}</div>
+                      <div className="docker-ports-cell" title={container.ports || translate('terminal.docker.noPorts')}>
+                        <span className="docker-mobile-label">{translate('terminal.docker.ports')}</span>
+                        <span className={container.ports ? '' : 'text-fg-subtle'}>{container.ports || translate('terminal.docker.noPorts')}</span>
+                      </div>
+                      <div className="docker-status-cell">
+                        <span className={`docker-status ${container.state === 'running' ? 'is-running' : 'is-stopped'}`}>
+                          <span className="docker-status-dot" />{container.state}
+                        </span>
+                        <span className="docker-runtime">{container.runningFor || container.status}</span>
+                      </div>
+                      <div className="docker-actions">
+                        <button
+                          type="button"
+                          className="docker-action-button is-start"
+                          disabled={isRowBusy || container.state === 'running'}
+                          title={translate('terminal.docker.start')}
+                          aria-label={translate('terminal.docker.start')}
+                          onClick={() => setPendingAction({ container, action: 'start' })}
+                        >
+                          {isRowBusy && busyAction === 'start' ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Play className="h-3.5 w-3.5" />
+                          )}
                         </button>
-                        <div className="docker-container-id">{container.id.slice(0, 12)}</div>
+                        <button
+                          type="button"
+                          className="docker-action-button is-stop"
+                          disabled={isRowBusy || container.state !== 'running'}
+                          title={translate('terminal.docker.stop')}
+                          aria-label={translate('terminal.docker.stop')}
+                          onClick={() => setPendingAction({ container, action: 'stop' })}
+                        >
+                          {isRowBusy && busyAction === 'stop' ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Square className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="docker-action-button is-restart"
+                          disabled={isRowBusy}
+                          title={translate('terminal.docker.restart')}
+                          aria-label={translate('terminal.docker.restart')}
+                          onClick={() => setPendingAction({ container, action: 'restart' })}
+                        >
+                          {isRowBusy && busyAction === 'restart' ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          data-docker-more-trigger={container.id}
+                          className={`docker-action-button is-more ${isMenuOpen ? 'is-open' : ''}`}
+                          disabled={isRowBusy}
+                          title={translate('terminal.docker.more')}
+                          aria-label={translate('terminal.docker.more')}
+                          aria-haspopup="menu"
+                          aria-expanded={isMenuOpen}
+                          onClick={(event) => toggleRowMenu(container, event.currentTarget)}
+                        >
+                          {isMenuBusy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          )}
+                        </button>
                       </div>
                     </div>
-                    <div className="docker-image-cell" title={container.image}>{container.image}</div>
-                    <div className="docker-ports-cell" title={container.ports || translate('terminal.docker.noPorts')}>
-                      <span className="docker-mobile-label">{translate('terminal.docker.ports')}</span>
-                      <span className={container.ports ? '' : 'text-fg-subtle'}>{container.ports || translate('terminal.docker.noPorts')}</span>
-                    </div>
-                    <div className="docker-status-cell">
-                      <span className={`docker-status ${container.state === 'running' ? 'is-running' : 'is-stopped'}`}>
-                        <span className="docker-status-dot" />{container.state}
-                      </span>
-                      <span className="docker-runtime">{container.runningFor || container.status}</span>
-                    </div>
-                    <div className="docker-actions">
-                      <button
-                        type="button"
-                        className="docker-action-button is-start"
-                        disabled={busyId === container.id || container.state === 'running'}
-                        title={translate('terminal.docker.start')}
-                        aria-label={translate('terminal.docker.start')}
-                        onClick={() => setPendingAction({ container, action: 'start' })}
-                      >
-                        {busyId === container.id && busyAction === 'start' ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Play className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className="docker-action-button is-stop"
-                        disabled={busyId === container.id || container.state !== 'running'}
-                        title={translate('terminal.docker.stop')}
-                        aria-label={translate('terminal.docker.stop')}
-                        onClick={() => setPendingAction({ container, action: 'stop' })}
-                      >
-                        {busyId === container.id && busyAction === 'stop' ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Square className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className="docker-action-button is-restart"
-                        disabled={busyId === container.id}
-                        title={translate('terminal.docker.restart')}
-                        aria-label={translate('terminal.docker.restart')}
-                        onClick={() => setPendingAction({ container, action: 'restart' })}
-                      >
-                        {busyId === container.id && busyAction === 'restart' ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className="docker-action-button is-update"
-                        disabled={busyId === container.id}
-                        title={container.composeService
-                          ? translate('terminal.docker.update')
-                          : translate('terminal.docker.updatePullOnly')}
-                        aria-label={translate('terminal.docker.update')}
-                        onClick={() => setPendingAction({ container, action: 'update' })}
-                      >
-                        {busyId === container.id && busyAction === 'update' ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <ArrowDownCircle className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <button type="button" className="docker-action-button is-logs" title={translate('terminal.docker.logs')} aria-label={translate('terminal.docker.logs')} onClick={() => { void openLogs(container); }}>
-                        <ScrollText className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="docker-action-button is-exec"
-                        disabled={container.state !== 'running'}
-                        title={translate('terminal.docker.exec')}
-                        aria-label={translate('terminal.docker.exec')}
-                        onClick={() => setExecTarget(container.id)}
-                      >
-                        <TerminalSquare className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -431,6 +709,183 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
         {notice && available !== false ? <div className="border-t border-accent-muted bg-accent-muted px-4 py-1.5 text-xs text-accent dark:text-accent-hover">{notice}</div> : null}
         {error && available !== false ? <div className="border-t border-danger-muted bg-danger-muted px-4 py-1.5 text-xs text-danger">{error}</div> : null}
       </div>
+
+      {openMenu ? (
+        <div
+          ref={rowMenuRef}
+          role="menu"
+          className="docker-dropdown-menu fixed z-popover"
+          style={
+            openMenu.openUp
+              ? { bottom: `${openMenu.bottom}px`, right: `${openMenu.right}px` }
+              : { top: `${openMenu.top}px`, right: `${openMenu.right}px` }
+          }
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item"
+            onClick={() => {
+              const target = openMenu.container;
+              setOpenMenu(null);
+              void openLogs(target);
+            }}
+          >
+            <ScrollText className="h-3.5 w-3.5 shrink-0 text-info" />
+            <span>{translate('terminal.docker.logs')}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item"
+            disabled={openMenu.container.state !== 'running'}
+            onClick={() => {
+              const targetId = openMenu.container.id;
+              setOpenMenu(null);
+              setExecTarget(targetId);
+            }}
+          >
+            <TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" />
+            <span>{translate('terminal.docker.exec')}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item"
+            onClick={() => {
+              const target = openMenu.container;
+              setOpenMenu(null);
+              void openDetail(target);
+            }}
+          >
+            <Info className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
+            <span>{translate('terminal.docker.inspect')}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item"
+            onClick={() => { void handleCopy(openMenu.container.name, 'terminal.docker.name'); }}
+          >
+            <Copy className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
+            <span>{translate('terminal.docker.copyName')}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item"
+            onClick={() => { void handleCopy(openMenu.container.id.slice(0, 12), 'terminal.docker.shortId'); }}
+          >
+            <Copy className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
+            <span>{translate('terminal.docker.copyId')}</span>
+          </button>
+
+          <div className="docker-dropdown-divider" />
+
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item"
+            disabled={busyId === openMenu.container.id || !openMenu.container.composeService}
+            title={openMenu.container.composeService
+              ? translate('terminal.docker.recreate')
+              : translate('terminal.docker.recreateComposeOnly')}
+            onClick={() => {
+              const target = openMenu.container;
+              setOpenMenu(null);
+              setPendingAction({ container: target, action: 'recreate' });
+            }}
+          >
+            <RefreshCw className="h-3.5 w-3.5 shrink-0 text-accent" />
+            <span>{translate('terminal.docker.recreate')}</span>
+            {!openMenu.container.composeService ? (
+              <span className="docker-dropdown-hint">{translate('terminal.docker.composeOnlyTag')}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item"
+            disabled={busyId === openMenu.container.id}
+            title={openMenu.container.composeService
+              ? translate('terminal.docker.update')
+              : translate('terminal.docker.updatePullOnly')}
+            onClick={() => {
+              const target = openMenu.container;
+              setOpenMenu(null);
+              setPendingAction({ container: target, action: 'update' });
+            }}
+          >
+            <ArrowDownCircle className="h-3.5 w-3.5 shrink-0 text-accent" />
+            <span>{translate('terminal.docker.update')}</span>
+          </button>
+
+          <div className="docker-dropdown-divider" />
+
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item is-danger"
+            disabled={busyId === openMenu.container.id || (openMenu.container.state !== 'running' && openMenu.container.state !== 'paused')}
+            onClick={() => {
+              const target = openMenu.container;
+              setOpenMenu(null);
+              setPendingAction({ container: target, action: 'kill' });
+            }}
+          >
+            <Power className="h-3.5 w-3.5 shrink-0" />
+            <span>{translate('terminal.docker.kill')}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item is-danger"
+            disabled={busyId === openMenu.container.id}
+            onClick={() => {
+              const target = openMenu.container;
+              setOpenMenu(null);
+              setPendingAction({ container: target, action: 'remove' });
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5 shrink-0" />
+            <span>{translate('terminal.docker.remove')}</span>
+          </button>
+        </div>
+      ) : null}
+
+      {pruneMenu ? (
+        <div
+          ref={pruneMenuRef}
+          role="menu"
+          className="docker-dropdown-menu fixed z-popover"
+          style={{ top: `${pruneMenu.top}px`, right: `${pruneMenu.right}px` }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item is-danger"
+            onClick={() => {
+              setPruneMenu(null);
+              setPendingPrune('containers');
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5 shrink-0" />
+            <span>{translate('terminal.docker.pruneContainers')}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="docker-dropdown-item is-danger"
+            onClick={() => {
+              setPruneMenu(null);
+              setPendingPrune('images');
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5 shrink-0" />
+            <span>{translate('terminal.docker.pruneImages')}</span>
+          </button>
+        </div>
+      ) : null}
 
       {detail ? (
         <div className={layerClass} onClick={() => setDetail(null)}>
@@ -508,26 +963,13 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
       ) : null}
 
       <ConfirmDialog
-        isOpen={pendingAction !== null}
+        isOpen={confirmDialogConfig.isOpen}
         type="warning"
-        title={translate('terminal.docker.confirmTitle', {
-          action: pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : '',
-        })}
-        message={pendingAction?.action === 'update'
-          ? translate('terminal.docker.updateConfirmMessage', {
-            name: pendingAction?.container.name || pendingAction?.container.id.slice(0, 12) || '',
-          })
-          : translate('terminal.docker.confirmMessage', {
-            action: pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : '',
-            name: pendingAction?.container.name || pendingAction?.container.id.slice(0, 12) || '',
-          })}
-        confirmText={pendingAction ? translate(`terminal.docker.${pendingAction.action}`) : undefined}
-        onConfirm={() => {
-          const pending = pendingAction;
-          setPendingAction(null);
-          if (pending) void runAction(pending.container, pending.action);
-        }}
-        onCancel={() => setPendingAction(null)}
+        title={confirmDialogConfig.title}
+        message={confirmDialogConfig.message}
+        confirmText={confirmDialogConfig.confirmText}
+        onConfirm={confirmDialogConfig.onConfirm}
+        onCancel={confirmDialogConfig.onCancel}
       />
     </div>,
     portalTarget,

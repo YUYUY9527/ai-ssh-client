@@ -10,6 +10,9 @@ const {
   inspectContainer,
   containerAction,
   updateContainer,
+  recreateContainer,
+  removeContainer,
+  pruneDocker,
   containerLogs,
   openContainerLogStream,
 } = require('../server/docker-manager.cjs');
@@ -215,5 +218,93 @@ describe('docker-manager', () => {
       return { stderr: 'pull access denied', code: 1 };
     });
     await expect(updateContainer(client, 'cid')).rejects.toThrow(/pull access denied/);
+  });
+
+  it('recreateContainer 对 compose 容器执行 stop -> rm -f -> up -d --no-deps，不触发 down', async () => {
+    const commands: string[] = [];
+    const client = fakeClient((command) => {
+      commands.push(command);
+      if (command.includes('Config.Labels')) {
+        return {
+          stdout: JSON.stringify({
+            'com.docker.compose.project': 'shop',
+            'com.docker.compose.service': 'web',
+            'com.docker.compose.project.working_dir': '/srv/shop',
+            'com.docker.compose.project.config_files': '/srv/shop/docker-compose.yml',
+          }),
+          code: 0,
+        };
+      }
+      if (command.includes(' stop web')) return { stdout: 'stopped\n', code: 0 };
+      if (command.includes(' rm -f web')) return { stdout: 'removed\n', code: 0 };
+      if (command.includes(' up -d --no-deps web')) return { stdout: 'recreated\n', code: 0 };
+      return { code: 1, stderr: 'unexpected' };
+    });
+    const result = await recreateContainer(client, 'cid');
+    expect(result).toMatchObject({ project: 'shop', service: 'web' });
+    const composePrefix = 'compose --project-directory /srv/shop -f /srv/shop/docker-compose.yml -p shop';
+    const stopIndex = commands.findIndex((c) => c.includes(`${composePrefix} stop web`));
+    const rmIndex = commands.findIndex((c) => c.includes(`${composePrefix} rm -f web`));
+    const upIndex = commands.findIndex((c) => c.includes(`${composePrefix} up -d --no-deps web`));
+    expect(stopIndex).toBeGreaterThan(-1);
+    expect(rmIndex).toBeGreaterThan(stopIndex);
+    expect(upIndex).toBeGreaterThan(rmIndex);
+    expect(commands.some((c) => c.includes(' down'))).toBe(false);
+  });
+
+  it('recreateContainer 对非 compose 容器拒绝并在单步失败时抛错', async () => {
+    const nonCompose = fakeClient((command) => {
+      if (command.includes('Config.Labels')) return { stdout: '{}', code: 0 };
+      return { code: 1 };
+    });
+    await expect(recreateContainer(nonCompose, 'cid')).rejects.toThrow(/非 compose/);
+
+    const stopFails = fakeClient((command) => {
+      if (command.includes('Config.Labels')) {
+        return {
+          stdout: JSON.stringify({
+            'com.docker.compose.project': 'shop',
+            'com.docker.compose.service': 'web',
+          }),
+          code: 0,
+        };
+      }
+      return { stderr: 'stop failed', code: 1 };
+    });
+    await expect(recreateContainer(stopFails, 'cid')).rejects.toThrow(/stop failed/);
+  });
+
+  it('removeContainer 支持普通删除与强制删除且不传 -v', async () => {
+    const commands: string[] = [];
+    const client = fakeClient((command) => {
+      commands.push(command);
+      return { stdout: 'cid\n', code: 0 };
+    });
+    await removeContainer(client, 'cid', { force: false });
+    await removeContainer(client, 'cid', { force: true });
+    expect(commands[0]).toBe('docker rm cid');
+    expect(commands[1]).toBe('docker rm -f cid');
+    expect(commands.some((c) => c.includes(' -v'))).toBe(false);
+  });
+
+  it('pruneDocker 支持清理已停止容器/悬空镜像并解析回收空间', async () => {
+    const commands: string[] = [];
+    const client = fakeClient((command) => {
+      commands.push(command);
+      if (command.includes('container prune -f')) {
+        return { stdout: 'Deleted Containers:\nabc\n\nTotal reclaimed space: 128MB\n', code: 0 };
+      }
+      if (command.includes('image prune -f')) {
+        return { stdout: 'Total reclaimed space: 512MB\n', code: 0 };
+      }
+      return { code: 1 };
+    });
+    const containersRes = await pruneDocker(client, 'containers');
+    const imagesRes = await pruneDocker(client, 'images');
+    expect(containersRes).toMatchObject({ target: 'containers', reclaimedSpace: '128MB' });
+    expect(imagesRes).toMatchObject({ target: 'images', reclaimedSpace: '512MB' });
+    expect(commands).toContain('docker container prune -f');
+    expect(commands).toContain('docker image prune -f');
+    await expect(pruneDocker(client, 'volumes')).rejects.toThrow(/Unsupported prune target/);
   });
 });
