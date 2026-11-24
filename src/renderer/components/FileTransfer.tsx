@@ -1299,7 +1299,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[color-mix(in_srgb,var(--bg-primary)_76%,var(--bg-secondary))]">
-      <div className="flex flex-wrap items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))] p-2">
+      <div className="relative flex flex-wrap items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))] p-2">
         <div className="flex shrink-0 items-center gap-1">
           <button
             onClick={() => setBrowserView(connectionId, 'files')}
@@ -1489,17 +1489,17 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                   </button>
                 </div>
               )}
-              {remoteSearchOpen && typeof window.electronAPI?.searchSftpFiles === 'function' && (
-                <RemoteSearchPanel
-                  connectionId={connectionId}
-                  currentPath={currentPath}
-                  onNavigate={(path) => { void navigateTo(path); }}
-                  onClose={() => setRemoteSearchOpen(false)}
-                  translate={t}
-                />
-              )}
             </div>
           </div>
+        )}
+        {activeView !== 'tasks' && remoteSearchOpen && typeof window.electronAPI?.searchSftpFiles === 'function' && (
+          <RemoteSearchPanel
+            connectionId={connectionId}
+            currentPath={currentPath}
+            onNavigate={(path) => { void navigateTo(path); }}
+            onClose={() => setRemoteSearchOpen(false)}
+            translate={t}
+          />
         )}
       </div>
 

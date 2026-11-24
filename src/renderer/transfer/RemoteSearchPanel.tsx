@@ -61,7 +61,7 @@ export function RemoteSearchPanel({ connectionId, currentPath, onNavigate, onClo
 
   return (
     <div
-      className="app-popover right-0 top-full mt-1 w-[380px] p-3 space-y-2 z-dropdown"
+      className="app-popover left-2 top-full mt-1 w-[min(380px,calc(100vw-16px))] p-3 space-y-2 z-popover"
       data-remote-search-panel
     >
       <div className="flex items-center justify-between">

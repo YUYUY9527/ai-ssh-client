@@ -1658,7 +1658,7 @@
 
   .docker-container-labels, .docker-container-row {
     display: grid;
-    grid-template-columns: minmax(11rem, 1.25fr) minmax(8rem, 1.1fr) minmax(7rem, 1fr) minmax(6rem, 0.75fr) auto;
+    grid-template-columns: minmax(11rem, 1.25fr) minmax(8rem, 1.1fr) minmax(7rem, 1fr) minmax(6rem, 0.75fr) 132px;
     align-items: center;
     column-gap: 14px;
   }
@@ -1719,7 +1719,7 @@
   .docker-status.is-stopped .docker-status-dot { background: var(--warning); }
   .docker-runtime { @apply max-w-full truncate text-[10px] leading-3 text-fg-subtle; }
 
-  .docker-actions { @apply flex items-center justify-end gap-1; }
+  .docker-actions { @apply flex items-center justify-center gap-1; }
 
   .docker-action-button {
     @apply inline-flex h-[30px] w-[30px] items-center justify-center border text-fg-muted transition-all disabled:cursor-not-allowed disabled:opacity-35;
@@ -1879,7 +1879,7 @@
 
   @media (max-width: 900px) {
     .docker-container-labels, .docker-container-row {
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 0.7fr) auto;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 0.7fr) 132px;
       column-gap: 8px;
     }
 

@@ -601,7 +601,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                   <span>{translate('terminal.docker.image')}</span>
                   <span>{translate('terminal.docker.ports')}</span>
                   <span>{translate('terminal.docker.state')}</span>
-                  <span className="text-right">{translate('terminal.docker.actions')}</span>
+                  <span className="text-center">{translate('terminal.docker.actions')}</span>
                 </div>
                 {filtered.length === 0 ? (
                   <div className="docker-empty-state">
