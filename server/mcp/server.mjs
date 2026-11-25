@@ -154,5 +154,24 @@ export function createAiSshMcpServer(services) {
     annotations: readOnlyAnnotations,
   }, async (args) => run(() => services.readFile(args)));
 
+  server.registerTool('sftp_write_text', {
+    title: '写入远端文本文件',
+    description:
+      '通过 SFTP 覆盖写入远端 UTF-8 文本文件。默认关闭，需在 MCP 策略开启 allowWrite（或 MCP_ALLOW_WRITE=1）。'
+      + '支持 dry_run=true 仅返回 unified diff 预览而不落盘，且受连接级目录白名单约束。',
+    inputSchema: {
+      connection_id: connectionIdSchema,
+      path: z.string().min(1).describe('远端文本文件路径'),
+      content: z.string().describe('完整的新文件内容（UTF-8）'),
+      dry_run: z.boolean().optional().describe('设为 true 仅返回 diff 预览，不落盘'),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  }, async (args) => run(() => services.writeFile(args)));
+
   return server;
 }

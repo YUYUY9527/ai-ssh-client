@@ -8,6 +8,7 @@ import {
   Folder,
   FolderPlus,
   GripVertical,
+  Layers,
   Monitor,
   Moon,
   Pencil,
@@ -28,6 +29,7 @@ import { useAIStore } from '../store/useAIStore';
 import { useConnectionStore } from '../store/useConnectionStore';
 import { useConnectionGroupStore } from '../store/useConnectionGroupStore';
 import { ConfirmDialog } from '../shared-ui/ConfirmDialog';
+import { buildConnectionGroupTree, flattenGroupOptions, type ConnectionGroupTreeNode } from '../connection/group-tree';
 import type { ConnectionGroup, SSHConnection } from '../../shared/types';
 
 const ConnectionImportExportModal = lazy(async () => {
@@ -41,6 +43,10 @@ const CommandHistoryPanel = lazy(async () => {
 const QuickCommandsPanel = lazy(async () => {
   const module = await import('../components/QuickCommandsPanel');
   return { default: module.QuickCommandsPanel };
+});
+const BatchExecModal = lazy(async () => {
+  const module = await import('../batch/BatchExecModal');
+  return { default: module.BatchExecModal };
 });
 
 interface WorkspaceHeaderProps {
@@ -96,12 +102,14 @@ export function WorkspaceHeader({
     open: boolean;
     editing: ConnectionGroup | null;
     name: string;
-  }>({ open: false, editing: null, name: '' });
+    parentId: string;
+  }>({ open: false, editing: null, name: '', parentId: '' });
   const [groupToDelete, setGroupToDelete] = useState<ConnectionGroup | null>(null);
   const [connectionQuery, setConnectionQuery] = useState('');
   const [draggedConnectionId, setDraggedConnectionId] = useState<string | null>(null);
   const [dragOverConnectionId, setDragOverConnectionId] = useState<string | null>(null);
   const [importExportMode, setImportExportMode] = useState<'export' | 'import' | null>(null);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
   const normalizedQuery = connectionQuery.trim().toLowerCase();
   // 按名称/主机/用户名/标签过滤连接，便于在大量连接中快速定位
   const filteredConnections = normalizedQuery
@@ -122,7 +130,7 @@ export function WorkspaceHeader({
   useEffect(() => {
     if (!isConnectionDropdownOpen) {
       setConnectionQuery('');
-      setGroupModal({ open: false, editing: null, name: '' });
+      setGroupModal({ open: false, editing: null, name: '', parentId: '' });
       setDraggedConnectionId(null);
       setDragOverConnectionId(null);
     }
@@ -138,7 +146,7 @@ export function WorkspaceHeader({
         return;
       }
       if (groupModal.open) {
-        setGroupModal({ open: false, editing: null, name: '' });
+        setGroupModal({ open: false, editing: null, name: '', parentId: '' });
         return;
       }
       onToggleConnectionDropdown();
@@ -225,10 +233,11 @@ export function WorkspaceHeader({
     const group: ConnectionGroup = {
       id: groupModal.editing?.id || `grp-${Date.now()}`,
       name,
+      parentId: groupModal.parentId || undefined,
       order: groupModal.editing?.order ?? groups.length,
     };
     await saveGroup(group);
-    setGroupModal({ open: false, editing: null, name: '' });
+    setGroupModal({ open: false, editing: null, name: '', parentId: '' });
   };
 
   const handleConfirmDeleteGroup = async () => {
@@ -343,79 +352,84 @@ export function WorkspaceHeader({
     );
   };
 
+  const renderGroupTreeNode = (node: ConnectionGroupTreeNode) => {
+    const { group, directConnections, children, totalConnections } = node;
+    const collapsed = collapsedGroups.has(group.id);
+    return (
+      <div key={group.id}>
+        <div className="header-popover-section group justify-between">
+          <button
+            type="button"
+            onClick={() => toggleGroupCollapsed(group.id)}
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-fg-secondary"
+          >
+            <ChevronRight
+              className={`h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
+            />
+            <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
+            <span className="truncate" title={group.name}>{group.name}</span>
+            <span className="header-popover-count">{totalConnections}</span>
+          </button>
+          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <button
+              type="button"
+              onClick={() => setGroupModal({ open: true, editing: null, name: '', parentId: group.id })}
+              className="icon-button h-6 w-6"
+              title={translate('features.connectionGroups.newGroup')}
+              aria-label={translate('features.connectionGroups.newGroup')}
+            >
+              <FolderPlus className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupModal({ open: true, editing: group, name: group.name, parentId: group.parentId || '' })}
+              className="icon-button h-6 w-6"
+              title={translate('features.connectionGroups.renameGroup')}
+              aria-label={translate('features.connectionGroups.renameGroup')}
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupToDelete(group)}
+              className="icon-button h-6 w-6 hover:text-danger"
+              title={translate('features.connectionGroups.deleteGroup')}
+              aria-label={translate('features.connectionGroups.deleteGroup')}
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+        {!collapsed && (
+          <div className="ml-3.5 mt-0.5 border-l border-line-subtle pl-1">
+            {children.map((child) => renderGroupTreeNode(child))}
+            {directConnections.map((connection) => renderConnectionRow(connection))}
+            {children.length === 0 && directConnections.length === 0 && (
+              <p className="px-2.5 py-1.5 text-[11px] text-fg-subtle">
+                {translate('features.connectionGroups.emptyGroup')}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderGroupedConnections = () => {
-    const knownGroupIds = new Set(groups.map((group) => group.id));
-    const sortedGroups = [...groups].sort(
-      (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name),
-    );
-    const ungrouped = filteredConnections.filter(
-      (connection) => !connection.groupId || !knownGroupIds.has(connection.groupId),
-    );
+    const { roots, ungrouped } = buildConnectionGroupTree(groups, filteredConnections);
     return (
       <div className="space-y-1.5 px-1.5">
-        {sortedGroups.map((group) => {
-          const members = filteredConnections.filter((connection) => connection.groupId === group.id);
-          const collapsed = collapsedGroups.has(group.id);
-          return (
-            <div key={group.id}>
-              <div className="header-popover-section group justify-between">
-                <button
-                  type="button"
-                  onClick={() => toggleGroupCollapsed(group.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-fg-secondary"
-                >
-                  <ChevronRight
-                    className={`h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
-                  />
-                  <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
-                  <span className="truncate" title={group.name}>{group.name}</span>
-                  <span className="header-popover-count">{members.length}</span>
-                </button>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
-                    className="icon-button h-6 w-6"
-                    title={translate('features.connectionGroups.renameGroup')}
-                    aria-label={translate('features.connectionGroups.renameGroup')}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setGroupToDelete(group)}
-                    className="icon-button h-6 w-6 hover:text-danger"
-                    title={translate('features.connectionGroups.deleteGroup')}
-                    aria-label={translate('features.connectionGroups.deleteGroup')}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              </div>
-              {!collapsed && (
-                <div className="ml-3.5 mt-0.5 border-l border-line-subtle pl-1">
-                  {members.length === 0 ? (
-                    <p className="px-2.5 py-1.5 text-[11px] text-fg-subtle">
-                      {translate('features.connectionGroups.emptyGroup')}
-                    </p>
-                  ) : (
-                    members.map((connection) => renderConnectionRow(connection))
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {roots.map((node) => renderGroupTreeNode(node))}
         {ungrouped.length > 0 && (
           <div>
-            {sortedGroups.length > 0 && (
+            {roots.length > 0 && (
               <div className="header-popover-section text-xs font-semibold text-fg-muted">
                 <Folder className="h-3.5 w-3.5 shrink-0" />
                 <span>{translate('features.connectionGroups.ungrouped')}</span>
                 <span className="header-popover-count">{ungrouped.length}</span>
               </div>
             )}
-            <div className={sortedGroups.length > 0 ? 'ml-3.5 mt-0.5 border-l border-line-subtle pl-1' : ''}>
+            <div className={roots.length > 0 ? 'ml-3.5 mt-0.5 border-l border-line-subtle pl-1' : ''}>
               {ungrouped.map((connection) => renderConnectionRow(connection))}
             </div>
           </div>
@@ -459,7 +473,7 @@ export function WorkspaceHeader({
                   {groupsSupported && (
                     <button
                       type="button"
-                      onClick={() => setGroupModal({ open: true, editing: null, name: '' })}
+                      onClick={() => setGroupModal({ open: true, editing: null, name: '', parentId: '' })}
                       className={`icon-button h-7 w-7 ${groupModal.open && !groupModal.editing ? 'icon-button-active' : ''}`}
                       title={translate('features.connectionGroups.newGroup')}
                       aria-label={translate('features.connectionGroups.newGroup')}
@@ -493,7 +507,7 @@ export function WorkspaceHeader({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setGroupModal({ open: false, editing: null, name: '' })}
+                      onClick={() => setGroupModal({ open: false, editing: null, name: '', parentId: '' })}
                       className="icon-button h-6 w-6"
                       title={translate('common.cancel')}
                       aria-label={translate('common.cancel')}
@@ -511,7 +525,7 @@ export function WorkspaceHeader({
                         if (event.key === 'Enter') {
                           void handleSaveGroup();
                         } else if (event.key === 'Escape') {
-                          setGroupModal({ open: false, editing: null, name: '' });
+                          setGroupModal({ open: false, editing: null, name: '', parentId: '' });
                         }
                       }}
                       placeholder={translate('features.connectionGroups.groupName')}
@@ -528,6 +542,21 @@ export function WorkspaceHeader({
                       <Check className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                  {groups.length > 0 && (
+                    <select
+                      value={groupModal.parentId}
+                      onChange={(event) => setGroupModal((previous) => ({ ...previous, parentId: event.target.value }))}
+                      className="industrial-input h-8 w-full py-1 text-xs"
+                      aria-label={translate('features.connectionGroups.parentGroup')}
+                    >
+                      <option value="">{translate('features.connectionGroups.noParent')}</option>
+                      {flattenGroupOptions(groups, groupModal.editing?.id).map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               )}
               {showConnectionSearch && (
@@ -672,6 +701,19 @@ export function WorkspaceHeader({
             />
           </Suspense>
         )}
+
+        {typeof window !== 'undefined' && typeof window.electronAPI?.runBatchCommand === 'function' && connections.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setBatchModalOpen(true)}
+            className={`toolbar-button shrink-0 whitespace-nowrap ${batchModalOpen ? 'toolbar-button-active' : ''}`}
+            title={translate('features.batch.title')}
+            aria-label={translate('features.batch.title')}
+          >
+            <Layers className="h-4 w-4 shrink-0" />
+            <span className="hidden md:inline">{translate('features.batch.button')}</span>
+          </button>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
@@ -719,6 +761,17 @@ export function WorkspaceHeader({
         </button>
       </div>
     </header>
+      {batchModalOpen && (
+        <Suspense fallback={null}>
+          <BatchExecModal
+            isOpen
+            connections={connections}
+            groups={groups}
+            translate={translate}
+            onClose={() => setBatchModalOpen(false)}
+          />
+        </Suspense>
+      )}
       <ConfirmDialog
         isOpen={groupToDelete !== null}
         title={translate('features.connectionGroups.deleteGroup')}

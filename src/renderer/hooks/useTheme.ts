@@ -4,8 +4,35 @@ import { DEFAULT_SETTINGS } from '../../shared/constants';
 import { useAgentStore } from '../store/useAgentStore';
 import { useI18nStore, resolveLocale } from '../i18n';
 import type { Locale } from '../i18n';
+import { ensureWebFontLoaded } from './web-fonts';
 
 export type Theme = 'dark' | 'light' | 'system';
+
+const CJK_UI_FALLBACKS = ["'PingFang SC'", "'Microsoft YaHei'", "'Segoe UI'", 'system-ui'];
+const GENERIC_FONT_FAMILIES = new Set([
+  'monospace',
+  'sans-serif',
+  'serif',
+  'system-ui',
+  'ui-monospace',
+  'ui-sans-serif',
+]);
+
+/**
+ * 将终端字体设置转换为全局安全字体栈：
+ * 把中文字体回退插在 `monospace` / `sans-serif` 通用族之前，
+ * 既让英文/数字/命令使用用户所选字体，又避免 Windows 下中文落回宋体（SimSun）。
+ */
+export function buildGlobalFontStack(fontFamily?: string): string {
+  const parts = String(fontFamily || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const specific = parts.filter((part) => !GENERIC_FONT_FAMILIES.has(part.toLowerCase()));
+  const generic = parts.filter((part) => GENERIC_FONT_FAMILIES.has(part.toLowerCase()));
+  const tail = generic.length > 0 ? generic : ['sans-serif'];
+  return [...specific, ...CJK_UI_FALLBACKS, ...tail].join(', ');
+}
 
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>('dark');
@@ -57,6 +84,16 @@ export function useTheme() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme, applyTheme]);
+
+  // 将终端设置里的字体样式同步应用到全局界面（含所有弹窗、输入框与等宽文本）
+  useEffect(() => {
+    const rawFamily = settings.fontFamily || DEFAULT_SETTINGS.fontFamily;
+    const stack = buildGlobalFontStack(rawFamily);
+    const root = document.documentElement;
+    root.style.setProperty('--app-font-family', stack);
+    root.style.setProperty('--app-font-mono', stack);
+    void ensureWebFontLoaded(rawFamily);
+  }, [settings.fontFamily]);
 
   // 监听系统主题变化
   useEffect(() => {

@@ -7,6 +7,7 @@ import {
   CornerDownLeft,
   FolderPlus,
   Pencil,
+  Play,
   Plus,
   Search,
   Trash2,
@@ -14,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { extractTemplateVariables, renderSnippetTemplate, type SnippetVariable } from '../utils/snippet-template';
 import type { QuickCommand, QuickCommandGroup } from '../../shared/types';
 
 /** 与分组列表色点统一的预设色板（避免系统原生 color picker 样式割裂） */
@@ -94,11 +96,16 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingCommand, setEditingCommand] = useState<QuickCommand | null>(null);
-  const [newCommand, setNewCommand] = useState({ name: '', command: '', description: '', groupId: '' });
+  const [newCommand, setNewCommand] = useState({ name: '', command: '', description: '', groupId: '', autoExecute: false });
   const [newGroup, setNewGroup] = useState({ name: '', color: DEFAULT_GROUP_COLOR });
   const [showCommandForm, setShowCommandForm] = useState(false);
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [popoverPos, setPopoverPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [templatePrompt, setTemplatePrompt] = useState<{
+    cmd: QuickCommand;
+    variables: SnippetVariable[];
+    values: Record<string, string>;
+  } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -188,10 +195,25 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
   // 初始加载
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handlePaste = useCallback((cmd: string) => {
-    onPasteCommand(cmd);
+  const handlePaste = useCallback((cmd: QuickCommand) => {
+    const variables = extractTemplateVariables(cmd.command);
+    if (variables.length > 0) {
+      const defaults: Record<string, string> = {};
+      for (const v of variables) defaults[v.name] = v.defaultValue;
+      setTemplatePrompt({ cmd, variables, values: defaults });
+      return;
+    }
+    onPasteCommand(cmd.autoExecute ? `${cmd.command}\r` : cmd.command);
     setShow(false);
   }, [onPasteCommand]);
+
+  const handleConfirmTemplate = useCallback(() => {
+    if (!templatePrompt) return;
+    const rendered = renderSnippetTemplate(templatePrompt.cmd.command, templatePrompt.values);
+    onPasteCommand(templatePrompt.cmd.autoExecute ? `${rendered}\r` : rendered);
+    setTemplatePrompt(null);
+    setShow(false);
+  }, [templatePrompt, onPasteCommand]);
 
   const handleCopy = useCallback(async (cmd: QuickCommand) => {
     try {
@@ -223,7 +245,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
   const resetCommandForm = () => {
     setShowCommandForm(false);
     setEditingCommand(null);
-    setNewCommand({ name: '', command: '', description: '', groupId: '' });
+    setNewCommand({ name: '', command: '', description: '', groupId: '', autoExecute: false });
   };
 
   const handleSaveCommand = async () => {
@@ -234,6 +256,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
       command: newCommand.command,
       description: newCommand.description.trim(),
       groupId: newCommand.groupId || undefined,
+      autoExecute: newCommand.autoExecute || undefined,
     };
     if (window.electronAPI) {
       await window.electronAPI.saveQuickCommand(cmd);
@@ -291,6 +314,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
       command: c.command,
       description: c.description || '',
       groupId: c.groupId || '',
+      autoExecute: Boolean(c.autoExecute),
     });
     setShowCommandForm(true);
     setShowGroupForm(false);
@@ -351,7 +375,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                     resetCommandForm();
                   } else {
                     setEditingCommand(null);
-                    setNewCommand({ name: '', command: '', description: '', groupId: '' });
+                    setNewCommand({ name: '', command: '', description: '', groupId: '', autoExecute: false });
                     setShowCommandForm(true);
                     setShowGroupForm(false);
                   }
@@ -524,6 +548,15 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                       className="industrial-input w-full py-1.5"
                     />
                   </div>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-secondary">
+                    <input
+                      type="checkbox"
+                      checked={newCommand.autoExecute}
+                      onChange={(e) => setNewCommand({ ...newCommand, autoExecute: e.target.checked })}
+                      className="h-3.5 w-3.5 accent-[var(--accent-primary)]"
+                    />
+                    <span>{t('quickCommands.autoExecute')}</span>
+                  </label>
                   {groups.length > 0 && (
                     <div className="space-y-1.5">
                       <label className="industrial-field-label mb-0">{t('quickCommands.group')}</label>
@@ -576,6 +609,57 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                       {t('common.cancel')}
                     </button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* 变量模板填参表单 */}
+            {templatePrompt && (
+              <div className="header-popover-form space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs font-semibold text-fg">
+                    {templatePrompt.cmd.name} — {t('quickCommands.fillVariables')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTemplatePrompt(null)}
+                    className="icon-button h-6 w-6 shrink-0"
+                    title={t('common.close')}
+                    aria-label={t('common.close')}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {templatePrompt.variables.map((v, idx) => (
+                  <div key={v.name}>
+                    <label className="industrial-field-label font-mono">{`{{${v.name}}}`}</label>
+                    <input
+                      type="text"
+                      autoFocus={idx === 0}
+                      value={templatePrompt.values[v.name] ?? ''}
+                      onChange={(e) => setTemplatePrompt((prev) => (
+                        prev ? { ...prev, values: { ...prev.values, [v.name]: e.target.value } } : null
+                      ))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleConfirmTemplate();
+                        if (e.key === 'Escape') setTemplatePrompt(null);
+                      }}
+                      placeholder={v.defaultValue || v.name}
+                      className="industrial-input w-full py-1 font-mono text-xs"
+                    />
+                  </div>
+                ))}
+                <div className="header-popover-code break-all">
+                  <span className="shrink-0 select-none text-accent">$</span>
+                  <span className="min-w-0 flex-1">{renderSnippetTemplate(templatePrompt.cmd.command, templatePrompt.values)}</span>
+                </div>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={handleConfirmTemplate} className="industrial-button-primary flex-1 px-2 py-1.5 text-xs">
+                    {templatePrompt.cmd.autoExecute ? t('quickCommands.runNow') : t('common.confirm')}
+                  </button>
+                  <button type="button" onClick={() => setTemplatePrompt(null)} className="industrial-button-secondary flex-1 px-2 py-1.5 text-xs">
+                    {t('common.cancel')}
+                  </button>
                 </div>
               </div>
             )}
@@ -738,7 +822,7 @@ function CommandItem({
   copiedLabel: string;
   editLabel: string;
   deleteLabel: string;
-  onPaste: (command: string) => void;
+  onPaste: (cmd: QuickCommand) => void;
   onCopy: (cmd: QuickCommand) => void;
   onEdit: (cmd: QuickCommand) => void;
   onDelete: (id: string) => void;
@@ -748,11 +832,12 @@ function CommandItem({
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
-          onClick={() => onPaste(cmd.command)}
-          className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-fg"
+          onClick={() => onPaste(cmd)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[13px] font-semibold text-fg"
           title={cmd.description ? `${cmd.name} — ${cmd.description}\n${cmd.command}` : `${cmd.name}\n${cmd.command}`}
         >
-          {cmd.name}
+          <span className="truncate">{cmd.name}</span>
+          {cmd.autoExecute && <Play className="h-3 w-3 shrink-0 text-accent" />}
         </button>
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <button
@@ -795,7 +880,7 @@ function CommandItem({
       </div>
       <button
         type="button"
-        onClick={() => onPaste(cmd.command)}
+        onClick={() => onPaste(cmd)}
         className="header-popover-code w-full text-left transition-colors group-hover:border-line"
         title={cmd.command}
       >

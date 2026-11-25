@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const totp = require('./totp.cjs');
 
 // 会话 Cookie 名称，登录成功后写入，浏览器同源请求会自动携带。
 const COOKIE_NAME = 'ai_ssh_web_session';
@@ -10,6 +11,9 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_PASSWORD = 'admin';
 // 存放密码哈希的文件名（位于 data 目录）。
 const CREDENTIAL_FILE = 'web-auth.json';
+// 可选多用户与 RBAC 存储文件（位于 data 目录）。
+const USERS_FILE = 'web-users.json';
+const VALID_ROLES = new Set(['admin', 'operator', 'viewer']);
 // scrypt 派生密钥长度（字节）。
 const KEY_LEN = 32;
 const LOGIN_WINDOW_MS = 60 * 1000;
@@ -86,7 +90,13 @@ const CREDENTIAL_BACKUP_SUFFIX = '.bak';
 function parseCredential(raw) {
   const parsed = JSON.parse(raw);
   if (parsed && typeof parsed.salt === 'string' && typeof parsed.hash === 'string') {
-    return { salt: parsed.salt, hash: parsed.hash, isDefault: parsed.isDefault === true };
+    return {
+      salt: parsed.salt,
+      hash: parsed.hash,
+      isDefault: parsed.isDefault === true,
+      totpSecret: typeof parsed.totpSecret === 'string' ? parsed.totpSecret : undefined,
+      totpEnabled: parsed.totpEnabled === true,
+    };
   }
   return null;
 }
@@ -168,6 +178,8 @@ function writeCredentialFile(credentialPath, credential) {
     salt: credential.salt,
     hash: credential.hash,
     isDefault: credential.isDefault === true,
+    ...(credential.totpSecret ? { totpSecret: credential.totpSecret } : {}),
+    ...(credential.totpEnabled ? { totpEnabled: true } : {}),
   });
   const tmpPath = `${credentialPath}.tmp`;
   try {
@@ -247,7 +259,69 @@ function createAuth(dataDir, options = {}) {
     salt: credential.salt,
     hash: credential.hash,
     isDefault: credential.isDefault,
+    totpSecret: credential.totpSecret,
+    totpEnabled: credential.totpEnabled === true,
   };
+  let pendingTotpSecret = null;
+  const usersPath = path.join(String(dataDir || '.'), USERS_FILE);
+
+  function loadUsers() {
+    try {
+      if (!fs.existsSync(usersPath)) return [];
+      const raw = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveUsers(list) {
+    fs.mkdirSync(path.dirname(usersPath), { recursive: true });
+    const tmp = `${usersPath}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(list, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, usersPath);
+  }
+
+  function summarizeUser(user) {
+    return {
+      id: user.id,
+      username: user.username,
+      role: VALID_ROLES.has(user.role) ? user.role : 'operator',
+      allowedConnectionIds: Array.isArray(user.allowedConnectionIds) ? user.allowedConnectionIds : [],
+      totpEnabled: user.totpEnabled === true,
+      createdAt: Number(user.createdAt) || Date.now(),
+    };
+  }
+
+  function signUserToken(user) {
+    const payload = Buffer.from(JSON.stringify({
+      uid: user.id,
+      u: user.username,
+      r: user.role,
+      h: String(user.hash || '').slice(0, 12),
+    })).toString('base64url');
+    const sig = crypto.createHmac('sha256', current.hash).update(`u1.${payload}`).digest('base64url');
+    return `u1.${payload}.${sig}`;
+  }
+
+  function verifyUserToken(token) {
+    if (typeof token !== 'string' || !token.startsWith('u1.')) return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const [, payload, sig] = parts;
+    const expected = crypto.createHmac('sha256', current.hash).update(`u1.${payload}`).digest('base64url');
+    if (!safeEqual(sig, expected)) return null;
+    try {
+      const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+      const user = loadUsers().find((item) => item.id === data.uid);
+      if (!user) return null;
+      if (String(user.hash || '').slice(0, 12) !== data.h) return null;
+      return summarizeUser(user);
+    } catch {
+      return null;
+    }
+  }
+
   const isEnvManaged = credential.source === 'env';
   let sessionValue = deriveSessionValue(current.hash);
   const loginFailures = new Map();
@@ -287,11 +361,35 @@ function createAuth(dataDir, options = {}) {
     loginFailures.delete(loginClientKey(request));
   }
 
+  /** 返回当前请求对应的已认证用户（未登录返回 null）。 */
+  function getSessionUser(request) {
+    const cookies = parseCookies(request.headers?.cookie);
+    const provided = cookies[COOKIE_NAME];
+    if (!provided) return null;
+    if (safeEqual(provided, sessionValue)) {
+      return {
+        id: 'root',
+        username: 'admin',
+        role: 'admin',
+        allowedConnectionIds: [],
+        totpEnabled: current.totpEnabled === true,
+      };
+    }
+    return verifyUserToken(provided);
+  }
+
   // 判断请求是否已通过鉴权。
   function isAuthed(request) {
-    const cookies = parseCookies(request.headers.cookie);
-    const provided = cookies[COOKIE_NAME];
-    return Boolean(provided) && safeEqual(provided, sessionValue);
+    return getSessionUser(request) !== null;
+  }
+
+  function canAccessConnection(request, connectionId) {
+    const user = getSessionUser(request);
+    if (!user) return false;
+    if (user.role === 'admin' || !Array.isArray(user.allowedConnectionIds) || user.allowedConnectionIds.length === 0) {
+      return true;
+    }
+    return user.allowedConnectionIds.includes(String(connectionId));
   }
 
   // MCP 令牌缓存：sha256(令牌) → 校验时的密码哈希。
@@ -352,9 +450,9 @@ function createAuth(dataDir, options = {}) {
   }
 
   // 写入会话 Cookie 的公共逻辑。
-  function setSessionCookie(request, response) {
+  function setSessionCookie(request, response, customValue) {
     const secure = request.secure || request.headers['x-forwarded-proto'] === 'https';
-    response.cookie(COOKIE_NAME, sessionValue, {
+    response.cookie(COOKIE_NAME, customValue || sessionValue, {
       httpOnly: true,
       sameSite: 'strict',
       secure,
@@ -365,7 +463,9 @@ function createAuth(dataDir, options = {}) {
 
   // Express 中间件：放行登录相关端点和静态资源，其余需鉴权。
   function middleware(request, response, next) {
-    if (isAuthed(request)) {
+    const user = getSessionUser(request);
+    if (user) {
+      request.authUser = user;
       next();
       return;
     }
@@ -378,10 +478,13 @@ function createAuth(dataDir, options = {}) {
       response.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
       return;
     }
-    response.status(401).type('html').send(loginPage(request.__loginLang));
+    response.status(401).type('html').send(loginPage(request.__loginLang, {
+      multiUser: loadUsers().length > 0,
+      totpEnabled: current.totpEnabled === true,
+    }));
   }
 
-  // 处理登录：校验密码，通过后写入 HttpOnly 会话 Cookie。
+  // 处理登录：校验密码（支持多用户与 TOTP 2FA），通过后写入 HttpOnly 会话 Cookie。
   function handleLogin(request, response) {
     if (isLoginBlocked(request)) {
       response.status(429);
@@ -389,11 +492,50 @@ function createAuth(dataDir, options = {}) {
       response.json({ success: false, error: 'Too many failed login attempts', code: 'LOGIN_RATE_LIMITED' });
       return;
     }
+    const username = String(request.body?.username || '').trim();
     const submitted = (request.body && request.body.password) || '';
+    const totpCode = String(request.body?.totpCode || '').trim();
+
+    // 若指定了非 admin 用户名，走多用户库校验
+    if (username && username.toLowerCase() !== 'admin') {
+      const targetUser = loadUsers().find((u) => u.username.toLowerCase() === username.toLowerCase());
+      if (!targetUser || !verifyPassword(submitted, targetUser.salt, targetUser.hash)) {
+        recordLoginFailure(request);
+        response.status(401).json({ success: false, error: 'Invalid credentials' });
+        return;
+      }
+      if (targetUser.totpEnabled && targetUser.totpSecret) {
+        if (!totpCode) {
+          response.status(401).json({ success: false, error: 'TOTP code required', code: 'TOTP_REQUIRED' });
+          return;
+        }
+        if (!totp.verifyTotpCode(targetUser.totpSecret, totpCode)) {
+          recordLoginFailure(request);
+          response.status(401).json({ success: false, error: 'Invalid TOTP code', code: 'INVALID_TOTP' });
+          return;
+        }
+      }
+      clearLoginFailures(request);
+      setSessionCookie(request, response, signUserToken(targetUser));
+      response.json({ success: true, user: summarizeUser(targetUser) });
+      return;
+    }
+
     if (!verifyPassword(submitted, current.salt, current.hash)) {
       recordLoginFailure(request);
       response.status(401).json({ success: false, error: 'Invalid password' });
       return;
+    }
+    if (current.totpEnabled && current.totpSecret) {
+      if (!totpCode) {
+        response.status(401).json({ success: false, error: 'TOTP code required', code: 'TOTP_REQUIRED' });
+        return;
+      }
+      if (!totp.verifyTotpCode(current.totpSecret, totpCode)) {
+        recordLoginFailure(request);
+        response.status(401).json({ success: false, error: 'Invalid TOTP code', code: 'INVALID_TOTP' });
+        return;
+      }
     }
     clearLoginFailures(request);
     setSessionCookie(request, response);
@@ -460,6 +602,90 @@ function createAuth(dataDir, options = {}) {
     return isAuthed(request);
   }
 
+  function setupTotp() {
+    pendingTotpSecret = totp.generateTotpSecret();
+    return {
+      secret: pendingTotpSecret,
+      otpauthUri: totp.buildOtpAuthUri({ secret: pendingTotpSecret, account: 'admin' }),
+    };
+  }
+
+  function enableTotp(code) {
+    if (!pendingTotpSecret) throw new Error('Please initiate TOTP setup first');
+    if (!totp.verifyTotpCode(pendingTotpSecret, code)) {
+      throw new Error('Invalid verification code');
+    }
+    const next = { ...current, totpSecret: pendingTotpSecret, totpEnabled: true };
+    if (!isEnvManaged) {
+      writeCredentialFile(credential.credentialPath, next);
+    }
+    current = next;
+    pendingTotpSecret = null;
+    return { totpEnabled: true };
+  }
+
+  function disableTotp(code) {
+    if (current.totpEnabled && current.totpSecret && !totp.verifyTotpCode(current.totpSecret, code)) {
+      throw new Error('Invalid verification code');
+    }
+    const next = { ...current, totpSecret: undefined, totpEnabled: false };
+    if (!isEnvManaged) {
+      writeCredentialFile(credential.credentialPath, next);
+    }
+    current = next;
+    return { totpEnabled: false };
+  }
+
+  function listUsers() {
+    return loadUsers().map(summarizeUser);
+  }
+
+  function saveUser(input) {
+    const username = String(input?.username || '').trim();
+    if (!username || username.length < 2 || username.toLowerCase() === 'admin') {
+      throw new Error('Invalid username (min 2 chars, cannot be "admin")');
+    }
+    const role = VALID_ROLES.has(input?.role) ? input.role : 'operator';
+    const allowedConnectionIds = Array.isArray(input?.allowedConnectionIds)
+      ? input.allowedConnectionIds.map((id) => String(id).trim()).filter(Boolean)
+      : [];
+    const users = loadUsers();
+    const existing = input?.id
+      ? users.find((item) => item.id === input.id)
+      : users.find((item) => item.username.toLowerCase() === username.toLowerCase());
+    let salt = existing?.salt;
+    let hash = existing?.hash;
+    if (typeof input?.password === 'string' && input.password.length > 0) {
+      if (input.password.length < 4) throw new Error('Password must be at least 4 characters');
+      const hashed = hashPassword(input.password);
+      salt = hashed.salt;
+      hash = hashed.hash;
+    }
+    if (!salt || !hash) throw new Error('Password is required for new user');
+    const record = {
+      id: existing?.id || `usr-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+      username,
+      salt,
+      hash,
+      role,
+      allowedConnectionIds,
+      totpSecret: existing?.totpSecret,
+      totpEnabled: existing?.totpEnabled === true,
+      createdAt: existing?.createdAt || Date.now(),
+    };
+    const nextList = [...users.filter((item) => item.id !== record.id), record];
+    saveUsers(nextList);
+    return summarizeUser(record);
+  }
+
+  function deleteUser(userId) {
+    const users = loadUsers();
+    const next = users.filter((item) => item.id !== userId);
+    if (next.length === users.length) return false;
+    saveUsers(next);
+    return true;
+  }
+
   return {
     source: credential.source,
     isEnvManaged,
@@ -469,8 +695,17 @@ function createAuth(dataDir, options = {}) {
     changePassword,
     verifyUpgrade,
     isAuthed,
+    getSessionUser,
+    canAccessConnection,
     verifyMcpToken,
     isUsingDefaultPassword,
+    isTotpEnabled: () => current.totpEnabled === true,
+    setupTotp,
+    enableTotp,
+    disableTotp,
+    listUsers,
+    saveUser,
+    deleteUser,
   };
 }
 
@@ -478,7 +713,7 @@ function createAuth(dataDir, options = {}) {
  * 内联登录页 HTML，避免依赖已构建的 SPA 资源。
  * lang 由服务端根据 settings.language 注入，浏览器语言作兜底。
  */
-function loginPage(lang) {
+function loginPage(lang, pageOptions = {}) {
   const initialLang = lang === 'en-US' ? 'en-US' : lang === 'zh-CN' ? 'zh-CN' : '';
   const strings = {
     'zh-CN': {
@@ -792,6 +1027,12 @@ function loginPage(lang) {
       </div>
     </div>
     <p class="hint" id="hint"></p>
+    <div id="username-wrap" style="display:${pageOptions.multiUser ? 'block' : 'none'};margin-bottom:12px;">
+      <label for="username" id="username-label">Username</label>
+      <div class="input-wrap" style="margin-bottom:0;">
+        <input id="username" name="username" type="text" autocomplete="username" placeholder="admin" style="padding-left:14px;" />
+      </div>
+    </div>
     <label for="password" id="label"></label>
     <div class="input-wrap">
       <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -805,6 +1046,12 @@ function loginPage(lang) {
           <circle cx="12" cy="12" r="3"></circle>
         </svg>
       </button>
+    </div>
+    <div id="totp-wrap" style="display:${pageOptions.totpEnabled ? 'block' : 'none'};margin-bottom:14px;">
+      <label for="totp" id="totp-label">2FA Code (TOTP)</label>
+      <div class="input-wrap" style="margin-bottom:0;">
+        <input id="totp" name="totp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="6" style="padding-left:14px;letter-spacing:0.2em;" />
+      </div>
     </div>
     <button type="submit" class="submit-btn" id="submit"></button>
     <div class="error" id="error" role="alert"></div>
@@ -861,17 +1108,32 @@ function loginPage(lang) {
     submitBtn.disabled = true;
     submitBtn.textContent = s.signingIn;
     var password = pwInput.value;
+    var usernameInput = document.getElementById('username');
+    var totpInput = document.getElementById('totp');
+    var username = usernameInput ? usernameInput.value.trim() : '';
+    var totpCode = totpInput ? totpInput.value.trim() : '';
     try {
       var response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: password }),
+        body: JSON.stringify({ password: password, username: username || undefined, totpCode: totpCode || undefined }),
       });
       if (response.ok) {
         window.location.reload();
         return;
       } else {
-        showError(s.invalid);
+        var errJson = {};
+        try { errJson = await response.json(); } catch (ignore) {}
+        if (errJson && errJson.code === 'TOTP_REQUIRED') {
+          var tw = document.getElementById('totp-wrap');
+          if (tw) tw.style.display = 'block';
+          if (totpInput) totpInput.focus();
+          showError(lang === 'zh-CN' ? '请输入 6 位双因素验证码（TOTP）' : 'Please enter 6-digit 2FA code');
+        } else if (errJson && errJson.code === 'INVALID_TOTP') {
+          showError(lang === 'zh-CN' ? '双因素验证码错误' : 'Invalid 2FA code');
+        } else {
+          showError(s.invalid);
+        }
       }
     } catch (e) {
       showError(s.network);

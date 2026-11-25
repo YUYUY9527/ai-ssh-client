@@ -291,7 +291,7 @@ async function openProxySocket(proxy, targetHost, targetPort) {
 }
 
 function connectHop(hop, options = {}) {
-  const { sock = null, hostVerifier, createClient = () => new Client() } = options;
+  const { sock = null, hostVerifier, onKeyboardInteractive, createClient = () => new Client() } = options;
   const client = createClient();
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -301,6 +301,11 @@ function connectHop(hop, options = {}) {
       try { client.end(); } catch { /* ignore */ }
       reject(error);
     };
+    if (typeof onKeyboardInteractive === 'function') {
+      client.on('keyboard-interactive', (name, instructions, _lang, prompts, finish) => {
+        onKeyboardInteractive({ host: hop.host, port: hop.port, name, instructions, prompts, finish });
+      });
+    }
     client
       .on('ready', () => {
         if (settled) return;
@@ -316,6 +321,7 @@ function connectHop(hop, options = {}) {
         password: hop.password || undefined,
         privateKey: hop.privateKey || undefined,
         passphrase: hop.passphrase || undefined,
+        tryKeyboard: Boolean(onKeyboardInteractive),
         readyTimeout: HOP_READY_TIMEOUT_MS,
         keepaliveInterval: 0,
         hostVerifier,
@@ -341,7 +347,7 @@ function forwardOut(client, targetHost, targetPort) {
  * @returns {Promise<{sock: import('node:stream').Duplex|null, dispose: () => void}>}
  *   sock 为 null 时表示直连（无需代理/跳板），dispose 为空操作。
  */
-async function openTransport({ connection, clientId, createVerifier, createClient } = {}) {
+async function openTransport({ connection, clientId, createVerifier, onKeyboardInteractive, createClient } = {}) {
   const proxyConfig = connection?.proxy;
   const proxy = normalizeProxy(proxyConfig);
   // 配了代理但字段残缺（类型/主机/端口不全）时明确报错，
@@ -386,6 +392,7 @@ async function openTransport({ connection, clientId, createVerifier, createClien
       const client = await connectHop(hop, {
         sock,
         createClient,
+        onKeyboardInteractive,
         hostVerifier: createVerifier ? createVerifier({ host: hop.host, port: hop.port, clientId }) : undefined,
       });
       hopClients.push(client);

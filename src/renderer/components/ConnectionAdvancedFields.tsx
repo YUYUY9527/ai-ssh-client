@@ -1,5 +1,6 @@
-import { ChevronDown, Plus, Trash2, ArrowUp, ArrowDown, Waypoints, ShieldCheck, ArrowLeftRight } from 'lucide-react';
-import type { SSHConnection, SshJumpHost, SshProxyConfig, PortForwardRule } from '../../shared/types';
+import { useEffect, useState } from 'react';
+import { ChevronDown, Plus, Trash2, ArrowUp, ArrowDown, Waypoints, ShieldCheck, ArrowLeftRight, KeyRound, Terminal } from 'lucide-react';
+import type { SSHConnection, SSHKeyRecord, SshJumpHost, SshProxyConfig, PortForwardRule } from '../../shared/types';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
 
 type Translate = (key: string) => string;
@@ -27,6 +28,31 @@ export function ConnectionAdvancedFields({
   const proxy = connection.proxy;
   const jumpHosts = connection.jumpHosts ?? [];
   const portForwards = connection.portForwards ?? [];
+  const [vaultKeys, setVaultKeys] = useState<SSHKeyRecord[]>([]);
+  const [envText, setEnvText] = useState<string>(() => (
+    connection.env
+      ? Object.entries(connection.env).map(([k, v]) => `${k}=${v}`).join('\n')
+      : ''
+  ));
+
+  useEffect(() => {
+    setEnvText(
+      connection.env
+        ? Object.entries(connection.env).map(([k, v]) => `${k}=${v}`).join('\n')
+        : '',
+    );
+  }, [connection.id]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.listSshKeys) return;
+    let cancelled = false;
+    void window.electronAPI.listSshKeys().then((result) => {
+      if (!cancelled && result.success) {
+        setVaultKeys(result.data.keys || []);
+      }
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   const setForwards = (list: PortForwardRule[]) => {
     onChange((previous) => (previous ? { ...previous, portForwards: list.length > 0 ? list : undefined } : null));
@@ -289,7 +315,7 @@ export function ConnectionAdvancedFields({
               {importableConnections.length > 0 && (
                 <div className="mt-2">
                   <IndustrialSelect
-                    value=""
+                    value={hop.connectionId || ''}
                     options={[
                       { value: '', label: translate('connection.form.importJumpFromSaved') },
                       ...importableConnections.map((item) => ({
@@ -298,12 +324,18 @@ export function ConnectionAdvancedFields({
                       })),
                     ]}
                     onChange={(value) => {
+                      if (!value) {
+                        patchJump(index, { connectionId: undefined });
+                        return;
+                      }
                       const source = importableConnections.find((item) => item.id === value);
                       if (!source) return;
                       patchJump(index, {
+                        connectionId: source.id,
                         host: source.host,
                         port: source.port,
                         username: source.username,
+                        keyId: source.keyId,
                         password: source.password,
                         privateKey: source.privateKey,
                         passphrase: source.passphrase,
@@ -350,6 +382,7 @@ export function ConnectionAdvancedFields({
                       value={rule.type}
                       options={[
                         { value: 'local', label: translate('connection.form.portForwardTypeLocal') },
+                        { value: 'remote', label: translate('connection.form.portForwardTypeRemote') },
                         { value: 'dynamic', label: translate('connection.form.portForwardTypeDynamic') },
                       ]}
                       onChange={(value) => patchForward(index, { type: value as PortForwardRule['type'] })}
@@ -407,7 +440,7 @@ export function ConnectionAdvancedFields({
                         placeholder="0"
                       />
                     </label>
-                    {rule.type === 'local' && (
+                    {(rule.type === 'local' || rule.type === 'remote') && (
                       <>
                         <label className="text-[11px] text-fg-muted">
                           {translate('connection.form.portForwardTargetHost')}
@@ -435,6 +468,109 @@ export function ConnectionAdvancedFields({
               ))}
             </div>
           )}
+        </div>
+
+        {/* 密钥库与会话高级选项（Agent 转发、初始命令、编码、环境变量） */}
+        <div className="mt-5 space-y-3 border-t border-line-subtle pt-4">
+          <div className="flex items-center gap-2 text-xs font-medium text-fg">
+            <Terminal className="h-3.5 w-3.5 text-accent" />
+            <span>{translate('connection.form.sessionOptions')}</span>
+          </div>
+
+          {vaultKeys.length > 0 && (
+            <div>
+              <label className="industrial-field-label flex items-center gap-1.5">
+                <KeyRound className="h-3 w-3 text-accent" />
+                {translate('connection.form.vaultKey')}
+              </label>
+              <IndustrialSelect
+                value={connection.keyId || ''}
+                options={[
+                  { value: '', label: translate('connection.form.vaultKeyNone') },
+                  ...vaultKeys.map((key) => ({
+                    value: key.id,
+                    label: `${key.name} (${key.algorithm})`,
+                  })),
+                ]}
+                onChange={(value) => onChange((previous) => (
+                  previous ? { ...previous, keyId: value || undefined } : null
+                ))}
+                className="w-full"
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div>
+              <label className="industrial-field-label">{translate('connection.form.encoding')}</label>
+              <IndustrialSelect
+                value={connection.encoding || 'utf-8'}
+                options={[
+                  { value: 'utf-8', label: 'UTF-8 (Default)' },
+                  { value: 'gbk', label: 'GBK' },
+                  { value: 'gb18030', label: 'GB18030' },
+                  { value: 'big5', label: 'Big5' },
+                  { value: 'shift_jis', label: 'Shift_JIS' },
+                  { value: 'latin1', label: 'ISO-8859-1 (Latin1)' },
+                ]}
+                onChange={(value) => onChange((previous) => (
+                  previous ? { ...previous, encoding: value === 'utf-8' ? undefined : value } : null
+                ))}
+                className="w-full"
+              />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 pt-5 text-xs text-fg-secondary">
+              <input
+                type="checkbox"
+                checked={Boolean(connection.agentForward)}
+                onChange={(event) => onChange((previous) => (
+                  previous ? { ...previous, agentForward: event.target.checked || undefined } : null
+                ))}
+              />
+              <span>{translate('connection.form.agentForward')}</span>
+            </label>
+          </div>
+
+          <div>
+            <label className="industrial-field-label">{translate('connection.form.startupCommand')}</label>
+            <input
+              type="text"
+              value={connection.startupCommand || ''}
+              onChange={(event) => onChange((previous) => (
+                previous ? { ...previous, startupCommand: event.target.value || undefined } : null
+              ))}
+              placeholder="cd /srv/app && ls -la"
+              className="industrial-input w-full font-mono text-xs"
+            />
+          </div>
+
+          <div>
+            <label className="industrial-field-label">{translate('connection.form.envVars')}</label>
+            <textarea
+              rows={2}
+              value={envText}
+              onChange={(event) => {
+                const raw = event.target.value;
+                setEnvText(raw);
+                const parsed: Record<string, string> = {};
+                for (const line of raw.split('\n')) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed.startsWith('#')) continue;
+                  const eq = trimmed.indexOf('=');
+                  if (eq <= 0) continue;
+                  const key = trimmed.slice(0, eq).trim();
+                  const val = trimmed.slice(eq + 1);
+                  if (key) parsed[key] = val;
+                }
+                onChange((previous) => (
+                  previous ? { ...previous, env: Object.keys(parsed).length > 0 ? parsed : undefined } : null
+                ));
+              }}
+              placeholder="LANG=en_US.UTF-8&#10;APP_ENV=prod"
+              className="industrial-input w-full font-mono text-xs"
+              spellCheck={false}
+            />
+          </div>
         </div>
       </div>
     </details>

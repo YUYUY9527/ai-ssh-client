@@ -12,6 +12,12 @@ import type {
   AgentTask,
   HostTrustRecord,
   HostTrustPromptEvent,
+  SshKeyboardInteractivePrompt,
+  SSHKeyRecord,
+  SftpBookmark,
+  AuditLogEntry,
+  WebUserSummary,
+  WebUserRole,
   McpConfigSaveResult,
   McpConfigSnapshot,
   McpPolicyConfig,
@@ -76,6 +82,7 @@ type EventMap = {
   'ssh-error': { connectionId: string; error: string };
   'ssh-close': string;
   'ssh-host-trust-prompt': HostTrustPromptEvent;
+  'ssh-kb-interactive-prompt': SshKeyboardInteractivePrompt;
   'sftp-transfer-event': SftpTransferEvent;
   'agent-terminal-output': { connectionId: string; data: string };
   'system-resume': { timestamp: number };
@@ -1541,6 +1548,40 @@ const webApi: Window['electronAPI'] = {
       body: JSON.stringify({ target }),
     },
   ),
+  getDockerStats: (connectionId) => sftpRequest<{ stats: import('../../shared/ipc-types').DockerContainerStat[] }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/stats`,
+  ),
+  listDockerImages: (connectionId) => sftpRequest<{ images: import('../../shared/ipc-types').DockerImageItem[] }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/images`,
+  ),
+  removeDockerImage: (connectionId, imageId, force = false) => sftpRequest<{ imageId: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/images/${encodeURIComponent(imageId)}?force=${force ? '1' : '0'}`,
+    { method: 'DELETE' },
+  ),
+  listDockerVolumes: (connectionId) => sftpRequest<{ volumes: import('../../shared/ipc-types').DockerVolumeItem[] }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/volumes`,
+  ),
+  removeDockerVolume: (connectionId, name) => sftpRequest<{ name: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/volumes/${encodeURIComponent(name)}`,
+    { method: 'DELETE' },
+  ),
+  listDockerNetworks: (connectionId) => sftpRequest<{ networks: import('../../shared/ipc-types').DockerNetworkItem[] }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/networks`,
+  ),
+  removeDockerNetwork: (connectionId, networkId) => sftpRequest<{ id: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/networks/${encodeURIComponent(networkId)}`,
+    { method: 'DELETE' },
+  ),
+  listDockerComposeProjects: (connectionId) => sftpRequest<{ projects: import('../../shared/ipc-types').DockerComposeProject[] }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose`,
+  ),
+  readDockerComposeFile: (connectionId, configFile) => sftpRequest<{ path: string; content: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose/file?path=${encodeURIComponent(configFile)}`,
+  ),
+  saveDockerComposeFile: (connectionId, configFile, content, project) => sftpRequest<{ path: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose/file`,
+    { method: 'PUT', body: JSON.stringify({ path: configFile, content, project }) },
+  ),
   sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
     `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
   ),
@@ -1564,10 +1605,38 @@ const webApi: Window['electronAPI'] = {
       body: JSON.stringify({ requestId, accepted }),
     },
   ),
+  sshRespondKeyboardInteractive: (requestId, answers, canceled = false) => request<{ resolved: boolean }>(
+    '/api/ssh/kb-interactive/respond',
+    {
+      method: 'POST',
+      body: JSON.stringify({ requestId, answers, canceled }),
+    },
+  ),
+  listSshKeys: () => request<{ keys: SSHKeyRecord[] }>('/api/ssh-keys'),
+  saveSshKey: (key) => request<{ key: SSHKeyRecord }>('/api/ssh-keys', {
+    method: 'POST',
+    body: JSON.stringify({ key }),
+  }),
+  generateSshKey: (options) => request<{ key: SSHKeyRecord }>('/api/ssh-keys/generate', {
+    method: 'POST',
+    body: JSON.stringify(options),
+  }),
+  deleteSshKey: (keyId) => request<void>(`/api/ssh-keys/${encodeURIComponent(keyId)}`, {
+    method: 'DELETE',
+  }),
+  deploySshKey: (connectionId, keyId) => sftpApiRequest<{ deployed: boolean; alreadyPresent: boolean }>(
+    connectionId,
+    `/api/ssh/${encodeURIComponent(connectionId)}/deploy-key`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ keyId }),
+    },
+  ),
   onSshData: (callback) => on('ssh-data', callback),
   onSshError: (callback) => on('ssh-error', callback),
   onSshClose: (callback) => on('ssh-close', callback),
   onSshHostTrustPrompt: (callback) => on('ssh-host-trust-prompt', callback),
+  onSshKeyboardInteractivePrompt: (callback) => on('ssh-kb-interactive-prompt', callback),
 
   aiChat: (providerId, messages, options) => request<AIChatResult>('/api/ai/chat', {
     method: 'POST',
@@ -1830,6 +1899,46 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/permissions`,
     { method: 'POST', body: JSON.stringify({ remotePath, mode }) },
   ),
+  archiveSftpItems: (connectionId, payload) => sftpApiRequest<{ archivePath: string; format: string; count: number }>(
+    connectionId,
+    `/api/sftp/${encodeURIComponent(connectionId)}/archive`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
+  extractSftpArchive: (connectionId, payload) => sftpApiRequest<{ archivePath: string; destinationDir: string }>(
+    connectionId,
+    `/api/sftp/${encodeURIComponent(connectionId)}/extract`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
+  copySftpItems: (connectionId, payload) => sftpApiRequest<{ mode: string; count: number; destinationDir: string }>(
+    connectionId,
+    `/api/sftp/${encodeURIComponent(connectionId)}/copy`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
+  moveSftpItems: (connectionId, payload) => sftpApiRequest<{ mode: string; count: number; destinationDir: string }>(
+    connectionId,
+    `/api/sftp/${encodeURIComponent(connectionId)}/move`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
+  createSftpSymlink: (connectionId, payload) => sftpApiRequest<{ targetPath: string; linkPath: string }>(
+    connectionId,
+    `/api/sftp/${encodeURIComponent(connectionId)}/symlink`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
+  chownSftpItem: (connectionId, payload) => sftpApiRequest<{ remotePath: string; spec: string; recursive: boolean }>(
+    connectionId,
+    `/api/sftp/${encodeURIComponent(connectionId)}/chown`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
+  listSftpBookmarks: (connectionId) => request<{ bookmarks: SftpBookmark[] }>(
+    `/api/sftp/bookmarks?connectionId=${encodeURIComponent(connectionId)}`,
+  ),
+  saveSftpBookmark: (bookmark) => request<{ bookmark: SftpBookmark }>('/api/sftp/bookmarks', {
+    method: 'POST',
+    body: JSON.stringify({ bookmark }),
+  }),
+  deleteSftpBookmark: (bookmarkId) => request<void>(`/api/sftp/bookmarks/${encodeURIComponent(bookmarkId)}`, {
+    method: 'DELETE',
+  }),
   readSftpTextFile: (connectionId, remotePath, sudoPassword) => sftpApiRequest<import('../../shared/ipc-types').SftpTextFileContent>(
     connectionId,
     `/api/sftp/${connectionId}/text?path=${encodeURIComponent(remotePath)}`,
@@ -1884,6 +1993,28 @@ const webApi: Window['electronAPI'] = {
   // 互相顶替导致连接变得异常慢。
   getServerMonitor: (connectionId) => sftpRequest<ServerMonitorMetrics>(
     `/api/ssh/${connectionId}/monitor`,
+  ),
+  listListeningPorts: (connectionId) => sftpRequest<{ ports: import('../../shared/ipc-types').ListeningPortItem[] }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/monitor/ports`,
+  ),
+  killRemoteProcess: (connectionId, pid, signal = 'TERM') => sftpRequest<{ pid: number; signal: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/monitor/kill-process`,
+    { method: 'POST', body: JSON.stringify({ pid, signal }) },
+  ),
+  listSystemdServices: (connectionId) => sftpRequest<{ available: boolean; services: import('../../shared/ipc-types').SystemdServiceItem[] }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/services`,
+  ),
+  controlSystemdService: (connectionId, name, action) => sftpRequest<{ name: string; action: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/services/${encodeURIComponent(name)}/${encodeURIComponent(action)}`,
+    { method: 'POST', body: '{}' },
+  ),
+  runBatchCommand: (payload) => request<import('../../shared/ipc-types').BatchCommandResponse>(
+    '/api/batch/exec',
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
+  runBatchDistribute: (payload) => request<import('../../shared/ipc-types').BatchDistributeResponse>(
+    '/api/batch/distribute',
+    { method: 'POST', body: JSON.stringify(payload) },
   ),
   searchSftpFiles: (connectionId, { path, query, mode, limit }) => {
     const params = new URLSearchParams({ path, query, mode });
@@ -2003,12 +2134,34 @@ const webApi: Window['electronAPI'] = {
       }
       return result;
     }
-    // handed-off：串行触发浏览器原生下载。
-    // 注意：http://<局域网IP> 属于非安全上下文，Chrome 会把非白名单扩展名（.pcap/.zip/...）
-    // 的下载判定为 insecure download 直接拦截（控制台只留一条 warning，任务看着"已完成"），
-    // 这里显式带上提示，并 bump sequence 让该快照覆盖服务端已推送的 handed-off 终态。
+    // handed-off：非 HTTPS 局域网对 ≤64MiB 的文件使用同源 fetch → Blob 下载，
+    // 绕过 Chrome 对 HTTP 站点非白名单扩展名的 insecure download 拦截；超大文件回退原生 <a> 直链。
+    const BLOB_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
+    let usedDirectAnchorOnHttp = false;
     for (const task of result.data.tasks) {
       if (!task.downloadUrl) continue;
+      const canBlobFallback = !window.isSecureContext
+        && (!task.totalBytes || task.totalBytes <= BLOB_FALLBACK_MAX_BYTES);
+      if (canBlobFallback) {
+        try {
+          const resp = await fetch(task.downloadUrl, { credentials: 'same-origin' });
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = blobUrl;
+            anchor.download = task.name;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+            continue;
+          }
+        } catch {
+          // 回退原生直链
+        }
+      }
+      if (!window.isSecureContext) usedDirectAnchorOnHttp = true;
       const anchor = document.createElement('a');
       anchor.href = task.downloadUrl;
       anchor.download = task.name;
@@ -2017,7 +2170,7 @@ const webApi: Window['electronAPI'] = {
       anchor.click();
       anchor.remove();
     }
-    if (!window.isSecureContext) {
+    if (!window.isSecureContext && usedDirectAnchorOnHttp) {
       result.data.tasks = result.data.tasks.map((task) => ({
         ...task,
         notice: t('fileTransfer.insecureDownloadHint'),
@@ -2258,15 +2411,50 @@ const webApi: Window['electronAPI'] = {
   // 已由 useSessionBridge 在 socket 重连时做同一套会话存活重校并重连。
   onSystemResume: (callback) => on('system-resume', callback),
 
-  // Web 专用：查询登录状态（含是否仍为默认密码）。
-  getAuthStatus: () => request<{ authenticated: boolean; usingDefaultPassword: boolean; passwordManaged: boolean }>(
-    '/api/auth-status',
-  ),
+  // Web 专用：查询登录状态（含是否仍为默认密码与 2FA/用户角色）。
+  getAuthStatus: () => request<{
+    authenticated: boolean;
+    usingDefaultPassword: boolean;
+    passwordManaged: boolean;
+    totpEnabled?: boolean;
+    user?: WebUserSummary | null;
+  }>('/api/auth-status'),
   // Web 专用：修改登录密码，校验旧密码，成功后当前会话保持登录。
   webChangePassword: (oldPassword, newPassword) => request<void>('/api/change-password', {
     method: 'POST',
     body: JSON.stringify({ oldPassword, newPassword }),
   }),
+  setupWebTotp: () => request<{ secret: string; otpauthUri: string }>('/api/auth/totp/setup', {
+    method: 'POST',
+    body: '{}',
+  }),
+  enableWebTotp: (code) => request<{ totpEnabled: boolean }>('/api/auth/totp/enable', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }),
+  disableWebTotp: (code) => request<{ totpEnabled: boolean }>('/api/auth/totp/disable', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }),
+  listWebUsers: () => request<{ users: WebUserSummary[] }>('/api/users'),
+  saveWebUser: (user) => request<{ user: WebUserSummary }>('/api/users', {
+    method: 'POST',
+    body: JSON.stringify({ user }),
+  }),
+  deleteWebUser: (userId) => request<void>(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  }),
+  listAuditLogs: (query = {}) => {
+    const params = new URLSearchParams();
+    if (query.category) params.set('category', query.category);
+    if (query.search) params.set('search', query.search);
+    if (query.limit) params.set('limit', String(query.limit));
+    const qs = params.toString();
+    return request<{ entries: AuditLogEntry[] }>(`/api/audit-logs${qs ? `?${qs}` : ''}`);
+  },
+  listMcpAuditLogs: (limit = 100) => request<{ entries: Array<Record<string, unknown>> }>(
+    `/api/mcp/audit?limit=${encodeURIComponent(String(limit))}`,
+  ),
   // Web 专用：MCP 服务端策略（data/mcp-policy.json）。
   mcpGetConfig: () => request<McpConfigSnapshot>('/api/mcp/config'),
   mcpSaveConfig: (policy: McpPolicyConfig) => request<McpConfigSaveResult>('/api/mcp/config', {

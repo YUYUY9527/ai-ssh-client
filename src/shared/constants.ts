@@ -160,6 +160,7 @@ export const DEFAULT_SETTINGS = {
   maxScrollbackBytesPerSession: 1024 * 1024,
   // 文件管理面板是否常驻左侧；默认关闭，按需从顶栏切换
   fileManagerPersistent: false,
+  mobileKeyBarMode: 'auto' as const,
 };
 
 // SSH 默认端口

@@ -127,7 +127,7 @@ describe('mcp http endpoint', () => {
     try {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
-        'get_server_info', 'list_connections', 'sftp_list', 'sftp_read_text', 'sftp_stat', 'ssh_exec', 'test_connection',
+        'get_server_info', 'list_connections', 'sftp_list', 'sftp_read_text', 'sftp_stat', 'sftp_write_text', 'ssh_exec', 'test_connection',
       ]);
 
       const listed = await callTool(client, 'list_connections');

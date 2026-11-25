@@ -18,6 +18,7 @@
 | `sftp_list` | 是 | 列远端目录（类型、大小、权限、mtime），最多 1000 项。 |
 | `sftp_stat` | 是 | 查看单个路径的属性，不读内容。 |
 | `sftp_read_text` | 是 | 读取远端 UTF-8 文本文件，默认上限 256 KB。 |
+| `sftp_write_text` | **否** | 写入远端 UTF-8 文本文件（支持 `dry_run` 返回 unified diff 预览）；需显式开启 `allowWrite`（或 `MCP_ALLOW_WRITE=1`）并受目录白名单约束。 |
 | `ssh_exec` | **否** | 在连接上执行一条非交互命令（SSH `exec` 通道，不分配 PTY），返回 stdout/stderr/exitCode。默认只读；可在 Web 设置 → MCP 里按连接开启，或设 `MCP_ALLOW_EXEC=1`。 |
 
 MCP 只认**配置里已保存的连接**，不能由 agent 临时指定主机或凭据。这样既避免把凭据库变成任意转发代理，也让「agent 能连哪台机器」始终由人在界面里决定。
@@ -268,11 +269,12 @@ Claude Code / Cursor 等客户端同理，填 URL 与 `Authorization` 头即可�
 ## 6. 已知限制
 
 - **桌面版不支持**：钥匙串凭据无法被独立 Node 进程读取，见上文。
-- **没有写工具**：`sftp_write` / 上传 / 下载尚未提供。需要时建议先在界面里操作。
 - **HTTP 只有 stateless 模式**：`/mcp` 不维护 session，每个请求独立；不支持 server-initiated 通知。
 - **非交互**：`ssh_exec` 不分配 PTY。`sudo` 要密码、`vim`/`top` 这类全屏程序、需要 `y/n` 确认的命令会失败或超时；请用 `sudo -n`（已配置免密）或非交互参数。
 - **与应用内终端互不影响**：MCP 用独立的 SSH 连接，不会干扰你在界面里打开着的会话。
 - **并发**：同一进程内按 `connectionId` 复用一条连接；不同命令通过多个 `exec` 通道并发。
+
+> 注：Web 设置 → MCP 现已支持配置 `allowWrite`（开启 `sftp_write_text`）、按连接目录白名单（`connectionRoots`）、按连接命令前缀白名单（`connectionCommandPrefixes`），并可在页面内直接在线查看 `mcp-audit.log` 审计记录。
 
 ---
 

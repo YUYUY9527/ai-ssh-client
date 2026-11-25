@@ -12,6 +12,7 @@ import {
   getTerminalFontFamily,
 } from './terminal-theme';
 import { resolveTerminalRuntimeSettings } from './terminal-settings';
+import { ensureWebFontLoaded } from '../../hooks/web-fonts';
 import { isOpenableHttpUrl, ShellIntegrationParser, type ShellIntegrationState } from './shell-integration';
 import { parseTerminalAgentPaste } from '../../agent/terminal-agent-chat';
 import { createClipboardPasteFallback, gateTerminalPaste, wrapBracketedPaste } from './paste-safety';
@@ -570,10 +571,20 @@ export function useXtermInstance({
   }, [fitAndResize, fontSize, xtermRef]);
 
   useEffect(() => {
-    if (xtermRef.current) {
+    let cancelled = false;
+    const applyFont = () => {
+      if (cancelled || !xtermRef.current) return;
       xtermRef.current.options.fontFamily = getTerminalFontFamily(settings?.fontFamily);
       fitAndResize();
-    }
+      if (xtermRef.current.rows > 0) {
+        xtermRef.current.refresh(0, xtermRef.current.rows - 1);
+      }
+    };
+    applyFont();
+    void ensureWebFontLoaded(settings?.fontFamily).then(applyFont);
+    return () => {
+      cancelled = true;
+    };
   }, [fitAndResize, settings?.fontFamily, xtermRef]);
 
   useEffect(() => {

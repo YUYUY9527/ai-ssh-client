@@ -30,21 +30,22 @@ A self-hosted, browser-based SSH workspace: a full terminal, SFTP file manager, 
 
 ## Features
 
-- **Multi-session SSH** — password and private-key auth, jump hosts, HTTP / SOCKS5 proxies, reconnect and keepalive.
+- **Multi-session SSH** — password, private-key, Key Vault (`Ed25519`/`RSA` generator & `ssh-copy-id`), `keyboard-interactive` 2FA prompts, multi-hop jump hosts (with saved-connection references), HTTP / SOCKS5 proxies, SSH Agent Forwarding, custom terminal encoding (`UTF-8`/`GBK`/`Shift_JIS`, etc.), startup commands, reconnect and keepalive.
+- **Nested connection groups** — organize servers into multi-level folder hierarchies.
 - **Split terminal workspace** — drag tabs to split left/right/up/down, up to four panes side by side, each labelled with its server.
-- **Rich terminal** — xterm.js with search, themes, configurable font and scrollback, command history, autocomplete, bracketed paste and a full-screen-program-safe input mode.
-- **Session-bound SFTP** — browse, upload, download, edit, rename and change permissions; recursive folder transfer, remote file preview (images, PDF, audio/video streaming) and remote file search.
+- **Rich terminal** — xterm.js with search, themes, configurable font and scrollback, command history, autocomplete, bracketed paste, full-screen-program-safe input mode, session recording & asciinema v2 `.cast` playback, and a mobile touch virtual key bar (PWA-ready).
+- **Session-bound SFTP** — browse, upload, download (including non-HTTPS LAN Blob fallback), remote archive/extract (`.tar.gz`/`.zip`), server-side copy/move, symlinks, `chown`, bookmarks, multi-language CodeMirror syntax highlighting, recursive folder transfer, remote file preview (images, PDF, audio/video streaming) and remote file search.
 - **Transfer queue** — per-task and bulk pause / resume with real resumable transfers, plus preserved source mtime on upload.
-- **Port forwarding** — local and dynamic SOCKS5 forwards managed from the terminal toolbar.
-- **Server monitoring** — live CPU per core, memory, swap, network throughput, disk I/O, load, processes and latency in the status bar.
-- **Docker management** — list, inspect, start / stop / restart containers, stream logs over SSE and open a container shell.
+- **Port forwarding** — local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`) forwards managed from the terminal toolbar.
+- **Server monitoring** — cross-platform (Linux / macOS / FreeBSD) live CPU per core, memory/network sparklines, swap, disk I/O, load, top processes (with TERM/KILL), listening ports, and systemd service management.
+- **Docker management** — containers (with live CPU/MEM stats, SSE logs, exec shell), images, volumes, networks, Docker Compose editor, and automatic `sudo -n docker` fallback.
+- **Multi-host batch operations** — execute commands or distribute files across multiple selected hosts in parallel with per-host result summaries.
 - **Sudo file access** — edit root-owned files through `sudo` without leaving the browser (password prompted on demand, never stored).
 - **Command broadcast** — type once and send the same input to every visible split pane.
-- **AI assistant & agent** — natural-language Linux help and guided task execution through guarded command steps.
+- **AI assistant & agent** — natural-language Linux help, guided task execution with `pane_output` screen reading, per-connection command allowlist, optional Reviewer Model secondary approval, configurable tool-call/timeout caps, and prompt edit/retry.
 - **Multiple AI providers** — OpenAI-compatible endpoints, Anthropic, Gemini and Ollama.
-- **Guardrails** — command risk analysis with approval gates for dangerous operations, plus execution logging.
-- **Host fingerprint verification** — SHA-256 host-key check with a trust-on-first-use prompt.
-- **Quick commands** — reusable shell snippets organised into groups.
+- **Security & governance** — SHA-256 host-key TOFU, AES-GCM credential encryption, TOTP 2FA login, multi-user RBAC (Admin / Operator / Viewer with connection scoping), and global operational audit logs.
+- **Quick commands** — reusable shell snippets organised into groups with `{{var:default}}` template parameters and auto-execute toggle.
 - **Themes and design tokens** — light, dark and system themes driven by a single token system.
 - **Portable config** — import and export application configuration, including OpenSSH `config` import.
 
@@ -134,11 +135,8 @@ Command execution over MCP is disabled unless you enable it for the deployment
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl/Cmd + T` | New connection tab |
-| `Ctrl/Cmd + W` | Close current tab |
 | `Ctrl/Cmd + F` | Terminal search |
 | `Ctrl/Cmd + +` / `-` | Increase / decrease font size |
-| `Ctrl/Cmd + Shift + P` | Command palette |
 | `Esc` | Interrupt the running AI agent task |
 
 ## Tech Stack

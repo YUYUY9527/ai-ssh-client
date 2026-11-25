@@ -14,6 +14,7 @@ import {
   MessageSquarePlus,
   Paperclip,
   Pause,
+  Pencil,
   Play,
   PlugZap,
   RotateCcw,
@@ -1165,6 +1166,19 @@ export function TerminalAgentDock({
                         <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs font-medium leading-5 text-fg-secondary">
                           {prevTask.userInput}
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFollowUpInput(prevTask.userInput);
+                            requestInputFocus();
+                          }}
+                          disabled={isRunning}
+                          className="icon-button h-5 w-5 shrink-0 disabled:opacity-40"
+                          title={t('common.edit')}
+                          aria-label={t('common.edit')}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
                         <span className="shrink-0 font-mono text-[10px] text-fg-subtle tabular-nums">
                           {formatTaskDuration(prevTask)}
                         </span>
@@ -1242,6 +1256,20 @@ export function TerminalAgentDock({
                     <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs font-medium leading-5 text-fg">
                       {task.userInput}
                     </p>
+                    {!isRunning && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFollowUpInput(task.userInput);
+                          requestInputFocus();
+                        }}
+                        className="icon-button h-5 w-5 shrink-0"
+                        title={t('common.edit')}
+                        aria-label={t('common.edit')}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 )}
 

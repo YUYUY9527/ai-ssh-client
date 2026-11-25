@@ -10,6 +10,8 @@
    * spacing: 4px scale via Tailwind
    */
   :root, .dark {
+    --app-font-family: Consolas, 'Courier New', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, monospace;
+    --app-font-mono: Consolas, 'Courier New', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, monospace;
     --bg-primary: #070b10;
     --bg-secondary: #0d131a;
     --bg-tertiary: #131b24;
@@ -124,11 +126,19 @@
 
   body {
     @apply m-0 overflow-hidden font-sans text-[13px] leading-5;
+    font-family: var(--app-font-family);
     background-color: var(--bg-primary);
     color: var(--text-primary);
     font-feature-settings: "tnum", "ss01";
     letter-spacing: 0;
     -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font-family: inherit;
   }
 
   /*

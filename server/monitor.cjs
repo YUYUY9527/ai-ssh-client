@@ -9,10 +9,65 @@
  * （/proc、/sys、df、awk、uname、hostname、who），常见发行版均可用。
  */
 
+const { execCommand } = require('./ssh-exec.cjs');
+
+// 跨平台监控采集脚本：自动识别 Darwin(macOS) / FreeBSD / Linux(含 BusyBox)。
 // 注意：脚本里避免出现 JS 模板字符串的 ${}（本文件本身是模板字符串），
 // 因此所有 shell 变量引用都用 $name / $(...) / $(( )) 形式。
-// /sys/block/*/stat 提供整块设备的累计扇区数；跳过有 slaves 的映射层，避免重复统计。
 const MONITOR_SCRIPT = `
+OS_NAME=$(uname -s 2>/dev/null)
+if [ "$OS_NAME" = "Darwin" ]; then
+  CORES=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
+  echo "core_count=$CORES"
+  CPU_IDLE=$(top -l 1 -n 0 2>/dev/null | awk '/CPU usage:/{gsub(/%/,"",$7); print int($7)}')
+  if [ -n "$CPU_IDLE" ]; then echo "cpu=$((100 - CPU_IDLE))"; else echo "cpu=0"; fi
+  echo "cpu_model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || uname -m)"
+  MT_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+  MT_KB=$((MT_BYTES / 1024))
+  PSIZE=$(pagesize 2>/dev/null || echo 4096)
+  FREE_P=$(vm_stat 2>/dev/null | awk '/Pages free:/{gsub(/\\./,"",$3); print $3}')
+  INACT_P=$(vm_stat 2>/dev/null | awk '/Pages inactive:/{gsub(/\\./,"",$3); print $3}')
+  if [ -z "$FREE_P" ]; then FREE_P=0; fi
+  if [ -z "$INACT_P" ]; then INACT_P=0; fi
+  MA_KB=$(( ( FREE_P + INACT_P ) * PSIZE / 1024 ))
+  MU_KB=$((MT_KB - MA_KB)); if [ "$MU_KB" -lt 0 ]; then MU_KB=0; fi
+  if [ "$MT_KB" -gt 0 ]; then MP=$((100 * MU_KB / MT_KB)); else MP=0; fi
+  echo "mem_total_kb=$MT_KB"; echo "mem_available_kb=$MA_KB"; echo "mem_used_kb=$MU_KB"; echo "mem_free_kb=$MA_KB"; echo "mem_percent=$MP"
+  LOAD=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')
+  set -- $LOAD
+  echo "load1=$1"; echo "load5=$2"; echo "load15=$3"
+  BOOT=$(sysctl -n kern.boottime 2>/dev/null | awk '{gsub(/,/,"",$4); print $4}')
+  NOW=$(date +%s 2>/dev/null || echo 0)
+  if [ -n "$BOOT" ] && [ "$NOW" -gt "$BOOT" ]; then echo "uptime_seconds=$((NOW - BOOT))"; else echo "uptime_seconds=0"; fi
+  ps -axo pid,pcpu,comm 2>/dev/null | awk 'NR>1{print $1"|"$3"|"$2}' | sort -t'|' -k3 -rn | head -n 10 | while IFS='|' read p n c; do echo "process_cpu|$p|$n|$c"; done
+  df -Pk / 2>/dev/null | awk 'NR==2{printf "disk_total_kb=%s\\ndisk_used_kb=%s\\ndisk_available_kb=%s\\ndisk_percent=%s\\n",$2,$3,$4,$5}'
+  df -Pk 2>/dev/null | awk 'NR>1 && ($1 ~ /^\\/dev\\// || $6=="/") { cnt++; if (cnt<=8) print "disk_mount|" $6 "|" $2 "|" $3 "|" $4 "|" $5 }'
+  echo "hostname=$(hostname 2>/dev/null || uname -n)"
+  echo "kernel=$(uname -r 2>/dev/null)"
+  echo "arch=$(uname -m 2>/dev/null)"
+  echo "logged_users=$(who 2>/dev/null | wc -l | tr -d ' ')"
+  echo "os=macOS $(sw_vers -productVersion 2>/dev/null)"
+  exit 0
+fi
+if [ "$OS_NAME" = "FreeBSD" ]; then
+  CORES=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
+  echo "core_count=$CORES"
+  echo "cpu_model=$(sysctl -n hw.model 2>/dev/null || uname -m)"
+  MT_BYTES=$(sysctl -n hw.physmem 2>/dev/null || echo 0)
+  MT_KB=$((MT_BYTES / 1024))
+  echo "mem_total_kb=$MT_KB"; echo "mem_available_kb=0"; echo "mem_used_kb=0"; echo "mem_percent=0"
+  LOAD=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')
+  set -- $LOAD
+  echo "load1=$1"; echo "load5=$2"; echo "load15=$3"
+  ps -axo pid,pcpu,comm 2>/dev/null | awk 'NR>1{print $1"|"$3"|"$2}' | sort -t'|' -k3 -rn | head -n 10 | while IFS='|' read p n c; do echo "process_cpu|$p|$n|$c"; done
+  df -Pk / 2>/dev/null | awk 'NR==2{printf "disk_total_kb=%s\\ndisk_used_kb=%s\\ndisk_available_kb=%s\\ndisk_percent=%s\\n",$2,$3,$4,$5}'
+  echo "hostname=$(hostname 2>/dev/null || uname -n)"
+  echo "kernel=$(uname -r 2>/dev/null)"
+  echo "arch=$(uname -m 2>/dev/null)"
+  echo "logged_users=$(who 2>/dev/null | wc -l | tr -d ' ')"
+  echo "os=FreeBSD $(uname -r 2>/dev/null)"
+  exit 0
+fi
 tmp1=/tmp/.ais_mon_$$_1
 tmp2=/tmp/.ais_mon_$$_2
 trap 'rm -f "$tmp1" "$tmp2"' 0
@@ -273,4 +328,109 @@ function parseMonitorOutput(text) {
   };
 }
 
-module.exports = { buildMonitorCommand, parseMonitorOutput, MONITOR_SCRIPT };
+function quoteArg(value) {
+  return `'${String(value ?? '').replace(/'/g, `'\\''`)}'`;
+}
+
+/** 采集远端监听端口（兼容 ss / netstat / lsof）。 */
+async function listListeningPorts(client) {
+  const script = `
+if command -v ss >/dev/null 2>&1; then
+  ss -tulnp 2>/dev/null | awk 'NR>1{print $1"|"$2"|"$5"|"$7}'
+elif command -v netstat >/dev/null 2>&1; then
+  netstat -tulnp 2>/dev/null | awk 'NR>2{print $1"|"$6"|"$4"|"$7}'
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -i -P -n 2>/dev/null | awk '/LISTEN/{print $8"|LISTEN|"$9"|"$1"/"$2}'
+fi
+`.trim();
+  const result = await execCommand(client, script, { timeoutMs: 12000, maxBytes: 512 * 1024 });
+  const ports = [];
+  for (const line of String(result.output || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.includes('|')) continue;
+    const [protocol = '', state = '', address = '', processInfo = ''] = trimmed.split('|');
+    if (!address) continue;
+    ports.push({
+      protocol: protocol.trim(),
+      state: state.trim(),
+      address: address.trim(),
+      process: processInfo.trim(),
+    });
+  }
+  return { ports };
+}
+
+/** 结束远端进程（仅允许 pid > 1 且信号为 TERM/KILL/HUP）。 */
+async function killRemoteProcess(client, pid, signal = 'TERM') {
+  const numPid = Number(pid);
+  if (!Number.isInteger(numPid) || numPid <= 1) {
+    throw new Error('Invalid PID (must be integer > 1)');
+  }
+  const sig = String(signal || 'TERM').toUpperCase();
+  if (!['TERM', 'KILL', 'HUP'].includes(sig)) {
+    throw new Error(`Unsupported signal: ${sig}`);
+  }
+  const result = await execCommand(client, `kill -${sig} ${numPid}`, { timeoutMs: 10000 });
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || result.output || `kill -${sig} ${numPid} failed`).trim());
+  }
+  return { pid: numPid, signal: sig };
+}
+
+/** 列出 systemd 服务单元。 */
+async function listSystemdServices(client) {
+  const cmd = 'command -v systemctl >/dev/null 2>&1 && systemctl list-units --type=service --all --no-pager --no-legend --plain 2>/dev/null | head -n 200 || echo "__NO_SYSTEMD__"';
+  const result = await execCommand(client, cmd, { timeoutMs: 15000, maxBytes: 1024 * 1024 });
+  const out = String(result.output || '');
+  if (out.includes('__NO_SYSTEMD__')) {
+    return { available: false, services: [] };
+  }
+  const services = [];
+  for (const rawLine of out.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 4) continue;
+    const [unit, load, active, sub, ...descParts] = parts;
+    services.push({
+      name: unit,
+      load,
+      active,
+      sub,
+      description: descParts.join(' '),
+    });
+  }
+  return { available: true, services };
+}
+
+const SERVICE_ACTIONS = new Set(['start', 'stop', 'restart', 'reload']);
+
+/** 控制 systemd 服务（启停/重启/重载）。 */
+async function controlSystemdService(client, serviceName, action) {
+  const name = String(serviceName || '').trim();
+  if (!name || !/^[A-Za-z0-9@_.:-]+$/.test(name)) {
+    throw new Error('Invalid systemd service name');
+  }
+  if (!SERVICE_ACTIONS.has(action)) {
+    throw new Error(`Unsupported service action: ${action}`);
+  }
+  let result = await execCommand(client, `systemctl ${action} -- ${quoteArg(name)}`, { timeoutMs: 20000 });
+  if (result.exitCode !== 0 && /interactive authentication|permission denied|access denied/i.test(String(result.stderr || ''))) {
+    const sudoRes = await execCommand(client, `sudo -n systemctl ${action} -- ${quoteArg(name)}`, { timeoutMs: 20000 });
+    if (sudoRes.exitCode === 0) result = sudoRes;
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || result.output || `systemctl ${action} ${name} failed`).trim());
+  }
+  return { name, action };
+}
+
+module.exports = {
+  buildMonitorCommand,
+  parseMonitorOutput,
+  MONITOR_SCRIPT,
+  listListeningPorts,
+  killRemoteProcess,
+  listSystemdServices,
+  controlSystemdService,
+};

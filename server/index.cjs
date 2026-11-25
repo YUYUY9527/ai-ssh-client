@@ -26,17 +26,27 @@ const {
   writeSftpTextFile,
 } = require('./sftp-items.cjs');
 const { createSftpTransferService } = require('./sftp-transfer.cjs');
+const sftpOps = require('./sftp-ops.cjs');
 const { buildDownloadEtag, readSftpFileEdges, readSftpSmallFile, EDGE_BYTES } = require('./sftp-download-validator.cjs');
 const { createPipelinedReadStream } = require('./sftp-pipelined-read.cjs');
 const { execCommand } = require('./ssh-exec.cjs');
 const { openTransport } = require('./ssh-transport.cjs');
 const { createPortForwardManager } = require('./port-forward.cjs');
+const sshKeys = require('./ssh-keys.cjs');
+const batchExec = require('./batch-exec.cjs');
 const { sudoReadTextFile, sudoWriteTextFile } = require('./sudo-fs.cjs');
 const agentTools = require('./agent-tools.cjs');
 const { createAgentConversationStore } = require('./agent-conversations.cjs');
 const { createAgentAttachmentStore } = require('./agent-attachments.cjs');
 const aiProviders = require('./ai-providers/index.cjs');
-const { buildMonitorCommand, parseMonitorOutput } = require('./monitor.cjs');
+const {
+  buildMonitorCommand,
+  parseMonitorOutput,
+  listListeningPorts,
+  killRemoteProcess,
+  listSystemdServices,
+  controlSystemdService,
+} = require('./monitor.cjs');
 const {
   listContainers,
   inspectContainer,
@@ -47,11 +57,22 @@ const {
   recreateContainer,
   removeContainer,
   pruneDocker,
+  containerStats,
+  listImages,
+  removeImage,
+  listVolumes,
+  removeVolume,
+  listNetworks,
+  removeNetwork,
+  listComposeProjects,
+  readComposeFile,
+  saveComposeAndUp,
   quoteArg: quoteDockerArg,
 } = require('./docker-manager.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
 const { readSftpPreview, resolveInlineMime } = require('./sftp-preview.cjs');
 const { createAuth } = require('./auth.cjs');
+const { createAuditLogger } = require('./audit-log.cjs');
 const { createHostTrust } = require('./host-trust.cjs');
 const { createSecretStore } = require('./secret-store.cjs');
 const { normalizeImportData, applyImportData, importSummary } = require('./store-import.cjs');
@@ -144,6 +165,7 @@ const defaultSettings = {
   maxPersistedSessions: 8,
   maxScrollbackBytesPerSession: 150 * 1024,
   fileManagerPersistent: false,
+  mobileKeyBarMode: 'auto',
 };
 
 // 会话表：key 为 sessionKeyOf(connectionId, clientId) 复合键（格式见 session-key.cjs）。
@@ -1013,13 +1035,83 @@ function emitSessionClose(session) {
   }
 }
 
-async function connectSsh(connection, cols, rows, settings = defaultSettings, clientId = '') {
+// 键盘交互认证（2FA / OTP / PAM）挂起队列：按 requestId 等待前端回传用户输入。
+const pendingKeyboardPrompts = new Map();
+const KB_INTERACTIVE_TIMEOUT_MS = 120000;
+
+function createKeyboardInteractiveHandler(clientId, connectionId, onPrompted) {
+  return ({ host, port, name, instructions, prompts, finish }) => {
+    const promptList = Array.isArray(prompts)
+      ? prompts.map((item) => ({
+          prompt: String(item?.prompt || ''),
+          echo: Boolean(item?.echo),
+        }))
+      : [];
+    if (promptList.length === 0) {
+      finish([]);
+      return;
+    }
+    const requestId = `kb-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+    if (typeof onPrompted === 'function') {
+      try { onPrompted(); } catch { /* ignore */ }
+    }
+    const timer = setTimeout(() => {
+      if (!pendingKeyboardPrompts.has(requestId)) return;
+      pendingKeyboardPrompts.delete(requestId);
+      try { finish([]); } catch { /* ignore */ }
+    }, KB_INTERACTIVE_TIMEOUT_MS);
+    pendingKeyboardPrompts.set(requestId, {
+      clientId,
+      connectionId,
+      finish: (answers) => {
+        clearTimeout(timer);
+        pendingKeyboardPrompts.delete(requestId);
+        finish(answers);
+      },
+    });
+    emitToClient(clientId, 'ssh-kb-interactive-prompt', {
+      requestId,
+      connectionId,
+      host,
+      port: port || 22,
+      name: String(name || ''),
+      instructions: String(instructions || ''),
+      prompts: promptList,
+    });
+  };
+}
+
+/** 根据连接配置创建终端流解码器（默认 utf-8；支持 gbk / gb18030 / latin1 等）。 */
+function createOutputDecoder(encoding) {
+  const normalized = String(encoding || 'utf-8').trim().toLowerCase();
+  if (!normalized || normalized === 'utf-8' || normalized === 'utf8') {
+    return new StringDecoder('utf8');
+  }
+  try {
+    const decoder = new TextDecoder(normalized, { fatal: false });
+    return {
+      write(chunk) {
+        return decoder.decode(chunk, { stream: true });
+      },
+      end() {
+        return decoder.decode();
+      },
+    };
+  } catch {
+    return new StringDecoder('utf8');
+  }
+}
+
+async function connectSsh(rawConnection, cols, rows, settings = defaultSettings, clientId = '') {
+  const connection = sshKeys.resolveConnectionCredentials(rawConnection, readStore());
+  const kbHandler = createKeyboardInteractiveHandler(clientId, connection.id);
   // 先建立底层传输（HTTP/SOCKS5 代理 + 多级跳板机），拿到通往目标主机的 TCP 流。
   // 直连时 sock 为 null，行为与之前完全一致。
   const { sock, dispose: disposeTransport } = await openTransport({
     connection,
     clientId,
     createVerifier: (options) => hostTrust.createVerifier(options),
+    onKeyboardInteractive: kbHandler,
   });
   return new Promise((resolve, reject) => {
     // 只静默替换自己 clientId 的旧会话，绝不顶掉其他客户端的会话。
@@ -1038,8 +1130,8 @@ async function connectSsh(connection, cols, rows, settings = defaultSettings, cl
       connectionId: connection.id,
       transportDispose: disposeTransport,
       outputBuffer: '',
-      // 跨 chunk 拼 UTF-8，避免多字节字符被 TCP 分片切断成乱码
-      outputDecoder: new StringDecoder('utf8'),
+      // 跨 chunk 拼多字节字符，支持 utf-8 及 gbk/gb18030 等遗留编码
+      outputDecoder: createOutputDecoder(connection.encoding),
     };
     sessions.set(sessionKeyOf(connection.id, clientId), session);
     emitToClient(clientId, 'ssh-data', {
@@ -1053,7 +1145,7 @@ async function connectSsh(connection, cols, rows, settings = defaultSettings, cl
     // TCP 黑洞（SYN 无应答）时 ssh2 既不 ready 也不 error/close，HTTP 请求会挂起数分钟，
     // 前端永远停在"重新连接中"。硬超时兜底，保证及时失败并进入下一轮重试。
     const hardTimeoutMs = Math.max(10000, Number(process.env.SSH_CONNECT_TIMEOUT_MS ?? 30000));
-    const hardTimeout = setTimeout(() => {
+    let hardTimeout = setTimeout(() => {
       if (settled) {
         return;
       }
@@ -1072,6 +1164,19 @@ async function connectSsh(connection, cols, rows, settings = defaultSettings, cl
       }
       reject(new Error('SSH connect timed out'));
     }, hardTimeoutMs);
+    const extendTimeoutFor2fa = () => {
+      if (settled) return;
+      clearTimeout(hardTimeout);
+      hardTimeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { client.end(); } catch { /* ignore */ }
+        deleteSessionIfCurrent(sessionKeyOf(connection.id, clientId), session);
+        try { disposeTransport(); } catch { /* ignore */ }
+        reject(new Error('SSH interactive authentication timed out'));
+      }, KB_INTERACTIVE_TIMEOUT_MS + 15000);
+    };
+    const mainKbHandler = createKeyboardInteractiveHandler(clientId, connection.id, extendTimeoutFor2fa);
     const finish = (result) => {
       if (settled) {
         return;
@@ -1125,15 +1230,27 @@ async function connectSsh(connection, cols, rows, settings = defaultSettings, cl
       }
     };
 
+    const shellEnv = connection.env && typeof connection.env === 'object' ? connection.env : undefined;
     client
+      .on('keyboard-interactive', (name, instructions, _lang, prompts, cb) => {
+        mainKbHandler({
+          host: connection.host,
+          port: connection.port || 22,
+          name,
+          instructions,
+          prompts,
+          finish: cb,
+        });
+      })
       .on('ready', () => {
-        client.shell(
-          {
-            term: 'xterm-256color',
-            cols: cols || 120,
-            rows: rows || 32,
-          },
-          (error, stream) => {
+        const shellOpts = {
+          term: 'xterm-256color',
+          cols: cols || 120,
+          rows: rows || 32,
+          ...(shellEnv ? { env: shellEnv } : {}),
+        };
+        const shellExtra = connection.agentForward ? { agentForward: true } : undefined;
+        const onShell = (error, stream) => {
             if (error) {
               if (!settled) {
                 clearTimeout(hardTimeout);
@@ -1182,6 +1299,21 @@ async function connectSsh(connection, cols, rows, settings = defaultSettings, cl
               type: 'state',
               state: stateFor(connection.id, clientId),
             });
+            // 登录后自动执行初始化命令（如 cd /srv/app && tmux attach）
+            const startupCmd = typeof connection.startupCommand === 'string'
+              ? connection.startupCommand.trim()
+              : '';
+            if (startupCmd) {
+              setTimeout(() => {
+                if (session.ready && session.stream) {
+                  try {
+                    session.stream.write(`${startupCmd}\n`);
+                  } catch {
+                    // ignore
+                  }
+                }
+              }, 350);
+            }
             // 稍等首包 MOTD/提示符进入缓冲，随 connect 响应一并返回
             setTimeout(() => {
               finish(success({
@@ -1189,8 +1321,12 @@ async function connectSsh(connection, cols, rows, settings = defaultSettings, cl
                 initialOutput: session.outputBuffer || '',
               }));
             }, 120);
-          },
-        );
+          };
+        if (shellExtra) {
+          client.shell(shellOpts, shellExtra, onShell);
+        } else {
+          client.shell(shellOpts, onShell);
+        }
       })
       .on('error', (error) => {
         // 只有仍是当前会话实例时才清理并通知；旧会话的迟到 error 不影响重连后的新会话。
@@ -1217,6 +1353,9 @@ async function connectSsh(connection, cols, rows, settings = defaultSettings, cl
         password: connection.password || undefined,
         privateKey: connection.privateKey || undefined,
         passphrase: connection.passphrase || undefined,
+        tryKeyboard: true,
+        agent: connection.agentForward ? (process.env.SSH_AUTH_SOCK || undefined) : undefined,
+        agentForward: Boolean(connection.agentForward),
         keepaliveInterval: Math.max(0, Number(settings.keepaliveInterval || 0)) * 1000,
         keepaliveCountMax: settings.keepaliveCountMax || 3,
         readyTimeout: 20000,
@@ -1374,14 +1513,31 @@ app.all('/mcp', (request, response) => {
     });
 });
 
+const auditLogger = createAuditLogger(DATA_DIR);
+
 // 登录/登出/状态端点，登录页与前端调用它们建立或清除会话。
-app.post('/api/login', auth.handleLogin);
+app.post('/api/login', (request, response) => {
+  const origJson = response.json.bind(response);
+  response.json = (body) => {
+    auditLogger.record({
+      category: 'auth',
+      action: 'login',
+      actor: String(request.body?.username || 'admin'),
+      outcome: body?.success ? 'ok' : 'denied',
+      detail: body?.code || body?.error,
+    });
+    return origJson(body);
+  };
+  return auth.handleLogin(request, response);
+});
 app.post('/api/logout', auth.handleLogout);
 app.get('/api/auth-status', (request, response) => (
   response.json(success({
     authenticated: auth.isAuthed(request),
     usingDefaultPassword: auth.isUsingDefaultPassword(),
     passwordManaged: auth.isEnvManaged,
+    totpEnabled: auth.isTotpEnabled(),
+    user: auth.getSessionUser(request),
   }))
 ));
 
@@ -1398,8 +1554,108 @@ app.use((request, _response, next) => {
 // 鉴权网关：放行上述端点，其余一律拦截。
 app.use(auth.middleware);
 
+// 全局操作审计拦截器：自动记录关键写/删/连接/Docker/批量操作，无需逐条手写漏记。
+app.use((request, response, next) => {
+  if (request.method === 'GET' || !request.path.startsWith('/api/')) {
+    next();
+    return;
+  }
+  const tracked = [
+    { prefix: '/api/ssh/connect', category: 'ssh', action: 'connect' },
+    { prefix: '/api/ssh/', match: /\/disconnect$/, category: 'ssh', action: 'disconnect' },
+    { prefix: '/api/ssh/', match: /\/forwards\//, category: 'port-forward', action: 'port-forward' },
+    { prefix: '/api/ssh/', match: /\/docker\//, category: 'docker', action: 'docker-op' },
+    { prefix: '/api/ssh/', match: /\/services\//, category: 'ssh', action: 'systemd-op' },
+    { prefix: '/api/ssh/', match: /\/monitor\/kill-process/, category: 'ssh', action: 'kill-process' },
+    { prefix: '/api/ssh/', match: /\/deploy-key/, category: 'ssh', action: 'deploy-key' },
+    { prefix: '/api/sftp/', match: /\/(item|items|rename|permissions|chown|archive|extract|copy|move|symlink|text)/, category: 'sftp', action: 'sftp-write' },
+    { prefix: '/api/batch/', category: 'batch', action: 'batch-op' },
+    { prefix: '/api/ssh-keys', category: 'settings', action: 'ssh-key' },
+    { prefix: '/api/users', category: 'auth', action: 'user-manage' },
+    { prefix: '/api/auth/totp', category: 'auth', action: 'totp-config' },
+    { prefix: '/api/change-password', category: 'auth', action: 'change-password' },
+    { prefix: '/api/mcp/config', category: 'mcp', action: 'mcp-policy-save' },
+  ];
+  const matched = tracked.find((rule) => (
+    request.path.startsWith(rule.prefix) && (!rule.match || rule.match.test(request.path))
+  ));
+  if (matched) {
+    response.on('finish', () => {
+      auditLogger.record({
+        category: matched.category,
+        action: `${request.method} ${matched.action}`,
+        actor: request.authUser?.username || 'admin',
+        target: request.path,
+        outcome: response.statusCode < 400 ? 'ok' : (response.statusCode === 403 ? 'denied' : 'error'),
+        detail: request.body?.remotePath || request.body?.command || request.body?.username || undefined,
+      });
+    });
+  }
+  next();
+});
+
 // 修改密码：已通过鉴权后调用，校验旧密码并保持当前会话登录。
 app.post('/api/change-password', auth.changePassword);
+
+// Web 登录 2FA（TOTP）管理端点
+app.post('/api/auth/totp/setup', route((request) => {
+  if (request.authUser?.role !== 'admin') throw new Error('Admin role required');
+  return success(auth.setupTotp());
+}));
+
+app.post('/api/auth/totp/enable', route((request) => {
+  if (request.authUser?.role !== 'admin') throw new Error('Admin role required');
+  return success(auth.enableTotp(request.body?.code));
+}));
+
+app.post('/api/auth/totp/disable', route((request) => {
+  if (request.authUser?.role !== 'admin') throw new Error('Admin role required');
+  return success(auth.disableTotp(request.body?.code));
+}));
+
+// 多用户与 RBAC 管理端点（仅 admin 可操作）
+app.get('/api/users', route((request) => {
+  if (request.authUser?.role !== 'admin') throw new Error('Admin role required');
+  return success({ users: auth.listUsers() });
+}));
+
+app.post('/api/users', route((request) => {
+  if (request.authUser?.role !== 'admin') throw new Error('Admin role required');
+  return success({ user: auth.saveUser(request.body?.user || request.body) });
+}));
+
+app.delete('/api/users/:id', route((request) => {
+  if (request.authUser?.role !== 'admin') throw new Error('Admin role required');
+  auth.deleteUser(request.params.id);
+  return success();
+}));
+
+// 全局操作审计日志只读查询
+app.get('/api/audit-logs', route((request) => {
+  const entries = auditLogger.query({
+    category: String(request.query.category || ''),
+    search: String(request.query.search || ''),
+    limit: Number(request.query.limit || 200),
+  });
+  return success({ entries });
+}));
+
+// MCP 审计日志在线只读查询（读取 data/mcp-audit.log 最近记录）
+app.get('/api/mcp/audit', route((request) => {
+  const limit = Math.max(1, Math.min(500, Number(request.query.limit) || 100));
+  const auditFile = process.env.MCP_AUDIT_LOG || path.join(DATA_DIR, 'mcp-audit.log');
+  if (!fs.existsSync(auditFile)) {
+    return success({ entries: [] });
+  }
+  const lines = fs.readFileSync(auditFile, 'utf8').split('\n').filter(Boolean);
+  const entries = [];
+  for (let i = lines.length - 1; i >= 0 && entries.length < limit; i -= 1) {
+    try {
+      entries.push(JSON.parse(lines[i]));
+    } catch { /* ignore */ }
+  }
+  return success({ entries });
+}));
 
 app.get('/api/export', route((request) => {
   const store = readStore();
@@ -1451,7 +1707,11 @@ app.post('/api/import', route((request) => {
   });
 }));
 
-app.get('/api/connections', route(() => success({ connections: readStore().connections })));
+app.get('/api/connections', route((request) => {
+  const all = readStore().connections || [];
+  const filtered = all.filter((conn) => auth.canAccessConnection(request, conn.id));
+  return success({ connections: filtered });
+}));
 app.post('/api/connections', route((request) => {
   updateStore((store) => {
     const next = request.body.connection;
@@ -1607,7 +1867,14 @@ app.post('/api/connection-groups', route((request) => {
 app.delete('/api/connection-groups/:id', route((request) => {
   updateStore((store) => {
     const groups = Array.isArray(store.connectionGroups) ? store.connectionGroups : [];
-    store.connectionGroups = groups.filter((item) => item.id !== request.params.id);
+    const target = groups.find((item) => item.id === request.params.id);
+    const parentFallback = target?.parentId || undefined;
+    // 删除父分组时，将其子分组提升到上一级，避免出现孤立嵌套分组。
+    store.connectionGroups = groups
+      .filter((item) => item.id !== request.params.id)
+      .map((item) => (
+        item.parentId === request.params.id ? { ...item, parentId: parentFallback } : item
+      ));
     // 删除分组后，把归属该分组的连接移回未分组，避免悬空引用。
     store.connections = (store.connections || []).map((connection) => (
       connection.groupId === request.params.id ? { ...connection, groupId: undefined } : connection
@@ -1711,7 +1978,81 @@ app.get('/api/ssh/:id/monitor', route(async (request) => {
   return success(metrics);
 }));
 
-// Docker 容器管理：复用当前 SSH 会话执行 docker CLI（列表/详情/日志/生命周期）。
+// 监听端口、进程终止、Systemd 服务管理
+app.get('/api/ssh/:id/monitor/ports', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await listListeningPorts(session.client));
+}));
+
+app.post('/api/ssh/:id/monitor/kill-process', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const { pid, signal } = request.body || {};
+  return success(await killRemoteProcess(session.client, pid, signal));
+}));
+
+app.get('/api/ssh/:id/services', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await listSystemdServices(session.client));
+}));
+
+app.post('/api/ssh/:id/services/:name/:action', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await controlSystemdService(session.client, request.params.name, request.params.action));
+}));
+
+// Docker 容器管理：复用当前 SSH 会话执行 docker CLI（列表/详情/日志/生命周期/资源/镜像/卷/网络/Compose）。
+app.get('/api/ssh/:id/docker/stats', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await containerStats(session.client));
+}));
+
+app.get('/api/ssh/:id/docker/images', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await listImages(session.client));
+}));
+
+app.delete('/api/ssh/:id/docker/images/:imageId', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const force = request.query.force === '1' || Boolean(request.body?.force);
+  return success(await removeImage(session.client, request.params.imageId, { force }));
+}));
+
+app.get('/api/ssh/:id/docker/volumes', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await listVolumes(session.client));
+}));
+
+app.delete('/api/ssh/:id/docker/volumes/:name', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await removeVolume(session.client, request.params.name));
+}));
+
+app.get('/api/ssh/:id/docker/networks', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await listNetworks(session.client));
+}));
+
+app.delete('/api/ssh/:id/docker/networks/:networkId', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await removeNetwork(session.client, request.params.networkId));
+}));
+
+app.get('/api/ssh/:id/docker/compose', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await listComposeProjects(session.client));
+}));
+
+app.get('/api/ssh/:id/docker/compose/file', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await readComposeFile(session.client, String(request.query.path || '')));
+}));
+
+app.put('/api/ssh/:id/docker/compose/file', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const { path: configFile, content, project } = request.body || {};
+  return success(await saveComposeAndUp(session.client, configFile, content, project));
+}));
+
 app.get('/api/ssh/:id/docker/containers', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
   return success(await listContainers(session.client));
@@ -1826,11 +2167,14 @@ app.get('/api/ssh/sessions', route((request) => success({
     .map((session) => stateFor(session.connectionId, session.clientId)),
 })));
 app.post('/api/ssh/test', route(async (request) => {
-  const connection = request.body.connection;
+  const connection = sshKeys.resolveConnectionCredentials(request.body.connection, readStore());
+  const clientId = requestClientId(request);
+  const kbHandler = createKeyboardInteractiveHandler(clientId, connection.id || 'test');
   const { sock, dispose } = await openTransport({
     connection,
-    clientId: requestClientId(request),
+    clientId,
     createVerifier: (options) => hostTrust.createVerifier(options),
+    onKeyboardInteractive: kbHandler,
   });
   return new Promise((resolve) => {
     const client = new Client();
@@ -1843,6 +2187,16 @@ app.post('/api/ssh/test', route(async (request) => {
       resolve(result);
     };
     client
+      .on('keyboard-interactive', (name, instructions, _lang, prompts, cb) => {
+        kbHandler({
+          host: connection.host,
+          port: connection.port || 22,
+          name,
+          instructions,
+          prompts,
+          finish: cb,
+        });
+      })
       .on('ready', () => finish(success()))
       .on('error', (error) => finish(failure(error)))
       .connect({
@@ -1852,16 +2206,137 @@ app.post('/api/ssh/test', route(async (request) => {
         password: connection.password || undefined,
         privateKey: connection.privateKey || undefined,
         passphrase: connection.passphrase || undefined,
+        tryKeyboard: true,
         readyTimeout: 20000,
         sock: sock || undefined,
         // 与正式连接同等严格：测试连接也校验主机密钥（桌面端 ssh_test_connection 同样会弹确认）。
         hostVerifier: hostTrust.createVerifier({
           host: connection.host,
           port: connection.port,
-          clientId: requestClientId(request),
+          clientId,
         }),
       });
   });
+}));
+
+// 键盘交互认证（2FA / OTP / PAM）响应提交。
+app.post('/api/ssh/kb-interactive/respond', route((request) => {
+  const { requestId, answers, canceled } = request.body || {};
+  const entry = pendingKeyboardPrompts.get(String(requestId || ''));
+  if (!entry) {
+    return success({ resolved: false });
+  }
+  const reply = canceled || !Array.isArray(answers)
+    ? []
+    : answers.map((item) => String(item ?? ''));
+  entry.finish(reply);
+  return success({ resolved: true });
+}));
+
+// 独立 SSH 密钥库（Key Vault）：CRUD + 生成 + 一键部署公钥到远端 authorized_keys。
+app.get('/api/ssh-keys', route(() => {
+  const keys = Array.isArray(readStore().sshKeys) ? readStore().sshKeys : [];
+  return success({ keys: keys.map(sshKeys.summarizeSshKey) });
+}));
+
+app.post('/api/ssh-keys', route((request) => {
+  const input = request.body?.key || request.body || {};
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('Key name is required');
+  let savedSummary = null;
+  updateStore((store) => {
+    const existingList = Array.isArray(store.sshKeys) ? store.sshKeys : [];
+    const existing = input.id ? existingList.find((item) => item.id === input.id) : null;
+    const privateKey = typeof input.privateKey === 'string' && input.privateKey.trim()
+      ? input.privateKey
+      : existing?.privateKey || '';
+    const passphrase = input.passphrase !== undefined
+      ? (String(input.passphrase || '') || undefined)
+      : existing?.passphrase;
+    if (!privateKey) throw new Error('Private key content is required');
+    const meta = sshKeys.inspectPrivateKey(privateKey, passphrase);
+    const record = {
+      id: existing?.id || input.id || `key-${Date.now()}`,
+      name,
+      algorithm: meta.algorithm,
+      fingerprint: meta.fingerprint,
+      publicKey: input.publicKey || meta.publicKey,
+      privateKey,
+      passphrase,
+      createdAt: existing?.createdAt || Date.now(),
+    };
+    store.sshKeys = [...existingList.filter((item) => item.id !== record.id), record];
+    savedSummary = sshKeys.summarizeSshKey(record);
+  });
+  return success({ key: savedSummary });
+}));
+
+app.post('/api/ssh-keys/generate', route((request) => {
+  const { name, algorithm, passphrase } = request.body || {};
+  const record = sshKeys.generateSshKeyPair({ name, algorithm, passphrase });
+  updateStore((store) => {
+    const existingList = Array.isArray(store.sshKeys) ? store.sshKeys : [];
+    store.sshKeys = [...existingList, record];
+  });
+  return success({ key: sshKeys.summarizeSshKey(record) });
+}));
+
+app.delete('/api/ssh-keys/:id', route((request) => {
+  const keyId = request.params.id;
+  updateStore((store) => {
+    const existingList = Array.isArray(store.sshKeys) ? store.sshKeys : [];
+    store.sshKeys = existingList.filter((item) => item.id !== keyId);
+    // 清理连接中对该密钥的引用
+    store.connections = (store.connections || []).map((conn) => (
+      conn.keyId === keyId ? { ...conn, keyId: undefined } : conn
+    ));
+  });
+  return success();
+}));
+
+app.post('/api/ssh/:id/deploy-key', route(async (request) => {
+  const clientId = requireClientId(request);
+  const { keyId, publicKey } = request.body || {};
+  let pub = typeof publicKey === 'string' ? publicKey.trim() : '';
+  if (!pub && keyId) {
+    const key = (readStore().sshKeys || []).find((item) => item.id === keyId);
+    if (!key) throw new Error('SSH key not found');
+    pub = key.publicKey || '';
+  }
+  if (!pub) throw new Error('Public key is required');
+  const session = getSession(request.params.id, clientId);
+  const result = await sshKeys.deployPublicKeyToServer(session.client, pub);
+  return success(result);
+}));
+
+// 多机批量命令执行与文件分发
+app.post('/api/batch/exec', route(async (request) => {
+  const { connectionIds, command, concurrency, timeoutMs } = request.body || {};
+  const data = await batchExec.runBatchCommand({
+    connectionIds,
+    command,
+    store: readStore(),
+    clientId: requestClientId(request),
+    concurrency,
+    timeoutMs,
+    createVerifier: (options) => hostTrust.createVerifier(options),
+  });
+  return success(data);
+}));
+
+app.post('/api/batch/distribute', route(async (request) => {
+  const { connectionIds, remotePath, contentBase64, concurrency, timeoutMs } = request.body || {};
+  const data = await batchExec.runBatchDistribute({
+    connectionIds,
+    remotePath,
+    contentBase64,
+    store: readStore(),
+    clientId: requestClientId(request),
+    concurrency,
+    timeoutMs,
+    createVerifier: (options) => hostTrust.createVerifier(options),
+  });
+  return success(data);
 }));
 
 app.get('/api/ssh/:id/forwards', route((request) => {
@@ -1983,7 +2458,80 @@ app.post('/api/sftp/:id/permissions', route(async (request) => {
   return success(await setSftpPermissions(sftp, remotePath, mode));
 }));
 
-// Agent 结构化文件工具：供 AI 助手用 list_dir/read_file/search_files/write_file 操作远端文件。
+// SFTP 进阶文件操作：压缩 / 解压 / 同机复制移动 / 创建软链接 / 修改属主 / 目录书签
+app.post('/api/sftp/:id/archive', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  const { baseDir, names, archiveName, format } = request.body || {};
+  return success(await sftpOps.archiveRemoteItems(session.client, { baseDir, names, archiveName, format }));
+}));
+
+app.post('/api/sftp/:id/extract', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  const { archivePath, destinationDir } = request.body || {};
+  return success(await sftpOps.extractRemoteArchive(session.client, { archivePath, destinationDir }));
+}));
+
+app.post('/api/sftp/:id/copy', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  const { sources, destinationDir } = request.body || {};
+  return success(await sftpOps.copyOrMoveRemoteItems(session.client, { sources, destinationDir, mode: 'copy' }));
+}));
+
+app.post('/api/sftp/:id/move', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  const { sources, destinationDir } = request.body || {};
+  return success(await sftpOps.copyOrMoveRemoteItems(session.client, { sources, destinationDir, mode: 'move' }));
+}));
+
+app.post('/api/sftp/:id/symlink', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  const { targetPath, linkPath } = request.body || {};
+  return success(await sftpOps.createRemoteSymlink(session.client, { targetPath, linkPath }));
+}));
+
+app.post('/api/sftp/:id/chown', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  const { remotePath, owner, group, recursive } = request.body || {};
+  return success(await sftpOps.chownRemoteItem(session.client, { remotePath, owner, group, recursive }));
+}));
+
+app.get('/api/sftp/bookmarks', route((request) => {
+  const connectionId = String(request.query.connectionId || '');
+  const list = Array.isArray(readStore().sftpBookmarks) ? readStore().sftpBookmarks : [];
+  return success({ bookmarks: connectionId ? list.filter((item) => item.connectionId === connectionId) : list });
+}));
+
+app.post('/api/sftp/bookmarks', route((request) => {
+  const input = request.body?.bookmark || request.body || {};
+  const connectionId = String(input.connectionId || '').trim();
+  const bookmarkPath = String(input.path || '').trim();
+  const name = String(input.name || bookmarkPath).trim();
+  if (!connectionId || !bookmarkPath) throw new Error('connectionId and path are required');
+  let saved = null;
+  updateStore((store) => {
+    const list = Array.isArray(store.sftpBookmarks) ? store.sftpBookmarks : [];
+    const existing = list.find((item) => item.connectionId === connectionId && item.path === bookmarkPath);
+    saved = {
+      id: existing?.id || input.id || `bm-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      connectionId,
+      name,
+      path: bookmarkPath,
+      createdAt: existing?.createdAt || Date.now(),
+    };
+    store.sftpBookmarks = [...list.filter((item) => item.id !== saved.id), saved];
+  });
+  return success({ bookmark: saved });
+}));
+
+app.delete('/api/sftp/bookmarks/:bookmarkId', route((request) => {
+  updateStore((store) => {
+    const list = Array.isArray(store.sftpBookmarks) ? store.sftpBookmarks : [];
+    store.sftpBookmarks = list.filter((item) => item.id !== request.params.bookmarkId);
+  });
+  return success();
+}));
+
+// Agent 结构化文件工具：供 AI 助手用 list_dir/read_file/search_files/write_file/pane_output 操作远端。
 // root 为沙箱根目录，缺省取当前 SFTP 会话的家目录（'.'）。
 app.post('/api/ssh/:id/agent/tool', route(async (request) => {
   const clientId = requireClientId(request);
@@ -1993,6 +2541,17 @@ app.post('/api/ssh/:id/agent/tool', route(async (request) => {
     throw new Error(`unknown agent tool: ${tool}`);
   }
   const args = body.args && typeof body.args === 'object' ? body.args : {};
+  const session = getSession(request.params.id, clientId);
+  if (tool === 'pane_output') {
+    const data = agentTools.readPaneOutput(session?.outputBuffer || '', {
+      lines: args.lines,
+      maxBytes: args.maxBytes,
+    });
+    if (session) {
+      auditAgentToolCall(session, { tool, path: 'terminal', write: false });
+    }
+    return success(data);
+  }
   const sftp = await getSftp(request.params.id, clientId);
   let root = typeof body.root === 'string' && body.root.trim() ? body.root.trim() : '';
   if (!root) {
@@ -2020,7 +2579,6 @@ app.post('/api/ssh/:id/agent/tool', route(async (request) => {
   }
 
   // 轻量审计：记录每次工具调用的时间/工具/路径/是否写入，供排查与后续审计视图使用。
-  const session = getSession(request.params.id, clientId);
   if (session) {
     auditAgentToolCall(session, { tool, root, path: args.path, write: tool === 'write_file' && !args.dryRun });
   }

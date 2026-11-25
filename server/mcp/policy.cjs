@@ -159,6 +159,9 @@ function parsePolicyEnv(env = process.env, filePolicy = null) {
   return {
     // 环境变量显式设置时覆盖文件的 defaultMode；连接级模式仍然优先。
     defaultMode: envDefaultMode || file.defaultMode,
+    allowWrite: envIsSet(env, 'MCP_ALLOW_WRITE')
+      ? truthy(env.MCP_ALLOW_WRITE)
+      : Boolean(file.allowWrite),
     trustOnFirstUse: envIsSet(env, 'MCP_TRUST_ON_FIRST_USE')
       ? truthy(env.MCP_TRUST_ON_FIRST_USE)
       : file.trustOnFirstUse,
@@ -186,6 +189,8 @@ function parsePolicyEnv(env = process.env, filePolicy = null) {
       ? String(env.MCP_AUDIT).trim() !== '0'
       : file.audit.enabled,
     connections: { ...file.connections },
+    connectionRoots: file.connectionRoots ? { ...file.connectionRoots } : {},
+    connectionCommandPrefixes: file.connectionCommandPrefixes ? { ...file.connectionCommandPrefixes } : {},
     exceptions: [...file.commands.exceptions],
     denyPatterns: [
       ...DEFAULT_DENY_PATTERNS,
@@ -563,6 +568,43 @@ function createPolicy(env = process.env, { filePolicy = null } = {}) {
     return key ? config.connections[key] : null;
   }
 
+  function lookupConnectionMap(map, connection) {
+    if (!connection || !map) return null;
+    const id = connection.id !== undefined ? String(connection.id) : '';
+    if (id && Object.prototype.hasOwnProperty.call(map, id)) {
+      return map[id];
+    }
+    const name = String(connection.name || '').trim().toLowerCase();
+    if (!name) return null;
+    const key = Object.keys(map).find((item) => item.toLowerCase() === name);
+    return key ? map[key] : null;
+  }
+
+  function checkPathAllowed(remotePath, connection) {
+    const roots = lookupConnectionMap(config.connectionRoots, connection);
+    if (!Array.isArray(roots) || roots.length === 0) {
+      return { allowed: true };
+    }
+    const raw = String(remotePath || '').trim();
+    const norm = raw.startsWith('/') ? posixPath.normalize(raw) : raw;
+    if (norm.includes('..')) {
+      return { allowed: false, code: 'path-forbidden', reason: `路径 ${remotePath} 包含越界遍历` };
+    }
+    const matched = roots.some((root) => {
+      const cleanRoot = String(root).replace(/\/+$/, '') || '/';
+      if (cleanRoot === '/') return norm.startsWith('/');
+      return norm === cleanRoot || norm.startsWith(`${cleanRoot}/`);
+    });
+    if (!matched) {
+      return {
+        allowed: false,
+        code: 'path-forbidden',
+        reason: `路径 "${remotePath}" 不在连接允许的目录范围内（允许：${roots.join(', ')}）`,
+      };
+    }
+    return { allowed: true };
+  }
+
   function modeFor(connection) {
     return explicitModeFor(connection) ?? config.defaultMode;
   }
@@ -641,11 +683,30 @@ function createPolicy(env = process.env, { filePolicy = null } = {}) {
       }
     }
 
+    const connPrefixes = lookupConnectionMap(config.connectionCommandPrefixes, connection);
+    if (Array.isArray(connPrefixes) && connPrefixes.length > 0) {
+      for (const segment of splitSegments(text)) {
+        const cleanSeg = segment.trim();
+        const ok = connPrefixes.some((prefix) => {
+          const cleanPrefix = String(prefix).trim();
+          return cleanSeg === cleanPrefix || cleanSeg.startsWith(`${cleanPrefix} `);
+        });
+        if (!ok) {
+          return {
+            allowed: false,
+            code: 'not-allowlisted',
+            reason: `命令片段未命中该连接的命令前缀白名单：${cleanSeg}`,
+          };
+        }
+      }
+    }
+
     return { allowed: true, code: 'ok', reason: '' };
   }
 
   return {
     execAllowed,
+    allowWrite: Boolean(config.allowWrite),
     defaultMode: config.defaultMode,
     trustOnFirstUse: config.trustOnFirstUse,
     maxOutputBytes: config.maxOutputBytes,
@@ -654,11 +715,13 @@ function createPolicy(env = process.env, { filePolicy = null } = {}) {
     maxReadBytes: config.maxReadBytes,
     auditEnabled: config.auditEnabled,
     modeFor,
+    checkPathAllowed,
     evaluateCommand,
     /** 测试与文档用：把当前生效的规则暴露出来。 */
     describe() {
       return {
         execAllowed,
+        allowWrite: Boolean(config.allowWrite),
         defaultMode: config.defaultMode,
         connections: { ...config.connections },
         trustOnFirstUse: config.trustOnFirstUse,

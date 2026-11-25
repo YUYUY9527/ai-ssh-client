@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, Cpu, HardDrive, Loader2, MemoryStick, Network, RefreshCw, Server, X } from 'lucide-react';
-import type { ServerMonitorMetrics } from '../../../shared/ipc-types';
+import { Activity, Cpu, HardDrive, Loader2, MemoryStick, Network, Play, RefreshCw, RotateCcw, Server, Skull, Square, X } from 'lucide-react';
+import type { ListeningPortItem, ServerMonitorMetrics, SystemdServiceItem } from '../../../shared/ipc-types';
 import { useConnectionStore } from '../../store/useConnectionStore';
 
 interface ServerMonitorButtonProps {
@@ -63,30 +63,39 @@ function Meter({ label, percent, detail }: { label: string; percent: number; det
   );
 }
 
-/** CPU 使用率迷你折线（0–100% 归一化，带柔和面积渐变与末端指示点）。 */
-function Sparkline({ values }: { values: number[] }) {
+/** 迷你折线（支持固定 0–100% 或自动量程，带柔和面积渐变与末端指示点）。 */
+function Sparkline({
+  values,
+  autoScale = false,
+  toneClass = 'text-accent',
+}: {
+  values: number[];
+  autoScale?: boolean;
+  toneClass?: string;
+}) {
   const gradientId = useId();
   const width = 100;
-  const height = 30;
+  const height = 28;
   const padY = 2;
   const { points, areaPoints, lastPoint } = useMemo(() => {
     if (values.length === 0) {
       return { points: '', areaPoints: '', lastPoint: null as { x: number; y: number } | null };
     }
+    const maxVal = autoScale ? Math.max(1, ...values) : 100;
     const step = values.length > 1 ? width / (values.length - 1) : width;
     const coords = values.map((value, index) => {
-      const clamped = Math.max(0, Math.min(100, value));
+      const ratio = Math.max(0, Math.min(1, value / maxVal));
       const x = index * step;
-      const y = height - padY - (clamped / 100) * (height - padY * 2);
+      const y = height - padY - ratio * (height - padY * 2);
       return { x, y };
     });
     const line = coords.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' ');
     const area = `0,${height} ${line} ${coords[coords.length - 1].x.toFixed(1)},${height}`;
     return { points: line, areaPoints: area, lastPoint: coords[coords.length - 1] };
-  }, [values]);
+  }, [values, autoScale]);
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="h-8 w-full text-accent">
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className={`h-8 w-full ${toneClass}`}>
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="currentColor" stopOpacity="0.28" />
@@ -156,8 +165,17 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   const supported = typeof window !== 'undefined'
     && typeof window.electronAPI?.getServerMonitor === 'function';
   const [open, setOpen] = useState(false);
+  const [monitorTab, setMonitorTab] = useState<'overview' | 'ports' | 'services'>('overview');
   const [metrics, setMetrics] = useState<ServerMonitorMetrics | null>(null);
   const [history, setHistory] = useState<number[]>([]);
+  const [memHistory, setMemHistory] = useState<number[]>([]);
+  const [netHistory, setNetHistory] = useState<number[]>([]);
+  const [ports, setPorts] = useState<ListeningPortItem[]>([]);
+  const [services, setServices] = useState<SystemdServiceItem[]>([]);
+  const [servicesAvailable, setServicesAvailable] = useState(true);
+  const [extraLoading, setExtraLoading] = useState(false);
+  const [confirmKillPid, setConfirmKillPid] = useState<number | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAllNetworks, setShowAllNetworks] = useState(false);
@@ -184,9 +202,21 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
       const result = await api(connectionId);
       if (seq !== requestSeq.current) return;
       if (result.success && result.data) {
-        setMetrics(result.data);
+        const nextMetrics = result.data;
+        setMetrics(nextMetrics);
         setHistory(prev => {
-          const next = [...prev, result.data!.cpuPercent];
+          const next = [...prev, nextMetrics.cpuPercent];
+          return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+        });
+        setMemHistory(prev => {
+          const next = [...prev, nextMetrics.memory?.percent ?? 0];
+          return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+        });
+        const netTotal = (nextMetrics.network ?? [])
+          .filter((item) => item.name !== 'lo')
+          .reduce((sum, item) => sum + (item.rxBytesPerSec || 0) + (item.txBytesPerSec || 0), 0);
+        setNetHistory(prev => {
+          const next = [...prev, netTotal];
           return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
         });
       } else {
@@ -209,10 +239,47 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
     return () => clearInterval(timer);
   }, [open, supported, connectionId, fetchMetrics, connections.length, loadConnections]);
 
+  const fetchExtraTab = useCallback(async (tab: 'ports' | 'services') => {
+    if (!connectionId) return;
+    setExtraLoading(true);
+    setActionMsg(null);
+    try {
+      if (tab === 'ports' && window.electronAPI?.listListeningPorts) {
+        const res = await window.electronAPI.listListeningPorts(connectionId);
+        if (res.success) setPorts(res.data.ports || []);
+        else setError(res.error);
+      } else if (tab === 'services' && window.electronAPI?.listSystemdServices) {
+        const res = await window.electronAPI.listSystemdServices(connectionId);
+        if (res.success) {
+          setServicesAvailable(res.data.available);
+          setServices(res.data.services || []);
+        } else {
+          setError(res.error);
+        }
+      }
+    } finally {
+      setExtraLoading(false);
+    }
+  }, [connectionId]);
+
+  useEffect(() => {
+    if (!open || !connectionId) return;
+    if (monitorTab === 'ports' || monitorTab === 'services') {
+      void fetchExtraTab(monitorTab);
+    }
+  }, [open, connectionId, monitorTab, fetchExtraTab]);
+
   // 连接切换时清空旧指标/历史并收起，避免展示上一台主机的数据。
   useEffect(() => {
     setMetrics(null);
     setHistory([]);
+    setMemHistory([]);
+    setNetHistory([]);
+    setPorts([]);
+    setServices([]);
+    setMonitorTab('overview');
+    setConfirmKillPid(null);
+    setActionMsg(null);
     setError(null);
     setOpen(false);
     setShowAllNetworks(false);
@@ -359,6 +426,33 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
             </div>
           </div>
 
+          <div className="flex items-center gap-1 border-b border-line-subtle pb-1.5">
+            {([
+              { id: 'overview', label: translate('features.monitor.tabs.overview') },
+              { id: 'ports', label: translate('features.monitor.tabs.ports') },
+              { id: 'services', label: translate('features.monitor.tabs.services') },
+            ] as const).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setMonitorTab(tab.id)}
+                className={`rounded-sm px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                  monitorTab === tab.id
+                    ? 'bg-accent-muted text-accent'
+                    : 'text-fg-muted hover:bg-surface-hover hover:text-fg'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {actionMsg && (
+            <div className="rounded-sm border border-accent bg-accent-muted px-2 py-1 text-[11px] text-accent">
+              {actionMsg}
+            </div>
+          )}
+
           {error && (
             <div className="space-y-1.5 rounded-md border border-[color-mix(in_srgb,var(--danger)_40%,var(--border-color))] bg-danger-muted px-2.5 py-2 text-xs text-danger-fg">
               <p className="break-words">{translate('features.monitor.failed')}：{error}</p>
@@ -372,14 +466,99 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
             </div>
           )}
 
-          {!metrics && !error && (
+          {monitorTab === 'ports' && (
+            <div className="space-y-1.5">
+              {extraLoading ? (
+                <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                  <span>{translate('common.loading')}</span>
+                </div>
+              ) : ports.length === 0 ? (
+                <p className="py-3 text-center text-xs text-fg-muted">{translate('features.monitor.noPorts')}</p>
+              ) : (
+                <div className="max-h-72 space-y-1 overflow-y-auto scrollbar-thin">
+                  {ports.map((item, idx) => (
+                    <div key={`${item.protocol}-${item.address}-${idx}`} className="rounded-sm border border-line-subtle bg-surface px-2 py-1.5 text-[11px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-mono font-medium text-fg">{item.address}</span>
+                        <span className="shrink-0 rounded-sm bg-surface-raised px-1 py-0.5 font-mono text-[10px] uppercase text-fg-muted">
+                          {item.protocol}
+                        </span>
+                      </div>
+                      {item.process && (
+                        <div className="mt-0.5 truncate font-mono text-[10px] text-fg-subtle">{item.process}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {monitorTab === 'services' && (
+            <div className="space-y-1.5">
+              {extraLoading ? (
+                <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                  <span>{translate('common.loading')}</span>
+                </div>
+              ) : !servicesAvailable ? (
+                <p className="py-3 text-center text-xs text-fg-muted">{translate('features.monitor.noSystemd')}</p>
+              ) : services.length === 0 ? (
+                <p className="py-3 text-center text-xs text-fg-muted">{translate('features.monitor.noServices')}</p>
+              ) : (
+                <div className="max-h-80 space-y-1 overflow-y-auto scrollbar-thin">
+                  {services.map((svc) => {
+                    const active = svc.active === 'active';
+                    const runSvc = async (action: 'start' | 'stop' | 'restart') => {
+                      if (!window.electronAPI?.controlSystemdService || !connectionId) return;
+                      const res = await window.electronAPI.controlSystemdService(connectionId, svc.name, action);
+                      if (!res.success) {
+                        setError(res.error);
+                      } else {
+                        setActionMsg(`${svc.name}: ${action}`);
+                        await fetchExtraTab('services');
+                      }
+                    };
+                    return (
+                      <div key={svc.name} className="flex items-center justify-between gap-2 rounded-sm border border-line-subtle bg-surface px-2 py-1.5 text-[11px]">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-success' : 'bg-fg-subtle'}`} />
+                            <span className="truncate font-mono font-medium text-fg" title={svc.name}>{svc.name}</span>
+                          </div>
+                          <div className="truncate text-[10px] text-fg-subtle">{svc.active} ({svc.sub})</div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          {!active ? (
+                            <button type="button" onClick={() => void runSvc('start')} className="icon-button h-6 w-6 text-success" title={translate('terminal.docker.start')}>
+                              <Play className="h-3 w-3" />
+                            </button>
+                          ) : (
+                            <button type="button" onClick={() => void runSvc('stop')} className="icon-button h-6 w-6 text-danger" title={translate('terminal.docker.stop')}>
+                              <Square className="h-3 w-3" />
+                            </button>
+                          )}
+                          <button type="button" onClick={() => void runSvc('restart')} className="icon-button h-6 w-6" title={translate('terminal.docker.restart')}>
+                            <RotateCcw className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {monitorTab === 'overview' && !metrics && !error && (
             <div className="flex items-center gap-2 py-3 text-xs text-fg-muted">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
               <span>{translate('features.monitor.loading')}</span>
             </div>
           )}
 
-          {metrics && (
+          {monitorTab === 'overview' && metrics && (
             <>
               {/* 系统 */}
               <Card
@@ -474,13 +653,60 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                     </div>
                     <div className="space-y-1">
                       {processCpu.map((process) => (
-                        <div key={process.pid} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-[11px]">
+                        <div key={process.pid} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-[11px]">
                           <span className="truncate text-fg-secondary" title={`${process.name} (${process.pid})`}>
                             {process.name}<span className="ml-1.5 text-fg-faint">{process.pid}</span>
                           </span>
                           <span className="tabular-nums text-accent dark:text-accent-hover">
                             {process.percent.toFixed(1)}%
                           </span>
+                          {window.electronAPI?.killRemoteProcess && process.pid > 1 && (
+                            confirmKillPid === process.pid ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!connectionId || !window.electronAPI?.killRemoteProcess) return;
+                                    const res = await window.electronAPI.killRemoteProcess(connectionId, process.pid, 'TERM');
+                                    setConfirmKillPid(null);
+                                    if (!res.success) setError(res.error);
+                                    else {
+                                      setActionMsg(`SIGTERM → PID ${process.pid}`);
+                                      void fetchMetrics();
+                                    }
+                                  }}
+                                  className="rounded-sm bg-danger-muted px-1 py-0.5 text-[10px] font-medium text-danger"
+                                >
+                                  TERM
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!connectionId || !window.electronAPI?.killRemoteProcess) return;
+                                    const res = await window.electronAPI.killRemoteProcess(connectionId, process.pid, 'KILL');
+                                    setConfirmKillPid(null);
+                                    if (!res.success) setError(res.error);
+                                    else {
+                                      setActionMsg(`SIGKILL → PID ${process.pid}`);
+                                      void fetchMetrics();
+                                    }
+                                  }}
+                                  className="rounded-sm bg-danger px-1 py-0.5 text-[10px] font-medium text-white"
+                                >
+                                  KILL
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmKillPid(process.pid)}
+                                className="icon-button h-5 w-5 text-fg-subtle hover:text-danger"
+                                title={translate('features.monitor.killProcess')}
+                              >
+                                <Skull className="h-3 w-3" />
+                              </button>
+                            )
+                          )}
                         </div>
                       ))}
                     </div>
@@ -499,6 +725,9 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                   percent={metrics.memory.percent}
                   detail={`${formatKb(metrics.memory.usedKb)} / ${formatKb(metrics.memory.totalKb)}`}
                 />
+                {memHistory.length > 1 && (
+                  <Sparkline values={memHistory} toneClass="text-accent-alt" />
+                )}
                 {memory && (memory.swapTotalKb ?? 0) > 0 && (
                   <Meter
                     label={translate('features.monitor.swap')}
@@ -527,6 +756,9 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                   ) : undefined}
                 >
                   <div className="space-y-1">
+                    {netHistory.length > 1 && (
+                      <Sparkline values={netHistory} autoScale toneClass="text-info" />
+                    )}
                     {visibleNetworkList.map((net) => (
                       <div key={net.name} className="flex items-center justify-between text-[11px]">
                         <span className="mr-2 truncate text-fg-secondary" title={net.name}>{net.name}</span>

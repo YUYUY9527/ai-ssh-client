@@ -6,8 +6,13 @@
 
 - **两种工具通道**：
   - `run_command`：在当前 SSH 会话里执行 shell 命令（原有能力，走风险审批）。
-  - 结构化文件工具（原生 tool calling）：`list_dir` / `read_file` / `search_files` / `write_file`，
-    由服务端在路径沙箱内执行（见下文「沙箱与限额」），`write_file` 支持 `dryRun` 只返回 diff 预览。
+  - 结构化工具（原生 tool calling）：`list_dir` / `read_file` / `search_files` / `write_file` / `pane_output`，
+    由服务端在路径沙箱内执行（见下文「沙箱与限额」），`write_file` 支持 `dryRun` 只返回 diff 预览，`pane_output` 可读取当前终端缓冲区去 ANSI 后的最近输出。
+- **高级治理与护栏**：
+  - **独立审核模型（Reviewer Model）**：可在「设置 → Agent」指定一个独立 AI Provider 对中/高风险命令做二次安全评估（critical 命令始终要求人工审批）。
+  - **按连接命令白名单**：支持按连接 ID 配置精确或安全前缀免审批规则（复合链式命令与 critical 命令禁止走前缀放行）。
+  - **单轮限额与超时**：支持配置单轮最大工具调用次数与单次模型请求超时（秒），防止死循环或长挂。
+  - **交互增强**：支持对历史/当前提问点击编辑并重新填充发送，以及重试生成。
 - **上下文管理**：每轮拼给模型的历史消息有字符预算（设置页可调，默认 120000），
   超出的旧消息自动折叠为摘要；语义摘要触发阈值沿用原设置。
 - **会话持久化**：对话消息按 `clientId + connectionId` 存在服务端

@@ -14,6 +14,9 @@ import { downloadTextFile } from '../../connection/backup-utils';
 import { TerminalContextMenu } from './TerminalContextMenu';
 import { TerminalToolbar } from './TerminalToolbar';
 import { MultilinePasteDialog } from './MultilinePasteDialog';
+import { CastPlayerModal } from './CastPlayerModal';
+import { MobileKeyBar } from './MobileKeyBar';
+import { createCastRecorder, type CastRecorder } from './session-recorder';
 import {
   MAX_TERMINAL_FONT_SIZE,
   MIN_TERMINAL_FONT_SIZE,
@@ -728,6 +731,7 @@ export function TerminalView({
     );
     if (plan.write) {
       xtermRef.current.write(plan.write);
+      castRecorderRef.current?.recordOutput(plan.write);
     }
     if (plan.redraw && window.electronAPI) {
       try {
@@ -927,9 +931,38 @@ export function TerminalView({
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [terminalTheme, theme]);
 
+  const castRecorderRef = useRef<CastRecorder | null>(null);
+  const [isRecordingCast, setIsRecordingCast] = useState(false);
+  const [castPlayerOpen, setCastPlayerOpen] = useState(false);
+  const [recordedCastText, setRecordedCastText] = useState<string | null>(null);
+
+  const handleToggleCastRecord = useCallback(() => {
+    if (castRecorderRef.current) {
+      const cast = castRecorderRef.current.exportCast();
+      castRecorderRef.current = null;
+      setIsRecordingCast(false);
+      setRecordedCastText(cast);
+      setCastPlayerOpen(true);
+      return;
+    }
+    const term = xtermRef.current;
+    castRecorderRef.current = createCastRecorder({
+      width: term?.cols || 120,
+      height: term?.rows || 32,
+      title: activeSession?.title || sessionId || 'terminal',
+    });
+    setIsRecordingCast(true);
+  }, [activeSession?.title, sessionId]);
+
+  const handleMobileSequence = useCallback((seq: string) => {
+    if (!liveConnectionId || !window.electronAPI) return;
+    window.electronAPI.sshExecuteSync(liveConnectionId, seq);
+    xtermRef.current?.focus();
+  }, [liveConnectionId]);
+
   return (
     <div
-      className="terminal-shell"
+      className="terminal-shell flex flex-col"
       onContextMenu={handleContextMenu}
     >
       <TerminalToolbar
@@ -950,6 +983,9 @@ export function TerminalView({
         onCloseThemeSelector={() => setShowThemeSelector(false)}
         onSelectTheme={handleThemeChange}
         onSaveLog={handleSaveLog}
+        isRecording={isRecordingCast}
+        onToggleRecord={handleToggleCastRecord}
+        onOpenCastPlayer={() => setCastPlayerOpen(true)}
       />
 
       {/* Search Bar */}
@@ -1081,6 +1117,21 @@ export function TerminalView({
           </div>
         </div>
       )}
+      <CastPlayerModal
+        isOpen={castPlayerOpen}
+        initialCast={recordedCastText}
+        initialTitle={activeSession?.title}
+        translate={t}
+        onClose={() => setCastPlayerOpen(false)}
+      />
+
+      <div className="relative z-raised mt-auto">
+        <MobileKeyBar
+          mode={settings?.mobileKeyBarMode ?? 'auto'}
+          disabled={!isLive}
+          onSendSequence={handleMobileSequence}
+        />
+      </div>
     </div>
   );
 }

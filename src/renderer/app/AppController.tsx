@@ -19,7 +19,7 @@ import { useAgentStore } from '../store/useAgentStore';
 import { useSftpTransferStore } from '../store/useSftpTransferStore';
 import { useTheme } from '../hooks/useTheme';
 import { useI18n } from '../i18n';
-import type { CommandSuggestion, HostTrustPromptEvent, SSHConnection, Session } from '../../shared/types';
+import type { CommandSuggestion, HostTrustPromptEvent, SSHConnection, Session, SshKeyboardInteractivePrompt } from '../../shared/types';
 import type { AppSettings } from '../../shared/types';
 import { useSessionBridge } from '../session/useSessionBridge';
 import { useSessionRecovery } from '../session/useSessionRecovery';
@@ -75,12 +75,14 @@ interface DragState {
 export function AppController() {
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password'>('terminal');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'terminal' | 'ssh' | 'keys' | 'providers' | 'agent' | 'mcp' | 'language' | 'password' | 'audit'>('terminal');
   // Web 部署下若仍使用默认登录密码，显示提醒横幅。
   const [showDefaultPasswordBanner, setShowDefaultPasswordBanner] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<CommandSuggestion | null>(null);
   const [hostTrustQueue, setHostTrustQueue] = useState<HostTrustPromptEvent[]>([]);
   const pendingHostTrust = hostTrustQueue[0] ?? null;
+  const [keyboardPromptQueue, setKeyboardPromptQueue] = useState<SshKeyboardInteractivePrompt[]>([]);
+  const pendingKeyboardPrompt = keyboardPromptQueue[0] ?? null;
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showConnectionDropdown, setShowConnectionDropdown] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SSHConnection | null>(null);
@@ -364,6 +366,30 @@ export function AppController() {
     }
     return window.electronAPI.onSshHostTrustPrompt((prompt) => {
       setHostTrustQueue((queue) => (
+        queue.some((item) => item.requestId === prompt.requestId)
+          ? queue
+          : [...queue, prompt]
+      ));
+    });
+  }, []);
+
+  const handleSubmitKeyboardPrompt = useCallback((requestId: string, answers: string[]) => {
+    setKeyboardPromptQueue((queue) => queue.filter((item) => item.requestId !== requestId));
+    void window.electronAPI?.sshRespondKeyboardInteractive?.(requestId, answers, false);
+  }, []);
+
+  const handleCancelKeyboardPrompt = useCallback((requestId: string) => {
+    setKeyboardPromptQueue((queue) => queue.filter((item) => item.requestId !== requestId));
+    void window.electronAPI?.sshRespondKeyboardInteractive?.(requestId, [], true);
+  }, []);
+
+  // 监听 SSH 键盘交互认证（2FA / OTP / PAM）请求
+  useEffect(() => {
+    if (!window.electronAPI?.onSshKeyboardInteractivePrompt) {
+      return undefined;
+    }
+    return window.electronAPI.onSshKeyboardInteractivePrompt((prompt) => {
+      setKeyboardPromptQueue((queue) => (
         queue.some((item) => item.requestId === prompt.requestId)
           ? queue
           : [...queue, prompt]
@@ -1054,6 +1080,7 @@ export function AppController() {
         isSettingsOpen={showSettings}
         pendingCommand={pendingCommand}
         pendingHostTrust={pendingHostTrust}
+        pendingKeyboardPrompt={pendingKeyboardPrompt}
         settings={settings}
         settingsInitialTab={settingsInitialTab}
         testingConnection={testingConnection}
@@ -1065,6 +1092,8 @@ export function AppController() {
         onRejectCommand={handleRejectCommand}
         onAcceptHostTrust={handleAcceptHostTrust}
         onRejectHostTrust={handleRejectHostTrust}
+        onSubmitKeyboardPrompt={handleSubmitKeyboardPrompt}
+        onCancelKeyboardPrompt={handleCancelKeyboardPrompt}
         onSaveConnection={handleSaveConnection}
         onSaveSettings={handleSaveSettings}
         onSetConnectionTestResult={setConnectionTestResult}

@@ -2,28 +2,35 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
+  Archive,
   ArrowRightLeft,
+  Bookmark,
   ChevronRight,
+  ClipboardPaste,
   Copy,
   Download,
   Eye,
   FileCode2,
   Folder,
+  FolderArchive,
   FolderDown,
   FolderOpen,
   FolderPlus,
   FolderUp,
   Globe,
   Home,
+  Link2,
   ListChecks,
   Loader2,
   MoreHorizontal,
   Pencil,
   RefreshCw,
+  Scissors,
   Search,
   Shield,
   Trash2,
   Upload,
+  UserCog,
   X,
 } from 'lucide-react';
 
@@ -306,6 +313,147 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const [chmodMode, setChmodMode] = useState('644');
   const [chmodError, setChmodError] = useState<string | null>(null);
   const [isChmodding, setIsChmodding] = useState(false);
+
+  // 同机剪贴板（复制 / 剪切）、书签、压缩、软链接、修改属主
+  const [clipboard, setClipboard] = useState<{ mode: 'copy' | 'move'; paths: string[] } | null>(null);
+  const [bookmarks, setBookmarks] = useState<Array<{ id: string; name: string; path: string }>>([]);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const [archiveModal, setArchiveModal] = useState<{ names: string[]; archiveName: string; format: 'tar.gz' | 'zip' } | null>(null);
+  const [symlinkModal, setSymlinkModal] = useState<{ targetPath: string; linkName: string } | null>(null);
+  const [chownModal, setChownModal] = useState<{ item: RemoteFileItem; owner: string; group: string; recursive: boolean } | null>(null);
+  const [opsBusy, setOpsBusy] = useState(false);
+
+  const loadBookmarks = useCallback(async () => {
+    if (!window.electronAPI?.listSftpBookmarks) return;
+    const result = await window.electronAPI.listSftpBookmarks(connectionId);
+    if (result.success) {
+      setBookmarks(result.data.bookmarks || []);
+    }
+  }, [connectionId]);
+
+  useEffect(() => {
+    void loadBookmarks();
+  }, [loadBookmarks]);
+
+  const isExtractableArchive = (name: string) => /\.(tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|tar|zip)$/i.test(name);
+
+  const handlePasteClipboard = async () => {
+    if (!clipboard || !isLive) return;
+    const api = clipboard.mode === 'move' ? window.electronAPI?.moveSftpItems : window.electronAPI?.copySftpItems;
+    if (!api) return;
+    setOpsBusy(true);
+    try {
+      const result = await api(connectionId, { sources: clipboard.paths, destinationDir: currentPath });
+      if (!result.success) {
+        setActionError(result.error);
+      } else {
+        if (clipboard.mode === 'move') setClipboard(null);
+        await loadDirectory(currentPath);
+      }
+    } finally {
+      setOpsBusy(false);
+    }
+  };
+
+  const handleConfirmArchive = async () => {
+    if (!archiveModal || !window.electronAPI?.archiveSftpItems) return;
+    setOpsBusy(true);
+    try {
+      const result = await window.electronAPI.archiveSftpItems(connectionId, {
+        baseDir: currentPath,
+        names: archiveModal.names,
+        archiveName: archiveModal.archiveName,
+        format: archiveModal.format,
+      });
+      if (!result.success) {
+        setActionError(result.error);
+      } else {
+        setArchiveModal(null);
+        await loadDirectory(currentPath);
+      }
+    } finally {
+      setOpsBusy(false);
+    }
+  };
+
+  const handleExtractArchive = async (item: RemoteFileItem) => {
+    if (!window.electronAPI?.extractSftpArchive) return;
+    setOpsBusy(true);
+    try {
+      const result = await window.electronAPI.extractSftpArchive(connectionId, {
+        archivePath: item.path,
+        destinationDir: currentPath,
+      });
+      if (!result.success) {
+        setActionError(result.error);
+      } else {
+        await loadDirectory(currentPath);
+      }
+    } finally {
+      setOpsBusy(false);
+    }
+  };
+
+  const handleConfirmSymlink = async () => {
+    if (!symlinkModal || !window.electronAPI?.createSftpSymlink) return;
+    const linkName = symlinkModal.linkName.trim();
+    if (!linkName) return;
+    const linkPath = linkName.startsWith('/')
+      ? linkName
+      : `${currentPath.replace(/\/+$/, '')}/${linkName}`;
+    setOpsBusy(true);
+    try {
+      const result = await window.electronAPI.createSftpSymlink(connectionId, {
+        targetPath: symlinkModal.targetPath,
+        linkPath,
+      });
+      if (!result.success) {
+        setActionError(result.error);
+      } else {
+        setSymlinkModal(null);
+        await loadDirectory(currentPath);
+      }
+    } finally {
+      setOpsBusy(false);
+    }
+  };
+
+  const handleConfirmChown = async () => {
+    if (!chownModal || !window.electronAPI?.chownSftpItem) return;
+    setOpsBusy(true);
+    try {
+      const result = await window.electronAPI.chownSftpItem(connectionId, {
+        remotePath: chownModal.item.path,
+        owner: chownModal.owner.trim(),
+        group: chownModal.group.trim() || undefined,
+        recursive: chownModal.recursive,
+      });
+      if (!result.success) {
+        setActionError(result.error);
+      } else {
+        setChownModal(null);
+        await loadDirectory(currentPath);
+      }
+    } finally {
+      setOpsBusy(false);
+    }
+  };
+
+  const handleAddBookmark = async () => {
+    if (!window.electronAPI?.saveSftpBookmark) return;
+    const clean = currentPath || '/';
+    const name = clean === '/' ? '/' : clean.split('/').filter(Boolean).pop() || clean;
+    const result = await window.electronAPI.saveSftpBookmark({ connectionId, name, path: clean });
+    if (result.success) {
+      await loadBookmarks();
+    }
+  };
+
+  const handleDeleteBookmark = async (bookmarkId: string) => {
+    if (!window.electronAPI?.deleteSftpBookmark) return;
+    await window.electronAPI.deleteSftpBookmark(bookmarkId);
+    await loadBookmarks();
+  };
   /** 复制路径等轻量成功提示 */
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   /** 路径编辑：合并到面包屑里，点击铅笔才展开输入框 */
@@ -1379,6 +1527,74 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
             >
               <Search className="h-4 w-4" />
             </button>
+            {typeof window.electronAPI?.listSftpBookmarks === 'function' && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setBookmarksOpen((prev) => !prev)}
+                  className={`icon-button h-7 w-7 ${bookmarksOpen ? 'text-accent' : ''}`}
+                  title={t('fileTransfer.bookmarks.title')}
+                  disabled={!isLive}
+                >
+                  <Bookmark className="h-4 w-4" />
+                </button>
+                {bookmarksOpen && (
+                  <div className="app-popover left-0 top-full z-dropdown mt-1 w-64 space-y-1.5 p-2">
+                    <div className="flex items-center justify-between gap-2 px-1">
+                      <span className="text-xs font-semibold text-fg">{t('fileTransfer.bookmarks.title')}</span>
+                      <button
+                        type="button"
+                        onClick={() => void handleAddBookmark()}
+                        className="text-[11px] font-medium text-accent hover:text-accent-hover"
+                      >
+                        + {t('fileTransfer.bookmarks.addCurrent')}
+                      </button>
+                    </div>
+                    {bookmarks.length === 0 ? (
+                      <p className="px-1 py-2 text-xs text-fg-muted">{t('fileTransfer.bookmarks.empty')}</p>
+                    ) : (
+                      <div className="max-h-52 space-y-0.5 overflow-y-auto scrollbar-thin">
+                        {bookmarks.map((bm) => (
+                          <div key={bm.id} className="group flex items-center gap-1 rounded-sm hover:bg-surface-hover">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBookmarksOpen(false);
+                                void loadDirectory(bm.path);
+                              }}
+                              className="min-w-0 flex-1 px-2 py-1 text-left"
+                            >
+                              <div className="truncate text-xs font-medium text-fg">{bm.name}</div>
+                              <div className="truncate font-mono text-[10px] text-fg-muted">{bm.path}</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteBookmark(bm.id)}
+                              className="icon-button h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-danger"
+                              title={t('common.delete')}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {clipboard && (
+              <button
+                type="button"
+                onClick={() => void handlePasteClipboard()}
+                disabled={!isLive || opsBusy}
+                className="icon-button h-7 px-1.5 text-xs text-accent"
+                title={t('fileTransfer.ops.pasteHere', { count: clipboard.paths.length })}
+              >
+                <ClipboardPaste className="h-3.5 w-3.5" />
+                <span className="ml-0.5 font-mono text-[10px]">{clipboard.paths.length}</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -1878,6 +2094,121 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                   <Shield className="h-4 w-4" />
                   {t('fileTransfer.permissions')}
                 </button>
+                {typeof window.electronAPI?.copySftpItems === 'function' && (
+                  <>
+                    <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targets = selectedPaths.includes(contextMenu.item.path) && selectedFiles.length > 1
+                          ? selectedFiles.map((item) => item.path)
+                          : [contextMenu.item.path];
+                        setClipboard({ mode: 'copy', paths: targets });
+                        setContextMenu(null);
+                      }}
+                      className="app-popover-row text-sm text-fg-secondary"
+                      disabled={!isLive}
+                    >
+                      <Copy className="h-4 w-4" />
+                      {t('fileTransfer.ops.copy')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targets = selectedPaths.includes(contextMenu.item.path) && selectedFiles.length > 1
+                          ? selectedFiles.map((item) => item.path)
+                          : [contextMenu.item.path];
+                        setClipboard({ mode: 'move', paths: targets });
+                        setContextMenu(null);
+                      }}
+                      className="app-popover-row text-sm text-fg-secondary"
+                      disabled={!isLive}
+                    >
+                      <Scissors className="h-4 w-4" />
+                      {t('fileTransfer.ops.cut')}
+                    </button>
+                    {clipboard && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setContextMenu(null);
+                          void handlePasteClipboard();
+                        }}
+                        className="app-popover-row text-sm text-accent"
+                        disabled={!isLive || opsBusy}
+                      >
+                        <ClipboardPaste className="h-4 w-4" />
+                        {t('fileTransfer.ops.pasteHere', { count: clipboard.paths.length })}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targets = selectedPaths.includes(contextMenu.item.path) && selectedFiles.length > 1
+                          ? selectedFiles.map((item) => item.name)
+                          : [contextMenu.item.name];
+                        setArchiveModal({
+                          names: targets,
+                          archiveName: `${targets[0]}.tar.gz`,
+                          format: 'tar.gz',
+                        });
+                        setContextMenu(null);
+                      }}
+                      className="app-popover-row text-sm text-fg-secondary"
+                      disabled={!isLive}
+                    >
+                      <Archive className="h-4 w-4" />
+                      {t('fileTransfer.ops.compress')}
+                    </button>
+                    {!contextMenu.item.isDirectory && isExtractableArchive(contextMenu.item.name) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = contextMenu.item;
+                          setContextMenu(null);
+                          void handleExtractArchive(target);
+                        }}
+                        className="app-popover-row text-sm text-fg-secondary"
+                        disabled={!isLive || opsBusy}
+                      >
+                        <FolderArchive className="h-4 w-4" />
+                        {t('fileTransfer.ops.extractHere')}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSymlinkModal({
+                          targetPath: contextMenu.item.path,
+                          linkName: `${contextMenu.item.name}.link`,
+                        });
+                        setContextMenu(null);
+                      }}
+                      className="app-popover-row text-sm text-fg-secondary"
+                      disabled={!isLive}
+                    >
+                      <Link2 className="h-4 w-4" />
+                      {t('fileTransfer.ops.createSymlink')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChownModal({
+                          item: contextMenu.item,
+                          owner: '',
+                          group: '',
+                          recursive: false,
+                        });
+                        setContextMenu(null);
+                      }}
+                      className="app-popover-row text-sm text-fg-secondary"
+                      disabled={!isLive}
+                    >
+                      <UserCog className="h-4 w-4" />
+                      {t('fileTransfer.ops.chown')}
+                    </button>
+                  </>
+                )}
                 <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
                 <button
                   type="button"
@@ -2019,6 +2350,150 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
           }}
         />
       )}
+
+      <Modal
+        isOpen={Boolean(archiveModal)}
+        onClose={() => setArchiveModal(null)}
+        title={t('fileTransfer.ops.compress')}
+        size="sm"
+        closeLabel={t('common.close')}
+      >
+        {archiveModal && (
+          <>
+            <div className="space-y-3 p-4">
+              <div>
+                <label className="industrial-field-label">{t('fileTransfer.ops.archiveName')}</label>
+                <input
+                  type="text"
+                  value={archiveModal.archiveName}
+                  onChange={(e) => setArchiveModal({ ...archiveModal, archiveName: e.target.value })}
+                  className="industrial-input w-full font-mono text-xs"
+                />
+              </div>
+              <div>
+                <label className="industrial-field-label">{t('fileTransfer.ops.archiveFormat')}</label>
+                <select
+                  value={archiveModal.format}
+                  onChange={(e) => {
+                    const fmt = e.target.value as 'tar.gz' | 'zip';
+                    const base = archiveModal.archiveName.replace(/\.(tar\.gz|zip)$/i, '');
+                    setArchiveModal({ ...archiveModal, format: fmt, archiveName: `${base}.${fmt}` });
+                  }}
+                  className="industrial-input w-full text-xs"
+                >
+                  <option value="tar.gz">tar.gz</option>
+                  <option value="zip">zip</option>
+                </select>
+              </div>
+            </div>
+            <div className="industrial-modal-footer">
+              <button type="button" className="industrial-button-secondary" onClick={() => setArchiveModal(null)}>
+                {t('common.cancel')}
+              </button>
+              <button type="button" disabled={opsBusy} className="industrial-button-primary" onClick={() => void handleConfirmArchive()}>
+                {t('common.confirm')}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(symlinkModal)}
+        onClose={() => setSymlinkModal(null)}
+        title={t('fileTransfer.ops.createSymlink')}
+        size="sm"
+        closeLabel={t('common.close')}
+      >
+        {symlinkModal && (
+          <>
+            <div className="space-y-3 p-4">
+              <div>
+                <label className="industrial-field-label">{t('fileTransfer.ops.symlinkTarget')}</label>
+                <input
+                  type="text"
+                  value={symlinkModal.targetPath}
+                  onChange={(e) => setSymlinkModal({ ...symlinkModal, targetPath: e.target.value })}
+                  className="industrial-input w-full font-mono text-xs"
+                />
+              </div>
+              <div>
+                <label className="industrial-field-label">{t('fileTransfer.ops.symlinkName')}</label>
+                <input
+                  type="text"
+                  value={symlinkModal.linkName}
+                  onChange={(e) => setSymlinkModal({ ...symlinkModal, linkName: e.target.value })}
+                  className="industrial-input w-full font-mono text-xs"
+                />
+              </div>
+            </div>
+            <div className="industrial-modal-footer">
+              <button type="button" className="industrial-button-secondary" onClick={() => setSymlinkModal(null)}>
+                {t('common.cancel')}
+              </button>
+              <button type="button" disabled={opsBusy} className="industrial-button-primary" onClick={() => void handleConfirmSymlink()}>
+                {t('common.confirm')}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(chownModal)}
+        onClose={() => setChownModal(null)}
+        title={t('fileTransfer.ops.chown')}
+        size="sm"
+        closeLabel={t('common.close')}
+      >
+        {chownModal && (
+          <>
+            <div className="space-y-3 p-4">
+              <div className="truncate font-mono text-xs text-fg-muted">{chownModal.item.path}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="industrial-field-label">{t('fileTransfer.ops.owner')}</label>
+                  <input
+                    type="text"
+                    value={chownModal.owner}
+                    onChange={(e) => setChownModal({ ...chownModal, owner: e.target.value })}
+                    placeholder="root"
+                    className="industrial-input w-full font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="industrial-field-label">{t('fileTransfer.ops.group')}</label>
+                  <input
+                    type="text"
+                    value={chownModal.group}
+                    onChange={(e) => setChownModal({ ...chownModal, group: e.target.value })}
+                    placeholder="www-data"
+                    className="industrial-input w-full font-mono text-xs"
+                  />
+                </div>
+              </div>
+              {chownModal.item.isDirectory && (
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-secondary">
+                  <input
+                    type="checkbox"
+                    checked={chownModal.recursive}
+                    onChange={(e) => setChownModal({ ...chownModal, recursive: e.target.checked })}
+                  />
+                  <span>{t('fileTransfer.ops.recursive')}</span>
+                </label>
+              )}
+            </div>
+            <div className="industrial-modal-footer">
+              <button type="button" className="industrial-button-secondary" onClick={() => setChownModal(null)}>
+                {t('common.cancel')}
+              </button>
+              <button type="button" disabled={opsBusy} className="industrial-button-primary" onClick={() => void handleConfirmChown()}>
+                {t('common.confirm')}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
 
       <Modal
         isOpen={Boolean(editAlert)}

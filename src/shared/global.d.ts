@@ -13,6 +13,12 @@ import type {
   SSHSessionState,
   HostTrustRecord,
   HostTrustPromptEvent,
+  SshKeyboardInteractivePrompt,
+  SSHKeyRecord,
+  SftpBookmark,
+  AuditLogEntry,
+  WebUserSummary,
+  WebUserRole,
   McpPolicyConfig,
   McpConfigSnapshot,
   McpConfigSaveResult,
@@ -42,6 +48,15 @@ import type {
   DockerRemoveResult,
   DockerPruneTarget,
   DockerPruneResult,
+  DockerContainerStat,
+  DockerImageItem,
+  DockerVolumeItem,
+  DockerNetworkItem,
+  DockerComposeProject,
+  ListeningPortItem,
+  SystemdServiceItem,
+  BatchCommandResponse,
+  BatchDistributeResponse,
   SftpSearchMode,
   SftpSearchResult,
   SftpPreviewResult,
@@ -101,17 +116,46 @@ declare global {
       removeDockerContainer?: (connectionId: string, containerId: string, force?: boolean) => Promise<IPCResult<DockerRemoveResult>>;
       /** 清理已停止容器或悬空镜像。 */
       pruneDocker?: (connectionId: string, target: DockerPruneTarget) => Promise<IPCResult<DockerPruneResult>>;
+      /** Docker 资源统计 / 镜像 / 数据卷 / 网络 / Compose 项目。 */
+      getDockerStats?: (connectionId: string) => Promise<IPCResult<{ stats: DockerContainerStat[] }>>;
+      listDockerImages?: (connectionId: string) => Promise<IPCResult<{ images: DockerImageItem[] }>>;
+      removeDockerImage?: (connectionId: string, imageId: string, force?: boolean) => Promise<IPCResult<{ imageId: string; output: string }>>;
+      listDockerVolumes?: (connectionId: string) => Promise<IPCResult<{ volumes: DockerVolumeItem[] }>>;
+      removeDockerVolume?: (connectionId: string, name: string) => Promise<IPCResult<{ name: string; output: string }>>;
+      listDockerNetworks?: (connectionId: string) => Promise<IPCResult<{ networks: DockerNetworkItem[] }>>;
+      removeDockerNetwork?: (connectionId: string, networkId: string) => Promise<IPCResult<{ id: string; output: string }>>;
+      listDockerComposeProjects?: (connectionId: string) => Promise<IPCResult<{ projects: DockerComposeProject[] }>>;
+      readDockerComposeFile?: (connectionId: string, configFile: string) => Promise<IPCResult<{ path: string; content: string }>>;
+      saveDockerComposeFile?: (connectionId: string, configFile: string, content: string, project?: string) => Promise<IPCResult<{ path: string; output: string }>>;
+      /** 监听端口、进程终止、Systemd 服务管理。 */
+      listListeningPorts?: (connectionId: string) => Promise<IPCResult<{ ports: ListeningPortItem[] }>>;
+      killRemoteProcess?: (connectionId: string, pid: number, signal?: 'TERM' | 'KILL' | 'HUP') => Promise<IPCResult<{ pid: number; signal: string }>>;
+      listSystemdServices?: (connectionId: string) => Promise<IPCResult<{ available: boolean; services: SystemdServiceItem[] }>>;
+      controlSystemdService?: (connectionId: string, name: string, action: 'start' | 'stop' | 'restart' | 'reload') => Promise<IPCResult<{ name: string; action: string }>>;
+      /** 多机批量任务执行与文件分发。 */
+      runBatchCommand?: (request: { connectionIds: string[]; command: string; concurrency?: number; timeoutMs?: number }) => Promise<IPCResult<BatchCommandResponse>>;
+      runBatchDistribute?: (request: { connectionIds: string[]; remotePath: string; contentBase64: string; concurrency?: number; timeoutMs?: number }) => Promise<IPCResult<BatchDistributeResponse>>;
       sshGetHostTrustRecord: (host: string, port: number) => Promise<IPCResult<{ record: HostTrustRecord | null }>>;
       sshListHostTrustRecords: () => Promise<IPCResult<{ records: HostTrustRecord[] }>>;
       sshUpsertHostTrustRecord: (record: HostTrustRecord) => Promise<IPCResult>;
       sshDeleteHostTrustRecord: (host: string, port: number) => Promise<IPCResult>;
       sshClearHostTrustRecords: () => Promise<IPCResult>;
       sshRespondHostTrust: (requestId: string, accepted: boolean) => Promise<IPCResult>;
+      /** 响应 SSH 键盘交互认证（2FA / OTP / PAM）。 */
+      sshRespondKeyboardInteractive?: (requestId: string, answers: string[], canceled?: boolean) => Promise<IPCResult<{ resolved: boolean }>>;
+
+      /** 独立 SSH 密钥库（Key Vault）。 */
+      listSshKeys?: () => Promise<IPCResult<{ keys: SSHKeyRecord[] }>>;
+      saveSshKey?: (key: { id?: string; name: string; privateKey?: string; passphrase?: string; publicKey?: string }) => Promise<IPCResult<{ key: SSHKeyRecord }>>;
+      generateSshKey?: (options: { name?: string; algorithm?: 'ed25519' | 'rsa'; passphrase?: string }) => Promise<IPCResult<{ key: SSHKeyRecord }>>;
+      deleteSshKey?: (keyId: string) => Promise<IPCResult>;
+      deploySshKey?: (connectionId: string, keyId: string) => Promise<IPCResult<{ deployed: boolean; alreadyPresent: boolean }>>;
 
       onSshData: (callback: (data: { connectionId: string; data: string; type?: string; state?: SSHSessionState }) => void) => () => void;
       onSshError: (callback: (data: { connectionId: string; error: string }) => void) => () => void;
       onSshClose: (callback: (connectionId: string) => void) => () => void;
       onSshHostTrustPrompt: (callback: (data: HostTrustPromptEvent) => void) => () => void;
+      onSshKeyboardInteractivePrompt?: (callback: (data: SshKeyboardInteractivePrompt) => void) => () => void;
 
       aiChat: (providerId: string, messages: Message[], options?: { requestId?: string }) => Promise<IPCResult<AIChatResult>>;
       aiChatStream: (providerId: string, messages: Message[], options: AIChatStreamOptions) => Promise<IPCResult<AIChatResult>>;
@@ -166,6 +210,16 @@ declare global {
       createSftpDirectory: (connectionId: string, remotePath: string) => Promise<IPCResult>;
       /** 修改远端文件/目录权限（mode 为 0–0o7777）。 */
       setSftpPermissions: (connectionId: string, remotePath: string, mode: number) => Promise<IPCResult>;
+      /** SFTP 进阶操作：压缩 / 解压 / 同机复制移动 / 软链接 / 修改属主 / 目录书签。 */
+      archiveSftpItems?: (connectionId: string, request: { baseDir: string; names: string[]; archiveName?: string; format?: 'tar.gz' | 'zip' }) => Promise<IPCResult<{ archivePath: string; format: string; count: number }>>;
+      extractSftpArchive?: (connectionId: string, request: { archivePath: string; destinationDir?: string }) => Promise<IPCResult<{ archivePath: string; destinationDir: string }>>;
+      copySftpItems?: (connectionId: string, request: { sources: string[]; destinationDir: string }) => Promise<IPCResult<{ mode: string; count: number; destinationDir: string }>>;
+      moveSftpItems?: (connectionId: string, request: { sources: string[]; destinationDir: string }) => Promise<IPCResult<{ mode: string; count: number; destinationDir: string }>>;
+      createSftpSymlink?: (connectionId: string, request: { targetPath: string; linkPath: string }) => Promise<IPCResult<{ targetPath: string; linkPath: string }>>;
+      chownSftpItem?: (connectionId: string, request: { remotePath: string; owner: string; group?: string; recursive?: boolean }) => Promise<IPCResult<{ remotePath: string; spec: string; recursive: boolean }>>;
+      listSftpBookmarks?: (connectionId: string) => Promise<IPCResult<{ bookmarks: SftpBookmark[] }>>;
+      saveSftpBookmark?: (bookmark: { connectionId: string; name: string; path: string }) => Promise<IPCResult<{ bookmark: SftpBookmark }>>;
+      deleteSftpBookmark?: (bookmarkId: string) => Promise<IPCResult>;
       deleteSftpItems: (connectionId: string, remotePaths: string[]) => Promise<IPCResult<SftpBatchDeleteResult>>;
       startSftpUpload: (request: SftpStartUploadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
       startSftpDownload: (request: SftpStartDownloadRequest) => Promise<IPCResult<SftpStartTransferResult>>;
@@ -195,7 +249,7 @@ declare global {
        */
       runAgentTool?: (
         connectionId: string,
-        tool: 'list_dir' | 'read_file' | 'search_files' | 'write_file',
+        tool: 'list_dir' | 'read_file' | 'search_files' | 'write_file' | 'pane_output',
         args?: Record<string, unknown>,
         root?: string,
       ) => Promise<IPCResult<unknown>>;
@@ -243,10 +297,26 @@ declare global {
 
       onSystemResume: (callback: (data: { timestamp: number }) => void) => () => void;
 
-      /** Web 部署专用：查询登录状态（含是否仍为默认密码）。 */
-      getAuthStatus?: () => Promise<IPCResult<{ authenticated: boolean; usingDefaultPassword: boolean; passwordManaged: boolean }>>;
+      /** Web 部署专用：查询登录状态（含是否仍为默认密码与 2FA/用户角色）。 */
+      getAuthStatus?: () => Promise<IPCResult<{
+        authenticated: boolean;
+        usingDefaultPassword: boolean;
+        passwordManaged: boolean;
+        totpEnabled?: boolean;
+        user?: WebUserSummary | null;
+      }>>;
       /** Web 部署专用：修改登录密码。 */
       webChangePassword?: (oldPassword: string, newPassword: string) => Promise<IPCResult>;
+      /** Web 部署专用：TOTP 双因素认证与多用户 RBAC 管理。 */
+      setupWebTotp?: () => Promise<IPCResult<{ secret: string; otpauthUri: string }>>;
+      enableWebTotp?: (code: string) => Promise<IPCResult<{ totpEnabled: boolean }>>;
+      disableWebTotp?: (code: string) => Promise<IPCResult<{ totpEnabled: boolean }>>;
+      listWebUsers?: () => Promise<IPCResult<{ users: WebUserSummary[] }>>;
+      saveWebUser?: (user: { id?: string; username: string; password?: string; role: WebUserRole; allowedConnectionIds?: string[] }) => Promise<IPCResult<{ user: WebUserSummary }>>;
+      deleteWebUser?: (userId: string) => Promise<IPCResult>;
+      /** 全局操作审计日志与 MCP 审计日志。 */
+      listAuditLogs?: (query?: { category?: string; search?: string; limit?: number }) => Promise<IPCResult<{ entries: AuditLogEntry[] }>>;
+      listMcpAuditLogs?: (limit?: number) => Promise<IPCResult<{ entries: Array<Record<string, unknown>> }>>;
       /** Web 部署专用：读取 MCP 服务端策略（data/mcp-policy.json）。 */
       mcpGetConfig?: () => Promise<IPCResult<McpConfigSnapshot>>;
       /** Web 部署专用：保存 MCP 服务端策略。 */

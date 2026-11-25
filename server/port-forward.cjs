@@ -1,8 +1,8 @@
 /**
- * 端口转发：本地转发（-L）与动态 SOCKS5（-D）。
+ * 端口转发：本地转发（-L）、远程转发（-R）与动态 SOCKS5（-D）。
  *
- * 全部基于 ssh2 的 client.forwardOut(srcHost, srcPort, dstHost, dstPort, cb)：
- * 由 SSH 服务器一侧发起目标连接，本地只做 TCP 监听与字节搬运。
+ * - 本地转发 / 动态 SOCKS5：基于 ssh2 `client.forwardOut`，本地起 TCP 监听，经 SSH 通道连远端目标。
+ * - 远程转发（-R）：基于 ssh2 `client.forwardIn`，远端起 TCP 监听，收到 `tcp connection` 后连本地/网关侧目标。
  *
  * 安全默认：监听地址缺省 127.0.0.1，避免把内网服务暴露到所有网卡。
  */
@@ -119,7 +119,6 @@ function createPortForwardManager({ getClientForSession } = {}) {
     forward(entry.session, targetHost, targetPort)
       .then((stream) => {
         entry.connections += 1;
-        // 本地 socket 和 SSH stream 的 close 是同一件事的两端，只递减一次
         let counted = true;
         const done = () => {
           if (!counted) return;
@@ -151,7 +150,6 @@ function createPortForwardManager({ getClientForSession } = {}) {
       .then(({ stream }) => {
         socket.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0x00, 0x00]));
         entry.connections += 1;
-        // 本地 socket 和 SSH stream 的 close 是同一件事的两端，只递减一次
         let counted = true;
         const done = () => {
           if (!counted) return;
@@ -170,17 +168,95 @@ function createPortForwardManager({ getClientForSession } = {}) {
       });
   }
 
+  function stopEntry(entry) {
+    if (typeof entry.dispose === 'function') {
+      try { entry.dispose(); } catch { /* ignore */ }
+    } else {
+      try { entry.server?.close(); } catch { /* ignore */ }
+    }
+  }
+
+  function startRemote(entry, key) {
+    const client = entry.session.client;
+    if (typeof client.forwardIn !== 'function') {
+      throw new Error('SSH client does not support remote port forwarding');
+    }
+    const targetHost = String(entry.rule.targetHost || '127.0.0.1').trim();
+    const targetPort = parsePort(entry.rule.targetPort);
+
+    const onTcpConnection = (info, accept, reject) => {
+      if (info.destPort !== entry.bindPort) return;
+      if (entry.bindHost !== '0.0.0.0' && entry.bindHost !== '::' && info.destIP && info.destIP !== entry.bindHost) {
+        return;
+      }
+      const localSocket = net.createConnection({ host: targetHost, port: targetPort });
+      let stream = null;
+      let counted = false;
+      const done = () => {
+        if (!counted) return;
+        counted = false;
+        entry.connections = Math.max(0, entry.connections - 1);
+      };
+      localSocket.once('connect', () => {
+        stream = accept();
+        if (!stream) {
+          localSocket.destroy();
+          return;
+        }
+        counted = true;
+        entry.connections += 1;
+        localSocket.on('error', () => { try { stream.destroy(); } catch { /* ignore */ } });
+        stream.on('error', () => { try { localSocket.destroy(); } catch { /* ignore */ } });
+        localSocket.on('close', done);
+        stream.on('close', done);
+        stream.pipe(localSocket).pipe(stream);
+      });
+      localSocket.once('error', (error) => {
+        entry.lastError = error.message;
+        if (!stream) {
+          try { reject?.(); } catch { /* ignore */ }
+        }
+        try { localSocket.destroy(); } catch { /* ignore */ }
+      });
+    };
+
+    entry.dispose = () => {
+      try { client.off?.('tcp connection', onTcpConnection); } catch { /* ignore */ }
+      try {
+        if (typeof client.unforwardIn === 'function' && entry.bindPort > 0) {
+          client.unforwardIn(entry.bindHost, entry.bindPort, () => {});
+        }
+      } catch { /* ignore */ }
+    };
+
+    client.on('tcp connection', onTcpConnection);
+    client.forwardIn(entry.bindHost, entry.bindPort, (error, assignedPort) => {
+      if (error) {
+        entry.error = error.message;
+        try { client.off?.('tcp connection', onTcpConnection); } catch { /* ignore */ }
+        if (active.get(key) === entry) {
+          active.delete(key);
+        }
+        return;
+      }
+      if (typeof assignedPort === 'number' && assignedPort > 0) {
+        entry.bindPort = assignedPort;
+      }
+    });
+    active.set(key, entry);
+    return describe(entry);
+  }
+
   function start({ clientId, connectionId, rule }) {
     if (!rule || !rule.id) throw new Error('Port forward rule is required');
     const key = ruleKey(clientId, connectionId, rule.id);
     if (active.has(key)) {
       const existing = active.get(key);
-      // 上次启动失败（如端口被占用）的记录允许直接重试：清掉旧记录后走完整启动流程
       if (!existing.error) return describe(existing);
-      try { existing.server?.close(); } catch { /* ignore */ }
+      stopEntry(existing);
       active.delete(key);
     }
-    if (rule.type !== 'local' && rule.type !== 'dynamic') {
+    if (rule.type !== 'local' && rule.type !== 'remote' && rule.type !== 'dynamic') {
       throw new Error(`Unsupported port forward type: ${rule.type}`);
     }
     const requestedPort = Number(rule?.bindPort);
@@ -188,9 +264,9 @@ function createPortForwardManager({ getClientForSession } = {}) {
       ? requestedPort
       : NaN;
     if (!Number.isInteger(bindPort)) throw new Error('Invalid bind port');
-    if (rule.type === 'local') {
+    if (rule.type === 'local' || rule.type === 'remote') {
       if (!rule.targetHost || !parsePort(rule.targetPort)) {
-        throw new Error('Local forward requires target host and port');
+        throw new Error(`${rule.type === 'remote' ? 'Remote' : 'Local'} forward requires target host and port`);
       }
     }
     const session = typeof getClientForSession === 'function'
@@ -207,7 +283,12 @@ function createPortForwardManager({ getClientForSession } = {}) {
       error: null,
       lastError: null,
       server: null,
+      dispose: null,
     };
+
+    if (rule.type === 'remote') {
+      return startRemote(entry, key);
+    }
 
     const server = net.createServer((socket) => {
       if (rule.type === 'dynamic') {
@@ -219,7 +300,6 @@ function createPortForwardManager({ getClientForSession } = {}) {
     entry.server = server;
     server.on('error', (error) => {
       entry.error = error.message;
-      // 绑定失败（如 EADDRINUSE）后从 active 移除，列表回到「未启动」状态，用户可直接重试
       try { server.close(); } catch { /* ignore */ }
       for (const [k, v] of active.entries()) {
         if (v === entry) {
@@ -244,7 +324,7 @@ function createPortForwardManager({ getClientForSession } = {}) {
     const entry = active.get(key);
     if (!entry) return false;
     active.delete(key);
-    try { entry.server?.close(); } catch { /* ignore */ }
+    stopEntry(entry);
     return true;
   }
 
@@ -261,7 +341,7 @@ function createPortForwardManager({ getClientForSession } = {}) {
     for (const [key, entry] of Array.from(active.entries())) {
       if (!key.startsWith(`${clientId}::${connectionId}::`)) continue;
       active.delete(key);
-      try { entry.server?.close(); } catch { /* ignore */ }
+      stopEntry(entry);
     }
   }
 

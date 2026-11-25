@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock, Server, Loader2 } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
 import { McpSettings } from './McpSettings';
+import { SshKeyVaultSettings } from './SshKeyVaultSettings';
+import { AuditLogSettings } from './AuditLogSettings';
+import { AuthSecurityPanel } from './AuthSecurityPanel';
 import { clearRememberedRiskDecisions } from '../assistant/risk-approval-memory';
+import { useAIStore } from '../store/useAIStore';
+import { useConnectionStore } from '../store/useConnectionStore';
 import { useI18n, useI18nStore, localeNames, detectSystemLocale } from '../i18n';
 import type { Locale } from '../i18n';
 import type { AppSettings, HostTrustRecord } from '../../shared/types';
@@ -16,6 +21,8 @@ import {
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
 import { Modal } from '../shared-ui/Modal';
 import { SettingsItem, SettingsPage, SettingsSection, ToggleSwitch } from '../settings/SettingsLayout';
+import { buildGlobalFontStack } from '../hooks/useTheme';
+import { ensureWebFontLoaded } from '../hooks/web-fonts';
 
 const FONT_FAMILY_OPTIONS = [
   { value: "Consolas, 'Courier New', monospace", label: 'Consolas' },
@@ -36,7 +43,7 @@ interface SettingsPanelProps {
   onPasswordChanged?: () => void;
 }
 
-type SettingsTab = 'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password';
+type SettingsTab = 'terminal' | 'ssh' | 'keys' | 'providers' | 'agent' | 'mcp' | 'language' | 'password' | 'audit';
 
 const AGENT_PERMISSION_MODES = ['ask', 'auto', 'full', 'readonly'] as const;
 
@@ -49,6 +56,9 @@ const IS_WEB = typeof window !== 'undefined' && window.__AISSH_WEB__ === true;
 
 export function SettingsPanel({ settings, onSave, onClose, initialTab = 'terminal', onPasswordChanged }: SettingsPanelProps) {
   const { t } = useI18n();
+  const aiProviders = useAIStore((state) => state.providers);
+  const savedConnections = useConnectionStore((state) => state.connections);
+  const [allowlistConnectionId, setAllowlistConnectionId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [mcpFooterContainer, setMcpFooterContainer] = useState<HTMLDivElement | null>(null);
   const [saving, setSaving] = useState(false);
@@ -220,13 +230,15 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   const tabs: Array<{ id: SettingsTab; label: string; icon: typeof Terminal }> = [
     { id: 'terminal', label: t('settings.tabs.terminal'), icon: Terminal },
     { id: 'ssh', label: t('settings.tabs.ssh'), icon: Wifi },
+    ...(IS_WEB ? [{ id: 'keys' as SettingsTab, label: t('features.keyVault.tab'), icon: KeyRound }] : []),
     { id: 'providers', label: t('settings.tabs.providers'), icon: KeyRound },
     { id: 'agent', label: t('settings.tabs.agent'), icon: Bot },
     { id: 'language', label: t('settings.tabs.language'), icon: Globe },
     // MCP 只存在于 Web 部署，桌面端不展示对应配置页。
     ...(IS_WEB ? [{ id: 'mcp' as SettingsTab, label: t('settings.tabs.mcp'), icon: Server }] : []),
-    // 仅 Web 部署提供修改登录密码。
+    // 仅 Web 部署提供修改登录密码 / 2FA / 用户管理。
     ...(IS_WEB ? [{ id: 'password' as SettingsTab, label: t('settings.tabs.password'), icon: Lock }] : []),
+    ...(IS_WEB ? [{ id: 'audit' as SettingsTab, label: t('features.audit.tab'), icon: Shield }] : []),
   ];
 
   return (
@@ -292,12 +304,23 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
 
                   <SettingsItem
                     label={t('settings.terminal.fontFamily')}
+                    description={(
+                      <span
+                        className="mt-1 inline-block rounded-sm border border-line-subtle bg-surface-sunken px-2 py-0.5 text-xs text-fg-secondary"
+                        style={{ fontFamily: buildGlobalFontStack(localSettings.fontFamily) }}
+                      >
+                        ssh root@10.0.0.1 · 0123456789 != =&gt; {'{}'}
+                      </span>
+                    )}
                     controlClassName="w-full sm:w-56"
                   >
                     <IndustrialSelect
                       value={localSettings.fontFamily}
                       options={FONT_FAMILY_OPTIONS}
-                      onChange={(value) => setLocalSettings({ ...localSettings, fontFamily: value })}
+                      onChange={(value) => {
+                        void ensureWebFontLoaded(value);
+                        setLocalSettings({ ...localSettings, fontFamily: value });
+                      }}
                     />
                   </SettingsItem>
 
@@ -366,6 +389,25 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       enabled={terminalRuntimePreview.shellIntegration}
                       label={t('settings.terminal.shellIntegration')}
                       onChange={(value) => setLocalSettings({ ...localSettings, terminalShellIntegration: value })}
+                    />
+                  </SettingsItem>
+
+                  <SettingsItem
+                    label={t('settings.terminal.mobileKeyBar')}
+                    description={t('settings.terminal.mobileKeyBarDesc')}
+                    controlClassName="w-full sm:w-44"
+                  >
+                    <IndustrialSelect
+                      value={localSettings.mobileKeyBarMode ?? 'auto'}
+                      options={[
+                        { value: 'auto', label: t('settings.terminal.mobileKeyBarAuto') },
+                        { value: 'on', label: t('settings.terminal.mobileKeyBarOn') },
+                        { value: 'off', label: t('settings.terminal.mobileKeyBarOff') },
+                      ]}
+                      onChange={(value) => setLocalSettings({
+                        ...localSettings,
+                        mobileKeyBarMode: value as 'auto' | 'on' | 'off',
+                      })}
                     />
                   </SettingsItem>
                 </SettingsSection>
@@ -596,6 +638,73 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       className="industrial-input w-full"
                     />
                   </SettingsItem>
+
+                  <SettingsItem
+                    label={t('settings.agent.reviewerProvider')}
+                    description={t('settings.agent.reviewerProviderDesc')}
+                    controlClassName="w-full sm:w-56"
+                  >
+                    <IndustrialSelect
+                      value={localSettings.agentReviewerProviderId ?? ''}
+                      options={[
+                        { value: '', label: t('settings.agent.reviewerNone') },
+                        ...aiProviders.map((provider) => ({
+                          value: provider.id,
+                          label: `${provider.name}${provider.model ? ` (${provider.model})` : ''}`,
+                        })),
+                      ]}
+                      onChange={(value) => setLocalSettings({
+                        ...localSettings,
+                        agentReviewerProviderId: value || undefined,
+                      })}
+                    />
+                  </SettingsItem>
+
+                  <SettingsItem
+                    label={t('settings.agent.maxToolCalls')}
+                    description={t('settings.agent.maxToolCallsDesc')}
+                    controlClassName="w-full sm:w-32"
+                  >
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={localSettings.agentMaxToolCallsPerTurn ?? 12}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value, 10);
+                        if (!isNaN(value)) {
+                          setLocalSettings({
+                            ...localSettings,
+                            agentMaxToolCallsPerTurn: Math.max(1, Math.min(50, value)),
+                          });
+                        }
+                      }}
+                      className="industrial-input w-full"
+                    />
+                  </SettingsItem>
+
+                  <SettingsItem
+                    label={t('settings.agent.requestTimeout')}
+                    description={t('settings.agent.requestTimeoutDesc')}
+                    controlClassName="w-full sm:w-32"
+                  >
+                    <input
+                      type="number"
+                      min={15}
+                      max={600}
+                      value={localSettings.agentRequestTimeoutSec ?? 120}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value, 10);
+                        if (!isNaN(value)) {
+                          setLocalSettings({
+                            ...localSettings,
+                            agentRequestTimeoutSec: Math.max(15, Math.min(600, value)),
+                          });
+                        }
+                      }}
+                      className="industrial-input w-full"
+                    />
+                  </SettingsItem>
                 </SettingsSection>
 
                 <SettingsSection title={t('settings.agent.commandApproval')}>
@@ -615,8 +724,61 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       }}
                     />
                   </SettingsItem>
+
+                  {savedConnections.length > 0 && (
+                    <SettingsItem
+                      label={t('settings.agent.connectionAllowlist')}
+                      description={t('settings.agent.connectionAllowlistDesc')}
+                      layout="block"
+                    >
+                      <div className="space-y-2">
+                        <IndustrialSelect
+                          value={allowlistConnectionId || savedConnections[0]?.id || ''}
+                          options={savedConnections.map((conn) => ({
+                            value: conn.id,
+                            label: `${conn.name} (${conn.host})`,
+                          }))}
+                          onChange={(value) => setAllowlistConnectionId(value)}
+                          className="w-full sm:w-64"
+                        />
+                        {(() => {
+                          const targetId = allowlistConnectionId || savedConnections[0]?.id || '';
+                          const lines = (localSettings.agentConnectionAllowlist?.[targetId] || []).join('\n');
+                          return (
+                            <textarea
+                              rows={3}
+                              value={lines}
+                              onChange={(e) => {
+                                const rules = e.target.value
+                                  .split('\n')
+                                  .map((line) => line.trim())
+                                  .filter(Boolean);
+                                const nextMap = { ...(localSettings.agentConnectionAllowlist || {}) };
+                                if (rules.length > 0) {
+                                  nextMap[targetId] = rules;
+                                } else {
+                                  delete nextMap[targetId];
+                                }
+                                setLocalSettings({
+                                  ...localSettings,
+                                  agentConnectionAllowlist: nextMap,
+                                });
+                              }}
+                              placeholder={t('settings.agent.connectionAllowlistPlaceholder')}
+                              className="industrial-input w-full font-mono text-xs"
+                              spellCheck={false}
+                            />
+                          );
+                        })()}
+                      </div>
+                    </SettingsItem>
+                  )}
                 </SettingsSection>
               </SettingsPage>
+            )}
+
+            {activeTab === 'keys' && (
+              <SshKeyVaultSettings />
             )}
 
             {activeTab === 'providers' && (
@@ -742,13 +904,18 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     {pwSubmitting ? t('settings.password.submitting') : t('settings.password.submit')}
                   </button>
                 </form>
+                <AuthSecurityPanel />
               </SettingsPage>
+            )}
+
+            {activeTab === 'audit' && (
+              <AuditLogSettings />
             )}
           </div>
         </div>
 
         <div className="industrial-modal-footer shrink-0">
-          {activeTab !== 'mcp' && activeTab !== 'password' && activeTab !== 'providers' && saveFeedback && (
+          {activeTab !== 'mcp' && activeTab !== 'password' && activeTab !== 'providers' && activeTab !== 'keys' && activeTab !== 'audit' && saveFeedback && (
             <div
               role={saveFeedback.error ? 'alert' : 'status'}
               className={`settings-save-feedback ${saveFeedback.error ? 'is-error' : 'is-saved'}`}
@@ -761,12 +928,12 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             onClick={handleClosePanel}
             className="industrial-button-secondary"
           >
-            {activeTab === 'mcp' || activeTab === 'password' || activeTab === 'providers'
+            {activeTab === 'mcp' || activeTab === 'password' || activeTab === 'providers' || activeTab === 'keys' || activeTab === 'audit'
               ? t('common.close')
               : t('common.cancel')}
           </button>
           {activeTab === 'mcp' && <div ref={setMcpFooterContainer} className="contents" />}
-          {activeTab !== 'mcp' && activeTab !== 'password' && activeTab !== 'providers' && (
+          {activeTab !== 'mcp' && activeTab !== 'password' && activeTab !== 'providers' && activeTab !== 'keys' && activeTab !== 'audit' && (
             <button
               type="button"
               onClick={() => void handleSave()}

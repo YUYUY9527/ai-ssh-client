@@ -86,10 +86,24 @@ export const AGENT_TOOL_DEFINITIONS: AIToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'pane_output',
+      description: '读取当前 SSH 终端屏幕上最近的输出内容（自动清理 ANSI 转义码），适合直接查看用户刚遇到的终端报错或日志。',
+      parameters: {
+        type: 'object',
+        properties: {
+          lines: { type: 'number', description: '读取末尾行数，默认 120，最多 500' },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 /** 只读工具集合：不需要审批。 */
-export const AGENT_READ_ONLY_TOOLS = new Set(['list_dir', 'read_file', 'search_files']);
+export const AGENT_READ_ONLY_TOOLS = new Set(['list_dir', 'read_file', 'search_files', 'pane_output']);
 
 /** 写操作工具：需要审批（写文件）。 */
 export const AGENT_WRITE_TOOLS = new Set(['write_file']);

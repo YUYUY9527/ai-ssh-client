@@ -15,8 +15,9 @@ const ENV_SALT = 'ai-ssh-client-web-secret-v1';
 /** 密钥文件名（位于 data 目录，权限 0600）。 */
 const KEY_FILE = 'secret.key';
 
-/** 需要加密落盘的字段：连接凭据 + AI 供应商密钥。 */
+/** 需要加密落盘的字段：连接凭据 + 独立密钥库 + AI 供应商密钥。 */
 const CONNECTION_SECRET_FIELDS = ['password', 'privateKey', 'passphrase'];
+const SSH_KEY_SECRET_FIELDS = ['privateKey', 'passphrase'];
 const PROVIDER_SECRET_FIELDS = ['apiKey'];
 
 function isEncrypted(value) {
@@ -190,7 +191,7 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     });
   }
 
-  /** 写盘前：加密连接凭据与 AI 密钥。 */
+  /** 写盘前：加密连接凭据、独立密钥库与 AI 密钥。 */
   function encryptStore(store) {
     if (!store || typeof store !== 'object') {
       return store;
@@ -198,6 +199,7 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     return {
       ...store,
       connections: mapConnectionSecrets(store.connections, encrypt),
+      ...(Array.isArray(store.sshKeys) ? { sshKeys: mapFields(store.sshKeys, SSH_KEY_SECRET_FIELDS, encrypt) } : {}),
       aiProviders: mapFields(store.aiProviders, PROVIDER_SECRET_FIELDS, encrypt),
     };
   }
@@ -225,6 +227,7 @@ function createSecretStore({ dataDir, passphrase } = {}) {
     return {
       ...store,
       connections: mapConnectionSecrets(store.connections, decryptPreserving),
+      ...(Array.isArray(store.sshKeys) ? { sshKeys: mapFields(store.sshKeys, SSH_KEY_SECRET_FIELDS, decryptPreserving) } : {}),
       aiProviders: mapFields(store.aiProviders, PROVIDER_SECRET_FIELDS, decryptPreserving),
     };
   }

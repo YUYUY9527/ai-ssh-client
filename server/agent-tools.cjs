@@ -18,6 +18,48 @@ const MAX_LIST_ENTRIES = 500;
 const MAX_SEARCH_RESULTS = 100;
 const MAX_SEARCH_DEPTH = 4;
 const MAX_SEARCH_FILE_BYTES = 64 * 1024;
+const MAX_PANE_OUTPUT_BYTES = 32 * 1024;
+const DEFAULT_PANE_LINES = 120;
+const MAX_PANE_LINES = 500;
+
+/** 去除常见 ANSI/OSC 控制序列，避免终端转义码污染模型上下文。 */
+function stripAnsiSequences(text) {
+  return String(text || '')
+    // OSC 序列（如标题/超链接/Shell Integration）
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, '')
+    // CSI 序列（颜色、光标移动、清屏等）
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    // 其余单字节 ESC 控制码
+    .replace(/\u001b[@-Z\\-_]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
+/**
+ * 读取当前终端会话最近的屏幕/缓冲输出（只读工具 pane_output）。
+ * 返回清理 ANSI 后的末尾 N 行，并限制最大字节数。
+ */
+function readPaneOutput(outputBuffer, options = {}) {
+  const maxLines = Math.min(Math.max(Number(options.lines) || DEFAULT_PANE_LINES, 1), MAX_PANE_LINES);
+  const maxBytes = Math.min(Math.max(Number(options.maxBytes) || MAX_PANE_OUTPUT_BYTES, 256), MAX_PANE_OUTPUT_BYTES);
+  const cleaned = stripAnsiSequences(outputBuffer || '');
+  const allLines = cleaned ? cleaned.split('\n') : [];
+  const sliced = allLines.slice(-maxLines);
+  let content = sliced.join('\n');
+  let truncated = allLines.length > sliced.length;
+  if (Buffer.byteLength(content, 'utf8') > maxBytes) {
+    // 保留尾部最新输出
+    const buf = Buffer.from(content, 'utf8');
+    content = buf.subarray(buf.length - maxBytes).toString('utf8');
+    truncated = true;
+  }
+  return {
+    lines: sliced.length,
+    totalLines: allLines.length,
+    truncated,
+    content,
+  };
+}
 
 function normalizeRemotePath(value) {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -305,14 +347,17 @@ module.exports = {
   MAX_LIST_ENTRIES,
   MAX_SEARCH_RESULTS,
   MAX_SEARCH_DEPTH,
+  MAX_PANE_OUTPUT_BYTES,
   normalizeRemotePath,
   resolveInsideRoot,
   ensureInsideRoot,
   realpathSafe,
+  stripAnsiSequences,
+  readPaneOutput,
   listDir,
   readFileText,
   writeFileText,
   previewWriteFile,
   searchFiles,
-  TOOL_NAMES: ['list_dir', 'read_file', 'search_files', 'write_file'],
+  TOOL_NAMES: ['list_dir', 'read_file', 'search_files', 'write_file', 'pane_output'],
 };

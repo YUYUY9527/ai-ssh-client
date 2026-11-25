@@ -1,0 +1,21 @@
+{
+  "name": "AI SSH Client",
+  "short_name": "AI SSH",
+  "description": "Self-hosted Web SSH, SFTP, Docker & AI Operations Workbench",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080c10",
+  "theme_color": "#0f151b",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

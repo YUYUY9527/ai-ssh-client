@@ -2,7 +2,8 @@ const path = require('node:path');
 
 const packageJson = require('../../package.json');
 const { createHostTrust } = require('../host-trust.cjs');
-const { readSftpTextFile } = require('../sftp-items.cjs');
+const { readSftpTextFile, writeSftpTextFile } = require('../sftp-items.cjs');
+const { previewWriteFile } = require('../agent-tools.cjs');
 const { createAuditLog } = require('./audit.cjs');
 const {
   createConfigStore,
@@ -219,9 +220,18 @@ function createServices({ env = process.env, deps = {} } = {}) {
     };
   }
 
+  function assertPathAllowed(remotePath, connection) {
+    if (typeof policy.checkPathAllowed !== 'function') return;
+    const verdict = policy.checkPathAllowed(remotePath, connection);
+    if (!verdict.allowed) {
+      throw toolError(verdict.reason, verdict.code || 'path-forbidden');
+    }
+  }
+
   async function listDirectory({ connection_id: connectionKey, path: remotePath }) {
     const connection = resolveConnection(config.read(), connectionKey);
     const requested = String(remotePath || '.').trim() || '.';
+    assertPathAllowed(requested, connection);
     const entries = await pool.list(connection.id, requested);
     const sorted = entries
       .map((entry) => ({
@@ -249,6 +259,7 @@ function createServices({ env = process.env, deps = {} } = {}) {
     if (!requested) {
       throw toolError('path 不能为空', 'invalid-argument');
     }
+    assertPathAllowed(requested, connection);
     const attributes = await pool.stat(connection.id, requested);
     return {
       connection: connectionRef(connection),
@@ -263,6 +274,7 @@ function createServices({ env = process.env, deps = {} } = {}) {
     if (!requested) {
       throw toolError('path 不能为空', 'invalid-argument');
     }
+    assertPathAllowed(requested, connection);
     const requestedMax = Number(maxBytes);
     const limit = Number.isFinite(requestedMax) && requestedMax > 0
       ? Math.min(Math.round(requestedMax), policy.maxReadBytes)
@@ -282,6 +294,61 @@ function createServices({ env = process.env, deps = {} } = {}) {
     };
   }
 
+  async function writeFile({ connection_id: connectionKey, path: remotePath, content, dry_run: dryRun = false }) {
+    const connection = resolveConnection(config.read(), connectionKey);
+    const requested = String(remotePath || '').trim();
+    if (!requested) {
+      throw toolError('path 不能为空', 'invalid-argument');
+    }
+    if (typeof content !== 'string') {
+      throw toolError('content 必须是字符串', 'invalid-argument');
+    }
+    if (!policy.allowWrite && !dryRun) {
+      audit.record({
+        tool: 'sftp_write_text',
+        connection: connection.id,
+        host: connection.host,
+        path: requested,
+        outcome: 'blocked',
+        code: 'write-disabled',
+      });
+      throw toolError('MCP 文件写入未开启。请在 Web 设置 → MCP 中启用 allowWrite，或设置 MCP_ALLOW_WRITE=1。', 'write-disabled');
+    }
+    assertPathAllowed(requested, connection);
+
+    if (dryRun) {
+      const preview = await pool.withSftp(
+        connection.id,
+        (sftp) => previewWriteFile(sftp, { root: '/', path: requested, content }),
+      );
+      return {
+        connection: connectionRef(connection),
+        dryRun: true,
+        ...preview,
+      };
+    }
+
+    await pool.withSftp(
+      connection.id,
+      (sftp) => writeSftpTextFile(sftp, requested, content),
+    );
+    const bytes = Buffer.byteLength(content, 'utf8');
+    audit.record({
+      tool: 'sftp_write_text',
+      connection: connection.id,
+      host: connection.host,
+      path: requested,
+      bytes,
+      outcome: 'ok',
+    });
+    return {
+      connection: connectionRef(connection),
+      path: requested,
+      bytes,
+      written: true,
+    };
+  }
+
   function close() {
     pool.closeAll();
   }
@@ -297,6 +364,7 @@ function createServices({ env = process.env, deps = {} } = {}) {
     listDirectory,
     statPath,
     readFile,
+    writeFile,
     close,
   };
 }

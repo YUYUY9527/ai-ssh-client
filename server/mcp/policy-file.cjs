@@ -26,7 +26,17 @@ const LIMIT_BOUNDS = Object.freeze({
   maxReadBytes: { default: 256 * 1024, min: 1024, max: 1024 * 1024 },
 });
 
-const POLICY_KEYS = ['defaultMode', 'trustOnFirstUse', 'connections', 'commands', 'limits', 'audit'];
+const POLICY_KEYS = [
+  'defaultMode',
+  'trustOnFirstUse',
+  'allowWrite',
+  'connections',
+  'connectionRoots',
+  'connectionCommandPrefixes',
+  'commands',
+  'limits',
+  'audit',
+];
 const COMMAND_KEYS = ['deny', 'exceptions'];
 const AUDIT_KEYS = ['enabled'];
 const LIMIT_KEYS = Object.keys(LIMIT_BOUNDS);
@@ -140,6 +150,31 @@ function normalizePolicy(input) {
   }
   if (source.trustOnFirstUse !== undefined) {
     policy.trustOnFirstUse = validateBoolean(source.trustOnFirstUse, 'trustOnFirstUse');
+  }
+  if (source.allowWrite !== undefined) {
+    policy.allowWrite = validateBoolean(source.allowWrite, 'allowWrite');
+  }
+
+  if (source.connectionRoots !== undefined) {
+    assertObject(source.connectionRoots, 'connectionRoots');
+    const rootsMap = {};
+    for (const [key, list] of Object.entries(source.connectionRoots)) {
+      const k = String(key).trim();
+      if (!k) throw policyError('connectionRoots 的键不能为空');
+      rootsMap[k] = validateStringArray(list, `connectionRoots["${k}"]`, { maxItems: 50, maxLength: 1024 });
+    }
+    policy.connectionRoots = rootsMap;
+  }
+
+  if (source.connectionCommandPrefixes !== undefined) {
+    assertObject(source.connectionCommandPrefixes, 'connectionCommandPrefixes');
+    const prefixMap = {};
+    for (const [key, list] of Object.entries(source.connectionCommandPrefixes)) {
+      const k = String(key).trim();
+      if (!k) throw policyError('connectionCommandPrefixes 的键不能为空');
+      prefixMap[k] = validateStringArray(list, `connectionCommandPrefixes["${k}"]`, { maxItems: 100, maxLength: 512 });
+    }
+    policy.connectionCommandPrefixes = prefixMap;
   }
 
   if (source.connections !== undefined) {

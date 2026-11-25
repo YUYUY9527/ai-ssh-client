@@ -1,11 +1,13 @@
 import { lazy, Suspense, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { AlertCircle, CheckCircle2, FolderOpen, KeyRound, Loader2, Wifi } from 'lucide-react';
 
-import type { AppSettings, CommandSuggestion, HostTrustPromptEvent, SSHConnection } from '../../shared/types';
+import type { AppSettings, CommandSuggestion, HostTrustPromptEvent, SSHConnection, SshKeyboardInteractivePrompt } from '../../shared/types';
 import { Modal } from '../shared-ui/Modal';
 import { ConfirmDialog } from '../shared-ui/ConfirmDialog';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
 import { ConnectionAdvancedFields } from '../components/ConnectionAdvancedFields';
+import { KeyboardInteractiveModal } from '../components/KeyboardInteractiveModal';
+import { flattenGroupOptions } from '../connection/group-tree';
 import { useConnectionGroupStore } from '../store/useConnectionGroupStore';
 
 const CommandApproval = lazy(async () => {
@@ -36,8 +38,9 @@ interface ModalHostProps {
   isSettingsOpen: boolean;
   pendingCommand: CommandSuggestion | null;
   pendingHostTrust: HostTrustPromptEvent | null;
+  pendingKeyboardPrompt?: SshKeyboardInteractivePrompt | null;
   settings: AppSettings;
-  settingsInitialTab: 'terminal' | 'ssh' | 'providers' | 'agent' | 'mcp' | 'language' | 'password';
+  settingsInitialTab: 'terminal' | 'ssh' | 'keys' | 'providers' | 'agent' | 'mcp' | 'language' | 'password' | 'audit';
   testingConnection: boolean;
   translate: (key: string, params?: Record<string, string | number>) => string;
   onApproveCommand: () => void;
@@ -47,6 +50,8 @@ interface ModalHostProps {
   onRejectCommand: () => void;
   onAcceptHostTrust: () => void;
   onRejectHostTrust: () => void;
+  onSubmitKeyboardPrompt?: (requestId: string, answers: string[]) => void;
+  onCancelKeyboardPrompt?: (requestId: string) => void;
   onSaveConnection: () => void;
   onSaveSettings: (settings: AppSettings) => Promise<void>;
   onSetConnectionTestResult: Dispatch<SetStateAction<ConnectionTestResult | null>>;
@@ -76,6 +81,7 @@ export function ModalHost({
   isSettingsOpen,
   pendingCommand,
   pendingHostTrust,
+  pendingKeyboardPrompt = null,
   settings,
   settingsInitialTab,
   testingConnection,
@@ -87,6 +93,8 @@ export function ModalHost({
   onRejectCommand,
   onAcceptHostTrust,
   onRejectHostTrust,
+  onSubmitKeyboardPrompt,
+  onCancelKeyboardPrompt,
   onSaveConnection,
   onSaveSettings,
   onSetConnectionTestResult,
@@ -312,7 +320,7 @@ export function ModalHost({
                     value={editingConnection.groupId || ''}
                     options={[
                       { value: '', label: translate('features.connectionGroups.noGroup') },
-                      ...groups.map((group) => ({ value: group.id, label: group.name })),
+                      ...flattenGroupOptions(groups).map((option) => ({ value: option.id, label: option.label })),
                     ]}
                     onChange={(value) => onChangeEditingConnection((previous) => (
                       previous ? { ...previous, groupId: value || undefined } : null
@@ -430,6 +438,15 @@ export function ModalHost({
             onReject={onRejectHostTrust}
           />
         </Suspense>
+      )}
+
+      {pendingKeyboardPrompt && onSubmitKeyboardPrompt && onCancelKeyboardPrompt && (
+        <KeyboardInteractiveModal
+          prompt={pendingKeyboardPrompt}
+          translate={translate}
+          onSubmit={onSubmitKeyboardPrompt}
+          onCancel={onCancelKeyboardPrompt}
+        />
       )}
     </>
   );

@@ -253,13 +253,14 @@ export function PortForwardButton({ connectionId, translate }: PortForwardButton
                         {rule.label || rule.id}
                       </span>
                       <span className="shrink-0 rounded bg-surface-hover px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-fg-secondary">
-                        {rule.type === 'dynamic' ? 'SOCKS5' : 'LOCAL'}
+                        {rule.type === 'dynamic' ? 'SOCKS5' : rule.type === 'remote' ? 'REMOTE' : 'LOCAL'}
                       </span>
                     </div>
                     <div className="break-all font-mono text-[11px] text-fg-muted tabular-nums">
                       {rule.bindHost || '127.0.0.1'}:{running && runtime?.bindPort ? runtime.bindPort : rule.bindPort || 0}
                       {running && rule.bindPort === 0 ? <span className="ml-1 text-fg-subtle">{translate('features.portForward.autoPort')}</span> : null}
                       {rule.type === 'local' && rule.targetHost ? ` → ${rule.targetHost}:${rule.targetPort || 0}` : ''}
+                      {rule.type === 'remote' && rule.targetHost ? ` ← ${rule.targetHost}:${rule.targetPort || 0}` : ''}
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span

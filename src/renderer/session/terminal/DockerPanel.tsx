@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, ArrowDownCircle, Box, ChevronDown, Container, Copy, Info, Layers3, Loader2, MoreHorizontal, Play, Power, RefreshCw, RotateCcw, ScrollText, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
-import type { DockerContainerDetail, DockerContainerSummary, DockerPruneTarget } from '../../../shared/ipc-types';
+import { Activity, ArrowDownCircle, Box, ChevronDown, Container, Copy, Database, FileCode2, HardDrive, Info, Layers3, Loader2, MoreHorizontal, Network, Play, Power, RefreshCw, RotateCcw, Save, ScrollText, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
+import type {
+  DockerComposeProject,
+  DockerContainerDetail,
+  DockerContainerStat,
+  DockerContainerSummary,
+  DockerImageItem,
+  DockerNetworkItem,
+  DockerPruneTarget,
+  DockerVolumeItem,
+} from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
 import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
 import { getWebSftpClientId } from '../../lib/web';
@@ -15,6 +24,7 @@ interface DockerPanelProps {
 
 type ActionKind = 'start' | 'stop' | 'restart' | 'update' | 'recreate' | 'kill' | 'remove';
 type ContainerFilter = 'all' | 'running' | 'stopped';
+type DockerTab = 'containers' | 'images' | 'volumes' | 'networks' | 'compose';
 
 interface RowMenuState {
   container: DockerContainerSummary;
@@ -83,6 +93,58 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [execTarget, setExecTarget] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [containerFilter, setContainerFilter] = useState<ContainerFilter>('all');
+  const [activeTab, setActiveTab] = useState<DockerTab>('containers');
+  const [statsById, setStatsById] = useState<Record<string, DockerContainerStat>>({});
+  const [images, setImages] = useState<DockerImageItem[]>([]);
+  const [volumes, setVolumes] = useState<DockerVolumeItem[]>([]);
+  const [networks, setNetworks] = useState<DockerNetworkItem[]>([]);
+  const [composeProjects, setComposeProjects] = useState<DockerComposeProject[]>([]);
+  const [composeEditor, setComposeEditor] = useState<{ project: string; path: string; content: string; saving: boolean } | null>(null);
+  const [resourceLoading, setResourceLoading] = useState(false);
+
+  const loadResourceTab = useCallback(async (tab: DockerTab) => {
+    if (tab === 'containers') {
+      if (window.electronAPI?.getDockerStats) {
+        const res = await window.electronAPI.getDockerStats(connectionId);
+        if (res.success) {
+          const next: Record<string, DockerContainerStat> = {};
+          for (const stat of res.data.stats || []) {
+            if (stat.id) next[stat.id.slice(0, 12)] = stat;
+            if (stat.name) next[stat.name] = stat;
+          }
+          setStatsById(next);
+        }
+      }
+      return;
+    }
+    setResourceLoading(true);
+    try {
+      if (tab === 'images' && window.electronAPI?.listDockerImages) {
+        const res = await window.electronAPI.listDockerImages(connectionId);
+        if (res.success) setImages(res.data.images || []);
+        else setError(res.error);
+      } else if (tab === 'volumes' && window.electronAPI?.listDockerVolumes) {
+        const res = await window.electronAPI.listDockerVolumes(connectionId);
+        if (res.success) setVolumes(res.data.volumes || []);
+        else setError(res.error);
+      } else if (tab === 'networks' && window.electronAPI?.listDockerNetworks) {
+        const res = await window.electronAPI.listDockerNetworks(connectionId);
+        if (res.success) setNetworks(res.data.networks || []);
+        else setError(res.error);
+      } else if (tab === 'compose' && window.electronAPI?.listDockerComposeProjects) {
+        const res = await window.electronAPI.listDockerComposeProjects(connectionId);
+        if (res.success) setComposeProjects(res.data.projects || []);
+        else setError(res.error);
+      }
+    } finally {
+      setResourceLoading(false);
+    }
+  }, [connectionId]);
+
+  useEffect(() => {
+    if (!overlay.isActive || available !== true) return;
+    void loadResourceTab(activeTab);
+  }, [activeTab, available, overlay.isActive, loadResourceTab]);
 
   const refresh = useCallback(async () => {
     const api = window.electronAPI?.listDockerContainers;
@@ -577,6 +639,219 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
             }}
           >
             <div className="docker-panel-content">
+              <div className="mb-3 flex flex-wrap items-center gap-1 border-b border-line-subtle pb-2">
+                {([
+                  { id: 'containers', label: translate('terminal.docker.tabs.containers'), icon: Container },
+                  { id: 'images', label: translate('terminal.docker.tabs.images'), icon: HardDrive },
+                  { id: 'volumes', label: translate('terminal.docker.tabs.volumes'), icon: Database },
+                  { id: 'networks', label: translate('terminal.docker.tabs.networks'), icon: Network },
+                  { id: 'compose', label: translate('terminal.docker.tabs.compose'), icon: FileCode2 },
+                ] as const).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium transition-colors ${
+                      activeTab === tab.id
+                        ? 'bg-accent-muted text-accent'
+                        : 'text-fg-muted hover:bg-surface-hover hover:text-fg'
+                    }`}
+                  >
+                    <tab.icon className="h-3.5 w-3.5" />
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === 'images' && (
+                <div className="space-y-2">
+                  {resourceLoading ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
+                  ) : images.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('terminal.docker.empty')}</div>
+                  ) : images.map((img) => (
+                    <div key={`${img.id}-${img.repository}-${img.tag}`} className="flex items-center justify-between gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono font-medium text-fg">{img.repository}:{img.tag}</div>
+                        <div className="mt-0.5 font-mono text-[11px] text-fg-muted">{img.id} · {img.size} · {img.createdSince}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.electronAPI?.removeDockerImage) return;
+                          const res = await window.electronAPI.removeDockerImage(connectionId, img.id, false);
+                          if (!res.success) setError(res.error);
+                          else await loadResourceTab('images');
+                        }}
+                        className="icon-button h-7 w-7 text-danger"
+                        title={translate('common.delete')}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeTab === 'volumes' && (
+                <div className="space-y-2">
+                  {resourceLoading ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
+                  ) : volumes.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('terminal.docker.empty')}</div>
+                  ) : volumes.map((vol) => (
+                    <div key={vol.name} className="flex items-center justify-between gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono font-medium text-fg">{vol.name}</div>
+                        <div className="mt-0.5 truncate font-mono text-[11px] text-fg-muted">{vol.driver}{vol.mountpoint ? ` · ${vol.mountpoint}` : ''}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.electronAPI?.removeDockerVolume) return;
+                          const res = await window.electronAPI.removeDockerVolume(connectionId, vol.name);
+                          if (!res.success) setError(res.error);
+                          else await loadResourceTab('volumes');
+                        }}
+                        className="icon-button h-7 w-7 text-danger"
+                        title={translate('common.delete')}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeTab === 'networks' && (
+                <div className="space-y-2">
+                  {resourceLoading ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
+                  ) : networks.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('terminal.docker.empty')}</div>
+                  ) : networks.map((net) => (
+                    <div key={net.id} className="flex items-center justify-between gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono font-medium text-fg">{net.name}</div>
+                        <div className="mt-0.5 font-mono text-[11px] text-fg-muted">{net.id} · {net.driver} · {net.scope}</div>
+                      </div>
+                      {!['bridge', 'host', 'none'].includes(net.name) && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.electronAPI?.removeDockerNetwork) return;
+                            const res = await window.electronAPI.removeDockerNetwork(connectionId, net.id);
+                            if (!res.success) setError(res.error);
+                            else await loadResourceTab('networks');
+                          }}
+                          className="icon-button h-7 w-7 text-danger"
+                          title={translate('common.delete')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeTab === 'compose' && (
+                <div className="space-y-3">
+                  {composeEditor ? (
+                    <div className="space-y-2 rounded-md border border-line bg-surface p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-fg">{composeEditor.project}</div>
+                          <div className="truncate font-mono text-[11px] text-fg-muted">{composeEditor.path}</div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setComposeEditor(null)}
+                            className="industrial-button-secondary px-2.5 py-1 text-xs"
+                          >
+                            {translate('common.cancel')}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={composeEditor.saving}
+                            onClick={async () => {
+                              if (!window.electronAPI?.saveDockerComposeFile) return;
+                              setComposeEditor((prev) => (prev ? { ...prev, saving: true } : null));
+                              try {
+                                const res = await window.electronAPI.saveDockerComposeFile(
+                                  connectionId,
+                                  composeEditor.path,
+                                  composeEditor.content,
+                                  composeEditor.project,
+                                );
+                                if (!res.success) {
+                                  setError(res.error);
+                                } else {
+                                  setNotice(translate('terminal.docker.composeApplied'));
+                                  setComposeEditor(null);
+                                  await refresh();
+                                  await loadResourceTab('compose');
+                                }
+                              } finally {
+                                setComposeEditor((prev) => (prev ? { ...prev, saving: false } : null));
+                              }
+                            }}
+                            className="industrial-button-primary px-2.5 py-1 text-xs"
+                          >
+                            <Save className="h-3.5 w-3.5" />
+                            {translate('terminal.docker.composeSaveAndUp')}
+                          </button>
+                        </div>
+                      </div>
+                      <textarea
+                        rows={16}
+                        value={composeEditor.content}
+                        onChange={(e) => setComposeEditor((prev) => (prev ? { ...prev, content: e.target.value } : null))}
+                        className="industrial-input w-full font-mono text-xs"
+                        spellCheck={false}
+                      />
+                    </div>
+                  ) : resourceLoading ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
+                  ) : composeProjects.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-fg-muted">{translate('terminal.docker.empty')}</div>
+                  ) : composeProjects.map((proj) => (
+                    <div key={proj.name} className="flex items-center justify-between gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-semibold text-fg">{proj.name}</div>
+                        <div className="mt-0.5 truncate font-mono text-[11px] text-fg-muted">{proj.status} · {proj.configFiles}</div>
+                      </div>
+                      {proj.configFiles && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.electronAPI?.readDockerComposeFile) return;
+                            const res = await window.electronAPI.readDockerComposeFile(connectionId, proj.configFiles);
+                            if (!res.success) {
+                              setError(res.error);
+                            } else {
+                              setComposeEditor({
+                                project: proj.name,
+                                path: res.data.path,
+                                content: res.data.content,
+                                saving: false,
+                              });
+                            }
+                          }}
+                          className="industrial-button-secondary px-2.5 py-1 text-xs"
+                        >
+                          <FileCode2 className="h-3.5 w-3.5" />
+                          {translate('terminal.docker.editCompose')}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeTab === 'containers' && (
+              <>
               <div className="docker-overview">
                 <button type="button" aria-pressed={containerFilter === 'all'} className={`docker-stat-tile ${containerFilter === 'all' ? 'is-active' : ''}`} onClick={() => setContainerFilter('all')}>
                   <span className="docker-stat-icon"><Layers3 className="h-4 w-4" /></span>
@@ -646,6 +921,14 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                           <span className="docker-status-dot" />{container.state}
                         </span>
                         <span className="docker-runtime">{container.runningFor || container.status}</span>
+                        {(() => {
+                          const stat = statsById[container.id.slice(0, 12)] || statsById[container.name];
+                          return stat ? (
+                            <span className="font-mono text-[10px] text-accent tabular-nums">
+                              CPU {stat.cpuPerc} · MEM {stat.memPerc}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                       <div className="docker-actions">
                         <button
@@ -712,6 +995,8 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                   );
                 })}
               </div>
+              </>
+              )}
             </div>
           </div>
         )}

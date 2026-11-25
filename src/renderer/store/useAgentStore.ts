@@ -270,6 +270,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     approveMediumRisk: true,
     readOnlyMode: false,
     contextBudgetChars: 120000,
+    reviewerProviderId: undefined,
+    maxToolCallsPerTurn: 12,
+    requestTimeoutSec: 120,
+    connectionAllowlist: {},
   },
   updateConfig: (config) => set((state) => ({
     config: { ...state.config, ...config }
@@ -297,6 +301,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         enabled: settings.agentEnabled ?? true,
         semanticSummaryContextLength: settings.agentSemanticSummaryContextLength ?? 12000,
         contextBudgetChars: settings.agentContextBudgetChars ?? 120000,
+        reviewerProviderId: settings.agentReviewerProviderId || undefined,
+        maxToolCallsPerTurn: Math.max(1, Math.min(50, Math.floor(settings.agentMaxToolCallsPerTurn ?? 12))),
+        requestTimeoutSec: Math.max(15, Math.min(600, Math.floor(settings.agentRequestTimeoutSec ?? 120))),
+        connectionAllowlist: settings.agentConnectionAllowlist ?? {},
         ...policyFlags,
       },
     };

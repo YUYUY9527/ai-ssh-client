@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, Download, Palette, Search, SlidersHorizontal, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { Bot, Circle, Download, Film, MoreVertical, Palette, Search, SlidersHorizontal, Square, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { ServerMonitorButton } from './ServerMonitorButton';
 import { PortForwardButton } from './PortForwardButton';
 import { BroadcastButton } from './BroadcastButton';
@@ -25,6 +25,9 @@ interface TerminalToolbarProps {
   onCloseThemeSelector?: () => void;
   onSelectTheme: (themeKey: string) => void;
   onSaveLog: () => void;
+  isRecording?: boolean;
+  onToggleRecord?: () => void;
+  onOpenCastPlayer?: () => void;
 }
 
 /** Terminal toolbar for font size, search and theme. */
@@ -46,14 +49,21 @@ export function TerminalToolbar({
   onCloseThemeSelector,
   onSelectTheme,
   onSaveLog,
+  isRecording = false,
+  onToggleRecord,
+  onOpenCastPlayer,
 }: TerminalToolbarProps) {
   const [compactOpen, setCompactOpen] = useState(false);
   const [themeMenuPos, setThemeMenuPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const [sessionMenuPos, setSessionMenuPos] = useState<{ top: number; left: number } | null>(null);
   const toolbarContentId = useId();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const themeTriggerRef = useRef<HTMLButtonElement>(null);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+  const sessionTriggerRef = useRef<HTMLButtonElement>(null);
+  const sessionMenuRef = useRef<HTMLDivElement>(null);
 
   const closeThemeMenu = () => {
     if (!isThemeSelectorOpen) return;
@@ -144,6 +154,58 @@ export function TerminalToolbar({
     };
   }, [isThemeSelectorOpen]);
 
+  // 会话操作列表同样通过 Portal 挂载到 body，避免被终端容器或窄分屏裁切
+  useLayoutEffect(() => {
+    if (!sessionMenuOpen) {
+      setSessionMenuPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const btn = sessionTriggerRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const menuWidth = 184;
+      const margin = 8;
+      const left = Math.max(margin, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - margin));
+      const spaceBelow = window.innerHeight - rect.bottom - margin - 6;
+      const openUp = spaceBelow < 140 && rect.top > spaceBelow;
+      const top = openUp ? Math.max(margin, rect.top - 6 - 124) : rect.bottom + 6;
+      setSessionMenuPos({ top, left });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [sessionMenuOpen]);
+
+  useEffect(() => {
+    if (!sessionMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (sessionTriggerRef.current?.contains(target) || sessionMenuRef.current?.contains(target)) {
+        return;
+      }
+      setSessionMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setSessionMenuOpen(false);
+        sessionTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [sessionMenuOpen]);
+
   return (
     <div ref={toolbarRef} className={`terminal-toolbar ${compactOpen ? 'is-open' : ''}`}>
       <button
@@ -193,16 +255,6 @@ export function TerminalToolbar({
         <span className="terminal-toolbar-divider" aria-hidden="true" />
         <button
           type="button"
-          onClick={onSaveLog}
-          className="terminal-control"
-          title={translate('terminal.saveLog')}
-          aria-label={translate('terminal.saveLog')}
-          data-terminal-save-log
-        >
-          <Download className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
           onClick={onDecreaseFontSize}
           className="terminal-control"
           title={translate('terminal.zoomOut')}
@@ -236,7 +288,10 @@ export function TerminalToolbar({
           <button
             ref={themeTriggerRef}
             type="button"
-            onClick={onToggleThemeSelector}
+            onClick={() => {
+              setSessionMenuOpen(false);
+              onToggleThemeSelector();
+            }}
             className={`terminal-control ${isThemeSelectorOpen ? 'terminal-control-active' : ''}`}
             title={translate('terminal.changeTheme')}
             aria-label={translate('terminal.changeTheme')}
@@ -278,6 +333,99 @@ export function TerminalToolbar({
                   </div>
                 </button>
               ))}
+            </div>,
+            document.body,
+          )}
+        </div>
+
+        <div className="relative">
+          <button
+            ref={sessionTriggerRef}
+            type="button"
+            onClick={() => {
+              closeThemeMenu();
+              setSessionMenuOpen((open) => !open);
+            }}
+            className={`terminal-control relative ${sessionMenuOpen || isRecording ? 'terminal-control-active' : ''}`}
+            title={translate('terminal.sessionActions')}
+            aria-label={translate('terminal.sessionActions')}
+            aria-haspopup="menu"
+            aria-expanded={sessionMenuOpen}
+            data-terminal-session-menu-trigger
+          >
+            <MoreVertical className="h-4 w-4" />
+            {isRecording && (
+              <span
+                className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-danger animate-pulse"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+
+          {sessionMenuOpen && sessionMenuPos && typeof document !== 'undefined' && createPortal(
+            <div
+              ref={sessionMenuRef}
+              role="menu"
+              data-terminal-toolbar-popup="true"
+              className="app-popover fixed top-auto z-overlay mt-0 w-[184px] py-1"
+              style={{
+                top: sessionMenuPos.top,
+                left: sessionMenuPos.left,
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setSessionMenuOpen(false);
+                  onSaveLog();
+                }}
+                className="app-popover-row text-xs text-fg-secondary"
+                data-terminal-save-log
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Download className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
+                  <span className="truncate">{translate('terminal.saveLog')}</span>
+                </span>
+              </button>
+              {onToggleRecord && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setSessionMenuOpen(false);
+                    onToggleRecord();
+                  }}
+                  className={`app-popover-row text-xs ${isRecording ? 'text-danger-fg' : 'text-fg-secondary'}`}
+                  data-terminal-toggle-record
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {isRecording
+                      ? <Square className="h-3.5 w-3.5 shrink-0 fill-current text-danger" />
+                      : <Circle className="h-3.5 w-3.5 shrink-0 text-fg-muted" />}
+                    <span className="truncate">
+                      {isRecording ? translate('features.recorder.stopRecord') : translate('features.recorder.startRecord')}
+                    </span>
+                  </span>
+                </button>
+              )}
+              {onOpenCastPlayer && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setSessionMenuOpen(false);
+                    onOpenCastPlayer();
+                  }}
+                  className="app-popover-row text-xs text-fg-secondary"
+                  data-terminal-cast-player
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Film className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
+                    <span className="truncate">{translate('features.recorder.playerTitle')}</span>
+                  </span>
+                </button>
+              )}
             </div>,
             document.body,
           )}

@@ -20,7 +20,7 @@ import type {
   ThinkingStep,
 } from '../../shared/types';
 import { getRememberedCommandDecision } from '../assistant/risk-approval-memory';
-import { needsApprovalForRisk } from './runtime/policy';
+import { isCommandAllowlisted, needsApprovalForRisk, reviewCommandWithModel } from './runtime/policy';
 import { extractKeyOutput, normalizeTerminalText, stripAnsi } from './runtime/text';
 
 // 保持对外导出签名不变：extractKeyOutput 仍可从 agent-runtime 引入。
@@ -98,7 +98,7 @@ export interface AgentRuntimeServices {
   agentCancelExec?: (connectionId: string) => Promise<IPCResult> | void;
   runAgentTool?: (
     connectionId: string,
-    tool: 'list_dir' | 'read_file' | 'search_files' | 'write_file',
+    tool: 'list_dir' | 'read_file' | 'search_files' | 'write_file' | 'pane_output',
     args?: Record<string, unknown>,
     root?: string,
   ) => Promise<IPCResult<unknown>>;
@@ -262,6 +262,8 @@ export class AgentRuntime {
   private tokenUsage = 0;
   /** 本任务已进行的决策轮数。 */
   private roundCount = 0;
+  /** 本任务已执行的工具/命令调用次数。 */
+  private toolCallCount = 0;
   /** 任务开始时间，用于墙钟预算。 */
   private taskStartedAt = 0;
 
@@ -440,6 +442,7 @@ export class AgentRuntime {
     this.lastExecStatus = null;
     this.tokenUsage = 0;
     this.roundCount = 0;
+    this.toolCallCount = 0;
     this.taskStartedAt = Date.now();
     this.seenApprovalResult = null;
     this.seenPendingInput = null;
@@ -510,6 +513,10 @@ export class AgentRuntime {
    * 触发后由调用方 `finishTask(false, reason)` 收尾（它会一并取消在途执行）。
    */
   private checkBudget(): string | null {
+    const maxTools = this.snapshot.config.maxToolCallsPerTurn ?? 12;
+    if (maxTools > 0 && this.toolCallCount >= maxTools) {
+      return t('agent.finishReasons.roundLimit', { count: maxTools });
+    }
     if (this.roundCount >= MAX_AGENT_ROUNDS) {
       return t('agent.finishReasons.roundLimit', { count: MAX_AGENT_ROUNDS });
     }
@@ -733,11 +740,49 @@ export class AgentRuntime {
       if (nextAction.remainingToolCalls?.length) {
         this.pendingAgentToolCalls = nextAction.remainingToolCalls;
       }
+      const connectionId = this.taskConnectionId || this.snapshot.activeConnectionId || '';
+      // 按连接白名单命中时直接放行（critical 仅整条精确匹配）
+      if (
+        !nextAction.toolCall
+        && isCommandAllowlisted(
+          nextAction.command,
+          connectionId,
+          this.snapshot.config.connectionAllowlist,
+          nextAction.riskLevel,
+        )
+      ) {
+        await this.runCommand(nextAction.command, capturedVersion);
+        return;
+      }
       // 会话级「记住选择」：按**这条具体命令**匹配（critical 永不记忆，见 risk-approval-memory）
       const remembered = getRememberedCommandDecision(nextAction.command, nextAction.riskLevel);
       if (remembered === 'approved') {
         await this.runCommand(nextAction.command, capturedVersion);
         return;
+      }
+      // 可选独立审核模型：对非 critical 命令做二次自动评估；拒绝或异常时回退人工审批
+      const reviewerId = this.snapshot.config.reviewerProviderId;
+      if (reviewerId && nextAction.riskLevel !== 'critical' && !nextAction.toolCall) {
+        const review = await reviewCommandWithModel({
+          reviewerProviderId: reviewerId,
+          command: nextAction.command,
+          riskLevel: nextAction.riskLevel,
+          userGoal: this.snapshot.currentTask?.userInput,
+          aiChat: this.services.aiChat,
+        });
+        if (!this.isCurrent(capturedVersion)) return;
+        this.actions.addThinkingStep({
+          id: this.generateStepId(),
+          type: 'decision',
+          title: review.approved ? '审核模型放行' : '审核模型转人工确认',
+          content: `${nextAction.command}\n${review.reason}`,
+          timestamp: Date.now(),
+          status: review.approved ? 'completed' : 'failed',
+        });
+        if (review.approved) {
+          await this.runCommand(nextAction.command, capturedVersion);
+          return;
+        }
       }
       // 曾记住「拒绝」时不再直接终结任务：重新询问用户（用户可能改主意，或模型换了个命令）。
       this.status = 'awaitingApproval';
@@ -779,6 +824,7 @@ export class AgentRuntime {
     });
 
     this.markCommandExecuted(command);
+    this.toolCallCount += 1;
 
     // 真实执行耗时：从这里（命令即将下发）到执行结束，而不是「决策步骤」到「执行记录」的本地时间差
     const execStartedAt = Date.now();
@@ -1344,6 +1390,8 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
       frameId: null,
     };
 
+    const requestTimeoutMs = Math.max(15, Math.min(600, this.snapshot.config.requestTimeoutSec ?? 120)) * 1000;
+    let requestTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       const graphInput = {
         providerId: activeProviderId,
@@ -1370,10 +1418,17 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
         },
       };
       const { runAgentRoundGraph } = await import('./agent-flow');
-      const result = await runAgentRoundGraph({
+      const roundPromise = runAgentRoundGraph({
         ...graphInput,
         ...executionHooks,
       });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        requestTimeoutTimer = setTimeout(() => {
+          try { void this.services.cancelAIChat?.(requestId); } catch { /* ignore */ }
+          reject(new Error(`AI request timed out after ${Math.round(requestTimeoutMs / 1000)}s`));
+        }, requestTimeoutMs);
+      });
+      const result = await Promise.race([roundPromise, timeoutPromise]);
       if (!this.isCurrent(capturedVersion)) {
         throw new AbortedByRuntimeError('task version changed');
       }
@@ -1406,6 +1461,7 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
       }
       throw error;
     } finally {
+      if (requestTimeoutTimer) clearTimeout(requestTimeoutTimer);
       this.releaseStreamDisplay(requestId);
       if (this.currentAiRequestId === requestId) {
         this.currentAiRequestId = null;
@@ -1718,9 +1774,10 @@ ${t.finishReason ? `结果:${t.finishReason}` : ''}`;
 
     const result = await run(
       connectionId,
-      call.name as 'list_dir' | 'read_file' | 'search_files' | 'write_file',
+      call.name as 'list_dir' | 'read_file' | 'search_files' | 'write_file' | 'pane_output',
       args,
     );
+    this.toolCallCount += 1;
     if (!result.success) throw new Error(result.error || '工具执行失败');
     return typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2);
   }

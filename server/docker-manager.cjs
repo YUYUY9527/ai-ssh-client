@@ -28,12 +28,40 @@ function shellArg(value) {
   return SAFE_ARG.test(text) ? text : quoteArg(text);
 }
 
-function runDocker(client, args, options = {}) {
-  const command = ['docker', ...args.map(shellArg)].join(' ');
-  return execCommand(client, command, {
+/** 每个 SSH client 缓存是否需要 `sudo -n docker` 提权。 */
+const sudoPrefixCache = new WeakMap();
+
+async function resolveDockerPrefix(client) {
+  if (client && typeof client === 'object' && sudoPrefixCache.has(client)) {
+    return sudoPrefixCache.get(client);
+  }
+  return ['docker'];
+}
+
+async function runDocker(client, args, options = {}) {
+  const prefix = await resolveDockerPrefix(client);
+  const command = [...prefix, ...args.map(shellArg)].join(' ');
+  const result = await execCommand(client, command, {
     timeoutMs: Number(options.timeoutMs || DEFAULT_TIMEOUT_MS),
     maxBytes: options.maxBytes,
   });
+  // 若普通 docker 因权限被拒（非 docker 组），自动探测 `sudo -n docker`
+  if (
+    result.exitCode !== 0
+    && prefix.length === 1
+    && /permission denied|got permission denied/i.test(String(result.stderr || result.output || ''))
+  ) {
+    const sudoCmd = ['sudo', '-n', 'docker', ...args.map(shellArg)].join(' ');
+    const sudoResult = await execCommand(client, sudoCmd, {
+      timeoutMs: Number(options.timeoutMs || DEFAULT_TIMEOUT_MS),
+      maxBytes: options.maxBytes,
+    });
+    if (sudoResult.exitCode === 0) {
+      if (client && typeof client === 'object') sudoPrefixCache.set(client, ['sudo', '-n', 'docker']);
+      return sudoResult;
+    }
+  }
+  return result;
 }
 
 /** `docker ps --format '{{json .}}'` 的 Labels 是 `k=v,k=v` 字符串；拆成对象。 */
@@ -390,6 +418,189 @@ async function pruneDocker(client, target) {
   return { target, reclaimedSpace, output };
 }
 
+/** 采集运行中容器的实时资源统计（CPU / 内存 / 网络 / 磁盘 IO）。 */
+async function containerStats(client) {
+  const result = await runDocker(client, ['stats', '--no-stream', '--format', '{{json .}}'], {
+    timeoutMs: 20000,
+    maxBytes: 2 * 1024 * 1024,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || '').trim() || 'docker stats failed');
+  }
+  const stats = [];
+  for (const line of String(result.output || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const raw = JSON.parse(trimmed);
+      stats.push({
+        id: raw.ID || raw.Container || '',
+        name: raw.Name || '',
+        cpuPerc: raw.CPUPerc || '0.00%',
+        memUsage: raw.MemUsage || '',
+        memPerc: raw.MemPerc || '0.00%',
+        netIO: raw.NetIO || '',
+        blockIO: raw.BlockIO || '',
+        pids: raw.PIDs || '0',
+      });
+    } catch { /* ignore */ }
+  }
+  return { stats };
+}
+
+/** 列出本地镜像。 */
+async function listImages(client) {
+  const result = await runDocker(client, ['images', '--format', '{{json .}}'], { maxBytes: 2 * 1024 * 1024 });
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || '').trim() || 'docker images failed');
+  }
+  const images = [];
+  for (const line of String(result.output || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const raw = JSON.parse(trimmed);
+      images.push({
+        id: raw.ID || '',
+        repository: raw.Repository || '',
+        tag: raw.Tag || '',
+        size: raw.Size || '',
+        createdSince: raw.CreatedSince || raw.CreatedAt || '',
+      });
+    } catch { /* ignore */ }
+  }
+  return { images };
+}
+
+async function removeImage(client, imageId, options = {}) {
+  const args = options.force ? ['rmi', '-f', imageId] : ['rmi', imageId];
+  const result = await runDocker(client, args, { timeoutMs: 30000 });
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || result.output || 'docker rmi failed').trim());
+  }
+  return { imageId, output: String(result.output || '').trim() };
+}
+
+/** 列出数据卷。 */
+async function listVolumes(client) {
+  const result = await runDocker(client, ['volume', 'ls', '--format', '{{json .}}'], { maxBytes: 2 * 1024 * 1024 });
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || '').trim() || 'docker volume ls failed');
+  }
+  const volumes = [];
+  for (const line of String(result.output || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const raw = JSON.parse(trimmed);
+      volumes.push({
+        name: raw.Name || '',
+        driver: raw.Driver || '',
+        mountpoint: raw.Mountpoint || '',
+        scope: raw.Scope || '',
+      });
+    } catch { /* ignore */ }
+  }
+  return { volumes };
+}
+
+async function removeVolume(client, volumeName) {
+  const result = await runDocker(client, ['volume', 'rm', volumeName]);
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || result.output || 'docker volume rm failed').trim());
+  }
+  return { name: volumeName, output: String(result.output || '').trim() };
+}
+
+/** 列出网络。 */
+async function listNetworks(client) {
+  const result = await runDocker(client, ['network', 'ls', '--format', '{{json .}}'], { maxBytes: 2 * 1024 * 1024 });
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || '').trim() || 'docker network ls failed');
+  }
+  const networks = [];
+  for (const line of String(result.output || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const raw = JSON.parse(trimmed);
+      networks.push({
+        id: raw.ID || '',
+        name: raw.Name || '',
+        driver: raw.Driver || '',
+        scope: raw.Scope || '',
+      });
+    } catch { /* ignore */ }
+  }
+  return { networks };
+}
+
+async function removeNetwork(client, networkId) {
+  const result = await runDocker(client, ['network', 'rm', networkId]);
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || result.output || 'docker network rm failed').trim());
+  }
+  return { id: networkId, output: String(result.output || '').trim() };
+}
+
+/** 列出 Docker Compose 项目。 */
+async function listComposeProjects(client) {
+  const result = await runDocker(client, ['compose', 'ls', '-a', '--format', 'json'], { maxBytes: 2 * 1024 * 1024 });
+  if (result.exitCode !== 0) {
+    return { projects: [] };
+  }
+  let parsed = [];
+  try {
+    const raw = JSON.parse(String(result.output || '[]').trim() || '[]');
+    parsed = Array.isArray(raw) ? raw : [];
+  } catch {
+    parsed = [];
+  }
+  return {
+    projects: parsed.map((item) => ({
+      name: String(item.Name || ''),
+      status: String(item.Status || ''),
+      configFiles: String(item.ConfigFiles || ''),
+    })),
+  };
+}
+
+/** 读取远端 docker-compose.yml 内容。 */
+async function readComposeFile(client, configFile) {
+  const target = String(configFile || '').split(',')[0].trim();
+  if (!target || target.includes('\0')) throw new Error('Invalid compose file path');
+  const result = await execCommand(client, `cat -- ${quoteArg(target)}`, { timeoutMs: 15000, maxBytes: 1024 * 1024 });
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || 'Failed to read compose file').trim());
+  }
+  return { path: target, content: result.output || '' };
+}
+
+/** 保存修改后的 docker-compose.yml 并执行 docker compose up -d。 */
+async function saveComposeAndUp(client, configFile, content, projectName) {
+  const target = String(configFile || '').split(',')[0].trim();
+  if (!target || target.includes('\0')) throw new Error('Invalid compose file path');
+  if (typeof content !== 'string') throw new Error('Compose file content is required');
+  const b64 = Buffer.from(content, 'utf8').toString('base64');
+  const writeRes = await execCommand(
+    client,
+    `printf '%s' '${b64}' | base64 -d > ${quoteArg(target)}`,
+    { timeoutMs: 15000 },
+  );
+  if (writeRes.exitCode !== 0) {
+    throw new Error(String(writeRes.stderr || 'Failed to write compose file').trim());
+  }
+  const args = ['compose', '-f', target];
+  if (projectName) args.push('-p', projectName);
+  args.push('up', '-d');
+  const upRes = await runDocker(client, args, { timeoutMs: UPDATE_TIMEOUT_MS, maxBytes: 4 * 1024 * 1024 });
+  const output = `${upRes.output || ''}${upRes.stderr || ''}`.trim();
+  if (upRes.exitCode !== 0) {
+    throw new Error(output || 'docker compose up -d failed');
+  }
+  return { path: target, output };
+}
+
 module.exports = {
   quoteArg,
   parseContainerLines,
@@ -403,6 +614,16 @@ module.exports = {
   recreateContainer,
   removeContainer,
   pruneDocker,
+  containerStats,
+  listImages,
+  removeImage,
+  listVolumes,
+  removeVolume,
+  listNetworks,
+  removeNetwork,
+  listComposeProjects,
+  readComposeFile,
+  saveComposeAndUp,
   ALLOWED_ACTIONS,
   ALLOWED_PRUNE_TARGETS,
 };

@@ -70,8 +70,8 @@ module.exports = {
         tooltip: '10000',
       },
       fontFamily: {
-        sans: ['Inter', 'Geist', 'IBM Plex Sans', 'PingFang SC', 'Segoe UI Variable', 'Microsoft YaHei', 'Segoe UI', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Source Code Pro', 'Consolas', 'monospace'],
+        sans: ['var(--app-font-family)', 'Inter', 'Geist', 'IBM Plex Sans', 'PingFang SC', 'Segoe UI Variable', 'Microsoft YaHei', 'Segoe UI', 'system-ui', 'sans-serif'],
+        mono: ['var(--app-font-mono)', 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Source Code Pro', 'Consolas', 'PingFang SC', 'Microsoft YaHei', 'monospace'],
       },
       borderRadius: {
         sm: 'var(--radius-sm)',

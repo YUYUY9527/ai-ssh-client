@@ -77,6 +77,20 @@ export function McpSettings({ footerContainer }: { footerContainer: HTMLDivEleme
   const [draft, setDraft] = useState<McpPolicyConfig | null>(null);
   const [exceptionsText, setExceptionsText] = useState('');
   const [denyText, setDenyText] = useState('');
+  const [mcpAuditEntries, setMcpAuditEntries] = useState<Array<Record<string, unknown>>>([]);
+  const [mcpAuditLoading, setMcpAuditLoading] = useState(false);
+  const [scopeConnId, setScopeConnId] = useState('');
+
+  const loadMcpAudit = async () => {
+    if (!window.electronAPI?.listMcpAuditLogs) return;
+    setMcpAuditLoading(true);
+    try {
+      const res = await window.electronAPI.listMcpAuditLogs(100);
+      if (res.success) setMcpAuditEntries(res.data.entries || []);
+    } finally {
+      setMcpAuditLoading(false);
+    }
+  };
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -560,6 +574,123 @@ export function McpSettings({ footerContainer }: { footerContainer: HTMLDivEleme
             placeholder={t('settings.mcp.denyRulesPlaceholder')}
             className="industrial-input w-full font-mono text-xs"
           />
+        </div>
+        <div className="mcp-rule-editor">
+          <label className="flex cursor-pointer items-center justify-between gap-2 text-xs text-fg">
+            <div>
+              <strong className="block">{t('settings.mcp.allowWrite')}</strong>
+              <p className="text-[11px] text-fg-muted">{t('settings.mcp.allowWriteDesc')}</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.allowWrite)}
+              onChange={(event) => updateDraft((cur) => ({ ...cur, allowWrite: event.target.checked }))}
+            />
+          </label>
+        </div>
+        {snapshot && snapshot.connections.length > 0 && (
+          <div className="mcp-rule-editor space-y-2">
+            <div className="mcp-rule-heading">
+              <strong>{t('settings.mcp.connectionScopeTitle')}</strong>
+              <p>{t('settings.mcp.connectionScopeDesc')}</p>
+            </div>
+            <select
+              value={scopeConnId || snapshot.connections[0].id}
+              onChange={(event) => setScopeConnId(event.target.value)}
+              className="industrial-input w-full text-xs sm:w-64"
+            >
+              {snapshot.connections.map((conn) => (
+                <option key={conn.id} value={conn.id}>{conn.name} ({conn.host})</option>
+              ))}
+            </select>
+            {(() => {
+              const targetId = scopeConnId || snapshot.connections[0].id;
+              const rootsText = (draft.connectionRoots?.[targetId] || []).join('\n');
+              const prefixesText = (draft.connectionCommandPrefixes?.[targetId] || []).join('\n');
+              return (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div>
+                    <label className="industrial-field-label">{t('settings.mcp.allowedRoots')}</label>
+                    <textarea
+                      rows={3}
+                      value={rootsText}
+                      onChange={(e) => {
+                        const list = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
+                        updateDraft((cur) => {
+                          const next = { ...(cur.connectionRoots || {}) };
+                          if (list.length > 0) next[targetId] = list;
+                          else delete next[targetId];
+                          return { ...cur, connectionRoots: Object.keys(next).length > 0 ? next : undefined };
+                        });
+                      }}
+                      placeholder="/var/log&#10;/etc/nginx"
+                      className="industrial-input w-full font-mono text-xs"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div>
+                    <label className="industrial-field-label">{t('settings.mcp.commandPrefixes')}</label>
+                    <textarea
+                      rows={3}
+                      value={prefixesText}
+                      onChange={(e) => {
+                        const list = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
+                        updateDraft((cur) => {
+                          const next = { ...(cur.connectionCommandPrefixes || {}) };
+                          if (list.length > 0) next[targetId] = list;
+                          else delete next[targetId];
+                          return { ...cur, connectionCommandPrefixes: Object.keys(next).length > 0 ? next : undefined };
+                        });
+                      }}
+                      placeholder="docker ps&#10;systemctl status"
+                      className="industrial-input w-full font-mono text-xs"
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </details>
+
+      <details
+        className="mcp-technical-details"
+        onToggle={(event) => {
+          if ((event.currentTarget as HTMLDetailsElement).open) {
+            void loadMcpAudit();
+          }
+        }}
+      >
+        <summary>
+          <span>{t('settings.mcp.auditLogsTitle')}</span>
+          <ChevronDown className="h-4 w-4" />
+        </summary>
+        <div className="mcp-technical-content space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-fg-muted">{t('settings.mcp.auditLogsDesc')}</span>
+            <button type="button" onClick={() => void loadMcpAudit()} className="industrial-button-secondary px-2 py-1 text-xs">
+              <RefreshCw className={`h-3 w-3 ${mcpAuditLoading ? 'animate-spin' : ''}`} />
+              {t('common.refresh')}
+            </button>
+          </div>
+          {mcpAuditEntries.length === 0 ? (
+            <p className="text-xs text-fg-subtle">{t('settings.mcp.auditLogsEmpty')}</p>
+          ) : (
+            <div className="max-h-56 space-y-1 overflow-y-auto scrollbar-thin">
+              {mcpAuditEntries.map((entry, idx) => (
+                <div key={idx} className="rounded-sm border border-line-subtle bg-surface-sunken px-2.5 py-1.5 font-mono text-[11px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-fg">{String(entry.tool || '')} · {String(entry.host || entry.connection || '')}</span>
+                    <span className={entry.outcome === 'ok' ? 'text-success' : 'text-danger'}>{String(entry.outcome || '')}</span>
+                  </div>
+                  {(entry.command || entry.path) ? (
+                    <div className="mt-0.5 truncate text-fg-muted">{String(entry.command || entry.path)}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </details>
 

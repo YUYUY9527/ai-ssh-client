@@ -2,11 +2,10 @@ import { useEffect, useRef } from 'react';
 import { basicSetup } from 'codemirror';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { json } from '@codemirror/lang-json';
-import { yaml } from '@codemirror/lang-yaml';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 import type { CodeLanguage } from './code-format';
+import { resolveCodeMirrorLanguage } from './codemirror-languages';
 
 interface CodeEditorProps {
   value: string;
@@ -16,14 +15,7 @@ interface CodeEditorProps {
 }
 
 function languageExtension(language: CodeLanguage): Extension {
-  switch (language) {
-    case 'json':
-      return json();
-    case 'yaml':
-      return yaml();
-    default:
-      return [];
-  }
+  return resolveCodeMirrorLanguage(language);
 }
 
 function themeExtension(isDark: boolean): Extension {

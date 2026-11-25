@@ -1,3 +1,17 @@
+// SSH 独立密钥库记录
+export interface SSHKeyRecord {
+  id: string;
+  name: string;
+  algorithm: string;
+  fingerprint: string;
+  publicKey?: string;
+  /** 仅保存/创建时传入，列表返回时脱敏不回传明文私钥。 */
+  privateKey?: string;
+  passphrase?: string;
+  hasPassphrase?: boolean;
+  createdAt: number;
+}
+
 // SSH 连接配置
 export interface SSHConnection {
   id: string;
@@ -6,6 +20,8 @@ export interface SSHConnection {
   port: number;
   username: string;
   password?: string;
+  /** 引用独立密钥库中的密钥 ID；存在时优先于内联 privateKey。 */
+  keyId?: string;
   privateKey?: string;
   passphrase?: string;
   /** 所属分组（文件夹）id；缺省表示未分组。 */
@@ -16,8 +32,16 @@ export interface SSHConnection {
   proxy?: SshProxyConfig;
   /** 多级跳板机，按顺序逐跳建连；最后一跳之后连到目标主机。 */
   jumpHosts?: SshJumpHost[];
-  /** 端口转发规则（本地转发 / 动态 SOCKS5）。 */
+  /** 端口转发规则（本地转发 / 远程转发 / 动态 SOCKS5）。 */
   portForwards?: PortForwardRule[];
+  /** 是否启用 SSH Agent 转发。 */
+  agentForward?: boolean;
+  /** 登录成功后自动执行的初始化命令（如 `cd /srv/app && ls`）。 */
+  startupCommand?: string;
+  /** 会话级环境变量（注入 PTY）。 */
+  env?: Record<string, string>;
+  /** 终端字符编码（默认 utf-8；可配 gbk / gb18030 / latin1 等）。 */
+  encoding?: string;
 }
 
 export interface SshProxyConfig {
@@ -29,29 +53,77 @@ export interface SshProxyConfig {
 }
 
 export interface SshJumpHost {
+  /** 可选：直接引用已保存的连接作为跳板机（填写后自动复用该连接的主机/端口/凭据）。 */
+  connectionId?: string;
   host: string;
   port: number;
   username: string;
+  keyId?: string;
   password?: string;
   privateKey?: string;
   passphrase?: string;
 }
 
-export type PortForwardType = 'local' | 'dynamic';
+export type PortForwardType = 'local' | 'remote' | 'dynamic';
 
 export interface PortForwardRule {
   id: string;
   type: PortForwardType;
   /** 备注名，便于区分多条规则。 */
   label?: string;
-  /** 本地监听地址，默认 127.0.0.1（只监听本机更安全）。 */
+  /** local/dynamic：本地监听地址，默认 127.0.0.1；remote：远端监听地址，默认 127.0.0.1。 */
   bindHost?: string;
-  /** 本地监听端口。 */
+  /** local/dynamic：本地监听端口；remote：远端监听端口。 */
   bindPort: number;
-  /** local 转发的目标地址（从 SSH 服务器一侧发起连接）。 */
+  /** local：远端目标地址；remote：本地/网关侧目标地址。 */
   targetHost?: string;
-  /** local 转发的目标端口。 */
+  /** local：远端目标端口；remote：本地/网关侧目标端口。 */
   targetPort?: number;
+}
+
+// 键盘交互认证（2FA / OTP / PAM）提示事件
+export interface SshKeyboardInteractivePrompt {
+  requestId: string;
+  connectionId: string;
+  host: string;
+  port: number;
+  name: string;
+  instructions: string;
+  prompts: Array<{ prompt: string; echo: boolean }>;
+}
+
+// SFTP 目录书签
+export interface SftpBookmark {
+  id: string;
+  connectionId: string;
+  name: string;
+  path: string;
+  createdAt: number;
+}
+
+// 全局操作审计日志条目
+export interface AuditLogEntry {
+  ts: string;
+  category: 'auth' | 'ssh' | 'sftp' | 'docker' | 'port-forward' | 'batch' | 'settings' | 'mcp';
+  action: string;
+  actor?: string;
+  connectionId?: string;
+  target?: string;
+  outcome: 'ok' | 'error' | 'denied';
+  detail?: string;
+}
+
+// Web 多用户与 RBAC 角色
+export type WebUserRole = 'admin' | 'operator' | 'viewer';
+
+export interface WebUserSummary {
+  id: string;
+  username: string;
+  role: WebUserRole;
+  /** 为空表示可访问全部连接；非空则限制为指定连接 ID 列表。 */
+  allowedConnectionIds?: string[];
+  totpEnabled: boolean;
+  createdAt: number;
 }
 
 // 连接分组（文件夹）。parentId 预留嵌套能力，当前 UI 按平铺分组渲染。
@@ -204,6 +276,8 @@ export interface QuickCommand {
   command: string;
   description?: string;
   groupId?: string;
+  /** 点击时是否直接回车执行（默认 false，仅粘贴到终端）。 */
+  autoExecute?: boolean;
 }
 
 // IPC 消息
@@ -257,6 +331,16 @@ export interface AppSettings {
   agentPermissionMode?: 'ask' | 'auto' | 'full' | 'readonly';
   /** 每轮拼给模型的上下文预算（字符数），超出部分折叠为摘要。 */
   agentContextBudgetChars?: number;
+  /** 可选独立审核模型（AI Provider ID），对中高风险命令做二次自动评估。 */
+  agentReviewerProviderId?: string;
+  /** 单次任务允许的最大工具调用次数，默认 12。 */
+  agentMaxToolCallsPerTurn?: number;
+  /** 单次 AI 请求超时（秒），默认 120。 */
+  agentRequestTimeoutSec?: number;
+  /** 按连接 ID 配置的命令白名单（命中则跳过人工审批）。 */
+  agentConnectionAllowlist?: Record<string, string[]>;
+  /** 移动端/触摸屏底部虚拟快捷键栏开关（auto/on/off）。 */
+  mobileKeyBarMode?: 'auto' | 'on' | 'off';
   maxPersistedSessions?: number;
   maxScrollbackBytesPerSession?: number;
   /** 文件管理面板是否常驻左侧显示（默认关闭，按需从顶栏切换）。 */
@@ -331,6 +415,14 @@ export interface AgentConfig {
   readOnlyMode: boolean;
   /** 上下文预算（字符），超出折叠为摘要；默认 120000。 */
   contextBudgetChars: number;
+  /** 可选独立审核模型 Provider ID。 */
+  reviewerProviderId?: string;
+  /** 单任务工具调用上限（默认 12）。 */
+  maxToolCallsPerTurn?: number;
+  /** 单次 AI 请求超时秒数（默认 120）。 */
+  requestTimeoutSec?: number;
+  /** 按连接 ID 的命令白名单。 */
+  connectionAllowlist?: Record<string, string[]>;
 }
 
 export interface PendingApproval {
@@ -372,8 +464,14 @@ export interface McpPolicyLimits {
 export interface McpPolicyConfig {
   defaultMode: McpPolicyMode;
   trustOnFirstUse: boolean;
+  /** 是否允许 MCP 通过 sftp_write_text 写入远端文本文件（默认 false）。 */
+  allowWrite?: boolean;
   /** 按连接 id（或唯一名称）覆盖默认模式。 */
   connections: Record<string, McpPolicyMode>;
+  /** 按连接限制 SFTP 允许访问的根目录前缀列表（留空表示不额外限制）。 */
+  connectionRoots?: Record<string, string[]>;
+  /** 按连接限制允许执行的命令前缀白名单（留空表示不额外限制）。 */
+  connectionCommandPrefixes?: Record<string, string[]>;
   commands: {
     /** 追加到内置黑名单的正则（只收紧，不放松）。 */
     deny: string[];

@@ -55,6 +55,8 @@ function renderToolbar() {
     onToggleThemeSelector: vi.fn(),
     onSelectTheme: vi.fn(),
     onSaveLog: vi.fn(),
+    onToggleRecord: vi.fn(),
+    onOpenCastPlayer: vi.fn(),
   }));
 }
 
@@ -72,8 +74,21 @@ describe('TerminalToolbar compact menu', () => {
 
     expect(trigger().getAttribute('aria-expanded')).toBe('true');
     expect(container.querySelectorAll('button[aria-label="common.close"]')).toHaveLength(1);
-    expect(container.querySelector('[data-terminal-save-log]')).not.toBeNull();
+    expect(container.querySelector('[data-terminal-session-menu-trigger]')).not.toBeNull();
     expect(container.querySelector('[data-testid="docker"]')).not.toBeNull();
+
+    // 会话相关三个按钮收拢在最右侧可展开列表内
+    const sessionTrigger = container.querySelector<HTMLButtonElement>('[data-terminal-session-menu-trigger]')!;
+    await act(async () => sessionTrigger.click());
+    expect(document.body.querySelector('[data-terminal-save-log]')).not.toBeNull();
+    expect(document.body.querySelector('[data-terminal-toggle-record]')).not.toBeNull();
+    expect(document.body.querySelector('[data-terminal-cast-player]')).not.toBeNull();
+
+    // 第一次 Esc 先关闭会话操作列表，第二次 Esc 关闭折叠工具栏
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(document.body.querySelector('[data-terminal-save-log]')).toBeNull();
 
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

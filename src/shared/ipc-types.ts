@@ -558,7 +558,7 @@ export interface ExportDataResult<T = any> {
 /** 一条端口转发规则的运行状态。 */
 export interface PortForwardRuntimeState {
   ruleId: string;
-  type: 'local' | 'dynamic';
+  type: 'local' | 'remote' | 'dynamic';
   status: 'running' | 'error';
   bindHost: string;
   bindPort: number;
@@ -673,5 +673,99 @@ export interface DockerPruneResult {
   target: DockerPruneTarget;
   reclaimedSpace: string;
   output: string;
+}
+
+export interface DockerContainerStat {
+  id: string;
+  name: string;
+  cpuPerc: string;
+  memUsage: string;
+  memPerc: string;
+  netIO: string;
+  blockIO: string;
+  pids: string;
+}
+
+export interface DockerImageItem {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  createdSince: string;
+}
+
+export interface DockerVolumeItem {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  scope: string;
+}
+
+export interface DockerNetworkItem {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+}
+
+export interface DockerComposeProject {
+  name: string;
+  status: string;
+  configFiles: string;
+}
+
+export interface ListeningPortItem {
+  protocol: string;
+  state: string;
+  address: string;
+  process: string;
+}
+
+export interface SystemdServiceItem {
+  name: string;
+  load: string;
+  active: string;
+  sub: string;
+  description: string;
+}
+
+export interface BatchCommandResultItem {
+  connectionId: string;
+  name: string;
+  host: string;
+  ok: boolean;
+  exitCode: number | null;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
+export interface BatchCommandResponse {
+  command: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: BatchCommandResultItem[];
+}
+
+export interface BatchDistributeResultItem {
+  connectionId: string;
+  name: string;
+  host: string;
+  ok: boolean;
+  remotePath: string;
+  bytes: number;
+  durationMs: number;
+  error?: string;
+}
+
+export interface BatchDistributeResponse {
+  remotePath: string;
+  bytes: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: BatchDistributeResultItem[];
 }
 

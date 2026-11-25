@@ -5,6 +5,7 @@ import { useConnectionGroupStore } from '../store/useConnectionGroupStore';
 import { useSessionStore } from '../session/useSessionStore';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useI18n } from '../i18n';
+import { buildConnectionGroupTree, flattenGroupOptions, type ConnectionGroupTreeNode } from '../connection/group-tree';
 import type { SSHConnection, ConnectionGroup } from '../../shared/types';
 
 interface ConnectionListProps {
@@ -44,8 +45,8 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
   });
   // 分组管理
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [groupModal, setGroupModal] = useState<{ open: boolean; editing: ConnectionGroup | null; name: string }>({
-    open: false, editing: null, name: '',
+  const [groupModal, setGroupModal] = useState<{ open: boolean; editing: ConnectionGroup | null; name: string; parentId: string }>({
+    open: false, editing: null, name: '', parentId: '',
   });
 
   useEffect(() => {
@@ -213,10 +214,11 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
     const group: ConnectionGroup = {
       id: groupModal.editing?.id || `grp-${Date.now()}`,
       name,
+      parentId: groupModal.parentId || undefined,
       order: groupModal.editing?.order ?? groups.length,
     };
     await saveGroup(group);
-    setGroupModal({ open: false, editing: null, name: '' });
+    setGroupModal({ open: false, editing: null, name: '', parentId: '' });
   };
 
   const handleDeleteGroup = (group: ConnectionGroup) => {
@@ -309,64 +311,71 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
     </div>
   );
 
+  const renderGroupNode = (node: ConnectionGroupTreeNode) => {
+    const { group, directConnections, children, totalConnections } = node;
+    const collapsed = collapsedGroups.has(group.id);
+    return (
+      <div key={group.id} className="mb-1.5">
+        <div className="flex items-center gap-1 px-1 py-1 group">
+          <button
+            onClick={() => toggleGroup(group.id)}
+            className="flex items-center gap-1 flex-1 min-w-0 text-left text-xs font-semibold text-fg-secondary hover:text-fg dark:hover:text-white"
+          >
+            {collapsed ? <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />}
+            <Folder className="w-3.5 h-3.5 flex-shrink-0 text-accent" />
+            <span className="truncate">{group.name}</span>
+            <span className="text-fg-subtle font-normal">({totalConnections})</span>
+          </button>
+          <button
+            onClick={() => setGroupModal({ open: true, editing: null, name: '', parentId: group.id })}
+            className="icon-button h-5 w-5 opacity-0 group-hover:opacity-100"
+            title={t('features.connectionGroups.newGroup')}
+          >
+            <FolderPlus className="w-3 h-3" />
+          </button>
+          <button
+            onClick={() => setGroupModal({ open: true, editing: group, name: group.name, parentId: group.parentId || '' })}
+            className="icon-button h-5 w-5 opacity-0 group-hover:opacity-100"
+            title={t('features.connectionGroups.renameGroup')}
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+          <button
+            onClick={() => handleDeleteGroup(group)}
+            className="icon-button h-5 w-5 opacity-0 group-hover:opacity-100 hover:text-danger"
+            title={t('features.connectionGroups.deleteGroup')}
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+        {!collapsed && (
+          <div className="pl-2.5 border-l border-line-subtle ml-2">
+            {children.map(renderGroupNode)}
+            {directConnections.map(renderConnectionCard)}
+            {children.length === 0 && directConnections.length === 0 && (
+              <p className="text-xs text-fg-subtle px-2 py-1">{t('features.connectionGroups.emptyGroup')}</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderGrouped = () => {
-    const knownGroupIds = new Set(groups.map(g => g.id));
-    const sortedGroups = [...groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
-    const ungrouped = filteredConnections.filter(c => !c.groupId || !knownGroupIds.has(c.groupId));
+    const { roots, ungrouped } = buildConnectionGroupTree(groups, filteredConnections);
     return (
       <>
-        {sortedGroups.map(group => {
-          const members = filteredConnections.filter(c => c.groupId === group.id);
-          const collapsed = collapsedGroups.has(group.id);
-          return (
-            <div key={group.id} className="mb-2">
-              <div className="flex items-center gap-1 px-1 py-1 group">
-                <button
-                  onClick={() => toggleGroup(group.id)}
-                  className="flex items-center gap-1 flex-1 min-w-0 text-left text-xs font-semibold text-fg-secondary hover:text-fg dark:hover:text-white"
-                >
-                  {collapsed ? <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />}
-                  <Folder className="w-3.5 h-3.5 flex-shrink-0 text-accent" />
-                  <span className="truncate">{group.name}</span>
-                  <span className="text-fg-subtle font-normal">({members.length})</span>
-                </button>
-                <button
-                  onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
-                  className="icon-button h-5 w-5 opacity-0 group-hover:opacity-100"
-                  title={t('features.connectionGroups.renameGroup')}
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={() => handleDeleteGroup(group)}
-                  className="icon-button h-5 w-5 opacity-0 group-hover:opacity-100 hover:text-danger"
-                  title={t('features.connectionGroups.deleteGroup')}
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-              {!collapsed && (
-                <div className="pl-2">
-                  {members.length === 0 ? (
-                    <p className="text-xs text-fg-subtle px-2 py-1">{t('features.connectionGroups.emptyGroup')}</p>
-                  ) : (
-                    members.map(renderConnectionCard)
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {roots.map(renderGroupNode)}
         {ungrouped.length > 0 && (
           <div className="mb-2">
-            {sortedGroups.length > 0 && (
+            {roots.length > 0 && (
               <div className="flex items-center gap-1 px-1 py-1 text-xs font-semibold text-fg-muted">
                 <Folder className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>{t('features.connectionGroups.ungrouped')}</span>
                 <span className="font-normal">({ungrouped.length})</span>
               </div>
             )}
-            <div className={sortedGroups.length > 0 ? 'pl-2' : ''}>
+            <div className={roots.length > 0 ? 'pl-2' : ''}>
               {ungrouped.map(renderConnectionCard)}
             </div>
           </div>
@@ -402,7 +411,7 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
         </button>
         {groupsSupported && (
           <button
-            onClick={() => setGroupModal({ open: true, editing: null, name: '' })}
+            onClick={() => setGroupModal({ open: true, editing: null, name: '', parentId: '' })}
             className="industrial-button-secondary p-2"
             title={t('features.connectionGroups.newGroup')}
           >
@@ -552,8 +561,8 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                       className="industrial-input w-full"
                     >
                       <option value="">{t('features.connectionGroups.noGroup')}</option>
-                      {groups.map(group => (
-                        <option key={group.id} value={group.id}>{group.name}</option>
+                      {flattenGroupOptions(groups).map(opt => (
+                        <option key={opt.id} value={opt.id}>{opt.label}</option>
                       ))}
                     </select>
                   </div>
@@ -596,11 +605,11 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
               <h3 className="text-lg font-semibold text-fg dark:text-white">
                 {groupModal.editing ? t('features.connectionGroups.renameGroup') : t('features.connectionGroups.newGroup')}
               </h3>
-              <button onClick={() => setGroupModal({ open: false, editing: null, name: '' })} className="icon-button">
+              <button onClick={() => setGroupModal({ open: false, editing: null, name: '', parentId: '' })} className="icon-button">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-6 space-y-3">
               <input
                 type="text"
                 autoFocus
@@ -610,10 +619,25 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
                 placeholder={t('features.connectionGroups.groupName')}
                 className="industrial-input w-full"
               />
+              {groups.length > 0 && (
+                <div>
+                  <label className="text-xs text-fg-muted mb-1 block">{t('features.connectionGroups.parentGroup')}</label>
+                  <select
+                    value={groupModal.parentId}
+                    onChange={(e) => setGroupModal(prev => ({ ...prev, parentId: e.target.value }))}
+                    className="industrial-input w-full"
+                  >
+                    <option value="">{t('features.connectionGroups.noParent')}</option>
+                    {flattenGroupOptions(groups, groupModal.editing?.id).map(opt => (
+                      <option key={opt.id} value={opt.id}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
             <div className="industrial-modal-footer">
               <button
-                onClick={() => setGroupModal({ open: false, editing: null, name: '' })}
+                onClick={() => setGroupModal({ open: false, editing: null, name: '', parentId: '' })}
                 className="industrial-button-secondary flex-1"
               >
                 {t('common.cancel')}
