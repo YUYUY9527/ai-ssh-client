@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { Clipboard, Copy, Edit3, FolderOpen } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Clipboard, Copy, Edit3, FolderOpen, Sparkles } from 'lucide-react';
 
 interface TerminalContextMenuProps {
   x: number;
@@ -32,17 +33,17 @@ export function TerminalContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!menuRef.current) return;
 
     const menuRect = menuRef.current.getBoundingClientRect();
     const windowWidth = window.innerWidth;
     const windowHeight = window.innerHeight;
 
-    const nextX = x + menuRect.width > windowWidth
+    const nextX = x + menuRect.width > windowWidth - 8
       ? windowWidth - menuRect.width - 8
       : x;
-    const nextY = y + menuRect.height > windowHeight
+    const nextY = y + menuRect.height > windowHeight - 8
       ? windowHeight - menuRect.height - 8
       : y;
 
@@ -53,61 +54,84 @@ export function TerminalContextMenu({
   }, [x, y]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handlePointerDown = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         onClose();
       }
     };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
-      className="app-popover fixed top-auto mt-0 py-1 min-w-[160px]"
+      role="menu"
+      className="app-popover fixed top-auto z-overlay mt-0 min-w-[172px] py-1"
       style={{ left: position.x, top: position.y }}
     >
       <button
+        type="button"
+        role="menuitem"
         onClick={(event) => { event.stopPropagation(); onCopy(); }}
         className="app-popover-row text-sm text-fg-secondary"
       >
-        <Copy className="w-4 h-4" />
+        <Copy className="h-4 w-4 shrink-0" />
         {translate('terminal.copy')}
       </button>
       <button
+        type="button"
+        role="menuitem"
         onClick={(event) => { event.stopPropagation(); onPaste(); }}
         disabled={!canPasteToTerminal}
-        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45 dark:text-fg-secondary"
+        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45"
       >
-        <Clipboard className="w-4 h-4" />
+        <Clipboard className="h-4 w-4 shrink-0" />
         {translate('terminal.paste')}
       </button>
-      <div className="border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] my-1" />
+      <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
       <button
+        type="button"
+        role="menuitem"
         onClick={(event) => { event.stopPropagation(); onPasteToInput(); }}
         disabled={!canPasteToTerminal}
-        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45 dark:text-fg-secondary"
+        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45"
       >
-        <Edit3 className="w-4 h-4" />
+        <Edit3 className="h-4 w-4 shrink-0" />
         {translate('terminal.pasteToInput')}
       </button>
       <button
+        type="button"
+        role="menuitem"
         onClick={(event) => { event.stopPropagation(); onPasteToAI(); }}
         className="app-popover-row text-sm text-fg-secondary"
       >
-        <Edit3 className="w-4 h-4" />
+        <Sparkles className="h-4 w-4 shrink-0" />
         {translate('terminal.pasteToAI')}
       </button>
       <div className="my-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)]" />
       <button
+        type="button"
+        role="menuitem"
         onClick={(event) => { event.stopPropagation(); onOpenFileTransfer(); }}
         disabled={!canOpenFileTransfer}
-        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45 dark:text-fg-secondary"
+        className="app-popover-row text-sm text-fg-secondary disabled:cursor-not-allowed disabled:opacity-45"
       >
-        <FolderOpen className="h-4 w-4" />
+        <FolderOpen className="h-4 w-4 shrink-0" />
         {translate('terminal.fileTransfer')}
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }

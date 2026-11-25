@@ -72,6 +72,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [openMenu, setOpenMenu] = useState<RowMenuState | null>(null);
   const [pruneMenu, setPruneMenu] = useState<PruneMenuState | null>(null);
   const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
+  const [detailLoadingName, setDetailLoadingName] = useState<string | null>(null);
   const [logs, setLogs] = useState<{ containerId: string; text: string } | null>(null);
   const [logSearch, setLogSearch] = useState('');
   const [follow, setFollow] = useState(true);
@@ -281,9 +282,15 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const openDetail = async (container: DockerContainerSummary) => {
     const api = window.electronAPI?.inspectDockerContainer;
     if (!api) return;
-    const result = await api(connectionId, container.id);
-    if (result.success) setDetail(result.data);
-    else setError(result.error || 'inspect failed');
+    setDetail(null);
+    setDetailLoadingName(container.name);
+    try {
+      const result = await api(connectionId, container.id);
+      if (result.success) setDetail(result.data);
+      else setError(result.error || 'inspect failed');
+    } finally {
+      setDetailLoadingName(null);
+    }
   };
 
   const openLogs = (container: DockerContainerSummary) => {
@@ -573,22 +580,22 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
               <div className="docker-overview">
                 <button type="button" aria-pressed={containerFilter === 'all'} className={`docker-stat-tile ${containerFilter === 'all' ? 'is-active' : ''}`} onClick={() => setContainerFilter('all')}>
                   <span className="docker-stat-icon"><Layers3 className="h-4 w-4" /></span>
-                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.total')}</span><span className="docker-stat-value">{containers.length}</span></span>
+                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.total')}</span><span className="docker-stat-value tabular-nums">{available === null ? '—' : containers.length}</span></span>
                 </button>
                 <button type="button" aria-pressed={containerFilter === 'running'} className={`docker-stat-tile is-running ${containerFilter === 'running' ? 'is-active' : ''}`} onClick={() => setContainerFilter('running')}>
                   <span className="docker-stat-icon"><Activity className="h-4 w-4" /></span>
-                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.running')}</span><span className="docker-stat-value">{runningCount}</span></span>
+                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.running')}</span><span className="docker-stat-value tabular-nums">{available === null ? '—' : runningCount}</span></span>
                 </button>
                 <button type="button" aria-pressed={containerFilter === 'stopped'} className={`docker-stat-tile is-stopped ${containerFilter === 'stopped' ? 'is-active' : ''}`} onClick={() => setContainerFilter('stopped')}>
                   <span className="docker-stat-icon"><Box className="h-4 w-4" /></span>
-                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.stopped')}</span><span className="docker-stat-value">{stoppedCount}</span></span>
+                  <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.stopped')}</span><span className="docker-stat-value tabular-nums">{available === null ? '—' : stoppedCount}</span></span>
                 </button>
               </div>
 
               <div className="docker-list-heading">
                 <div className="flex min-w-0 items-center gap-2">
                   <h3 className="truncate text-sm font-semibold text-fg">{translate('terminal.docker.instances')}</h3>
-                  <span className="docker-count">{filtered.length} / {containers.length}</span>
+                  <span className="docker-count tabular-nums">{available === null ? '—' : `${filtered.length} / ${containers.length}`}</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
                   <span className="docker-live-dot" />{translate('terminal.docker.liveStatus')}
@@ -626,10 +633,13 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                           <div className="docker-container-id">{container.id.slice(0, 12)}</div>
                         </div>
                       </div>
-                      <div className="docker-image-cell" title={container.image}>{container.image}</div>
+                      <div className="docker-image-cell" title={container.image}>
+                        <span className="docker-mobile-label">{translate('terminal.docker.image')}</span>
+                        <span className="min-w-0 truncate">{container.image}</span>
+                      </div>
                       <div className="docker-ports-cell" title={container.ports || translate('terminal.docker.noPorts')}>
                         <span className="docker-mobile-label">{translate('terminal.docker.ports')}</span>
-                        <span className={container.ports ? '' : 'text-fg-subtle'}>{container.ports || translate('terminal.docker.noPorts')}</span>
+                        <span className={`min-w-0 truncate ${container.ports ? '' : 'text-fg-subtle'}`}>{container.ports || translate('terminal.docker.noPorts')}</span>
                       </div>
                       <div className="docker-status-cell">
                         <span className={`docker-status ${container.state === 'running' ? 'is-running' : 'is-stopped'}`}>
@@ -710,11 +720,11 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
         {error && available !== false ? <div className="border-t border-danger-muted bg-danger-muted px-4 py-1.5 text-xs text-danger">{error}</div> : null}
       </div>
 
-      {openMenu ? (
+      {openMenu && typeof document !== 'undefined' ? createPortal(
         <div
           ref={rowMenuRef}
           role="menu"
-          className="docker-dropdown-menu fixed z-popover"
+          className="docker-dropdown-menu scrollbar-thin fixed z-tooltip"
           style={
             openMenu.openUp
               ? { bottom: `${openMenu.bottom}px`, right: `${openMenu.right}px` }
@@ -850,14 +860,15 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
             <Trash2 className="h-3.5 w-3.5 shrink-0" />
             <span>{translate('terminal.docker.remove')}</span>
           </button>
-        </div>
+        </div>,
+        document.body,
       ) : null}
 
-      {pruneMenu ? (
+      {pruneMenu && typeof document !== 'undefined' ? createPortal(
         <div
           ref={pruneMenuRef}
           role="menu"
-          className="docker-dropdown-menu fixed z-popover"
+          className="docker-dropdown-menu scrollbar-thin fixed z-tooltip"
           style={{ top: `${pruneMenu.top}px`, right: `${pruneMenu.right}px` }}
         >
           <button
@@ -884,39 +895,66 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
             <Trash2 className="h-3.5 w-3.5 shrink-0" />
             <span>{translate('terminal.docker.pruneImages')}</span>
           </button>
-        </div>
+        </div>,
+        document.body,
       ) : null}
 
-      {detail ? (
-        <div className={layerClass} onClick={() => setDetail(null)}>
+      {(detail || detailLoadingName) ? (
+        <div className={layerClass} onClick={() => { setDetail(null); setDetailLoadingName(null); }}>
           <div className="modal-backdrop" />
           <div className={`industrial-modal relative my-auto flex ${detailPanelHeightClass} w-full max-w-3xl flex-col overflow-hidden`} onClick={(event) => event.stopPropagation()}>
             <div className="industrial-modal-header shrink-0 text-sm font-semibold text-fg">
-              <span>{detail.name}</span>
-              <button type="button" className="icon-button" onClick={() => setDetail(null)}><X className="h-4 w-4" /></button>
+              <span className="min-w-0 flex-1 truncate" title={detail?.name || detailLoadingName || ''}>
+                {detail?.name || detailLoadingName}
+              </span>
+              <button
+                type="button"
+                className="icon-button shrink-0"
+                onClick={() => { setDetail(null); setDetailLoadingName(null); }}
+                title={translate('common.close')}
+                aria-label={translate('common.close')}
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4 text-xs text-fg-secondary">
-              <dl className="grid grid-cols-[8rem_1fr] gap-y-1">
-                <dt className="text-fg-muted">ID</dt><dd className="break-all">{detail.id}</dd>
-                <dt className="text-fg-muted">Image</dt><dd>{detail.image}</dd>
-                <dt className="text-fg-muted">Command</dt><dd className="break-all">{detail.command}</dd>
-                <dt className="text-fg-muted">State</dt><dd>{detail.state} (exit {String(detail.exitCode ?? '-')})</dd>
-                <dt className="text-fg-muted">Started</dt><dd>{detail.startedAt}</dd>
-                <dt className="text-fg-muted">RestartCount</dt><dd>{detail.restartCount}</dd>
-                <dt className="text-fg-muted">Networks</dt><dd>{detail.networks.join(', ') || '-'}</dd>
-              </dl>
-              {detail.ports.length > 0 ? (
-                <div className="mt-3">
-                  <div className="mb-1 text-fg-muted">Ports</div>
-                  <ul className="space-y-0.5">{detail.ports.map((port) => <li key={`${port.container}-${port.host}`}>{port.container} → {port.host || '-'}</li>)}</ul>
+            <div className="scrollbar-thin min-h-0 flex-1 overflow-auto p-4 text-xs text-fg-secondary">
+              {!detail ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-fg-muted">
+                  <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                  <span>{translate('terminal.docker.loading')}</span>
                 </div>
-              ) : null}
-              {detail.mounts.length > 0 ? (
-                <div className="mt-3">
-                  <div className="mb-1 text-fg-muted">Mounts</div>
-                  <ul className="space-y-0.5">{detail.mounts.map((mount) => <li key={`${mount.source}-${mount.destination}`}>{mount.source} → {mount.destination}{mount.readOnly ? ' (ro)' : ''}</li>)}</ul>
-                </div>
-              ) : null}
+              ) : (
+                <>
+                  <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5">
+                    <dt className="text-fg-muted">{translate('terminal.docker.shortId')}</dt>
+                    <dd className="min-w-0 break-all font-mono">{detail.id}</dd>
+                    <dt className="text-fg-muted">{translate('terminal.docker.image')}</dt>
+                    <dd className="min-w-0 break-all font-mono">{detail.image}</dd>
+                    <dt className="text-fg-muted">{translate('terminal.docker.detailCommand')}</dt>
+                    <dd className="min-w-0 break-all font-mono">{detail.command}</dd>
+                    <dt className="text-fg-muted">{translate('terminal.docker.state')}</dt>
+                    <dd className="min-w-0 break-words">{detail.state} (exit {String(detail.exitCode ?? '-')})</dd>
+                    <dt className="text-fg-muted">{translate('terminal.docker.detailStarted')}</dt>
+                    <dd className="min-w-0 break-words font-mono">{detail.startedAt}</dd>
+                    <dt className="text-fg-muted">{translate('terminal.docker.detailRestartCount')}</dt>
+                    <dd className="min-w-0 font-mono tabular-nums">{detail.restartCount}</dd>
+                    <dt className="text-fg-muted">{translate('terminal.docker.detailNetworks')}</dt>
+                    <dd className="min-w-0 break-all">{detail.networks.join(', ') || '-'}</dd>
+                  </dl>
+                  {detail.ports.length > 0 ? (
+                    <div className="mt-3.5 border-t border-line-subtle pt-3">
+                      <div className="mb-1.5 font-medium text-fg-muted">{translate('terminal.docker.ports')}</div>
+                      <ul className="space-y-1 font-mono">{detail.ports.map((port) => <li key={`${port.container}-${port.host}`} className="break-all">{port.container} → {port.host || '-'}</li>)}</ul>
+                    </div>
+                  ) : null}
+                  {detail.mounts.length > 0 ? (
+                    <div className="mt-3.5 border-t border-line-subtle pt-3">
+                      <div className="mb-1.5 font-medium text-fg-muted">{translate('terminal.docker.detailMounts')}</div>
+                      <ul className="space-y-1 font-mono">{detail.mounts.map((mount) => <li key={`${mount.source}-${mount.destination}`} className="break-all">{mount.source} → {mount.destination}{mount.readOnly ? ' (ro)' : ''}</li>)}</ul>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -926,27 +964,51 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
         <div className={layerClass} onClick={() => setLogs(null)}>
           <div className="modal-backdrop" />
           <div className={`industrial-modal relative my-auto flex ${logsPanelHeightClass} w-full max-w-5xl flex-col overflow-hidden`} onClick={(event) => event.stopPropagation()}>
-            <div className="industrial-modal-header shrink-0 text-sm font-semibold text-fg">
-              <span>{translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}</span>
-              <div className="flex items-center gap-2">
-                <input
-                  className="industrial-input h-7 w-52 text-xs"
-                  placeholder={translate('terminal.docker.logsSearchPlaceholder')}
-                  value={logSearch}
-                  onChange={(event) => setLogSearch(event.target.value)}
-                />
+            <div className="industrial-modal-header shrink-0 flex-wrap gap-2 text-sm font-semibold text-fg">
+              <span className="min-w-0 flex-1 truncate" title={translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}>
+                {translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}
+              </span>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <div className="relative flex items-center">
+                  <input
+                    className="industrial-input h-7 w-44 py-1 pr-7 text-xs sm:w-52"
+                    placeholder={translate('terminal.docker.logsSearchPlaceholder')}
+                    aria-label={translate('terminal.docker.logsSearchPlaceholder')}
+                    value={logSearch}
+                    onChange={(event) => setLogSearch(event.target.value)}
+                  />
+                  {logSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setLogSearch('')}
+                      className="icon-button absolute right-1 h-5 w-5"
+                      title={translate('terminal.docker.clearSearch')}
+                      aria-label={translate('terminal.docker.clearSearch')}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
                 <button
                   type="button"
-                  className={`toolbar-button h-7 px-2 text-xs ${follow ? 'text-accent' : 'text-fg-muted'}`}
+                  className={`toolbar-button h-7 shrink-0 px-2 text-xs ${follow ? 'text-accent' : 'text-fg-muted'}`}
                   onClick={() => setFollow((value) => !value)}
                   title={follow ? translate('terminal.docker.logsFollowOn') : translate('terminal.docker.logsFollowOff')}
                 >
                   {follow ? translate('terminal.docker.logsFollowing') : translate('terminal.docker.logsPaused')}
                 </button>
-                <button type="button" className="icon-button" onClick={() => setLogs(null)}><X className="h-4 w-4" /></button>
+                <button
+                  type="button"
+                  className="icon-button shrink-0"
+                  onClick={() => setLogs(null)}
+                  title={translate('common.close')}
+                  aria-label={translate('common.close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             </div>
-            <pre ref={logPreRef} onScroll={handleLogScroll} className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-surface p-3 font-mono text-[11px] text-fg-secondary">{visibleLogs || translate('terminal.docker.logsEmpty')}</pre>
+            <pre ref={logPreRef} onScroll={handleLogScroll} className="scrollbar-thin min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-[var(--bg-primary)] p-3 font-mono text-[11px] leading-5 text-fg-secondary">{visibleLogs || translate('terminal.docker.logsEmpty')}</pre>
           </div>
         </div>
       ) : null}

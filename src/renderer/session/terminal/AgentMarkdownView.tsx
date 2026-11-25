@@ -13,7 +13,7 @@ interface AgentMarkdownViewProps {
 type Block =
   | { kind: 'code'; lang: string; code: string }
   | { kind: 'table'; headers: string[]; rows: string[][] }
-  | { kind: 'heading'; level: 1 | 2 | 3; text: string }
+  | { kind: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
   | { kind: 'quote'; lines: string[] }
   | { kind: 'ul'; items: string[] }
   | { kind: 'ol'; items: string[] }
@@ -27,16 +27,35 @@ function isTableRow(line: string): boolean {
 function isTableSeparator(line: string): boolean {
   if (!isTableRow(line)) return false;
   const cells = splitTableCells(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+  return cells.length > 0 && cells.every((cell) => /^:?-{1,}:?$/.test(cell));
 }
 
 function splitTableCells(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim());
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  const cells: string[] = [];
+  let current = '';
+  let inCode = false;
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const ch = trimmed[i];
+    if (ch === '\\' && trimmed[i + 1] === '|') {
+      current += '|';
+      i += 1;
+      continue;
+    }
+    if (ch === '`') {
+      inCode = !inCode;
+      current += ch;
+      continue;
+    }
+    if (ch === '|' && !inCode) {
+      cells.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  cells.push(current.trim());
+  return cells;
 }
 
 function parseMarkdownBlocks(raw: string): Block[] {
@@ -75,12 +94,12 @@ function parseMarkdownBlocks(raw: string): Block[] {
       continue;
     }
 
-    // 标题
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    // 标题（支持 H1–H6）
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       blocks.push({
         kind: 'heading',
-        level: headingMatch[1].length as 1 | 2 | 3,
+        level: headingMatch[1].length as 1 | 2 | 3 | 4 | 5 | 6,
         text: headingMatch[2].trim(),
       });
       index += 1;
@@ -142,7 +161,7 @@ function parseMarkdownBlocks(raw: string): Block[] {
       if (
         !nextTrim
         || nextTrim.startsWith('```')
-        || /^#{1,3}\s+/.test(nextTrim)
+        || /^#{1,6}\s+/.test(nextTrim)
         || /^[-*+]\s+/.test(nextTrim)
         || /^\d+\.\s+/.test(nextTrim)
         || nextTrim.startsWith('>')
@@ -196,7 +215,7 @@ function renderInline(text: string): ReactNode[] {
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-accent underline decoration-accent/40 underline-offset-2 hover:text-accent-hover"
+            className="text-accent underline decoration-[color-mix(in_srgb,var(--accent-primary)_45%,transparent)] underline-offset-2 hover:text-accent-hover"
           >
             {linkMatch[1]}
           </a>,
@@ -255,7 +274,9 @@ export function AgentMarkdownView({
             ? 'agent-md-h1'
             : block.level === 2
               ? 'agent-md-h2'
-              : 'agent-md-h3';
+              : block.level === 3
+                ? 'agent-md-h3'
+                : 'agent-md-h4';
           return <div key={index} className={cls}>{renderInline(block.text)}</div>;
         }
         if (block.kind === 'hr') {
@@ -318,26 +339,26 @@ export function AgentMarkdownView({
           return (
             <div key={index} className="agent-md-code-block">
               <div className="agent-md-code-head">
-                <span>{block.lang || 'code'}</span>
-                <div className="flex items-center gap-1">
+                <span className="min-w-0 truncate">{block.lang || 'code'}</span>
+                <div className="flex shrink-0 items-center gap-1">
                   {canInsert && (
                     <button
                       type="button"
                       onClick={() => onInsertCommand?.(block.code.trim())}
-                      className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10.5px] text-fg-secondary transition-colors hover:bg-surface-hover hover:text-accent"
+                      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[10.5px] text-fg-secondary transition-colors hover:bg-surface-hover hover:text-accent"
                       title={insertLabel}
                     >
-                      <CornerDownLeft className="h-3 w-3" />
+                      <CornerDownLeft className="h-3 w-3 shrink-0" />
                       <span>{insertLabel}</span>
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => void handleCopyCode(index, block.code)}
-                    className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10.5px] text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
+                    className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[10.5px] text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg"
                     title={copied ? copiedLabel : copyLabel}
                   >
-                    {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+                    {copied ? <Check className="h-3 w-3 shrink-0 text-success" /> : <Copy className="h-3 w-3 shrink-0" />}
                     <span>{copied ? copiedLabel : copyLabel}</span>
                   </button>
                 </div>

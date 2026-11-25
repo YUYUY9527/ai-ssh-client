@@ -229,14 +229,17 @@ export function McpSettings({ footerContainer }: { footerContainer: HTMLDivEleme
 
   if (loading) {
     return (
-      <div className="py-8 text-center text-sm text-fg-muted">{t('common.loading')}</div>
+      <div className="flex items-center justify-center gap-2 py-8 text-sm text-fg-muted">
+        <Loader2 className="h-4 w-4 animate-spin text-accent" />
+        <span>{t('common.loading')}</span>
+      </div>
     );
   }
 
   if (!draft) {
     return (
       <div className="space-y-3">
-        <div className="rounded-sm border border-danger bg-danger-muted px-3 py-2 text-sm text-danger dark:text-danger-fg">
+        <div className="rounded-sm border border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted px-3 py-2 text-sm text-danger-fg">
           {error || t('settings.mcp.loadFailed')}
         </div>
         <button type="button" onClick={() => void load()} className="industrial-button-secondary">

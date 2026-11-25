@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { SearchAddon } from '@xterm/addon-search';
-import { AlertCircle, Clock3, Search, Terminal as TerminalIcon, WifiOff } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, Clock3, Search, Terminal as TerminalIcon, WifiOff, X } from 'lucide-react';
 import { useSessionStore } from '../useSessionStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useI18n } from '../../i18n';
@@ -945,6 +945,7 @@ export function TerminalView({
         onIncreaseFontSize={() => commitFontSize(fontSizeRef.current + 2)}
         onToggleSearch={() => setShowSearch(prev => !prev)}
         onToggleThemeSelector={() => setShowThemeSelector(prev => !prev)}
+        onCloseThemeSelector={() => setShowThemeSelector(false)}
         onSelectTheme={handleThemeChange}
         onSaveLog={handleSaveLog}
       />
@@ -952,7 +953,7 @@ export function TerminalView({
       {/* Search Bar */}
       {showSearch && (
         <div className="terminal-search-panel">
-          <Search className="w-4 h-4 text-fg-muted" />
+          <Search className="h-4 w-4 shrink-0 text-fg-muted" />
           <input
             type="text"
             value={searchQuery}
@@ -960,20 +961,41 @@ export function TerminalView({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.shiftKey ? searchPrevious() : searchNext();
+              } else if (e.key === 'Escape') {
+                closeSearch();
               }
             }}
             placeholder={t('common.search')}
-            className="w-48 bg-transparent text-sm text-fg outline-none dark:text-white"
+            aria-label={t('common.search')}
+            className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none"
             autoFocus
           />
-          <button onClick={searchPrevious} className="icon-button h-7 w-7">
-            ↑
+          <button
+            type="button"
+            onClick={searchPrevious}
+            className="icon-button h-7 w-7 shrink-0"
+            title={t('common.previous')}
+            aria-label={t('common.previous')}
+          >
+            <ChevronUp className="h-4 w-4" />
           </button>
-          <button onClick={searchNext} className="icon-button h-7 w-7">
-            ↓
+          <button
+            type="button"
+            onClick={searchNext}
+            className="icon-button h-7 w-7 shrink-0"
+            title={t('common.next')}
+            aria-label={t('common.next')}
+          >
+            <ChevronDown className="h-4 w-4" />
           </button>
-          <button onClick={closeSearch} className="icon-button h-7 w-7">
-            ✕
+          <button
+            type="button"
+            onClick={closeSearch}
+            className="icon-button h-7 w-7 shrink-0"
+            title={t('common.close')}
+            aria-label={t('common.close')}
+          >
+            <X className="h-4 w-4" />
           </button>
         </div>
       )}
@@ -1037,7 +1059,7 @@ export function TerminalView({
 
       {/* No Connection State */}
       {terminalStatus && hasSession && hasTerminalOutput && (
-        <div className={`terminal-state-banner terminal-state-banner-${terminalStatus.tone}`}>
+        <div className={`terminal-state-banner terminal-state-banner-${terminalStatus.tone} ${showSearch ? '!top-14' : ''}`}>
           <span className="terminal-state-banner-icon">{terminalStatus.icon}</span>
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">{terminalStatus.title}</p>
@@ -1048,11 +1070,11 @@ export function TerminalView({
 
       {terminalStatus && (!hasSession || !hasTerminalOutput) && (
         <div className={`terminal-state-overlay terminal-state-overlay-${terminalStatus.tone}`}>
-          <div className="text-center">
+          <div className="px-4 text-center">
             <div className="terminal-empty-icon">
               {terminalStatus.icon}
             </div>
-            <p className="text-sm font-medium text-fg-secondary dark:text-fg">{terminalStatus.title}</p>
+            <p className="text-sm font-medium text-fg">{terminalStatus.title}</p>
             <p className="mt-1 max-w-sm text-xs leading-5 text-fg-muted">{terminalStatus.body}</p>
           </div>
         </div>

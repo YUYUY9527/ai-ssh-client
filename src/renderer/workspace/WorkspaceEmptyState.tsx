@@ -87,7 +87,11 @@ export function WorkspaceEmptyState({
                 <h1 className="text-base font-semibold tracking-tight text-fg">
                   {t('app.title')}
                 </h1>
-                <span className="workspace-hero-badge">
+                <span
+                  className="workspace-hero-badge"
+                  title={`${t('workspace.home.quickStart')}: ${connections.length}`}
+                  aria-label={`${t('workspace.home.quickStart')}: ${connections.length}`}
+                >
                   <Terminal className="h-3 w-3" />
                   {connections.length}
                 </span>
@@ -118,14 +122,14 @@ export function WorkspaceEmptyState({
         </section>
 
         <div className="workspace-dashboard-top">
-          <section className="industrial-card flex min-w-0 flex-col overflow-hidden">
-            <header className="workspace-home-panel-header">
+          <section className="industrial-card flex min-w-0 flex-col">
+            <header className="workspace-home-panel-header rounded-t-[inherit]">
               <span className="flex items-center gap-2">
                 <Server className="h-4 w-4 text-accent" />
                 <h2>{t('workspace.home.quickStart')}</h2>
               </span>
               {connections.length > 0 && (
-                <span className="rounded-full bg-surface-raised px-2 py-0.5 font-mono text-[10px] text-fg-muted tabular-nums">
+                <span className="rounded-full border border-line-subtle bg-surface-raised px-2 py-0.5 font-mono text-[10px] text-fg-muted tabular-nums">
                   {visibleConnections.length} / {connections.length}
                 </span>
               )}
@@ -169,12 +173,12 @@ export function WorkspaceEmptyState({
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate text-[13px] font-semibold text-fg">
+                            <span className="truncate text-[13px] font-semibold text-fg" title={connection.name}>
                               {connection.name}
                             </span>
                             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-fg-subtle opacity-0 transition-all group-hover:translate-x-0.5 group-hover:text-accent group-hover:opacity-100" />
                           </div>
-                          <div className="mt-0.5 truncate font-mono text-[11px] text-fg-muted">
+                          <div className="mt-0.5 truncate font-mono text-[11px] text-fg-muted" title={endpoint}>
                             {endpoint}
                           </div>
                         </div>
@@ -205,8 +209,8 @@ export function WorkspaceEmptyState({
             )}
           </section>
 
-          <section className="industrial-card flex min-w-0 flex-col overflow-hidden">
-            <header className="workspace-home-panel-header">
+          <section className="industrial-card flex min-w-0 flex-col">
+            <header className="workspace-home-panel-header rounded-t-[inherit]">
               <span className="flex items-center gap-2">
                 <Settings className="h-4 w-4 text-fg-subtle" />
                 <h2>{t('workspace.home.commonActions')}</h2>
@@ -221,14 +225,14 @@ export function WorkspaceEmptyState({
                 <ChevronRight className="h-3.5 w-3.5 text-fg-faint opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
               </button>
               <button type="button" className="workspace-home-action group" onClick={() => setImportOpen(true)}>
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-line bg-surface-raised text-fg-muted">
+                <span className="workspace-empty-card-icon h-7 w-7 border-line bg-surface-raised text-fg-muted">
                   <Upload className="h-3.5 w-3.5" />
                 </span>
                 <span className="flex-1 truncate">{t('workspace.home.importConnections')}</span>
                 <ChevronRight className="h-3.5 w-3.5 text-fg-faint opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
               </button>
               <button type="button" className="workspace-home-action group" onClick={() => onOpenSettings('terminal')}>
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-line bg-surface-raised text-fg-muted">
+                <span className="workspace-empty-card-icon h-7 w-7 border-line bg-surface-raised text-fg-muted">
                   <Settings className="h-3.5 w-3.5" />
                 </span>
                 <span className="flex-1 truncate">{t('workspace.home.openSettings')}</span>
@@ -242,14 +246,14 @@ export function WorkspaceEmptyState({
                 <ChevronRight className="h-3.5 w-3.5 text-fg-faint opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
               </button>
             </div>
-            <div className="workspace-home-hint mt-auto">
+            <div className="workspace-home-hint mt-auto rounded-b-[inherit]">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
               <span>{t('workspace.home.connectionHint')}</span>
             </div>
           </section>
         </div>
 
-        <section className="industrial-card overflow-hidden">
+        <section className="industrial-card">
           <div className="flex items-start gap-3.5 px-4 py-4">
             <span className="workspace-empty-card-icon workspace-empty-card-icon-ai mt-0.5 h-9 w-9">
               <Sparkles className="h-4 w-4" />

@@ -23,7 +23,7 @@ export function AppShell({
   workspace,
 }: AppShellProps) {
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${banner ? 'app-shell-with-banner' : ''}`}>
       {banner}
       {header}
       {tabs}

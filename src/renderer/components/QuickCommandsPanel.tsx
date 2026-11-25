@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Zap, ChevronDown, FolderUp, Plus, Trash2, Pencil } from 'lucide-react';
-import { t } from '../i18n';
+import { useI18n } from '../i18n';
 import type { QuickCommand, QuickCommandGroup } from '../../shared/types';
 
 /** 与分组列表色点统一的预设色板（避免系统原生 color picker 样式割裂） */
@@ -73,6 +74,7 @@ function GroupColorSwatch({
 }
 
 export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) {
+  const { t } = useI18n();
   const [show, setShow] = useState(false);
   const [commands, setCommands] = useState<QuickCommand[]>([]);
   const [groups, setGroups] = useState<QuickCommandGroup[]>([]);
@@ -81,18 +83,57 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
   const [newGroup, setNewGroup] = useState({ name: '', color: DEFAULT_GROUP_COLOR });
   const [showCommandForm, setShowCommandForm] = useState(false);
   const [showGroupForm, setShowGroupForm] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
-  // 点击外部关闭
+  // 点击外部 / Esc 关闭（使用 mousedown，避免取消/删除卸载按钮后误触发关闭）
   useEffect(() => {
     if (!show) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) {
+        return;
+      }
+      setShow(false);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
         setShow(false);
+        triggerRef.current?.focus();
       }
     };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [show]);
+
+  useLayoutEffect(() => {
+    if (!show) {
+      setPopoverPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const btn = triggerRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const margin = 8;
+      const width = Math.min(336, window.innerWidth - margin * 2);
+      const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+      const top = rect.bottom + 8;
+      setPopoverPos({ left, top, width });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
   }, [show]);
 
   const loadData = useCallback(async () => {
@@ -164,26 +205,40 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
     }
   };
 
+  const ungroupedCommands = commands.filter((c) => !c.groupId);
+
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative shrink-0">
       <button
+        ref={triggerRef}
+        type="button"
         onClick={() => setShow(!show)}
-        className={`toolbar-button ${show ? 'toolbar-button-active' : ''}`}
+        className={`toolbar-button whitespace-nowrap ${show ? 'toolbar-button-active' : ''}`}
         title={t('quickCommands.title')}
         aria-label={t('quickCommands.title')}
+        aria-expanded={show}
       >
-        <Zap className="w-4 h-4" />
-        {t('quickCommands.commands')}
-        <ChevronDown className="w-3 h-3" />
+        <Zap className="h-4 w-4 shrink-0" />
+        <span className="hidden md:inline">{t('quickCommands.commands')}</span>
+        <ChevronDown className="h-3 w-3 shrink-0" />
       </button>
 
-      {show && (
-        <div className="app-popover scrollbar-modern left-0 w-80">
+      {show && popoverPos && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={popoverRef}
+          className="app-popover fixed top-auto z-overlay mt-0 flex max-h-[min(30rem,calc(100vh-5rem))] flex-col overflow-hidden"
+          style={{
+            left: popoverPos.left,
+            top: popoverPos.top,
+            width: popoverPos.width,
+          }}
+        >
           {/* 头部 */}
-          <div className="app-popover-header">
-            <span>{t('quickCommands.title')}</span>
-            <div className="flex gap-1">
+          <div className="app-popover-header shrink-0">
+            <span className="truncate">{t('quickCommands.title')}</span>
+            <div className="flex shrink-0 gap-1">
               <button
+                type="button"
                 onClick={() => { setShowGroupForm(true); setShowCommandForm(false); }}
                 className="icon-button h-7 w-7"
                 title={t('quickCommands.newGroup')}
@@ -192,6 +247,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                 <FolderUp className="w-4 h-4" />
               </button>
               <button
+                type="button"
                 onClick={() => { setShowCommandForm(true); setShowGroupForm(false); }}
                 className="icon-button h-7 w-7"
                 title={t('quickCommands.newCommand')}
@@ -202,6 +258,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
             </div>
           </div>
 
+          <div className="scrollbar-modern min-h-0 flex-1 overflow-y-auto">
           {/* 新建分组表单 */}
           {showGroupForm && (
             <div className="border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_58%,var(--bg-secondary))] p-3">
@@ -214,6 +271,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                     onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
                     placeholder={t('quickCommands.groupName')}
                     className="industrial-input w-full py-1.5"
+                    autoFocus
                   />
                 </div>
                 <div>
@@ -229,17 +287,26 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                         onClick={() => setNewGroup({ ...newGroup, color })}
                       />
                     ))}
-                    <span className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <span className="ml-auto flex items-center gap-1.5 font-mono text-[11px] text-fg-muted">
                       <GroupColorSwatch color={newGroup.color} size="sm" />
                       {newGroup.color.toUpperCase()}
                     </span>
                   </div>
                 </div>
-                <div className="flex gap-1">
-                  <button type="button" onClick={handleSaveGroup} className="industrial-button-primary flex-1 px-2 py-1.5 text-xs">
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    disabled={!newGroup.name.trim()}
+                    onClick={() => void handleSaveGroup()}
+                    className="industrial-button-primary flex-1 px-2 py-1.5 text-xs"
+                  >
                     {t('common.save')}
                   </button>
-                  <button type="button" onClick={() => setShowGroupForm(false)} className="industrial-button-secondary flex-1 px-2 py-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShowGroupForm(false)}
+                    className="industrial-button-secondary flex-1 px-2 py-1.5 text-xs"
+                  >
                     {t('common.cancel')}
                   </button>
                 </div>
@@ -257,6 +324,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                   onChange={(e) => setNewCommand({ ...newCommand, name: e.target.value })}
                   placeholder={t('quickCommands.commandName')}
                   className="industrial-input w-full py-1.5"
+                  autoFocus
                 />
                 <input
                   type="text"
@@ -276,14 +344,14 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                   <div className="space-y-1.5">
                     <label className="industrial-field-label mb-0">{t('quickCommands.group')}</label>
                     {/* 自定义分组选择：色点 + 名称，与列表样式一致 */}
-                    <div className="industrial-card max-h-36 space-y-0.5 overflow-y-auto p-1">
+                    <div className="industrial-card max-h-36 space-y-0.5 overflow-y-auto p-1 scrollbar-thin">
                       <button
                         type="button"
                         onClick={() => setNewCommand({ ...newCommand, groupId: '' })}
                         className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors ${
                           !newCommand.groupId
-                            ? 'bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-slate-900 dark:text-white'
-                            : 'text-slate-600 hover:bg-[color-mix(in_srgb,var(--bg-hover)_70%,transparent)] dark:text-slate-300'
+                            ? 'bg-[color-mix(in_srgb,var(--accent-primary)_14%,transparent)] font-medium text-fg'
+                            : 'text-fg-secondary hover:bg-[color-mix(in_srgb,var(--bg-hover)_70%,transparent)]'
                         }`}
                       >
                         <GroupColorSwatch color="transparent" size="sm" empty />
@@ -296,8 +364,8 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                           onClick={() => setNewCommand({ ...newCommand, groupId: group.id })}
                           className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors ${
                             newCommand.groupId === group.id
-                              ? 'bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-slate-900 dark:text-white'
-                              : 'text-slate-600 hover:bg-[color-mix(in_srgb,var(--bg-hover)_70%,transparent)] dark:text-slate-300'
+                              ? 'bg-[color-mix(in_srgb,var(--accent-primary)_14%,transparent)] font-medium text-fg'
+                              : 'text-fg-secondary hover:bg-[color-mix(in_srgb,var(--bg-hover)_70%,transparent)]'
                           }`}
                         >
                           <GroupColorSwatch color={group.color || DEFAULT_GROUP_COLOR} size="sm" />
@@ -307,8 +375,13 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                     </div>
                   </div>
                 )}
-                <div className="flex gap-1">
-                  <button type="button" onClick={handleSaveCommand} className="industrial-button-primary flex-1 px-2 py-1.5 text-xs">
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    disabled={!newCommand.name.trim() || !newCommand.command.trim()}
+                    onClick={() => void handleSaveCommand()}
+                    className="industrial-button-primary flex-1 px-2 py-1.5 text-xs"
+                  >
                     {t('common.save')}
                   </button>
                   <button
@@ -330,7 +403,7 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
           {/* 命令列表 */}
           <div className="p-2">
             {commands.length === 0 && groups.length === 0 && !showCommandForm && !showGroupForm ? (
-              <div className="py-4 text-center text-sm text-slate-500 dark:text-slate-400">
+              <div className="py-5 text-center text-sm text-fg-muted">
                 {t('quickCommands.noCommands')}
               </div>
             ) : (
@@ -340,29 +413,33 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                   const groupColor = group.color || DEFAULT_GROUP_COLOR;
                   return (
                     <div key={group.id} className="mb-3">
-                      <div className="mb-1 flex items-center justify-between border-b border-[color-mix(in_srgb,var(--border-color)_56%,transparent)] px-2 py-1.5">
+                      <div className="mb-1 flex items-center justify-between gap-2 border-b border-[color-mix(in_srgb,var(--border-color)_56%,transparent)] px-2 py-1.5">
                         <div className="flex min-w-0 items-center gap-2">
                           <GroupColorSwatch color={groupColor} size="sm" title={groupColor} />
-                          <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          <span className="truncate text-xs font-semibold text-fg-secondary" title={group.name}>
                             {group.name}
                           </span>
-                          <span className="text-[10px] text-slate-500">{groupCmds.length}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-fg-muted tabular-nums">{groupCmds.length}</span>
                         </div>
                         <button
                           type="button"
-                          onClick={() => handleDeleteGroup(group.id)}
-                          className="icon-button h-6 w-6 hover:text-danger"
+                          onClick={() => void handleDeleteGroup(group.id)}
+                          className="icon-button h-6 w-6 shrink-0 hover:text-danger"
+                          title={t('common.delete')}
+                          aria-label={t('common.delete')}
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
                       {groupCmds.length === 0 ? (
-                        <p className="px-2 py-1.5 text-[11px] text-slate-500">{t('quickCommands.emptyGroup')}</p>
+                        <p className="px-2 py-1.5 text-[11px] text-fg-muted">{t('quickCommands.emptyGroup')}</p>
                       ) : (
                         groupCmds.map((cmd) => (
                           <CommandItem
                             key={cmd.id}
                             cmd={cmd}
+                            editLabel={t('common.edit')}
+                            deleteLabel={t('common.delete')}
                             onPaste={handlePaste}
                             onEdit={(c) => {
                               setEditingCommand(c);
@@ -383,52 +460,93 @@ export function QuickCommandsPanel({ onPasteCommand }: QuickCommandsPanelProps) 
                   );
                 })}
 
-                {commands.filter((c) => !c.groupId).map((cmd) => (
-                  <CommandItem
-                    key={cmd.id}
-                    cmd={cmd}
-                    onPaste={handlePaste}
-                    onEdit={(c) => {
-                      setEditingCommand(c);
-                      setNewCommand({
-                        name: c.name,
-                        command: c.command,
-                        description: c.description || '',
-                        groupId: c.groupId || '',
-                      });
-                      setShowCommandForm(true);
-                      setShowGroupForm(false);
-                    }}
-                    onDelete={handleDeleteCommand}
-                  />
-                ))}
+                {ungroupedCommands.length > 0 && (
+                  <div>
+                    {groups.length > 0 && (
+                      <div className="mb-1 flex items-center gap-2 border-b border-[color-mix(in_srgb,var(--border-color)_56%,transparent)] px-2 py-1.5">
+                        <GroupColorSwatch color="transparent" size="sm" empty />
+                        <span className="truncate text-xs font-semibold text-fg-muted">
+                          {t('quickCommands.noGroup')}
+                        </span>
+                        <span className="shrink-0 font-mono text-[10px] text-fg-muted tabular-nums">
+                          {ungroupedCommands.length}
+                        </span>
+                      </div>
+                    )}
+                    {ungroupedCommands.map((cmd) => (
+                      <CommandItem
+                        key={cmd.id}
+                        cmd={cmd}
+                        editLabel={t('common.edit')}
+                        deleteLabel={t('common.delete')}
+                        onPaste={handlePaste}
+                        onEdit={(c) => {
+                          setEditingCommand(c);
+                          setNewCommand({
+                            name: c.name,
+                            command: c.command,
+                            description: c.description || '',
+                            groupId: c.groupId || '',
+                          });
+                          setShowCommandForm(true);
+                          setShowGroupForm(false);
+                        }}
+                        onDelete={handleDeleteCommand}
+                      />
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
-        </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
 }
 
-function CommandItem({ cmd, onPaste, onEdit, onDelete }: {
+function CommandItem({ cmd, editLabel, deleteLabel, onPaste, onEdit, onDelete }: {
   cmd: QuickCommand;
+  editLabel: string;
+  deleteLabel: string;
   onPaste: (command: string) => void;
   onEdit: (cmd: QuickCommand) => void;
   onDelete: (id: string) => void;
 }) {
   return (
-    <div className="group mx-1 flex items-center rounded-sm border border-transparent px-2 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--border-color)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]">
-      <button onClick={() => onPaste(cmd.command)} className="flex-1 text-left">
-        <div className="text-sm text-slate-900 dark:text-white font-medium">{cmd.name}</div>
-        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{cmd.command}</div>
+    <div className="group mx-0.5 flex items-center gap-1.5 rounded-sm border border-transparent px-2 py-1.5 transition-colors hover:border-[color-mix(in_srgb,var(--border-color)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]">
+      <button
+        type="button"
+        onClick={() => onPaste(cmd.command)}
+        className="min-w-0 flex-1 text-left"
+        title={cmd.description ? `${cmd.name} — ${cmd.description}\n${cmd.command}` : `${cmd.name}\n${cmd.command}`}
+      >
+        <div className="truncate text-sm font-medium text-fg">{cmd.name}</div>
+        <div className="truncate font-mono text-xs text-fg-muted">{cmd.command}</div>
+        {cmd.description && (
+          <div className="mt-0.5 truncate text-[11px] text-fg-subtle">{cmd.description}</div>
+        )}
       </button>
-      <div className="hidden group-hover:flex items-center gap-1">
-        <button onClick={() => onEdit(cmd)} className="icon-button h-6 w-6">
-          <Pencil className="w-3 h-3" />
+      <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <button
+          type="button"
+          onClick={() => onEdit(cmd)}
+          className="icon-button h-6 w-6"
+          title={editLabel}
+          aria-label={editLabel}
+        >
+          <Pencil className="h-3 w-3" />
         </button>
-        <button onClick={() => onDelete(cmd.id)} className="icon-button h-6 w-6 hover:text-danger">
-          <Trash2 className="w-3 h-3" />
+        <button
+          type="button"
+          onClick={() => onDelete(cmd.id)}
+          className="icon-button h-6 w-6 hover:text-danger"
+          title={deleteLabel}
+          aria-label={deleteLabel}
+        >
+          <Trash2 className="h-3 w-3" />
         </button>
       </div>
     </div>

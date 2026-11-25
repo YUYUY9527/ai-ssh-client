@@ -282,6 +282,11 @@ const zhCN = {
       confirmTitle: '确认{action}容器',
       confirmMessage: '确定要{action}容器「{name}」吗？此操作会立即对远端生效。',
       execTitle: '容器 shell · {container} · {shell}',
+      detailCommand: '启动命令',
+      detailStarted: '启动时间',
+      detailRestartCount: '重启次数',
+      detailNetworks: '网络',
+      detailMounts: '挂载卷',
     },
     zoomIn: '放大字号',
     search: '搜索终端输出',
@@ -944,6 +949,13 @@ const zhCN = {
   },
   notifications: {
     commandCompleted: '命令执行完成',
+  },
+  versionUpdate: {
+    title: '检测到新版本',
+    countdown: '{seconds} 秒后自动刷新以加载最新版本…',
+    reloading: '正在刷新…',
+    reloadNow: '立即刷新',
+    dismissTitle: '本次不再提示',
   },
   features: {
     connectionGroups: {

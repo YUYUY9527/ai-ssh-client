@@ -877,102 +877,128 @@ export function AppController() {
         onCloseTab={handleCloseTab}
       />
 
-          {tabContextMenu && (
+          {tabContextMenu && (() => {
+            const estimatedHeight = (openTabs.length > 1 ? 396 : 236) + (isSplit ? 36 : 0);
+            return (
             <div
               ref={tabContextMenuRef}
-              className="app-popover fixed top-auto mt-0 py-1 min-w-[160px]"
+              role="menu"
+              className="app-popover fixed top-auto z-overlay mt-0 max-h-[calc(100vh-16px)] min-w-[172px] overflow-y-auto py-1"
               style={{
-                left: Math.max(8, Math.min(tabContextMenu.x, window.innerWidth - 188)),
-                top: Math.max(8, Math.min(tabContextMenu.y, window.innerHeight - 268)),
+                left: Math.max(8, Math.min(tabContextMenu.x, window.innerWidth - 196)),
+                top: Math.max(8, Math.min(tabContextMenu.y, window.innerHeight - estimatedHeight)),
               }}
             >
               <button
+                type="button"
+                role="menuitem"
                 onClick={handleCopyConnection}
                 className="app-popover-row text-sm text-fg-secondary"
               >
-                <Copy className="w-4 h-4" />
+                <Copy className="h-4 w-4 shrink-0" />
                 {t('connection.copyConnection')}
               </button>
               <button
+                type="button"
+                role="menuitem"
                 onClick={handleEditConnection}
                 className="app-popover-row text-sm text-fg-secondary"
               >
-                <Edit3 className="w-4 h-4" />
+                <Edit3 className="h-4 w-4 shrink-0" />
                 {t('connection.editConnection')}
               </button>
               <button
+                type="button"
+                role="menuitem"
                 onClick={handleReconnectTab}
                 className="app-popover-row text-sm text-fg-secondary"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="h-4 w-4 shrink-0" />
                 {t('connection.reconnect')}
               </button>
               {openTabs.length > 1 && (
                 <>
-                  <div className="border-t border-line-subtle dark:border-line my-1" />
+                  <div className="my-1 border-t border-line-subtle dark:border-line" />
                   <button
+                    type="button"
+                    role="menuitem"
                     onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'left')}
                     className="app-popover-row text-sm text-fg-secondary"
                   >
-                    <Columns2 className="w-4 h-4" />
+                    <Columns2 className="h-4 w-4 shrink-0" />
                     {t('workspace.split.enableLeft')}
                   </button>
                   <button
+                    type="button"
+                    role="menuitem"
                     onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'right')}
                     className="app-popover-row text-sm text-fg-secondary"
                   >
-                    <Columns2 className="w-4 h-4" />
+                    <Columns2 className="h-4 w-4 shrink-0" />
                     {t('workspace.split.enableRight')}
                   </button>
                   <button
+                    type="button"
+                    role="menuitem"
                     onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'top')}
                     className="app-popover-row text-sm text-fg-secondary"
                   >
-                    <Rows2 className="w-4 h-4" />
+                    <Rows2 className="h-4 w-4 shrink-0" />
                     {t('workspace.split.enableUp')}
                   </button>
                   <button
+                    type="button"
+                    role="menuitem"
                     onClick={() => handleSplitWithTab(tabContextMenu.tabId, 'bottom')}
                     className="app-popover-row text-sm text-fg-secondary"
                   >
-                    <Rows2 className="w-4 h-4" />
+                    <Rows2 className="h-4 w-4 shrink-0" />
                     {t('workspace.split.enableDown')}
                   </button>
                 </>
               )}
               {isSplit && (
                 <button
+                  type="button"
+                  role="menuitem"
                   onClick={() => { resetLayout(); setTabContextMenu(null); }}
                   className="app-popover-row text-sm text-fg-secondary"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="h-4 w-4 shrink-0" />
                   {t('workspace.split.disable')}
                 </button>
               )}
-              <div className="border-t border-line-subtle dark:border-line my-1" />
+              <div className="my-1 border-t border-line-subtle dark:border-line" />
               <button
+                type="button"
+                role="menuitem"
                 onClick={handleCloseCurrentTab}
                 className="app-popover-row text-sm text-fg-secondary"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4 shrink-0" />
                 {t('tab.closeTab')}
               </button>
               <button
+                type="button"
+                role="menuitem"
                 onClick={handleCloseOtherTabs}
                 className="app-popover-row text-sm text-fg-secondary"
               >
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="h-4 w-4 shrink-0" />
                 {t('tab.closeOtherTabs')}
               </button>
               <button
+                type="button"
+                role="menuitem"
                 onClick={handleCloseAllTabs}
                 className="app-popover-row text-sm text-fg-secondary"
               >
-                <MoreVertical className="w-4 h-4" />
+                <MoreVertical className="h-4 w-4 shrink-0" />
                 {t('tab.closeAllTabs')}
               </button>
             </div>
-          )}
+            );
+          })()}
         </>
       )}
       workspace={(
@@ -1048,7 +1074,7 @@ export function AppController() {
       />
       )}
       />
-      <VersionUpdateBanner />
+      <VersionUpdateBanner hasTopBanner={showDefaultPasswordBanner} />
     </>
   );
 }

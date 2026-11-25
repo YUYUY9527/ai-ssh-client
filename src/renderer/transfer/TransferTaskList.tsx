@@ -84,7 +84,7 @@ export function TransferTaskList({
   tasks,
   translate,
 }: TransferTaskListProps) {
-  const [applyToBatch, setApplyToBatch] = useState(false);
+  const [applyToBatchMap, setApplyToBatchMap] = useState<Record<string, boolean>>({});
   const speeds = useTransferSpeeds(tasks);
   const canPauseAll = tasks.some((task) => canPauseSftpTransfer(task));
   const canResumeAll = tasks.some((task) => canResumeSftpTransfer(task));
@@ -97,10 +97,24 @@ export function TransferTaskList({
     );
   }
 
+  const resolveTaskConflict = (
+    taskId: string,
+    policy: Exclude<SftpConflictPolicy, 'ask'>,
+    renamedPath?: string,
+  ) => {
+    const apply = Boolean(applyToBatchMap[taskId]);
+    setApplyToBatchMap((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+    onResolveConflict(taskId, policy, renamedPath, apply);
+  };
+
   return (
     <div className="file-transfer-scroll h-full w-full min-w-0 overflow-y-auto overflow-x-hidden bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))]">
       <div className="flex items-center justify-between gap-2 border-b border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-3">
-        <h3 className="text-sm font-semibold text-fg dark:text-white">
+        <h3 className="min-w-0 truncate text-sm font-semibold text-fg">
           {translate('fileTransfer.transferTasks')}
         </h3>
         {(canPauseAll || canResumeAll) && (
@@ -145,14 +159,14 @@ export function TransferTaskList({
           const canResume = canResumeSftpTransfer(task);
           const canRemove = isSftpTransferTerminal(task.status);
           const statusTone = task.status === 'completed' || task.status === 'handed-off'
-            ? 'border-success bg-success-muted text-success dark:text-success-fg'
+            ? 'border-[color-mix(in_srgb,var(--success)_40%,var(--border-color))] bg-success-muted text-success-fg'
             : failed
-            ? 'border-danger bg-danger-muted text-danger dark:text-danger-fg'
+            ? 'border-[color-mix(in_srgb,var(--danger)_40%,var(--border-color))] bg-danger-muted text-danger-fg'
             : task.status === 'transferring' || task.status === 'committing'
             ? 'border-[color-mix(in_srgb,var(--accent-primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)] text-accent'
             : task.status === 'paused'
             ? 'border-line-strong bg-surface-raised text-fg-secondary'
-            : 'border-warning bg-warning-muted text-warning dark:text-warning-fg';
+            : 'border-[color-mix(in_srgb,var(--warning)_40%,var(--border-color))] bg-warning-muted text-warning-fg';
           const progressTone = task.status === 'completed' || task.status === 'handed-off'
             ? 'bg-success'
             : failed
@@ -233,8 +247,9 @@ export function TransferTaskList({
                       <button
                         type="button"
                         onClick={() => onDiscardTask(task.taskId)}
-                        className="icon-button h-6 w-6"
+                        className="icon-button h-6 w-6 hover:text-danger"
                         title={translate('fileTransfer.discardTask')}
+                        aria-label={translate('fileTransfer.discardTask')}
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -243,6 +258,7 @@ export function TransferTaskList({
                         onClick={() => onRemoveTask(task.taskId)}
                         className="icon-button h-6 w-6"
                         title={translate('common.close')}
+                        aria-label={translate('common.close')}
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -253,20 +269,22 @@ export function TransferTaskList({
 
               <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
                 <span className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-sm border px-1.5 py-0.5 ${statusTone}`}>
-                  {(task.status === 'completed' || task.status === 'handed-off') && <CheckCircle className="h-3 w-3" />}
-                  {failed && <AlertCircle className="h-3 w-3" />}
+                  {(task.status === 'completed' || task.status === 'handed-off') && <CheckCircle className="h-3 w-3 shrink-0" />}
+                  {failed && <AlertCircle className="h-3 w-3 shrink-0" />}
                   {!isSftpTransferTerminal(task.status)
                     && task.status !== 'queued'
                     && task.status !== 'checking'
                     && task.status !== 'waiting-conflict'
                     && task.status !== 'paused'
-                    && <Loader2 className="h-3 w-3 animate-spin" />}
+                    && <Loader2 className="h-3 w-3 shrink-0 animate-spin" />}
                   {(task.status === 'queued' || task.status === 'checking' || task.status === 'waiting-conflict') && (
-                    <Clock3 className="h-3 w-3" />
+                    <Clock3 className="h-3 w-3 shrink-0" />
                   )}
-                  {task.status === 'paused' && <Pause className="h-3 w-3" />}
-                  {translate(`fileTransfer.taskStatus.${statusKey}`)}
-                  {task.attempt > 1 ? ` #${task.attempt}` : ''}
+                  {task.status === 'paused' && <Pause className="h-3 w-3 shrink-0" />}
+                  <span className="truncate">
+                    {translate(`fileTransfer.taskStatus.${statusKey}`)}
+                    {task.attempt > 1 ? ` #${task.attempt}` : ''}
+                  </span>
                 </span>
                 <span className="tabular-nums text-fg-muted">
                   {progressValue}%
@@ -294,19 +312,22 @@ export function TransferTaskList({
               )}
 
               {task.status === 'waiting-conflict' && (
-                <div className="mt-3 rounded-sm border border-warning bg-warning-muted p-2.5">
-                  <p className="break-words text-xs text-warning dark:text-warning-fg">
+                <div className="mt-3 rounded-sm border border-[color-mix(in_srgb,var(--warning)_45%,var(--border-color))] bg-warning-muted p-2.5">
+                  <p className="break-words text-xs text-warning-fg">
                     {translate('fileTransfer.conflictMessage', {
                       name: task.name,
                       path: task.conflict?.destinationPath || task.remotePath || '-',
                     })}
                   </p>
                   {task.batchId && (
-                    <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-warning dark:text-warning-fg">
+                    <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-warning-fg">
                       <input
                         type="checkbox"
-                        checked={applyToBatch}
-                        onChange={(event) => setApplyToBatch(event.target.checked)}
+                        checked={Boolean(applyToBatchMap[task.taskId])}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setApplyToBatchMap((prev) => ({ ...prev, [task.taskId]: checked }));
+                        }}
                         disabled={resolvingConflictTaskId === task.taskId}
                       />
                       <span>{translate('fileTransfer.conflictApplyBatch')}</span>
@@ -317,7 +338,7 @@ export function TransferTaskList({
                       type="button"
                       className="industrial-button-secondary px-2 py-1 text-xs"
                       disabled={resolvingConflictTaskId === task.taskId}
-                      onClick={() => onResolveConflict(task.taskId, 'overwrite', undefined, applyToBatch)}
+                      onClick={() => resolveTaskConflict(task.taskId, 'overwrite')}
                     >
                       {translate('fileTransfer.conflictOverwrite')}
                     </button>
@@ -325,7 +346,7 @@ export function TransferTaskList({
                       type="button"
                       className="industrial-button-secondary px-2 py-1 text-xs"
                       disabled={resolvingConflictTaskId === task.taskId}
-                      onClick={() => onResolveConflict(task.taskId, 'skip', undefined, applyToBatch)}
+                      onClick={() => resolveTaskConflict(task.taskId, 'skip')}
                     >
                       {translate('fileTransfer.conflictSkip')}
                     </button>
@@ -333,11 +354,10 @@ export function TransferTaskList({
                       type="button"
                       className="industrial-button-secondary px-2 py-1 text-xs"
                       disabled={resolvingConflictTaskId === task.taskId}
-                      onClick={() => onResolveConflict(
+                      onClick={() => resolveTaskConflict(
                         task.taskId,
                         'rename',
                         task.conflict?.suggestedName,
-                        applyToBatch,
                       )}
                     >
                       {translate('fileTransfer.conflictRename')}
@@ -362,13 +382,13 @@ export function TransferTaskList({
               </div>
 
               {task.notice && (
-                <p className="mt-2 break-words text-xs text-warning dark:text-warning-fg" title={task.notice}>
+                <p className="mt-2 break-words text-xs text-warning-fg" title={task.notice}>
                   {task.notice}
                 </p>
               )}
 
               {failed && task.error?.message && (
-                <p className="mt-2 line-clamp-2 break-words text-xs text-danger dark:text-danger-fg" title={task.error.message}>
+                <p className="mt-2 line-clamp-2 break-words text-xs text-danger-fg" title={task.error.message}>
                   {task.error.message}
                 </p>
               )}

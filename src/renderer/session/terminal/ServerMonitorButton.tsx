@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, Cpu, HardDrive, MemoryStick, Network, RefreshCw, Server, X } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Loader2, MemoryStick, Network, RefreshCw, Server, X } from 'lucide-react';
 import type { ServerMonitorMetrics } from '../../../shared/ipc-types';
 import { useConnectionStore } from '../../store/useConnectionStore';
 
@@ -65,6 +65,7 @@ function Meter({ label, percent, detail }: { label: string; percent: number; det
 
 /** CPU 使用率迷你折线（0–100% 归一化，带柔和面积渐变与末端指示点）。 */
 function Sparkline({ values }: { values: number[] }) {
+  const gradientId = useId();
   const width = 100;
   const height = 30;
   const padY = 2;
@@ -87,13 +88,13 @@ function Sparkline({ values }: { values: number[] }) {
   return (
     <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="h-8 w-full text-accent">
       <defs>
-        <linearGradient id="monitor-sparkline-fill" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="currentColor" stopOpacity="0.28" />
           <stop offset="100%" stopColor="currentColor" stopOpacity="0.01" />
         </linearGradient>
       </defs>
       {areaPoints && (
-        <polygon points={areaPoints} fill="url(#monitor-sparkline-fill)" />
+        <polygon points={areaPoints} fill={`url(#${gradientId})`} />
       )}
       <polyline
         points={points || `0,${height - padY}`}
@@ -124,7 +125,7 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-2 rounded-lg border border-line-subtle bg-surface/90 p-3 shadow-sm">
+    <div className="space-y-2 rounded-lg border border-line-subtle bg-[color-mix(in_srgb,var(--bg-secondary)_92%,transparent)] p-3 shadow-sm">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs font-semibold text-fg">
           <span className={`inline-flex h-5 w-5 items-center justify-center rounded-sm ${tint}`}>{icon}</span>
@@ -141,7 +142,7 @@ function Field({ label, value, className = '' }: { label: string; value: string;
   return (
     <div className={`min-w-0 ${className}`}>
       <div className="text-[11px] text-fg-subtle">{label}</div>
-      <div className="text-fg-secondary dark:text-fg truncate tabular-nums" title={value}>{value || '—'}</div>
+      <div className="truncate font-mono text-fg tabular-nums" title={value}>{value || '—'}</div>
     </div>
   );
 }
@@ -160,6 +161,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAllNetworks, setShowAllNetworks] = useState(false);
+  const [showAllCores, setShowAllCores] = useState(false);
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
   const requestSeq = useRef(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -214,8 +216,34 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
     setError(null);
     setOpen(false);
     setShowAllNetworks(false);
+    setShowAllCores(false);
     setPanelPosition(null);
   }, [connectionId]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [open]);
 
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -229,7 +257,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
       const viewportHeight = window.innerHeight;
       const margin = 12;
       const width = Math.max(0, Math.min(340, viewportWidth - margin * 2));
-      const maxHeight = Math.max(0, Math.min(viewportHeight * 0.75, viewportHeight - margin * 2));
+      const maxHeight = Math.max(0, Math.min(viewportHeight * 0.78, viewportHeight - margin * 2));
       panel.style.width = `${width}px`;
       panel.style.maxHeight = `${maxHeight}px`;
 
@@ -242,17 +270,24 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
       const preferredTop = below <= maxTop ? below : triggerRect.top - panelHeight - 8;
       const top = Math.min(maxTop, Math.max(margin, preferredTop));
 
-      setPanelPosition({ left, top });
+      setPanelPosition((prev) => (prev && prev.left === left && prev.top === top ? prev : { left, top }));
     };
 
     updatePosition();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && panelRef.current
+      ? new ResizeObserver(() => updatePosition())
+      : null;
+    if (resizeObserver && panelRef.current) {
+      resizeObserver.observe(panelRef.current);
+    }
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
     return () => {
+      resizeObserver?.disconnect();
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [open]);
+  }, [open, metrics, showAllNetworks, showAllCores, error]);
 
   if (!supported || !connectionId) return null;
 
@@ -286,7 +321,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
       {open && createPortal(
         <div
           ref={panelRef}
-          className="app-popover fixed left-3 top-3 mt-0 max-h-[75vh] w-[340px] overflow-y-auto p-3 space-y-2.5 z-popover"
+          className="app-popover fixed left-3 top-3 z-overlay mt-0 max-h-[78vh] w-[340px] space-y-2.5 overflow-y-auto p-3 scrollbar-thin"
           data-terminal-monitor-panel
           data-terminal-toolbar-popup
           style={{
@@ -296,39 +331,41 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
             visibility: panelPosition ? 'visible' : 'hidden',
           }}
         >
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-fg flex items-center gap-1.5">
-              <Activity className="w-4 h-4 text-accent" />
-              {translate('features.monitor.title')}
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-fg">
+              <Activity className="h-4 w-4 shrink-0 text-accent" />
+              <span className="truncate">{translate('features.monitor.title')}</span>
             </span>
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 onClick={() => { void fetchMetrics(); }}
                 className="icon-button h-6 w-6"
                 title={translate('common.refresh')}
+                aria-label={translate('common.refresh')}
                 disabled={loading}
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
               </button>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 className="icon-button h-6 w-6"
                 title={translate('common.close')}
+                aria-label={translate('common.close')}
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
 
           {error && (
-            <div className="text-xs text-danger dark:text-danger-fg space-y-1">
-              <p>{translate('features.monitor.failed')}：{error}</p>
+            <div className="space-y-1.5 rounded-md border border-[color-mix(in_srgb,var(--danger)_40%,var(--border-color))] bg-danger-muted px-2.5 py-2 text-xs text-danger-fg">
+              <p className="break-words">{translate('features.monitor.failed')}：{error}</p>
               <button
                 type="button"
                 onClick={() => { void fetchMetrics(); }}
-                className="text-accent dark:text-accent-hover hover:underline"
+                className="font-medium text-accent hover:underline dark:text-accent-hover"
               >
                 {translate('features.monitor.retry')}
               </button>
@@ -336,7 +373,10 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
           )}
 
           {!metrics && !error && (
-            <p className="text-xs text-fg-subtle py-2">{translate('features.monitor.loading')}</p>
+            <div className="flex items-center gap-2 py-3 text-xs text-fg-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+              <span>{translate('features.monitor.loading')}</span>
+            </div>
           )}
 
           {metrics && (
@@ -402,8 +442,23 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                 <Sparkline values={history} />
                 {metrics.cpuCores && metrics.cpuCores.length > 1 && (
                   <div className="text-[11px] text-fg-subtle tabular-nums">
-                    {translate('features.monitor.perCore')}:{' '}
-                    {metrics.cpuCores.map((value, index) => `${value}%`).join(' · ')}
+                    <span>
+                      {translate('features.monitor.perCore')}:{' '}
+                      {(showAllCores ? metrics.cpuCores : metrics.cpuCores.slice(0, 8))
+                        .map((value) => `${value}%`)
+                        .join(' · ')}
+                    </span>
+                    {metrics.cpuCores.length > 8 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllCores((prev) => !prev)}
+                        className="ml-1.5 text-[10px] text-accent hover:text-accent-hover"
+                      >
+                        {showAllCores
+                          ? translate('features.monitor.showLess')
+                          : `+${metrics.cpuCores.length - 8}`}
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="flex items-center justify-between text-[11px]">
@@ -474,9 +529,9 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                   <div className="space-y-1">
                     {visibleNetworkList.map((net) => (
                       <div key={net.name} className="flex items-center justify-between text-[11px]">
-                        <span className="text-fg-secondary truncate mr-2" title={net.name}>{net.name}</span>
-                        <span className="tabular-nums shrink-0">
-                          <span className="text-warning dark:text-warning-fg">↑</span> {formatRate(net.txBytesPerSec)}
+                        <span className="mr-2 truncate text-fg-secondary" title={net.name}>{net.name}</span>
+                        <span className="shrink-0 font-mono text-fg-secondary tabular-nums">
+                          <span className="text-warning-fg">↑</span> {formatRate(net.txBytesPerSec)}
                           <span className="mx-1.5 text-fg-faint">·</span>
                           <span className="text-accent dark:text-accent-hover">↓</span> {formatRate(net.rxBytesPerSec)}
                         </span>
@@ -513,10 +568,10 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                 {metrics.diskIo && (
                   <div className="flex items-center justify-between text-[11px] text-fg-muted">
                     <span>{translate('features.monitor.diskIo')}</span>
-                    <span className="tabular-nums">
+                    <span className="font-mono text-fg-secondary tabular-nums">
                       <span className="text-accent dark:text-accent-hover">↓</span> {formatRate(metrics.diskIo.readBytesPerSec)}
                       <span className="mx-1.5 text-fg-faint">·</span>
-                      <span className="text-warning dark:text-warning-fg">↑</span> {formatRate(metrics.diskIo.writeBytesPerSec)}
+                      <span className="text-warning-fg">↑</span> {formatRate(metrics.diskIo.writeBytesPerSec)}
                     </span>
                   </div>
                 )}

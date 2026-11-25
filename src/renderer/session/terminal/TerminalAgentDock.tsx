@@ -512,7 +512,15 @@ export function TerminalAgentDock({
     return null;
   }, [task, isRunning]);
 
-  // 内容更新时平滑滚动到底部
+  // 追踪用户是否停留在底部附近：向上翻阅历史时不强行拉回底部
+  const isNearBottomRef = useRef(true);
+  const handleBodyScroll = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48;
+  };
+
+  // 内容更新时平滑滚动到底部（审批/提问/新任务到达时始终滚底）
   const stepCount = task?.thinkingSteps.length ?? 0;
   const execCount = task?.executions.length ?? 0;
   const finishReason = task?.finishReason ?? '';
@@ -520,7 +528,10 @@ export function TerminalAgentDock({
     if (collapsed || isHistoryVisible) return;
     const el = bodyRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (isNearBottomRef.current || Boolean(taskApproval) || Boolean(taskQuestion)) {
+      el.scrollTop = el.scrollHeight;
+      isNearBottomRef.current = true;
+    }
   }, [
     collapsed,
     isHistoryVisible,
@@ -541,12 +552,12 @@ export function TerminalAgentDock({
     }
     const analysis = analyzeCommandRisk(effectiveApprovalCommand);
     const className = analysis.riskLevel === 'critical'
-      ? 'border-danger text-danger bg-danger-muted'
+      ? 'border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] text-danger-fg bg-surface'
       : analysis.riskLevel === 'high'
-        ? 'border-accent-strong text-accent-strong bg-accent-strong-muted'
+        ? 'border-[color-mix(in_srgb,var(--accent-strong)_45%,var(--border-color))] text-accent-strong bg-surface'
         : analysis.riskLevel === 'medium'
-          ? 'border-warning text-warning bg-warning-muted'
-          : 'border-success text-success bg-success-muted';
+          ? 'border-[color-mix(in_srgb,var(--warning)_45%,var(--border-color))] text-warning-fg bg-surface'
+          : 'border-[color-mix(in_srgb,var(--success)_45%,var(--border-color))] text-success-fg bg-surface';
     return {
       className,
       reason: (analysis.reasons ?? []).slice(0, 2).join('；'),
@@ -801,6 +812,8 @@ export function TerminalAgentDock({
             <div className="flex items-center gap-2 px-2.5 py-1.5">
               <button
                 type="button"
+                disabled={!hasOutput}
+                aria-expanded={hasOutput ? expanded : undefined}
                 onClick={() => {
                   if (!hasOutput) return;
                   setExpandedExecIds((prev) => ({ ...prev, [execKey]: !prev[execKey] }));
@@ -842,6 +855,7 @@ export function TerminalAgentDock({
                 onClick={() => void copyText(`cmd-${execKey}`, item.command)}
                 className="icon-button h-6 w-6 shrink-0"
                 title={t('common.copy')}
+                aria-label={t('common.copy')}
               >
                 {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               </button>
@@ -896,18 +910,18 @@ export function TerminalAgentDock({
             </span>
           )}
           {!collapsed && (
-            <span className="hidden min-w-0 max-w-[160px] items-center gap-1 truncate rounded-sm border border-line-subtle bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-fg-muted md:inline-flex" title={activeProvider ? activeProvider.name : t('aiProvider.noProviders')}>
+            <span className="agent-dock-meta-provider min-w-0 max-w-[160px] items-center gap-1 truncate rounded-sm border border-line-subtle bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-fg-muted" title={activeProvider ? activeProvider.name : t('aiProvider.noProviders')}>
               <PlugZap className="h-3 w-3 shrink-0 text-accent" />
               <span className="truncate">{activeProvider ? activeProvider.name : t('aiProvider.noProviders')}</span>
             </span>
           )}
           {commandTimeline.length > 0 && !collapsed && (
-            <span className="hidden shrink-0 rounded-sm bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-fg-muted lg:inline">
+            <span className="agent-dock-meta-commands shrink-0 rounded-sm bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
               {t('terminal.agentDock.commandCount', { count: commandTimeline.length })}
             </span>
           )}
           {!collapsed && (task?.tokenUsage ?? 0) > 0 && (
-            <span className="hidden shrink-0 rounded-sm bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-fg-muted xl:inline" title={t('agent.task.tokenUsage')}>
+            <span className="agent-dock-meta-tokens shrink-0 rounded-sm bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-fg-muted" title={t('agent.task.tokenUsage')}>
               {t('agent.task.tokens', { count: task?.tokenUsage ?? 0 })}
             </span>
           )}
@@ -1030,7 +1044,7 @@ export function TerminalAgentDock({
       {/* 主体内容区（顶部停靠向下展开） */}
       {!collapsed && (
         <>
-          <div ref={bodyRef} className="terminal-agent-dock-body scrollbar-thin">
+          <div ref={bodyRef} onScroll={handleBodyScroll} className="terminal-agent-dock-body scrollbar-thin">
             {/* 工具调用审计抽屉 */}
             {auditOpen && (
               <div className="rounded-md border border-line bg-surface-sunken px-3 py-2.5">
@@ -1236,7 +1250,7 @@ export function TerminalAgentDock({
 
                 {/* 运行中实时思考提示 */}
                 {isRunning && !taskApproval && !taskQuestion && !taskTerminalPrompt && (
-                  <div className="flex items-start gap-2 rounded-sm border border-line-subtle bg-surface/70 px-3 py-2 text-xs text-fg-muted">
+                  <div className="flex items-start gap-2 rounded-sm border border-line-subtle bg-[color-mix(in_srgb,var(--bg-secondary)_75%,transparent)] px-3 py-2 text-xs text-fg-muted">
                     <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
                     <span className="min-w-0 flex-1 line-clamp-3 whitespace-pre-wrap break-words">
                       {latestThought || t(`agent.states.${agentState}`)}
@@ -1290,11 +1304,11 @@ export function TerminalAgentDock({
                             setApprovalDraft(taskApproval.command);
                             setIsEditingApproval(true);
                           }}
-                          className="text-accent underline decoration-accent/40 underline-offset-2 hover:text-accent-hover"
+                          className="text-accent underline decoration-[color-mix(in_srgb,var(--accent-primary)_45%,transparent)] underline-offset-2 hover:text-accent-hover"
                         >
                           {t('agent.approval.edit')}
                         </button>
-                      ) : approvalDraftEdited ? (
+                      ) : (
                         <button
                           type="button"
                           onClick={() => {
@@ -1303,9 +1317,9 @@ export function TerminalAgentDock({
                           }}
                           className="text-fg-secondary underline underline-offset-2 hover:text-fg"
                         >
-                          {t('agent.approval.resetEdit')}
+                          {approvalDraftEdited ? t('agent.approval.resetEdit') : t('common.cancel')}
                         </button>
-                      ) : null}
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1">

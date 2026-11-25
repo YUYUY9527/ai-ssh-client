@@ -398,7 +398,9 @@ export function SessionWorkspace({
               onPointerDown={() => onFocusTab?.(tab.id)}
             >
               {isSplit && (
-                <div className="pointer-events-none absolute right-3 top-[3.15rem] z-raised flex max-w-[70%] items-center gap-1.5 truncate rounded-full border border-line-subtle bg-surface-elevated/80 px-2.5 py-0.5 font-mono text-[10.5px] font-medium text-fg-secondary shadow-sm backdrop-blur-md">
+                <div
+                  className="pointer-events-none absolute bottom-2.5 right-3 z-raised flex max-w-[70%] items-center gap-1.5 truncate rounded-full border border-line-subtle bg-[color-mix(in_srgb,var(--bg-elevated)_88%,transparent)] px-2.5 py-0.5 font-mono text-[10.5px] font-medium text-fg-secondary shadow-sm backdrop-blur-md"
+                >
                   <span
                     className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${tab.isConnected ? 'bg-success' : tab.isConnecting ? 'bg-warning' : 'bg-danger'}`}
                   />
@@ -441,19 +443,39 @@ export function SessionWorkspace({
               height: 6,
               transform: 'translateY(-3px)',
             };
+          const currentRatio = divider.orientation === 'row'
+            ? (divider.x - divider.parent.x) / divider.parent.w
+            : (divider.y - divider.parent.y) / divider.parent.h;
           return (
             <div
               key={divider.id}
               role="separator"
+              tabIndex={0}
               aria-orientation={divider.orientation === 'row' ? 'vertical' : 'horizontal'}
-              className={`group absolute z-raised ${divider.orientation === 'row' ? 'cursor-col-resize' : 'cursor-row-resize'} ${isActive ? 'bg-accent' : 'bg-transparent hover:bg-accent-muted'}`}
+              aria-valuemin={20}
+              aria-valuemax={80}
+              aria-valuenow={Math.round(currentRatio * 100)}
+              className={`workspace-split-divider group absolute ${divider.orientation === 'row' ? 'cursor-col-resize' : 'cursor-row-resize'} ${isActive ? 'bg-accent' : 'bg-transparent hover:bg-accent-muted'}`}
               style={style}
               onPointerDown={(event) => handleDividerPointerDown(event, divider)}
               onPointerMove={handleDividerPointerMove}
               onPointerUp={handleDividerPointerUp}
               onPointerCancel={handleDividerPointerUp}
+              onKeyDown={(event) => {
+                const delta = divider.orientation === 'row'
+                  ? (event.key === 'ArrowLeft' ? -0.05 : event.key === 'ArrowRight' ? 0.05 : 0)
+                  : (event.key === 'ArrowUp' ? -0.05 : event.key === 'ArrowDown' ? 0.05 : 0);
+                if (delta !== 0) {
+                  event.preventDefault();
+                  setSplitRatioById(divider.id, clampSplitRatio(currentRatio + delta));
+                }
+              }}
             >
-              <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-surface px-1 text-[10px] text-fg-muted opacity-0 group-hover:opacity-100">
+              <div
+                className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-surface px-1 text-[10px] leading-none text-fg-muted opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 ${
+                  divider.orientation === 'row' ? 'rotate-90' : ''
+                }`}
+              >
                 ⋯
               </div>
             </div>
@@ -465,9 +487,10 @@ export function SessionWorkspace({
             onClick={() => useWorkspaceStore.getState().resetLayout()}
             title={translate?.('workspace.split.disable') ?? '取消分屏'}
             aria-label={translate?.('workspace.split.disable') ?? '取消分屏'}
-            className="absolute right-2 top-2 z-popover flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface-elevated/90 text-fg-muted shadow-sm backdrop-blur-md transition-colors hover:border-danger hover:text-danger"
+            className="absolute left-1/2 top-1.5 z-popover flex h-6 -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-[color-mix(in_srgb,var(--bg-elevated)_94%,transparent)] px-2 text-[11px] font-medium text-fg-muted shadow-sm backdrop-blur-md transition-colors hover:border-danger hover:text-danger"
           >
-            <X className="h-3 w-3" />
+            <X className="h-3 w-3 shrink-0" />
+            <span className="hidden sm:inline">{translate?.('workspace.split.disable') ?? '取消分屏'}</span>
           </button>
         )}
         {dropHint && (

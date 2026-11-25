@@ -1,7 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileCode2, Loader2, RotateCcw, Save, Wand2 } from 'lucide-react';
 
 import { useI18n } from '../i18n';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../shared-ui/Modal';
 import { useSessionOverlay } from '../workspace/SessionOverlayContext';
 import { MAX_SFTP_EDIT_BYTES } from '../../shared/ipc-types';
@@ -51,6 +52,14 @@ export function SftpFileEditor({
   // sudo 密码：普通 SFTP 无权限时才会用到；仅保存在本组件内存中，不落盘。
   const [sudoPassword, setSudoPassword] = useState('');
   const [sudoRequired, setSudoRequired] = useState(false);
+  const sudoInputRef = useRef<HTMLInputElement>(null);
+  const [confirmKind, setConfirmKind] = useState<'yaml-format' | 'discard' | null>(null);
+
+  useEffect(() => {
+    if (sudoRequired) {
+      sudoInputRef.current?.focus();
+    }
+  }, [sudoRequired]);
 
   const dirty = draft !== original;
   const draftBytes = useMemo(() => new TextEncoder().encode(draft).length, [draft]);
@@ -61,11 +70,7 @@ export function SftpFileEditor({
   const language = useMemo(() => detectCodeLanguage(remotePath), [remotePath]);
   const canFormat = language !== 'text' && loaded && !loading && !saving;
 
-  const handleFormat = useCallback(() => {
-    // js-yaml 重新序列化会丢失注释/锚点，YAML 先确认再动
-    if (language === 'yaml' && !window.confirm(t('fileTransfer.editFormatYamlConfirm'))) {
-      return;
-    }
+  const applyFormat = useCallback(() => {
     const result = formatCodeContent(language, draft);
     if (!result.ok) {
       setError(t('fileTransfer.editFormatFailed', { error: result.error }));
@@ -76,6 +81,15 @@ export function SftpFileEditor({
     setError(null);
     setStatus(t('fileTransfer.editFormatted'));
   }, [draft, language, t]);
+
+  const handleFormat = useCallback(() => {
+    // js-yaml 重新序列化会丢失注释/锚点，YAML 先经应用内弹窗确认再动
+    if (language === 'yaml') {
+      setConfirmKind('yaml-format');
+      return;
+    }
+    applyFormat();
+  }, [applyFormat, language]);
 
   /** 过大/不可编辑：优先走居中弹窗，避免埋在编辑器页内 */
   const alertAndClose = useCallback((message: string) => {
@@ -208,13 +222,15 @@ export function SftpFileEditor({
   }, [handleSave, isOpen, overlay.isActive]);
 
   const handleClose = () => {
-    if (dirty && !window.confirm(t('fileTransfer.editDiscardConfirm'))) {
+    if (dirty) {
+      setConfirmKind('discard');
       return;
     }
     onClose();
   };
 
   return (
+    <>
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
@@ -230,15 +246,15 @@ export function SftpFileEditor({
           <FileCode2 className="h-4 w-4 shrink-0 text-accent" />
           <span className="truncate font-mono text-sm" title={remotePath}>{remotePath}</span>
           {dirty && (
-            <span className="shrink-0 rounded-sm bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-warning">
+            <span className="shrink-0 rounded-sm bg-warning-muted px-1.5 py-0.5 text-[10px] font-medium text-warning-fg">
               {t('fileTransfer.editDirty')}
             </span>
           )}
         </span>
       )}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-4 py-2">
-        <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-4 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             className="industrial-button-primary px-3 py-1.5 text-xs"
@@ -271,7 +287,7 @@ export function SftpFileEditor({
             </button>
           )}
         </div>
-        <span className={`text-[11px] tabular-nums ${overLimit ? 'text-danger' : 'text-fg-muted'}`}>
+        <span className={`shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums ${overLimit ? 'text-danger-fg' : 'text-fg-muted'}`}>
           {formatBytes(draftBytes)} / {formatBytes(maxBytes)}
           {overLimit ? ` · ${t('fileTransfer.editOverLimit')}` : ''}
         </span>
@@ -280,19 +296,19 @@ export function SftpFileEditor({
       {/* 中间编辑区占满剩余高度，便于长文本编辑 */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {loading ? (
-          <div className="flex h-full min-h-[360px] items-center justify-center gap-2 text-sm text-fg-muted">
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-fg-muted">
+            <Loader2 className="h-4 w-4 animate-spin text-accent" />
             {t('common.loading')}
           </div>
         ) : !loaded && error ? (
-          <div className="flex h-full min-h-[360px] items-center justify-center px-6 text-center text-sm text-danger">
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-danger-fg">
             {error}
           </div>
         ) : (
           <Suspense
             fallback={(
-              <div className="flex h-full min-h-[360px] items-center justify-center gap-2 text-sm text-fg-muted">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex h-full items-center justify-center gap-2 text-sm text-fg-muted">
+                <Loader2 className="h-4 w-4 animate-spin text-accent" />
                 {t('common.loading')}
               </div>
             )}
@@ -312,33 +328,55 @@ export function SftpFileEditor({
       </div>
 
       {sudoRequired ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-surface-raised px-4 py-2 text-xs">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void (loaded ? handleSave() : loadFile(sudoPassword));
+          }}
+          className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-surface-raised px-4 py-2 text-xs"
+        >
           <span className="text-fg-secondary">{t('fileTransfer.sudoHint')}</span>
           <input
+            ref={sudoInputRef}
             type="password"
-            className="industrial-input h-7 w-40 px-2 text-xs"
+            className="industrial-input h-7 w-44 px-2 py-0 text-xs leading-none"
             placeholder={t('fileTransfer.sudoPasswordPlaceholder')}
             value={sudoPassword}
             onChange={(event) => setSudoPassword(event.target.value)}
           />
           <button
-            type="button"
-            className="industrial-button-primary px-3 py-1 text-xs"
-            onClick={() => { void (loaded ? handleSave() : loadFile(sudoPassword)); }}
+            type="submit"
+            className="industrial-button-primary h-7 px-3 py-0 text-xs"
           >
             {t('fileTransfer.sudoRetry')}
           </button>
-        </div>
+        </form>
       ) : null}
 
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-4 py-2 text-xs">
         <span className="min-w-0 truncate text-fg-muted">
-          {error ? <span className="text-danger">{error}</span> : (status || t('fileTransfer.editHint'))}
+          {loaded && error ? <span className="text-danger-fg">{error}</span> : (status || t('fileTransfer.editHint'))}
         </span>
-        <button type="button" className="industrial-button-secondary px-3 py-1.5 text-xs" onClick={handleClose}>
+        <button type="button" className="industrial-button-secondary shrink-0 px-3 py-1.5 text-xs" onClick={handleClose}>
           {t('common.close')}
         </button>
       </div>
     </Modal>
+    <ConfirmDialog
+      isOpen={confirmKind !== null}
+      title={confirmKind === 'yaml-format' ? t('fileTransfer.editFormat') : t('common.close')}
+      message={confirmKind === 'yaml-format' ? t('fileTransfer.editFormatYamlConfirm') : t('fileTransfer.editDiscardConfirm')}
+      onConfirm={() => {
+        const kind = confirmKind;
+        setConfirmKind(null);
+        if (kind === 'yaml-format') {
+          applyFormat();
+        } else if (kind === 'discard') {
+          onClose();
+        }
+      }}
+      onCancel={() => setConfirmKind(null)}
+    />
+    </>
   );
 }

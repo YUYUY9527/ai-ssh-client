@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useId, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, ShieldAlert, XCircle } from 'lucide-react';
 import { useI18n } from '../i18n';
 import type { HostTrustPromptEvent } from '../../shared/types';
@@ -14,6 +14,8 @@ interface HostTrustPromptProps {
 export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptProps) {
   const { t } = useI18n();
   const rejectButtonRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const descId = useId();
   const isKeyChanged = prompt.kind === 'keyChanged';
 
   return (
@@ -22,29 +24,36 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
       onClose={onReject}
       size="md"
       showClose={false}
-      panelClassName={isKeyChanged
-        ? 'border-2 border-[color-mix(in_srgb,var(--danger)_70%,transparent)]'
-        : 'border-2 border-[color-mix(in_srgb,var(--warning)_70%,transparent)]'}
+      labelledBy={titleId}
+      describedBy={descId}
+      panelClassName={`flex flex-col !overflow-hidden border-2 ${
+        isKeyChanged
+          ? 'border-[color-mix(in_srgb,var(--danger)_70%,transparent)]'
+          : 'border-[color-mix(in_srgb,var(--warning)_70%,transparent)]'
+      }`}
       initialFocusRef={rejectButtonRef}
     >
       <div
-        className="border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] p-4 sm:p-5"
+        className="shrink-0 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] p-4 sm:p-5"
         style={{ background: isKeyChanged ? 'var(--danger-muted)' : 'var(--warning-muted)' }}
       >
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-3.5">
           <div
-            className="rounded-md p-3 text-white"
-            style={{ background: isKeyChanged ? 'var(--danger)' : 'var(--warning)' }}
+            className={`shrink-0 rounded-md border p-2.5 ${
+              isKeyChanged
+                ? 'border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted text-danger-fg'
+                : 'border-[color-mix(in_srgb,var(--warning)_45%,var(--border-color))] bg-warning-muted text-warning-fg'
+            }`}
           >
             {isKeyChanged ? <ShieldAlert className="h-6 w-6" /> : <AlertTriangle className="h-6 w-6" />}
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-lg font-semibold text-fg dark:text-white">
+            <h3 id={titleId} className="text-lg font-semibold text-fg">
               {isKeyChanged
                 ? t('hostTrust.keyChangedTitle')
                 : t('hostTrust.firstConnectTitle')}
             </h3>
-            <p className="mt-1 text-sm text-fg-secondary dark:text-fg-muted">
+            <p id={descId} className="mt-1 text-sm text-fg-secondary">
               {isKeyChanged
                 ? t('hostTrust.keyChangedDesc')
                 : t('hostTrust.firstConnectDesc')}
@@ -53,17 +62,17 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
         </div>
       </div>
 
-      <div className="space-y-4 p-4 sm:p-5">
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
         <div className="industrial-card space-y-2 p-3 text-sm">
-          <div className="flex justify-between gap-3">
-            <span className="text-fg-muted">{t('hostTrust.host')}</span>
-            <span className="font-mono text-fg">
+          <div className="flex items-start justify-between gap-3">
+            <span className="shrink-0 text-fg-muted">{t('hostTrust.host')}</span>
+            <span className="min-w-0 break-all text-right font-mono text-fg">
               {prompt.host}:{prompt.port}
             </span>
           </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-fg-muted">{t('hostTrust.algorithm')}</span>
-            <span className="font-mono text-fg">{prompt.algorithm}</span>
+          <div className="flex items-start justify-between gap-3">
+            <span className="shrink-0 text-fg-muted">{t('hostTrust.algorithm')}</span>
+            <span className="min-w-0 break-all text-right font-mono text-fg">{prompt.algorithm}</span>
           </div>
         </div>
 
@@ -83,16 +92,16 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
             className="rounded-md border p-3"
             style={{ borderColor: 'color-mix(in srgb, var(--danger) 40%, var(--border-color))', background: 'var(--danger-muted)' }}
           >
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-danger">
-              <AlertTriangle className="h-4 w-4" />
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-danger-fg">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
               {t('hostTrust.previousFingerprint')}
             </div>
             {prompt.previousAlgorithm && (
-              <p className="mb-1 text-xs opacity-90">
+              <p className="mb-1 font-mono text-xs text-danger-fg opacity-90">
                 {prompt.previousAlgorithm}
               </p>
             )}
-            <code className="break-all font-mono text-xs text-danger">
+            <code className="break-all font-mono text-xs text-danger-fg">
               {prompt.previousFingerprint}
             </code>
           </div>
@@ -107,7 +116,7 @@ export function HostTrustPrompt({ prompt, onAccept, onReject }: HostTrustPromptP
         </div>
       </div>
 
-      <div className="industrial-modal-footer">
+      <div className="industrial-modal-footer shrink-0">
         <button
           type="button"
           ref={rejectButtonRef}

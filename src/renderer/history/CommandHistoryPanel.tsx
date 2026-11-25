@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, RefreshCw, Search } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Clock, Loader2, RefreshCw, Search, X } from 'lucide-react';
 
 import { useConnectionStore } from '../store/useConnectionStore';
 import { useSessionStore } from '../session/useSessionStore';
@@ -38,7 +39,9 @@ export function CommandHistoryPanel({
   const [searchQuery, setSearchQuery] = useState('');
   const [entries, setEntries] = useState<SessionCommandEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const activeSession = useSessionStore((state) => (
     activeSessionId ? state.sessions[activeSessionId] : null
@@ -69,27 +72,71 @@ export function CommandHistoryPanel({
     }
   }, [connectionId]);
 
-  const handleToggle = useCallback(async () => {
+  const handleToggle = useCallback(() => {
     if (show) {
       setShow(false);
       return;
     }
     setSearchQuery('');
     setShow(true);
-    await loadHistory();
-  }, [loadHistory, show]);
+  }, [show]);
+
+  // 打开面板或切换活动会话时重新拉取当前服务器的历史命令
+  useEffect(() => {
+    if (!show) {
+      return;
+    }
+    void loadHistory();
+  }, [show, connectionId, loadHistory]);
+
+  useLayoutEffect(() => {
+    if (!show) {
+      setPopoverPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const btn = triggerRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const margin = 8;
+      const width = Math.min(448, window.innerWidth - margin * 2);
+      const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+      const top = rect.bottom + 8;
+      setPopoverPos({ left, top, width });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [show]);
 
   useEffect(() => {
     if (!show) {
       return;
     }
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) {
+        return;
+      }
+      setShow(false);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
         setShow(false);
+        triggerRef.current?.focus();
       }
     };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [show]);
 
   useEffect(() => {
@@ -124,21 +171,35 @@ export function CommandHistoryPanel({
     : activeSession?.title || t('commandHistory.currentServer');
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative shrink-0">
       <button
-        onClick={() => void handleToggle()}
+        ref={triggerRef}
+        type="button"
+        onClick={handleToggle}
         className={`toolbar-button ${show ? 'toolbar-button-active' : ''}`}
         title={t('commandHistory.title')}
         aria-label={t('commandHistory.title')}
+        aria-expanded={show}
       >
         <Clock className="h-4 w-4" />
       </button>
 
-      {show && (
-        <div className="app-popover command-history-popover scrollbar-modern left-0 w-[28rem]">
+      {show && popoverPos && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={popoverRef}
+          className="app-popover command-history-popover scrollbar-modern fixed top-auto z-overlay mt-0"
+          style={{
+            left: popoverPos.left,
+            top: popoverPos.top,
+            width: popoverPos.width,
+          }}
+        >
           <div className="app-popover-header shrink-0">
-            <span>{t('commandHistory.title')}</span>
-            <span className="min-w-0 truncate text-[10px] font-normal normal-case tracking-normal opacity-60">
+            <span className="shrink-0 whitespace-nowrap">{t('commandHistory.title')}</span>
+            <span
+              className="min-w-0 truncate text-[10px] font-normal normal-case tracking-normal opacity-70"
+              title={connectionLabel}
+            >
               {connectionLabel}
             </span>
             <button
@@ -160,9 +221,20 @@ export function CommandHistoryPanel({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('commandHistory.searchPlaceholder')}
-                className="flex-1 bg-transparent text-xs text-fg outline-none placeholder:text-fg-subtle dark:text-white"
+                className="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none placeholder:text-fg-subtle"
                 autoFocus
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="icon-button h-5 w-5 shrink-0"
+                  title={t('common.close')}
+                  aria-label={t('common.close')}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
               <span className="shrink-0 text-[10px] tabular-nums text-fg-subtle">
                 {filteredEntries.length}
               </span>
@@ -171,8 +243,9 @@ export function CommandHistoryPanel({
 
           <div className="command-history-list scrollbar-modern p-1">
             {isLoading && entries.length === 0 ? (
-              <div className="py-6 text-center text-sm text-fg-muted">
-                {t('common.loading')}
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-fg-muted">
+                <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                <span>{t('common.loading')}</span>
               </div>
             ) : filteredEntries.length === 0 ? (
               <div className="py-6 text-center text-sm text-fg-muted">
@@ -190,7 +263,7 @@ export function CommandHistoryPanel({
                     title={entry.command}
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-mono text-xs text-fg dark:text-white">
+                      <span className="block truncate font-mono text-xs text-fg">
                         {entry.command}
                       </span>
                       {(timeText || entry.executedBy === 'ai') && (
@@ -207,7 +280,8 @@ export function CommandHistoryPanel({
               })
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

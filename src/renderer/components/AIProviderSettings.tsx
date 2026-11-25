@@ -67,6 +67,7 @@ export function AIProviderSettings() {
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [confirmProviderId, setConfirmProviderId] = useState<string | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
@@ -189,9 +190,16 @@ export function AIProviderSettings() {
       isActive: editingProvider.isActive || providers.length === 0,
     };
 
-    await saveProvider(provider);
-    await loadProviders();
-    resetProviderEditor();
+    setIsSaving(true);
+    try {
+      await saveProvider(provider);
+      await loadProviders();
+      resetProviderEditor();
+    } catch (error) {
+      setStatusMessage({ type: 'error', text: error instanceof Error ? error.message : t('common.error') });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSetActive = async (providerId: string) => {
@@ -219,12 +227,26 @@ export function AIProviderSettings() {
       title={t('aiProvider.title')}
       description={t('aiProvider.description')}
       actions={(
-        <button onClick={handleAddProvider} className="industrial-button-primary px-3 py-1.5">
+        <button type="button" onClick={handleAddProvider} className="industrial-button-primary px-3 py-1.5">
           <Plus className="h-4 w-4" />
           {t('aiProvider.addProvider')}
         </button>
       )}
     >
+      {!editingProvider && statusMessage && (
+        <div
+          role={statusMessage.type === 'error' ? 'alert' : 'status'}
+          className={`flex items-center gap-2 rounded-sm border px-3 py-2 text-xs ${
+            statusMessage.type === 'success'
+              ? 'border-[color-mix(in_srgb,var(--success)_45%,var(--border-color))] bg-success-muted text-success-fg'
+              : 'border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted text-danger-fg'
+          }`}
+        >
+          {statusMessage.type === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <X className="h-4 w-4 shrink-0" />}
+          <span className="min-w-0 flex-1 break-words">{statusMessage.text}</span>
+        </div>
+      )}
+
       <div className="grid gap-2">
         {providers.length === 0 ? (
           <div className="industrial-card p-5 text-center">
@@ -238,28 +260,46 @@ export function AIProviderSettings() {
               className={`industrial-card p-3 ${provider.id === activeProviderId ? 'connection-list-row-active' : ''}`}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className={`status-dot ${provider.id === activeProviderId ? 'status-dot-connected' : 'status-dot-idle'}`} />
-                    <span className="truncate text-sm font-semibold text-fg dark:text-white">{provider.name}</span>
-                    <span className="rounded-sm border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-1.5 py-0.5 text-[10px] text-fg-muted">
+                    <span className="truncate text-sm font-semibold text-fg" title={provider.name}>{provider.name}</span>
+                    <span className="shrink-0 rounded-sm border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] px-1.5 py-0.5 text-[10px] text-fg-muted">
                       {getProviderTypeLabel(provider.type)}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-fg-muted">
+                  <p className="mt-1 truncate text-xs text-fg-muted">
                     {provider.model || t('aiProvider.noModel')} · API Key {provider.hasApiKey ? provider.maskedApiKey || t('aiProvider.apiKeyConfigured') : t('aiProvider.apiKeyNotConfigured')}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {provider.id !== activeProviderId && (
-                    <button onClick={() => void handleSetActive(provider.id)} className="icon-button h-8 w-8" title={t('aiProvider.activate')}>
+                    <button
+                      type="button"
+                      onClick={() => void handleSetActive(provider.id)}
+                      className="icon-button h-8 w-8"
+                      title={t('aiProvider.activate')}
+                      aria-label={t('aiProvider.activate')}
+                    >
                       <Power className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => void handleEditProvider(provider)} className="icon-button h-8 w-8" title={t('common.edit')}>
+                  <button
+                    type="button"
+                    onClick={() => void handleEditProvider(provider)}
+                    className="icon-button h-8 w-8"
+                    title={t('common.edit')}
+                    aria-label={t('common.edit')}
+                  >
                     <Pencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => setConfirmProviderId(provider.id)} className="icon-button h-8 w-8 hover:text-danger" title={t('common.delete')}>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmProviderId(provider.id)}
+                    className="icon-button h-8 w-8 hover:text-danger"
+                    title={t('common.delete')}
+                    aria-label={t('common.delete')}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
@@ -271,11 +311,17 @@ export function AIProviderSettings() {
 
       {editingProvider && (
         <div ref={formRef} className="industrial-card p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-fg dark:text-white">
-              {editingProvider.id ? t('common.edit') + ' ' + t('settings.tabs.providers') : t('aiProvider.addProvider')}
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h4 className="min-w-0 truncate text-sm font-semibold text-fg">
+              {editingProvider.id ? `${t('common.edit')} · ${editingProvider.name}` : t('aiProvider.addProvider')}
             </h4>
-            <button onClick={resetProviderEditor} className="icon-button h-7 w-7">
+            <button
+              type="button"
+              onClick={resetProviderEditor}
+              className="icon-button h-7 w-7 shrink-0"
+              title={t('common.close')}
+              aria-label={t('common.close')}
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -307,7 +353,7 @@ export function AIProviderSettings() {
             <div className="sm:col-span-2">
               <label className="industrial-field-label">API Key</label>
               {editingProvider.id && providerSecretState.hasApiKey && (
-                <div className="mb-2 rounded-sm border border-success bg-success-muted px-3 py-2 text-xs text-success dark:text-success-fg">
+                <div className="mb-2 rounded-sm border border-[color-mix(in_srgb,var(--success)_45%,var(--border-color))] bg-success-muted px-3 py-2 text-xs text-success-fg">
                   API Key: {providerSecretState.isLoading ? '...' : providerSecretState.maskedApiKey || t('aiProvider.apiKeyConfigured')}
                 </div>
               )}
@@ -323,6 +369,8 @@ export function AIProviderSettings() {
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
                   className="icon-button absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
+                  title={showApiKey ? t('common.close') : 'API Key'}
+                  aria-label={showApiKey ? t('common.close') : 'API Key'}
                 >
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -351,21 +399,24 @@ export function AIProviderSettings() {
           {statusMessage && (
             <div className={`mt-3 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs ${
               statusMessage.type === 'success'
-                ? 'border-success bg-success-muted text-success dark:text-success-fg'
-                : 'border-danger bg-danger-muted text-danger dark:text-danger-fg'
+                ? 'border-[color-mix(in_srgb,var(--success)_45%,var(--border-color))] bg-success-muted text-success-fg'
+                : 'border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted text-danger-fg'
             }`}>
-              {statusMessage.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
-              {statusMessage.text}
+              {statusMessage.type === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <X className="h-4 w-4 shrink-0" />}
+              <span className="min-w-0 flex-1 break-words">{statusMessage.text}</span>
             </div>
           )}
 
-          <div className="mt-4 flex justify-end gap-2">
-            <button onClick={() => void testConnection()} disabled={isTestingConnection} className="industrial-button-secondary">
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={() => void testConnection()} disabled={isTestingConnection || isSaving} className="industrial-button-secondary">
               {isTestingConnection && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('aiProvider.testConnection')}
             </button>
-            <button onClick={resetProviderEditor} className="industrial-button-secondary">{t('common.cancel')}</button>
-            <button onClick={() => void handleSaveProvider()} className="industrial-button-primary">{t('common.save')}</button>
+            <button type="button" onClick={resetProviderEditor} disabled={isSaving} className="industrial-button-secondary">{t('common.cancel')}</button>
+            <button type="button" onClick={() => void handleSaveProvider()} disabled={isSaving} className="industrial-button-primary">
+              {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('common.save')}
+            </button>
           </div>
         </div>
       )}

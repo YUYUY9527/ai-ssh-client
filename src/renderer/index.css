@@ -185,20 +185,32 @@
   button:focus-visible,
   input:focus-visible,
   select:focus-visible,
-  textarea:focus-visible {
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--accent-primary);
   }
 }
 
 @layer components {
   .app-shell {
     @apply flex h-screen flex-col overflow-hidden;
+    --chrome-top-offset: 3.5rem;
     color: var(--text-primary);
     background:
       radial-gradient(1100px 440px at 10% -14%, color-mix(in srgb, var(--accent-primary) 11%, transparent), transparent 58%),
       radial-gradient(840px 380px at 90% -8%, color-mix(in srgb, var(--accent-strong) 6%, transparent), transparent 52%),
       var(--bg-primary);
+  }
+
+  .app-shell-with-banner {
+    --chrome-top-offset: 6rem;
   }
 
   .default-password-banner {
@@ -360,7 +372,7 @@
   }
 
   .app-popover-header {
-    @apply flex items-center justify-between border-b px-3.5 py-2.5 text-[11px] font-semibold uppercase;
+    @apply flex items-center justify-between gap-2 border-b px-3.5 py-2.5 text-[11px] font-semibold uppercase;
     color: var(--text-muted);
     border-color: color-mix(in srgb, var(--border-color) 65%, transparent);
     letter-spacing: 0.05em;
@@ -370,7 +382,7 @@
     @apply flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-all duration-150;
   }
 
-  .app-popover-row:hover {
+  .app-popover-row:hover:not(:disabled) {
     background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-hover));
   }
 
@@ -395,7 +407,7 @@
   }
 
   .workspace-tab {
-    @apply relative flex h-7 cursor-pointer items-center gap-2 border border-transparent px-2.5 text-[12.5px] font-medium transition-all;
+    @apply relative flex h-7 shrink-0 cursor-pointer items-center gap-2 border border-transparent px-2.5 text-[12.5px] font-medium transition-all;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
     transition-duration: var(--duration-chrome);
@@ -432,6 +444,16 @@
   .workspace-tab-close {
     @apply rounded p-0.5 opacity-0 transition-all group-hover:opacity-100;
     color: var(--text-muted);
+  }
+
+  .workspace-tab-active .workspace-tab-close {
+    opacity: 0.72;
+  }
+
+  .workspace-tab:focus-within .workspace-tab-close,
+  .workspace-tab-active:hover .workspace-tab-close,
+  .workspace-tab-close:focus-visible {
+    opacity: 1;
   }
 
   .workspace-tab-close:hover {
@@ -674,7 +696,8 @@
   }
 
   .agent-pet-orbit {
-    @apply absolute -inset-1 rounded-sm border border-teal-400/50;
+    @apply absolute -inset-1 rounded-sm border;
+    border-color: color-mix(in srgb, var(--accent-hover) 50%, transparent);
     animation: agent-pet-pulse 1.6s ease-in-out infinite;
   }
 
@@ -834,7 +857,7 @@
   }
 
   .agent-pet-header-action {
-    @apply inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-sm border px-2 text-xs font-medium text-slate-600 transition-colors hover:text-slate-950 dark:text-slate-300 dark:hover:text-white;
+    @apply inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-sm border px-2 text-xs font-medium text-fg-secondary transition-colors hover:text-fg;
     background: color-mix(in srgb, var(--bg-hover) 48%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
   }
@@ -851,13 +874,13 @@
   }
 
   .agent-pet-header-action-primary {
-    @apply text-teal-700 dark:text-teal-200;
+    @apply text-accent dark:text-accent-hover;
     background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
     border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--border-color));
   }
 
   .agent-pet-status-strip {
-    @apply flex items-center justify-between gap-3 border-b px-4 py-2 text-xs text-slate-500 dark:text-slate-400;
+    @apply flex items-center justify-between gap-3 border-b px-4 py-2 text-xs text-fg-muted;
     background: color-mix(in srgb, var(--bg-primary) 62%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
   }
@@ -1004,17 +1027,17 @@
   }
 
   .agent-chat-status-idle {
-    @apply text-slate-500;
+    @apply text-fg-muted;
     background: color-mix(in srgb, var(--bg-hover) 36%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
   }
 
   .agent-chat-meta {
-    @apply inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400;
+    @apply inline-flex items-center gap-1 text-[11px] text-fg-muted;
   }
 
   .agent-chat-detail-toggle {
-    @apply mt-3 inline-flex cursor-pointer items-center gap-1 rounded-sm border px-2 py-1 text-xs text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white;
+    @apply mt-3 inline-flex cursor-pointer items-center gap-1 rounded-sm border px-2 py-1 text-xs text-fg-muted transition-colors hover:text-fg;
     border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
     background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
   }
@@ -1024,7 +1047,7 @@
   }
 
   .agent-chat-delete-button {
-    @apply ml-auto inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-sm text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-300;
+    @apply ml-auto inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-danger-muted hover:text-danger-fg;
   }
 
   .agent-chat-detail {
@@ -1036,7 +1059,7 @@
   }
 
   .agent-chat-detail-label {
-    @apply text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400;
+    @apply text-[11px] font-semibold uppercase text-fg-muted;
     letter-spacing: 0;
   }
 
@@ -1058,7 +1081,7 @@
   }
 
   .agent-chat-step {
-    @apply rounded-sm border px-2 py-2 text-xs leading-5 text-slate-500 dark:text-slate-400;
+    @apply rounded-sm border px-2 py-2 text-xs leading-5 text-fg-muted;
     background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 52%, transparent);
     overflow-wrap: break-word;
@@ -1087,7 +1110,7 @@
   }
 
   .agent-chat-execution-output {
-    @apply mt-2 max-h-48 overflow-auto whitespace-pre-wrap border px-2 py-1.5 font-mono text-[11px] leading-4 text-slate-600 dark:text-slate-300;
+    @apply mt-2 max-h-48 overflow-auto whitespace-pre-wrap border px-2 py-1.5 font-mono text-[11px] leading-4 text-fg-secondary;
     border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--bg-primary) 78%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--border-color) 60%, transparent);
@@ -1095,7 +1118,7 @@
   }
 
   .app-footer {
-    @apply flex h-7 flex-shrink-0 items-center justify-between border-t px-3.5 text-[11.5px];
+    @apply flex h-7 flex-shrink-0 items-center justify-between gap-3 overflow-hidden border-t px-3.5 text-[11.5px];
     color: var(--text-muted);
     background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
     border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
@@ -1266,14 +1289,14 @@
 
   .terminal-toolbar {
     @apply absolute right-3 top-2.5 z-20 flex w-max max-w-[calc(100%_-_1rem)] items-center gap-0.5 rounded-md border p-1 transition-all;
-    background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+    background: color-mix(in srgb, var(--bg-elevated) 84%, transparent);
     border-color: color-mix(in srgb, var(--border-strong) 62%, transparent);
     box-shadow:
-      0 12px 32px rgba(0, 0, 0, 0.34),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      var(--shadow-md),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
     backdrop-filter: blur(18px) saturate(150%);
     -webkit-backdrop-filter: blur(18px) saturate(150%);
-    opacity: 0.84;
+    opacity: 0.88;
     transition-duration: var(--duration-chrome);
     transition-timing-function: var(--ease-chrome);
   }
@@ -1284,9 +1307,9 @@
     opacity: 1;
     border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-strong));
     box-shadow:
-      0 16px 40px rgba(0, 0, 0, 0.4),
+      var(--shadow-lg),
       0 0 0 1px color-mix(in srgb, var(--accent-primary) 10%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent);
   }
 
   .terminal-toolbar-divider {
@@ -1316,7 +1339,11 @@
     }
 
     .terminal-toolbar.is-open .terminal-toolbar-trigger { @apply hidden; }
-    .terminal-toolbar-menu-head { @apply flex items-center justify-between text-xs font-medium text-fg-secondary; }
+    .terminal-toolbar-menu-head {
+      @apply mb-1 flex items-center justify-between border-b pb-1 pl-1 text-xs font-medium text-fg-secondary;
+      border-color: color-mix(in srgb, var(--border-color) 65%, transparent);
+    }
+    .terminal-toolbar.is-open .terminal-agent-prefix-tooltip { @apply hidden; }
     .terminal-toolbar.is-open .terminal-toolbar-content {
       @apply grid w-fit max-w-full justify-start;
       grid-template-columns: repeat(6, minmax(30px, max-content));
@@ -1362,7 +1389,6 @@
     color: var(--accent-hover);
     background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-hover));
     border-color: color-mix(in srgb, var(--accent-primary) 48%, transparent);
-    outline: none;
   }
 
   .terminal-agent-prefix-hint:disabled {
@@ -1382,12 +1408,21 @@
   }
 
   .terminal-search-panel {
-    @apply absolute left-3 top-2.5 z-30 flex items-center gap-1 rounded-md border p-1.5;
-    background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+    @apply absolute left-3 top-2.5 z-30 flex w-[min(19.5rem,calc(100%-3.5rem))] items-center gap-1 rounded-md border p-1.5;
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
     border-color: color-mix(in srgb, var(--border-strong) 70%, var(--accent-primary));
-    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    box-shadow: var(--shadow-md), inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
     backdrop-filter: blur(18px) saturate(145%);
     animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
+  }
+
+  .terminal-search-panel:focus-within {
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
+    box-shadow: var(--shadow-md), 0 0 0 2px color-mix(in srgb, var(--accent-primary) 16%, transparent);
+  }
+
+  .workspace-split-divider {
+    z-index: 35;
   }
 
   .terminal-frame {
@@ -1395,12 +1430,15 @@
     border-color: color-mix(in srgb, var(--border-color) 74%, transparent);
     box-shadow:
       inset 0 1px 0 color-mix(in srgb, #ffffff 4%, transparent),
-      0 12px 38px rgba(0, 0, 0, 0.24);
+      var(--shadow-sm);
   }
 
   /* 终端内 AI 助手独立悬浮停靠卡片（顶部向下展开，彻底与底部终端输入与输出分离） */
   .terminal-agent-dock {
     @apply absolute left-3 right-3 top-14 z-raised mx-auto flex max-w-4xl flex-col overflow-hidden border;
+    container-type: inline-size;
+    container-name: agent-dock;
+    max-height: calc(100% - 4rem);
     border-radius: var(--radius-lg);
     background:
       linear-gradient(155deg, color-mix(in srgb, var(--accent-primary) 9%, transparent), transparent 46%),
@@ -1416,12 +1454,36 @@
     animation: ui-chrome-in var(--duration-chrome) var(--ease-chrome) both;
   }
 
+  .agent-dock-meta-provider,
+  .agent-dock-meta-commands,
+  .agent-dock-meta-tokens {
+    display: none;
+  }
+
+  @container agent-dock (min-width: 440px) {
+    .agent-dock-meta-provider {
+      display: inline-flex;
+    }
+  }
+
+  @container agent-dock (min-width: 560px) {
+    .agent-dock-meta-commands {
+      display: inline;
+    }
+  }
+
+  @container agent-dock (min-width: 660px) {
+    .agent-dock-meta-tokens {
+      display: inline;
+    }
+  }
+
   .terminal-agent-dock-collapsed {
     @apply max-w-xl;
   }
 
   .terminal-agent-dock-header {
-    @apply flex items-center justify-between gap-2 border-b px-3 py-2;
+    @apply flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2;
     background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
     border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
   }
@@ -1431,12 +1493,12 @@
   }
 
   .terminal-agent-dock-body {
-    @apply space-y-2.5 overflow-y-auto px-3.5 py-3;
+    @apply min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3.5 py-3;
     max-height: min(52vh, 420px);
   }
 
   .terminal-agent-dock-footer {
-    @apply flex flex-col gap-2 border-t px-3 py-2;
+    @apply flex shrink-0 flex-col gap-2 border-t px-3 py-2;
     background: color-mix(in srgb, var(--bg-primary) 68%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
   }
@@ -1469,6 +1531,7 @@
   .agent-md-h1 { @apply text-[15px] font-semibold tracking-tight text-fg; }
   .agent-md-h2 { @apply text-[14px] font-semibold text-fg; }
   .agent-md-h3 { @apply text-[13px] font-semibold text-fg-secondary; }
+  .agent-md-h4 { @apply text-[12.5px] font-semibold text-fg-muted; }
   .agent-md-p { @apply text-[13px] leading-6 text-fg; }
   .agent-md-ul { @apply list-disc space-y-1 pl-5 text-fg; }
   .agent-md-ol { @apply list-decimal space-y-1 pl-5 text-fg; }
@@ -1514,6 +1577,8 @@
   .agent-md-table td {
     @apply border-b px-2.5 py-1.5 align-top text-fg;
     border-color: color-mix(in srgb, var(--border-color) 46%, transparent);
+    word-break: normal;
+    overflow-wrap: break-word;
   }
   .agent-md-table tbody tr:last-child td {
     @apply border-b-0;
@@ -1538,7 +1603,7 @@
   }
 
   .industrial-modal-header {
-    @apply flex items-center justify-between border-b px-5 py-3.5;
+    @apply flex items-center justify-between gap-3 border-b px-5 py-3.5;
     background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary));
     border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
   }
@@ -1615,6 +1680,18 @@
     background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--accent-primary) 54%, var(--border-color));
     box-shadow: inset 0 2px 0 var(--accent-primary), 0 6px 16px color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  }
+
+  .docker-stat-tile.is-running.is-active {
+    background: color-mix(in srgb, var(--success) 11%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--success) 54%, var(--border-color));
+    box-shadow: inset 0 2px 0 var(--success), 0 6px 16px color-mix(in srgb, var(--success) 10%, transparent);
+  }
+
+  .docker-stat-tile.is-stopped.is-active {
+    background: color-mix(in srgb, var(--warning) 11%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--warning) 54%, var(--border-color));
+    box-shadow: inset 0 2px 0 var(--warning), 0 6px 16px color-mix(in srgb, var(--warning) 10%, transparent);
   }
 
   .docker-stat-tile.is-running .docker-stat-icon { color: var(--success-fg); background: var(--success-muted); }
@@ -1778,8 +1855,8 @@
 
   .docker-action-button.is-stop:hover:not(:disabled) {
     color: var(--danger-fg);
-    background: var(--danger-muted);
-    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--danger) 22%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--danger) 44%, var(--border-color));
   }
 
   .docker-action-button.is-restart:hover:not(:disabled) {
@@ -1828,7 +1905,8 @@
   }
 
   .docker-dropdown-menu {
-    @apply pointer-events-auto flex w-max min-w-[140px] flex-col border p-1.5;
+    @apply pointer-events-auto flex w-max min-w-[140px] flex-col overflow-y-auto border p-1.5;
+    max-height: min(360px, calc(100vh - 16px));
     border-radius: var(--radius-md);
     background:
       linear-gradient(155deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 46%),
@@ -1889,8 +1967,8 @@
   @media (max-width: 680px) {
     .docker-panel-header { flex-wrap: wrap; gap: 12px; padding: 14px; }
     .docker-panel-header > div:first-child { width: 100%; }
-    .docker-panel-tools { width: 100%; }
-    .docker-search { width: auto; flex: 1; }
+    .docker-panel-tools { width: 100%; flex-wrap: wrap; }
+    .docker-search { width: auto; min-width: 0; flex: 1 1 160px; }
     .docker-panel-content { padding: 14px; }
     .docker-overview { gap: 6px; }
     .docker-stat-tile { gap: 8px; padding: 9px 8px; }
@@ -1907,8 +1985,8 @@
       padding: 11px 10px;
     }
     .docker-identity { grid-column: 1; grid-row: 1; }
-    .docker-status-cell { grid-column: 2; grid-row: 1; justify-self: end; }
-    .docker-image-cell { grid-column: 1 / -1; grid-row: 2; padding-left: 42px; }
+    .docker-status-cell { grid-column: 2; grid-row: 1; justify-self: end; align-items: flex-end; }
+    .docker-image-cell { grid-column: 1 / -1; grid-row: 2; padding-left: 0; display: flex; flex-direction: column; gap: 2px; }
     .docker-ports-cell { grid-column: 1; grid-row: 3; display: flex; flex-direction: column; gap: 2px; }
     .docker-mobile-label { display: block; font-family: inherit; font-size: 9px; line-height: 12px; color: var(--text-subtle); }
     .docker-actions { grid-column: 2; grid-row: 3; }
@@ -1964,8 +2042,8 @@
   }
 
   .industrial-select-menu {
-    /* 盖过设置弹窗内容区，避免被裁切感 */
-    z-index: 100;
+    /* 盖过全局弹窗（z-modal: 9999），避免被连接编辑/设置弹窗遮挡 */
+    z-index: 10000;
   }
 
   /* 兼容仍使用原生 select.industrial-select 的遗留写法 */
@@ -2128,7 +2206,24 @@
   .mcp-empty-state { @apply py-5 text-center text-xs text-fg-muted; }
 
   .mcp-limit-grid { @apply grid grid-cols-2 gap-x-5 gap-y-4 border-y py-4; border-color: color-mix(in srgb, var(--border-color) 50%, transparent); }
+  details > summary.list-none::-webkit-details-marker {
+    display: none;
+  }
+
+  .light .toolbar-group {
+    box-shadow: inset 0 1px 2px rgba(40, 34, 24, 0.06);
+  }
+
+  .light .workspace-tab-active {
+    box-shadow: 0 2px 8px rgba(40, 34, 24, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .light .industrial-input {
+    box-shadow: inset 0 1px 2px rgba(40, 34, 24, 0.06);
+  }
+
   .mcp-limit-field { @apply min-w-0 space-y-1.5; }
+  .mcp-limit-field .industrial-field-label { @apply mb-0; }
 
   .mcp-number-control { @apply flex h-9 items-center border; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bg-primary) 78%, transparent); border-color: color-mix(in srgb, var(--border-color) 76%, transparent); }
   .mcp-number-control:focus-within { border-color: color-mix(in srgb, var(--accent-primary) 66%, var(--border-color)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 12%, transparent); }
@@ -2167,9 +2262,9 @@
     .mcp-method-tabs { @apply grid-cols-1; }
     .mcp-method-tab { @apply min-h-12; }
     .mcp-method-content { @apply p-3; }
-    .mcp-connection-row { grid-template-columns: 30px minmax(0, 1fr) minmax(7.5rem, auto); column-gap: 8px; }
+    .mcp-connection-row { grid-template-columns: 30px minmax(0, 1fr) minmax(7rem, 9rem); column-gap: 8px; }
     .mcp-connection-icon { @apply h-7 w-7; }
-    .mcp-connection-address { font-size: 9px; }
+    .mcp-connection-address { font-size: 10px; }
     .mcp-limit-grid { @apply gap-x-3; }
   }
 
@@ -2259,7 +2354,8 @@
   }
 
   .toast-host {
-    @apply fixed right-4 top-14 z-[70] w-[min(22rem,calc(100vw-2rem))] space-y-2;
+    @apply fixed right-4 z-[70] w-[min(22rem,calc(100vw-2rem))] space-y-2;
+    top: var(--chrome-top-offset, 3.5rem);
   }
 
   .toast-item {
@@ -2271,14 +2367,14 @@
   }
 
   .toast-item-success {
-    background: color-mix(in srgb, var(--success-muted) 65%, var(--bg-elevated));
-    border-color: color-mix(in srgb, var(--success) 42%, var(--border-color));
+    background: color-mix(in srgb, var(--success) 14%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--success) 48%, var(--border-color));
     color: var(--success-fg);
   }
 
   .toast-item-error {
-    background: color-mix(in srgb, var(--danger-muted) 65%, var(--bg-elevated));
-    border-color: color-mix(in srgb, var(--danger) 42%, var(--border-color));
+    background: color-mix(in srgb, var(--danger) 14%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--danger) 48%, var(--border-color));
     color: var(--danger-fg);
   }
 
@@ -2300,7 +2396,7 @@
   }
 
   .workspace-dashboard {
-    @apply absolute inset-0 overflow-y-auto p-5 sm:p-8;
+    @apply absolute inset-0 overflow-y-auto px-5 pb-20 pt-5 sm:px-8 sm:pb-16 sm:pt-8;
     background:
       radial-gradient(640px 300px at 50% 0%, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 70%);
     animation: ui-chrome-in calc(var(--duration-chrome) + 40ms) var(--ease-chrome) both;
@@ -2428,13 +2524,15 @@
   }
 
   .ui-toggle-thumb {
-    @apply pointer-events-none absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition-transform;
+    @apply pointer-events-none absolute h-4 w-4 rounded-full bg-white shadow transition-transform;
+    left: 3px;
+    top: 3px;
     transition-duration: var(--duration-chrome);
     transition-timing-function: var(--ease-chrome);
   }
 
   .ui-toggle-on .ui-toggle-thumb {
-    transform: translateX(1.25rem);
+    transform: translateX(20px);
   }
 
   /* 设置里的滑块：跟随青绿主题，替换浏览器默认蓝色 */
@@ -2510,6 +2608,29 @@
     @apply relative flex h-full min-w-0 flex-col overflow-visible border-r;
     border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
     background: color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-primary));
+  }
+
+  .file-transfer-scroll {
+    container-type: inline-size;
+    container-name: sftp-list;
+  }
+
+  .sftp-file-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .sftp-file-size {
+    display: none;
+  }
+
+  @container sftp-list (min-width: 360px) {
+    .sftp-file-row {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+    }
+
+    .sftp-file-size {
+      display: block;
+    }
   }
 
   .sftp-sidebar-left {
@@ -2833,20 +2954,30 @@
   background-clip: padding-box !important;
 }
 
+.light .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(15, 118, 110, 0.34) !important;
+  background-clip: padding-box !important;
+}
+
+.light .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 118, 110, 0.58) !important;
+  background-clip: padding-box !important;
+}
+
+.light .xterm-viewport::-webkit-scrollbar-thumb:active {
+  background: rgba(15, 118, 110, 0.78) !important;
+  background-clip: padding-box !important;
+}
+
 /* 确保滚动条区域可以正常交互 */
 .xterm-scroll-area,
 .xterm-viewport * {
   pointer-events: auto !important;
 }
 
-/* 暗色主题终端 */
-.dark .xterm {
-  background-color: #070b10 !important;
-}
-
-/* 浅色主题终端 */
-.light .xterm {
-  background-color: #f6f3eb !important;
+/* 终端未指定背景时的兜底底色（不加 !important，避免覆盖自定义终端主题） */
+.xterm {
+  background-color: var(--bg-primary);
 }
 
 /* Chrome open/close motion (modals, popovers, toasts, empty state) */
@@ -2875,17 +3006,26 @@
   to { opacity: 1; transform: none; }
 }
 
+@keyframes ui-banner-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* 版本更新提示条：检测到新构建后自动刷新前展示 */
 .version-update-banner {
-  @apply fixed left-1/2 top-14 z-[80] flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 border px-3 py-2.5;
+  @apply fixed left-1/2 top-14 z-[75] flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 border px-3 py-2.5;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 55%),
-    color-mix(in srgb, var(--bg-primary) 85%, var(--bg-secondary));
-  border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border-color));
+    color-mix(in srgb, var(--bg-elevated) 96%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
   color: var(--text-primary);
-  animation: ui-toast-in var(--duration-chrome) var(--ease-chrome) both;
+  animation: ui-banner-in var(--duration-chrome) var(--ease-chrome) both;
+}
+
+.version-update-banner-offset {
+  top: 6rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

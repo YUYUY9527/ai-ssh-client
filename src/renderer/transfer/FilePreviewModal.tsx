@@ -88,23 +88,24 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
       isOpen
       onClose={onClose}
       size="3xl"
+      panelClassName="flex flex-col !overflow-hidden"
       title={
-        <span className="flex items-center gap-2 truncate">
+        <span className="flex min-w-0 items-center gap-2">
           {titleIcon}
-          <span className="truncate">{file.name}</span>
+          <span className="truncate" title={file.name}>{file.name}</span>
         </span>
       }
       closeLabel={translate('common.close')}
     >
-      <div className="p-4">
+      <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
         {isStreaming && (
-          <div className="flex items-center justify-center bg-surface rounded-lg p-2 min-h-[200px]">
+          <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-line-subtle bg-surface-sunken p-2">
             {kind === 'video' ? (
               <video
                 src={mediaUrl ?? undefined}
                 controls
                 preload="metadata"
-                className="max-w-full max-h-[70vh] rounded bg-black"
+                className="max-h-[min(64vh,calc(100vh-14rem))] max-w-full rounded bg-black"
                 onError={() => setError(translate('features.preview.unsupported'))}
               />
             ) : (
@@ -119,43 +120,43 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
           </div>
         )}
         {isStreaming && error && (
-          <p className="mt-3 text-sm text-danger dark:text-danger-fg text-center">{error}</p>
+          <p className="mt-3 text-center text-sm text-danger-fg">{error}</p>
         )}
 
         {!isStreaming && loading && (
           <div className="flex items-center justify-center py-16 text-sm text-fg-subtle">
-            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+            <RefreshCw className="mr-2 h-4 w-4 animate-spin text-accent" />
             {translate('features.preview.loading')}
           </div>
         )}
 
         {!isStreaming && !loading && error && (
-          <div className="py-10 text-center space-y-3">
-            <p className="text-sm text-danger dark:text-danger-fg">{error}</p>
+          <div className="space-y-3 py-10 text-center">
+            <p className="text-sm text-danger-fg">{error}</p>
             <button
               type="button"
               onClick={() => { void load(); }}
-              className="text-sm text-accent dark:text-accent-hover hover:underline inline-flex items-center gap-1"
+              className="industrial-button-secondary px-3 py-1.5 text-xs"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="h-3.5 w-3.5" />
               {translate('features.preview.retry')}
             </button>
           </div>
         )}
 
         {!isStreaming && !loading && !error && dataUri && (
-          <div className="flex items-center justify-center bg-surface rounded-lg p-2 min-h-[200px]">
+          <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-line-subtle bg-surface-sunken p-2">
             {isPdf ? (
               <iframe
                 src={dataUri}
                 title={file.name}
-                className="w-full h-[70vh] rounded bg-white"
+                className="h-[min(64vh,calc(100vh-14rem))] w-full rounded bg-white"
               />
             ) : (
               <img
                 src={dataUri}
                 alt={file.name}
-                className="max-w-full max-h-[70vh] object-contain"
+                className="max-h-[min(64vh,calc(100vh-14rem))] max-w-full rounded-sm object-contain"
               />
             )}
           </div>
@@ -168,7 +169,7 @@ export function FilePreviewModal({ connectionId, file, onClose, translate }: Fil
         )}
 
         {preview && (
-          <p className="mt-3 text-xs text-fg-subtle text-right tabular-nums">
+          <p className="mt-3 text-right font-mono text-xs text-fg-subtle tabular-nums">
             {formatBytes(preview.size)}
           </p>
         )}

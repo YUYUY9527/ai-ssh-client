@@ -30,12 +30,13 @@ function themeExtension(isDark: boolean): Extension {
   return isDark ? oneDark : [];
 }
 
-/** 编辑器基础样式：铺满容器、等宽字体、跟随应用背景。 */
+/** 编辑器基础样式：铺满容器、等宽字体、跟随应用背景与主题配色。 */
 const baseTheme = EditorView.theme({
   '&': {
     height: '100%',
     fontSize: '13px',
-    backgroundColor: 'transparent',
+    backgroundColor: 'var(--bg-primary)',
+    color: 'var(--text-primary)',
   },
   '.cm-scroller': {
     overflow: 'auto',
@@ -44,10 +45,22 @@ const baseTheme = EditorView.theme({
   },
   '.cm-content': {
     padding: '10px 0',
+    caretColor: 'var(--accent-primary)',
   },
   '.cm-gutters': {
-    backgroundColor: 'transparent',
-    borderRight: '1px solid color-mix(in srgb, var(--border-color) 55%, transparent)',
+    backgroundColor: 'color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-primary))',
+    color: 'var(--text-subtle)',
+    borderRight: '1px solid color-mix(in srgb, var(--border-color) 60%, transparent)',
+  },
+  '.cm-activeLine': {
+    backgroundColor: 'color-mix(in srgb, var(--accent-primary) 7%, transparent)',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: 'color-mix(in srgb, var(--accent-primary) 10%, transparent)',
+    color: 'var(--text-primary)',
+  },
+  '&.cm-focused .cm-selectionBackground, ::selection': {
+    backgroundColor: 'color-mix(in srgb, var(--accent-primary) 24%, transparent)',
   },
   '&.cm-focused': {
     outline: 'none',
@@ -82,11 +95,11 @@ export function CodeEditor({ value, language, readOnly = false, onChange }: Code
         doc: value,
         extensions: [
           basicSetup,
-          baseTheme,
           EditorState.tabSize.of(2),
           EditorView.contentAttributes.of({ spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' }),
           languageCompartment.of(languageExtension(language)),
           themeCompartment.of(themeExtension(isDark)),
+          baseTheme,
           editableCompartment.of(editableExtensions(!readOnly)),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {

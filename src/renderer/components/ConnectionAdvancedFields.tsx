@@ -317,25 +317,29 @@ export function ConnectionAdvancedFields({
           ))}
         </div>
 
-        <div className="mt-5 border-t border-line-subtle pt-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-medium text-fg">
+        <div className="space-y-2 border-t border-line-subtle pt-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
               <ArrowLeftRight className="h-3.5 w-3.5 text-accent" />
-              <span>{translate('connection.form.portForwards')}</span>
+              <span className="industrial-field-label mb-0">{translate('connection.form.portForwards')}</span>
             </div>
-            <button type="button" className="toolbar-button px-2 py-1 text-xs" onClick={addForward}>
-              <Plus className="mr-1 h-3.5 w-3.5" />
+            <button
+              type="button"
+              className="industrial-button-secondary px-2 py-1 text-xs"
+              onClick={addForward}
+            >
+              <Plus className="h-3.5 w-3.5" />
               {translate('connection.form.addPortForward')}
             </button>
           </div>
-          <p className="mt-1 text-[11px] text-fg-muted">{translate('connection.form.portForwardsHint')}</p>
+          <p className="text-xs text-fg-muted">{translate('connection.form.portForwardsHint')}</p>
           {portForwards.length === 0 ? (
-            <p className="mt-2 text-[11px] text-fg-subtle">{translate('connection.form.portForwardsEmpty')}</p>
+            <p className="text-xs text-fg-subtle">{translate('connection.form.portForwardsEmpty')}</p>
           ) : (
-            <div className="mt-2 space-y-2">
+            <div className="space-y-2">
               {portForwards.map((rule, index) => (
-                <div key={rule.id} className="rounded-md border border-line bg-surface-raised p-2">
-                  <div className="flex items-center gap-2">
+                <div key={rule.id} className="rounded-md border border-line bg-surface-sunken p-3">
+                  <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                     <input
                       value={rule.label || ''}
                       onChange={(event) => patchForward(index, { label: event.target.value })}
@@ -349,32 +353,39 @@ export function ConnectionAdvancedFields({
                         { value: 'dynamic', label: translate('connection.form.portForwardTypeDynamic') },
                       ]}
                       onChange={(value) => patchForward(index, { type: value as PortForwardRule['type'] })}
-                      className="w-28"
+                      className="w-36 shrink-0"
                     />
-                    <button
-                      type="button"
-                      className="icon-button h-7 w-7"
-                      title={translate('connection.form.moveUp')}
-                      onClick={() => moveForward(index, -1)}
-                    >
-                      <ArrowUp className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-button h-7 w-7"
-                      title={translate('connection.form.moveDown')}
-                      onClick={() => moveForward(index, 1)}
-                    >
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-button h-7 w-7 text-danger"
-                      title={translate('connection.form.remove')}
-                      onClick={() => setForwards(portForwards.filter((item) => item.id !== rule.id))}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        className="icon-button h-7 w-7 disabled:opacity-30"
+                        title={translate('connection.form.moveUp')}
+                        aria-label={translate('connection.form.moveUp')}
+                        onClick={() => moveForward(index, -1)}
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === portForwards.length - 1}
+                        className="icon-button h-7 w-7 disabled:opacity-30"
+                        title={translate('connection.form.moveDown')}
+                        aria-label={translate('connection.form.moveDown')}
+                        onClick={() => moveForward(index, 1)}
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button h-7 w-7 text-danger"
+                        title={translate('connection.form.remove')}
+                        aria-label={translate('connection.form.remove')}
+                        onClick={() => setForwards(portForwards.filter((item) => item.id !== rule.id))}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <label className="text-[11px] text-fg-muted">

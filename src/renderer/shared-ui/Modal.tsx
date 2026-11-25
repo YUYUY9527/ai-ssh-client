@@ -46,7 +46,13 @@ interface ModalProps {
   describedBy?: string;
   /** 弹层作用域：auto（默认）在会话上下文内绑定当前会话且不遮挡会话标签栏；global 强制覆盖全屏。 */
   scope?: 'auto' | 'global';
+  /** 是否通过 createPortal 挂载（默认 true；顶层组件如 SettingsPanel 可设为 false 以原地挂载并保留完整弹窗能力）。 */
+  usePortal?: boolean;
 }
+
+/** 全局弹窗 body 滚动锁引用计数，避免嵌套弹窗提前解锁。 */
+let globalBodyScrollLockCount = 0;
+let savedBodyOverflow = '';
 
 /** 通用模态框基座：统一遮罩、居中、进出动画、Esc 关闭、点遮罩关闭、焦点陷阱与滚动锁定 */
 export function Modal({
@@ -64,6 +70,7 @@ export function Modal({
   labelledBy,
   describedBy,
   scope = 'auto',
+  usePortal = true,
 }: ModalProps) {
   const overlay = useSessionOverlay();
   const isSessionScoped = scope !== 'global' && Boolean(overlay.container);
@@ -85,10 +92,16 @@ export function Modal({
       return;
     }
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    if (globalBodyScrollLockCount === 0) {
+      savedBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    globalBodyScrollLockCount += 1;
     return () => {
-      document.body.style.overflow = originalOverflow;
+      globalBodyScrollLockCount = Math.max(0, globalBodyScrollLockCount - 1);
+      if (globalBodyScrollLockCount === 0) {
+        document.body.style.overflow = savedBodyOverflow;
+      }
       previouslyFocusedRef.current?.focus?.();
     };
   }, [isOpen, isSessionScoped]);
@@ -141,10 +154,10 @@ export function Modal({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       const active = document.activeElement as HTMLElement | null;
-      if (event.shiftKey && active === first) {
+      if (event.shiftKey && (active === first || active === panel || !active || !panel.contains(active))) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && active === last) {
+      } else if (!event.shiftKey && (active === last || !active || !panel.contains(active))) {
         event.preventDefault();
         first.focus();
       }
@@ -169,8 +182,7 @@ export function Modal({
     ? 'max-h-full'
     : 'max-h-[min(90vh,calc(100vh-2rem))]';
 
-  // 会话内弹层挂载至当前会话专属宿主（.app-main 内），不遮挡顶栏与会话列表；其余全局弹窗挂载至 body
-  return createPortal(
+  const modalNode = (
     <div className={wrapperClass}>
       <div
         className="modal-backdrop"
@@ -188,12 +200,12 @@ export function Modal({
       >
         {title != null && (
           <div className="industrial-modal-header shrink-0">
-            <h3 className="min-w-0 flex-1 font-semibold text-fg dark:text-white">{title}</h3>
+            <h3 className="min-w-0 flex-1 font-semibold text-fg">{title}</h3>
             {showClose && (
               <button
                 type="button"
                 onClick={onClose}
-                className="icon-button"
+                className="icon-button shrink-0"
                 aria-label={closeLabel}
               >
                 <X className="w-5 h-5" />
@@ -203,7 +215,9 @@ export function Modal({
         )}
         {children}
       </div>
-    </div>,
-    portalTarget,
+    </div>
   );
+
+  // 会话内弹层挂载至当前会话专属宿主（.app-main 内），不遮挡顶栏与会话列表；其余全局弹窗挂载至 body
+  return usePortal ? createPortal(modalNode, portalTarget) : modalNode;
 }

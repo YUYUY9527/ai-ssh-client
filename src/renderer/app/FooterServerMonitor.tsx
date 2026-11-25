@@ -134,22 +134,31 @@ export function FooterServerMonitor() {
         title={t('features.monitor.disk')}
         value={`${Math.round(rootDiskPercent)}%`}
       />
-      <span className="flex shrink-0 items-center gap-1" title={t('features.monitor.network')}>
-        <ArrowUp className="h-3 w-3 text-success" />
-        <span className="tabular-nums text-success dark:text-success-fg">{formatRate(txTotal)}</span>
-        <ArrowDown className="h-3 w-3 text-info" />
-        <span className="tabular-nums text-info dark:text-info-fg">{formatRate(rxTotal)}</span>
+      <span
+        className="flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors hover:bg-surface-hover"
+        title={t('features.monitor.network')}
+      >
+        <ArrowUp className="h-3 w-3 text-success-fg" />
+        <span className="font-mono tabular-nums text-success-fg">{formatRate(txTotal)}</span>
+        <ArrowDown className="h-3 w-3 text-info-fg" />
+        <span className="font-mono tabular-nums text-info-fg">{formatRate(rxTotal)}</span>
       </span>
       {typeof load1 === 'number' && (
-        <span className="hidden shrink-0 items-center gap-1 xl:flex" title={t('features.monitor.avgLoad')}>
+        <span
+          className="hidden shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors hover:bg-surface-hover xl:flex"
+          title={t('features.monitor.avgLoad')}
+        >
           <Gauge className="h-3 w-3 text-fg-subtle" />
-          <span className="tabular-nums text-fg-muted">{load1.toFixed(2)}</span>
+          <span className="font-mono tabular-nums text-fg-muted">{load1.toFixed(2)}</span>
         </span>
       )}
       {typeof metrics.latencyMs === 'number' && (
-        <span className="flex shrink-0 items-center gap-1" title={t('features.monitor.latency')}>
-          <Gauge className="h-3 w-3 text-warning" />
-          <span className="tabular-nums text-warning dark:text-warning-fg">
+        <span
+          className="flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors hover:bg-surface-hover"
+          title={t('features.monitor.latency')}
+        >
+          <Gauge className="h-3 w-3 text-warning-fg" />
+          <span className="font-mono tabular-nums text-warning-fg">
             {Math.round(metrics.latencyMs)} {t('features.monitor.ms')}
           </span>
         </span>

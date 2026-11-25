@@ -56,11 +56,13 @@ export function FooterAgentStatus() {
   }, [isRunning, taskStartTime]);
 
   if (!isRunning) {
-    // 不运行时也占位显示「空闲中」，让底栏的 Agent 状态始终可见、位置固定，
-    // 不会在任务开始/结束时整块出现或消失导致左侧布局跳动。
+    if (!activeConnectionId) {
+      return null;
+    }
+    // 活动会话下不运行时也占位显示「空闲中」，位置固定避免任务启停时左侧跳动。
     return (
       <div
-        className="app-footer-meta app-footer-agent min-w-0 text-fg-subtle"
+        className="app-footer-meta app-footer-agent min-w-0 text-fg-muted"
         title={t('terminal.agentStatusIdle')}
       >
         <Circle className="h-2.5 w-2.5 shrink-0" />

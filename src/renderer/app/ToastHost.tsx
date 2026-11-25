@@ -28,7 +28,7 @@ export function ToastHost({ toasts, onDismiss, translate }: ToastHostProps) {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          role="status"
+          role={toast.type === 'error' ? 'alert' : 'status'}
           className={`toast-item ${
             toast.type === 'success' ? 'toast-item-success' : 'toast-item-error'
           }`}
@@ -41,14 +41,14 @@ export function ToastHost({ toasts, onDismiss, translate }: ToastHostProps) {
             )}
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium">{toast.title}</div>
-              <div className="mt-0.5 break-words text-xs opacity-80" title={toast.body}>
+              <div className="mt-0.5 break-words text-xs opacity-90" title={toast.body}>
                 {toast.body}
               </div>
             </div>
             <button
               type="button"
               onClick={() => onDismiss(toast.id)}
-              className="icon-button h-6 w-6 opacity-70 hover:opacity-100"
+              className="icon-button h-6 w-6 shrink-0 text-current opacity-75 hover:opacity-100"
               aria-label={translate('common.close')}
               title={translate('common.close')}
             >

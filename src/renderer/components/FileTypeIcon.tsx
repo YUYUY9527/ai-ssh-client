@@ -27,7 +27,7 @@ export function FileTypeIcon({ name, isDirectory, isSymbolicLink }: FileTypeIcon
     return <span className="file-type-icon" aria-hidden dangerouslySetInnerHTML={{ __html: FOLDER_SVG }} />;
   }
   if (isSymbolicLink) {
-    return <span className="file-type-icon text-slate-400" aria-hidden dangerouslySetInnerHTML={{ __html: LINK_SVG }} />;
+    return <span className="file-type-icon text-fg-muted" aria-hidden dangerouslySetInnerHTML={{ __html: LINK_SVG }} />;
   }
   return (
     <span

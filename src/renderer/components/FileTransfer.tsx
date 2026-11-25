@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   ArrowRightLeft,
@@ -689,19 +690,21 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
     };
   }, [activeView, connectionId, currentPath, files, isLive, pathFocused, pathHistory, pathInput]);
 
-  // 点击补全面板外关闭
+  // 点击补全面板外关闭（同时退出路径编辑态，避免输入框悬空卡住）
   useEffect(() => {
-    if (!pathFocused) return;
+    if (!pathFocused && !pathEditOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
       if (pathInputRef.current?.contains(target) || pathSuggestRef.current?.contains(target)) {
         return;
       }
       setPathFocused(false);
+      setPathEditOpen(false);
+      setPathInput(currentPath);
     };
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [pathFocused]);
+  }, [currentPath, pathEditOpen, pathFocused]);
 
   // 打开路径编辑时自动聚焦并全选
   useEffect(() => {
@@ -1299,8 +1302,8 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[color-mix(in_srgb,var(--bg-primary)_76%,var(--bg-secondary))]">
-      <div className="relative flex flex-wrap items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))] p-2">
-        <div className="flex shrink-0 items-center gap-1">
+      <div className="relative flex flex-wrap items-center gap-0.5 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_48%,var(--bg-secondary))] px-1.5 py-1.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           <button
             onClick={() => setBrowserView(connectionId, 'files')}
             className={`icon-button h-7 w-7 ${
@@ -1335,7 +1338,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
         </div>
 
         {activeView === 'files' && (
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-0.5">
             <button
               onClick={goHome}
               className="icon-button h-7 w-7"
@@ -1392,7 +1395,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
             {t('fileTransfer.clearFinished')}
           </button>
         ) : (
-          <div className="ml-auto flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-0.5">
             <button
               onClick={() => void handleUpload()}
               className="icon-button h-7 w-7"
@@ -1612,10 +1615,11 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
         ) : (
           <div
             ref={dropZoneRef}
-            className={`file-transfer-scroll relative h-full overflow-y-auto p-2 ${isDragOver ? 'bg-accent ring-2 ring-inset ring-accent dark:bg-accent-muted' : ''}`}
+            className={`relative h-full overflow-hidden ${isDragOver ? 'bg-accent-muted ring-2 ring-inset ring-accent' : ''}`}
           >
+            <div className="file-transfer-scroll h-full overflow-y-auto p-2">
             {actionError && (
-              <div className="mb-2 flex items-center gap-2 rounded-sm border border-danger bg-danger-muted px-3 py-2 text-xs text-danger dark:text-danger-fg">
+              <div className="mb-2 flex items-center gap-2 rounded-sm border border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted px-3 py-2 text-xs text-danger-fg">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <span className="min-w-0 flex-1 break-words">{actionError}</span>
                 <button
@@ -1677,17 +1681,25 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                   return (
                     <div
                       key={file.path}
+                      role="button"
+                      tabIndex={0}
                       onClick={(event) => {
                         setHoverDetail(null);
                         handleItemClick(event, file);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleItemDoubleClick(file);
+                        }
                       }}
                       onDoubleClick={() => handleItemDoubleClick(file)}
                       onMouseEnter={(event) => {
                         const rect = event.currentTarget.getBoundingClientRect();
                         if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
                         hoverTimerRef.current = setTimeout(() => {
-                          const width = 272;
-                          const height = 184;
+                          const width = 264;
+                          const height = 224;
                           const x = Math.max(8, Math.min(rect.left + 8, window.innerWidth - width - 8));
                           const y = rect.bottom + 6 + height > window.innerHeight
                             ? Math.max(8, rect.top - height - 6)
@@ -1712,7 +1724,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                         }
                         setContextMenu({ x: event.clientX, y: event.clientY, item: file });
                       }}
-                      className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-2 py-1.5 transition-colors group ${
+                      className={`sftp-file-row group grid cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 transition-colors ${
                         isSelected
                           ? 'bg-[color-mix(in_srgb,var(--accent-primary)_22%,transparent)]'
                           : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
@@ -1720,9 +1732,12 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         {getFileIcon(file)}
-                        <span className="truncate text-sm text-fg dark:text-white">
+                        <span className="truncate text-sm text-fg" title={file.name}>
                           {file.name}
                         </span>
+                      </div>
+                      <div className="sftp-file-size whitespace-nowrap text-right font-mono text-[11px] tabular-nums text-fg-subtle">
+                        {file.isDirectory ? '—' : formatSize(file.size)}
                       </div>
                       <div className="whitespace-nowrap text-right text-xs tabular-nums text-fg-muted">
                         {formatListTime(file.mtime)}
@@ -1732,17 +1747,21 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                 })}
               </div>
             )}
+            </div>
 
             {isDragOver && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-sm border-2 border-dashed border-accent bg-accent-muted">
-                <div className="font-medium text-accent">{t('fileTransfer.dropHint')}</div>
+              <div className="pointer-events-none absolute inset-0 z-raised flex items-center justify-center rounded-sm border-2 border-dashed border-accent bg-[color-mix(in_srgb,var(--accent-primary)_14%,var(--bg-secondary))]">
+                <div className="rounded-md bg-surface-elevated px-3.5 py-2 text-xs font-semibold text-accent shadow-md">
+                  {t('fileTransfer.dropHint')}
+                </div>
               </div>
             )}
 
-            {contextMenu && (
+            {contextMenu && typeof document !== 'undefined' && createPortal(
               <div
                 ref={contextMenuRef}
-                className="app-popover fixed top-auto z-dropdown mt-0 min-w-[168px] py-1"
+                role="menu"
+                className="app-popover fixed top-auto z-overlay mt-0 min-w-[168px] py-1"
                 style={{
                   left: contextMenuPosition.x,
                   top: contextMenuPosition.y,
@@ -1874,7 +1893,8 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                   <Trash2 className="h-4 w-4" />
                   {t('common.delete')}
                 </button>
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         )}
@@ -2195,7 +2215,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                   {rows.map((row) => (
                     <div key={row.key} className="grid grid-cols-[4.5rem_1fr] items-center gap-2 text-xs">
                       <span className="text-fg-muted">{row.label}</span>
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         {([
                           { label: t('fileTransfer.permissionsRead'), mask: 0o4 << row.shift },
                           { label: t('fileTransfer.permissionsWrite'), mask: 0o2 << row.shift },
@@ -2218,7 +2238,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
               );
             })()}
             {chmodError && (
-              <p className="text-xs text-danger dark:text-danger-fg">{chmodError}</p>
+              <p className="text-xs text-danger-fg">{chmodError}</p>
             )}
           </div>
           <div className="industrial-modal-footer">
@@ -2242,7 +2262,10 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
       </Modal>
 
       {statusNotice && overlay.isActive && (
-        <div className="pointer-events-none fixed bottom-8 left-1/2 z-overlay -translate-x-1/2 rounded-md bg-app px-3 py-1.5 text-xs text-white shadow-lg dark:bg-surface-elevated dark:text-fg-faint">
+        <div
+          role="status"
+          className="pointer-events-none fixed bottom-8 left-1/2 z-toast -translate-x-1/2 rounded-md border border-line-strong bg-surface-inverse px-3.5 py-1.5 text-xs font-medium text-fg-inverse shadow-lg"
+        >
           {statusNotice}
         </div>
       )}

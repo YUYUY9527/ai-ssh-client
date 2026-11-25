@@ -1,6 +1,7 @@
 import type { DragEvent, MouseEvent } from 'react';
 import { X } from 'lucide-react';
 
+import { useI18n } from '../i18n';
 import type { WorkspaceTab } from './SessionWorkspace';
 
 interface DragState {
@@ -37,6 +38,7 @@ export function WorkspaceTabs({
   onTabContextMenu,
   onCloseTab,
 }: WorkspaceTabsProps) {
+  const { t } = useI18n();
   if (tabs.length === 0) {
     return null;
   }
@@ -51,6 +53,7 @@ export function WorkspaceTabs({
 
   return (
     <div
+      role="tablist"
       className="workspace-tabbar scrollbar-thin"
       onWheel={(event) => {
         // 标签溢出时将纵向滚轮转为横向滚动，方便浏览大量标签
@@ -59,42 +62,55 @@ export function WorkspaceTabs({
         }
       }}
     >
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          draggable
-          onDragStart={(event) => onDragStart(event, tab.id)}
-          onDragOver={(event) => onDragOver(event, tab.id)}
-          onDragLeave={onDragLeave}
-          onDrop={(event) => onDrop(event, tab.id)}
-          onDragEnd={onDragEnd}
-          onClick={() => onTabClick(tab.id)}
-          onAuxClick={(event) => {
-            // 鼠标中键关闭标签
-            if (event.button === 1) {
-              event.preventDefault();
-              onCloseTab(event, tab.id);
-            }
-          }}
-          onContextMenu={(event) => onTabContextMenu(event, tab)}
-          className={`workspace-tab group ${
-            activeTabId === tab.id ? 'workspace-tab-active' : ''
-          } ${dragState.dragOverTabId === tab.id ? 'ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_50%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)]' : ''} ${
-            dragState.isDragging && dragState.draggedTabId === tab.id ? 'opacity-50' : ''
-          }`}
-        >
-          <span className={`status-dot ${getTabStatusClass(tab)}`} />
-          <span className="max-w-32 truncate">{tab.name}</span>
-          <button
-            type="button"
-            onClick={(event) => onCloseTab(event, tab.id)}
-            className="workspace-tab-close"
-            aria-label="Close tab"
+      {tabs.map((tab) => {
+        const isActive = activeTabId === tab.id;
+        return (
+          <div
+            key={tab.id}
+            role="tab"
+            tabIndex={isActive ? 0 : -1}
+            aria-selected={isActive}
+            draggable
+            onDragStart={(event) => onDragStart(event, tab.id)}
+            onDragOver={(event) => onDragOver(event, tab.id)}
+            onDragLeave={onDragLeave}
+            onDrop={(event) => onDrop(event, tab.id)}
+            onDragEnd={onDragEnd}
+            onClick={() => onTabClick(tab.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onTabClick(tab.id);
+              }
+            }}
+            onAuxClick={(event) => {
+              // 鼠标中键关闭标签
+              if (event.button === 1) {
+                event.preventDefault();
+                onCloseTab(event, tab.id);
+              }
+            }}
+            onContextMenu={(event) => onTabContextMenu(event, tab)}
+            className={`workspace-tab group ${
+              isActive ? 'workspace-tab-active' : ''
+            } ${dragState.dragOverTabId === tab.id ? 'ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_50%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_10%,transparent)]' : ''} ${
+              dragState.isDragging && dragState.draggedTabId === tab.id ? 'opacity-50' : ''
+            }`}
           >
-            <X className="h-3 w-3" />
-          </button>
-        </div>
-      ))}
+            <span className={`status-dot ${getTabStatusClass(tab)}`} />
+            <span className="max-w-36 truncate" title={tab.name}>{tab.name}</span>
+            <button
+              type="button"
+              onClick={(event) => onCloseTab(event, tab.id)}
+              className="workspace-tab-close"
+              title={t('tab.closeTab')}
+              aria-label={t('tab.closeTab')}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

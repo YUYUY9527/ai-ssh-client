@@ -57,7 +57,7 @@ interface ModalHostProps {
 
 function LazyModalFallback({ translate }: { translate: ModalHostProps['translate'] }) {
   return (
-    <div className="fixed inset-0 z-dropdown flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-modal flex items-center justify-center p-4">
       <div className="modal-backdrop" />
       <div className="industrial-modal relative z-raised flex items-center gap-3 px-6 py-5 text-sm text-fg-secondary">
         <Loader2 className="h-5 w-5 animate-spin text-accent" />
@@ -342,18 +342,18 @@ export function ModalHost({
               </>
             )}
             {connectionTestResult && (
-              <div className={`industrial-card flex items-center gap-2 px-3 py-2 ${
+              <div className={`flex items-center gap-2 rounded-md border px-3 py-2 ${
                 connectionTestResult.success
-                  ? 'bg-success dark:bg-success-muted text-success dark:text-success-fg'
-                  : 'bg-danger dark:bg-danger-muted text-danger dark:text-danger-fg'
+                  ? 'border-[color-mix(in_srgb,var(--success)_45%,var(--border-color))] bg-success-muted text-success-fg'
+                  : 'border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted text-danger-fg'
               }`}
               >
                 {connectionTestResult.success ? (
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
                 ) : (
-                  <AlertCircle className="w-4 h-4" />
+                  <AlertCircle className="h-4 w-4 shrink-0" />
                 )}
-                <span className="text-sm">{connectionTestResult.message}</span>
+                <span className="min-w-0 flex-1 break-words text-sm">{connectionTestResult.message}</span>
               </div>
             )}
 

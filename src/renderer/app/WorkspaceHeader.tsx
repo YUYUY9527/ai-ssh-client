@@ -117,10 +117,11 @@ export function WorkspaceHeader({
   // 搜索过滤或分组视图下禁用拖拽，避免只对子集/分组排序导致全表错乱
   const canReorder = !normalizedQuery && connections.length > 1 && !groupingActive;
 
-  // 下拉关闭时清空搜索词与拖拽态
+  // 下拉关闭时清空搜索词、内联分组编辑态与拖拽态
   useEffect(() => {
     if (!isConnectionDropdownOpen) {
       setConnectionQuery('');
+      setGroupModal({ open: false, editing: null, name: '' });
       setDraggedConnectionId(null);
       setDragOverConnectionId(null);
     }
@@ -256,10 +257,13 @@ export function WorkspaceHeader({
           <Server className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold text-fg">
+          <div className="truncate text-[13px] font-semibold text-fg" title={connection.name}>
             {connection.name}
           </div>
-          <div className="truncate font-mono text-[11px] text-fg-muted">
+          <div
+            className="truncate font-mono text-[11px] text-fg-muted"
+            title={`${connection.username}@${connection.host}:${connection.port}`}
+          >
             {connection.username}@{connection.host}:{connection.port}
           </div>
           {connection.tags && connection.tags.length > 0 && (
@@ -267,7 +271,7 @@ export function WorkspaceHeader({
               {connection.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center gap-0.5 rounded-sm border border-accent bg-accent-muted px-1 py-0.5 text-[10px] text-accent dark:text-accent-hover"
+                  className="inline-flex items-center gap-0.5 rounded-sm border border-[color-mix(in_srgb,var(--accent-primary)_38%,var(--border-color))] bg-accent-muted px-1 py-0.5 text-[10px] text-accent dark:text-accent-hover"
                 >
                   <Tag className="h-2.5 w-2.5" />
                   {tag}
@@ -277,7 +281,7 @@ export function WorkspaceHeader({
           )}
         </div>
       </button>
-      <div className="hidden items-center gap-1 group-hover:flex">
+      <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         <button
           type="button"
           onClick={(event) => {
@@ -331,7 +335,7 @@ export function WorkspaceHeader({
                     className={`h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
                   />
                   <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
-                  <span className="truncate">{group.name}</span>
+                  <span className="truncate" title={group.name}>{group.name}</span>
                   <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none text-fg-muted">
                     {members.length}
                   </span>
@@ -339,7 +343,7 @@ export function WorkspaceHeader({
                 <button
                   type="button"
                   onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
-                  className="icon-button h-6 w-6 opacity-0 group-hover:opacity-100"
+                  className="icon-button h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
                   title={translate('features.connectionGroups.renameGroup')}
                   aria-label={translate('features.connectionGroups.renameGroup')}
                 >
@@ -348,7 +352,7 @@ export function WorkspaceHeader({
                 <button
                   type="button"
                   onClick={() => setGroupToDelete(group)}
-                  className="icon-button h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-danger"
+                  className="icon-button h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:text-danger"
                   title={translate('features.connectionGroups.deleteGroup')}
                   aria-label={translate('features.connectionGroups.deleteGroup')}
                 >
@@ -391,31 +395,33 @@ export function WorkspaceHeader({
 
   return (
     <>
-    <header className="app-header">
-      <div className="flex items-center gap-2">
-        <div className="app-title-mark">
+    <header className="app-header gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="app-title-mark shrink-0">
           <AppIcon className="h-6 w-6" />
         </div>
-        <div className="leading-tight">
-          <h1 className="text-[13.5px] font-semibold tracking-tight text-fg">AI SSH Client</h1>
+        <div className="hidden shrink-0 leading-tight sm:block">
+          <h1 className="whitespace-nowrap text-[13.5px] font-semibold tracking-tight text-fg">AI SSH Client</h1>
         </div>
-        <span className="mx-1.5 h-4 w-px bg-line-subtle" aria-hidden="true" />
+        <span className="mx-1 hidden h-4 w-px shrink-0 bg-line-subtle sm:inline-block" aria-hidden="true" />
 
-        <div className="relative" ref={connectionDropdownRef}>
+        <div className="relative shrink-0" ref={connectionDropdownRef}>
           <button
+            type="button"
             onClick={onToggleConnectionDropdown}
-            className="toolbar-button-primary"
+            className="toolbar-button-primary whitespace-nowrap"
           >
-            <Plug className="w-4 h-4" />
+            <Plug className="h-4 w-4 shrink-0" />
             {translate('connection.connect')}
           </button>
           {isConnectionDropdownOpen && (
-            <div className="app-popover left-0 w-80 scrollbar-modern">
-              <div className="app-popover-header">
-                <span>{translate('connection.selectConnection')}</span>
-                <div className="flex items-center gap-1">
+            <div className="app-popover left-0 flex max-h-[min(28rem,calc(100vh-5rem))] w-[min(20rem,calc(100vw-1rem))] flex-col overflow-hidden">
+              <div className="app-popover-header shrink-0">
+                <span className="truncate">{translate('connection.selectConnection')}</span>
+                <div className="flex shrink-0 items-center gap-1">
                   {groupsSupported && (
                     <button
+                      type="button"
                       onClick={() => setGroupModal({ open: true, editing: null, name: '' })}
                       className="icon-button h-7 w-7"
                       title={translate('features.connectionGroups.newGroup')}
@@ -425,6 +431,7 @@ export function WorkspaceHeader({
                     </button>
                   )}
                   <button
+                    type="button"
                     onClick={onCreateConnection}
                     className="icon-button h-7 w-7"
                     title={translate('connection.newConnection')}
@@ -435,7 +442,7 @@ export function WorkspaceHeader({
                 </div>
               </div>
               {groupModal.open && (
-                <div className="flex items-center gap-1.5 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-2 py-2">
+                <div className="flex shrink-0 items-center gap-1.5 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-2 py-2">
                   {groupModal.editing ? (
                     <Pencil className="h-3.5 w-3.5 shrink-0 text-accent" />
                   ) : (
@@ -454,12 +461,12 @@ export function WorkspaceHeader({
                       }
                     }}
                     placeholder={translate('features.connectionGroups.groupName')}
-                    className="industrial-input h-7 flex-1 text-xs"
+                    className="industrial-input h-7 min-w-0 flex-1 py-1 text-xs"
                   />
                   <button
                     type="button"
                     onClick={() => void handleSaveGroup()}
-                    className="icon-button h-7 w-7 text-accent dark:text-accent-hover"
+                    className="icon-button h-7 w-7 shrink-0 text-accent dark:text-accent-hover"
                     title={translate('common.save')}
                     aria-label={translate('common.save')}
                   >
@@ -468,7 +475,7 @@ export function WorkspaceHeader({
                   <button
                     type="button"
                     onClick={() => setGroupModal({ open: false, editing: null, name: '' })}
-                    className="icon-button h-7 w-7"
+                    className="icon-button h-7 w-7 shrink-0"
                     title={translate('common.cancel')}
                     aria-label={translate('common.cancel')}
                   >
@@ -477,43 +484,45 @@ export function WorkspaceHeader({
                 </div>
               )}
               {showConnectionSearch && (
-                <div className="px-2 pb-2 pt-1">
+                <div className="shrink-0 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] px-2 py-2">
                   <input
                     type="text"
                     value={connectionQuery}
                     onChange={(event) => setConnectionQuery(event.target.value)}
                     placeholder={translate('connection.searchPlaceholder')}
-                    className="industrial-input w-full text-sm"
-                    autoFocus
+                    className="industrial-input w-full py-1.5 text-sm"
+                    autoFocus={!groupModal.open}
                   />
                 </div>
               )}
-              {connections.length === 0 ? (
-                <div className="p-4 text-center text-fg-muted text-sm">
-                  {translate('connection.noConnections')}
-                </div>
-              ) : filteredConnections.length === 0 ? (
-                <div className="p-4 text-center text-fg-muted text-sm">
-                  {translate('connection.noMatches')}
-                </div>
-              ) : (
-                <>
-                  {groupingActive ? (
-                    renderGroupedConnections()
-                  ) : (
-                    <>
-                      {canReorder && (
-                        <div className="px-3 pb-1 text-[11px] text-fg-muted">
-                          {translate('connection.dragToReorder')}
-                        </div>
-                      )}
-                      {filteredConnections.map((connection) => renderConnectionRow(connection))}
-                    </>
-                  )}
-                </>
-              )}
+              <div className="scrollbar-modern min-h-0 flex-1 overflow-y-auto py-1">
+                {connections.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-fg-muted">
+                    {translate('connection.noConnections')}
+                  </div>
+                ) : filteredConnections.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-fg-muted">
+                    {translate('connection.noMatches')}
+                  </div>
+                ) : (
+                  <>
+                    {groupingActive ? (
+                      renderGroupedConnections()
+                    ) : (
+                      <>
+                        {canReorder && (
+                          <div className="px-3 pb-1 text-[11px] text-fg-muted">
+                            {translate('connection.dragToReorder')}
+                          </div>
+                        )}
+                        {filteredConnections.map((connection) => renderConnectionRow(connection))}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
               {/* 连接下拉底部：导入 / 导出 */}
-              <div className="mt-1 flex gap-1 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-2">
+              <div className="flex shrink-0 gap-1.5 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-2">
                 <button
                   type="button"
                   className="industrial-button-secondary flex-1 justify-center px-2 py-1.5 text-xs"
@@ -563,13 +572,14 @@ export function WorkspaceHeader({
 
         {activeTabId && (
           <button
+            type="button"
             onClick={onToggleSftpSidebar}
-            className={`toolbar-button ${isSftpSidebarOpen ? 'toolbar-button-active' : ''}`}
+            className={`toolbar-button shrink-0 whitespace-nowrap ${isSftpSidebarOpen ? 'toolbar-button-active' : ''}`}
             title={translate('fileTransfer.manage')}
             aria-label={translate('fileTransfer.manage')}
           >
-            <Folder className="w-4 h-4" />
-            {translate('fileTransfer.files')}
+            <Folder className="h-4 w-4 shrink-0" />
+            <span className="hidden md:inline">{translate('fileTransfer.files')}</span>
           </button>
         )}
 
@@ -584,38 +594,46 @@ export function WorkspaceHeader({
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <div className="toolbar-group">
           <button
+            type="button"
             onClick={() => onChangeTheme('light')}
             className={`icon-button h-7 w-7 ${theme === 'light' ? 'icon-button-active' : ''}`}
             title={translate('theme.light')}
             aria-label={translate('theme.light')}
+            aria-pressed={theme === 'light'}
           >
             <Sun className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => onChangeTheme('dark')}
             className={`icon-button h-7 w-7 ${theme === 'dark' ? 'icon-button-active' : ''}`}
             title={translate('theme.dark')}
             aria-label={translate('theme.dark')}
+            aria-pressed={theme === 'dark'}
           >
             <Moon className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => onChangeTheme('system')}
             className={`icon-button h-7 w-7 ${theme === 'system' ? 'icon-button-active' : ''}`}
             title={translate('theme.system')}
             aria-label={translate('theme.system')}
+            aria-pressed={theme === 'system'}
           >
             <Monitor className="w-4 h-4" />
           </button>
         </div>
         <button
+          type="button"
           onClick={onToggleSettings}
           className={`icon-button ${isSettingsOpen ? 'icon-button-active' : ''}`}
           title={translate('settings.title')}
           aria-label={translate('settings.title')}
+          aria-expanded={isSettingsOpen}
         >
           <Settings className="w-4 h-4" />
         </button>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Shield, Trash2, X, Terminal, Wifi, Bot, KeyRound, Globe, Lock, Server, Loader2 } from 'lucide-react';
 import { AIProviderSettings } from './AIProviderSettings';
 import { McpSettings } from './McpSettings';
@@ -14,6 +14,7 @@ import {
   resolveTerminalRuntimeSettings,
 } from '../session/terminal/terminal-settings';
 import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
+import { Modal } from '../shared-ui/Modal';
 import { SettingsItem, SettingsPage, SettingsSection, ToggleSwitch } from '../settings/SettingsLayout';
 
 const FONT_FAMILY_OPTIONS = [
@@ -68,6 +69,15 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   const [hostTrustRecords, setHostTrustRecords] = useState<HostTrustRecord[]>([]);
   const [hostTrustLoading, setHostTrustLoading] = useState(false);
   const [hostTrustError, setHostTrustError] = useState<string | null>(null);
+  // 记录打开面板时的语言，未保存直接关闭时回滚语言预览
+  const committedLocaleRef = useRef<Locale>(useI18nStore.getState().locale);
+
+  const handleClosePanel = () => {
+    if (useI18nStore.getState().locale !== committedLocaleRef.current) {
+      useI18nStore.getState().setLocale(committedLocaleRef.current);
+    }
+    onClose();
+  };
 
   useEffect(() => {
     setSaveFeedback(null);
@@ -91,6 +101,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
           Math.floor(localSettings.agentSemanticSummaryContextLength ?? 12000),
         ),
       });
+      committedLocaleRef.current = useI18nStore.getState().locale;
       setSaveFeedback({ error: false, text: t('settings.saved') });
     } catch (error) {
       setSaveFeedback({ error: true, text: (error as Error).message || t('settings.saveFailed') });
@@ -219,20 +230,26 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
   ];
 
   return (
-    <div className="fixed inset-0 z-dropdown flex items-center justify-center p-3 sm:p-4">
-      <div className="modal-backdrop" onClick={onClose} />
-      <div className={`industrial-modal relative z-raised flex h-[84vh] max-h-[84vh] w-full ${activeTab === 'mcp' ? 'max-w-5xl' : 'max-w-3xl'} flex-col overflow-hidden`}>
-        <div className="industrial-modal-header">
-          <h2 className="font-semibold text-fg dark:text-white">{t('settings.title')}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="icon-button"
-            aria-label={t('common.close')}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Modal
+      isOpen
+      onClose={handleClosePanel}
+      scope="global"
+      usePortal={false}
+      size="3xl"
+      showClose={false}
+      panelClassName="flex h-[84vh] max-h-[84vh] flex-col !overflow-hidden"
+    >
+      <div className="industrial-modal-header shrink-0">
+        <h2 className="min-w-0 flex-1 truncate font-semibold text-fg">{t('settings.title')}</h2>
+        <button
+          type="button"
+          onClick={handleClosePanel}
+          className="icon-button shrink-0"
+          aria-label={t('common.close')}
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
           <div className="scrollbar-thin flex w-full shrink-0 gap-1 overflow-x-auto border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-primary)_54%,var(--bg-secondary))] p-2 sm:w-48 sm:flex-col sm:overflow-y-auto sm:border-b-0 sm:border-r">
@@ -315,7 +332,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                   <SettingsItem
                     label={t('settings.terminal.scrollback')}
                     description={t('settings.terminal.scrollbackDesc')}
-                    layout="block"
+                    controlClassName="w-full sm:w-36"
                   >
                     <input
                       type="number"
@@ -326,7 +343,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                         ...localSettings,
                         terminalScrollback: clampTerminalScrollback(parseInt(e.target.value, 10)),
                       })}
-                      className="industrial-input w-36"
+                      className="industrial-input w-full"
                     />
                   </SettingsItem>
 
@@ -452,7 +469,7 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                         {t('common.loading')}
                       </div>
                     ) : hostTrustError ? (
-                      <div className="rounded-md border border-danger bg-danger-muted px-3 py-2 text-sm text-danger dark:text-danger-fg">
+                      <div className="rounded-md border border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted px-3 py-2 text-sm text-danger-fg">
                         {hostTrustError}
                       </div>
                     ) : hostTrustRecords.length === 0 ? (
@@ -465,11 +482,11 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           key={`${record.host}:${record.port}:${record.fingerprint}`}
                           className="industrial-card flex items-start justify-between gap-3 p-3"
                         >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-fg dark:text-white">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-fg">
                               {record.host}:{record.port}
                             </div>
-                            <div className="mt-1 font-mono text-[11px] text-fg-muted">
+                            <div className="mt-1 break-all font-mono text-[11px] text-fg-muted">
                               {record.algorithm} · {record.fingerprint}
                             </div>
                             <div className="mt-1 text-[11px] text-fg-subtle">
@@ -479,8 +496,9 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                           <button
                             type="button"
                             onClick={() => void handleDeleteHostTrust(record)}
-                            className="icon-button h-7 w-7 text-danger"
+                            className="icon-button h-7 w-7 shrink-0 text-danger"
                             title={t('common.delete')}
+                            aria-label={t('common.delete')}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -674,7 +692,13 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                 title={t('settings.password.title')}
                 description={t('settings.password.description')}
               >
-                <div className="max-w-sm space-y-3">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleChangePassword();
+                  }}
+                  className="max-w-sm space-y-3"
+                >
                   <div>
                     <label className="industrial-field-label">{t('settings.password.current')}</label>
                     <input
@@ -706,25 +730,25 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                     />
                   </div>
 
-                  {pwError && <p className="text-xs text-danger">{pwError}</p>}
-                  {pwSuccess && <p className="text-xs text-accent">{t('settings.password.success')}</p>}
+                  {pwError && <p className="text-xs text-danger-fg">{pwError}</p>}
+                  {pwSuccess && <p className="text-xs text-success-fg">{t('settings.password.success')}</p>}
 
                   <button
-                    type="button"
-                    onClick={handleChangePassword}
+                    type="submit"
                     disabled={pwSubmitting}
                     className="industrial-button-primary"
                   >
+                    {pwSubmitting && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
                     {pwSubmitting ? t('settings.password.submitting') : t('settings.password.submit')}
                   </button>
-                </div>
+                </form>
               </SettingsPage>
             )}
           </div>
         </div>
 
         <div className="industrial-modal-footer shrink-0">
-          {activeTab !== 'mcp' && activeTab !== 'password' && saveFeedback && (
+          {activeTab !== 'mcp' && activeTab !== 'password' && activeTab !== 'providers' && saveFeedback && (
             <div
               role={saveFeedback.error ? 'alert' : 'status'}
               className={`settings-save-feedback ${saveFeedback.error ? 'is-error' : 'is-saved'}`}
@@ -734,13 +758,15 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
           )}
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClosePanel}
             className="industrial-button-secondary"
           >
-            {t('common.cancel')}
+            {activeTab === 'mcp' || activeTab === 'password' || activeTab === 'providers'
+              ? t('common.close')
+              : t('common.cancel')}
           </button>
           {activeTab === 'mcp' && <div ref={setMcpFooterContainer} className="contents" />}
-          {activeTab !== 'mcp' && activeTab !== 'password' && (
+          {activeTab !== 'mcp' && activeTab !== 'password' && activeTab !== 'providers' && (
             <button
               type="button"
               onClick={() => void handleSave()}
@@ -753,7 +779,6 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -222,12 +222,29 @@ export function ConnectionImportExportModal({
     }
   };
 
+  const switchImportKind = (kind: ImportKind) => {
+    setImportKind(kind);
+    setPendingPayload(null);
+    setConflicts([]);
+    setPreviewCount(0);
+    setStatus(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={title} size="lg">
-      <div className="space-y-4 p-4 sm:p-5">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={title}
+      size="lg"
+      panelClassName="flex flex-col !overflow-hidden"
+    >
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
         {mode === 'export' ? (
           <>
-            <p className="text-sm text-fg-secondary dark:text-fg-muted">
+            <p className="text-sm text-fg-secondary">
               {t('connection.importExport.exportDesc')}
             </p>
             <label className="flex items-start gap-2 text-sm text-fg-secondary">
@@ -276,29 +293,23 @@ export function ConnectionImportExportModal({
           </>
         ) : (
           <>
-            <p className="text-sm text-fg-secondary dark:text-fg-muted">
+            <p className="text-sm text-fg-secondary">
               {t('connection.importExport.importDesc')}
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="segmented-control">
               <button
                 type="button"
-                className={`industrial-button-secondary justify-center ${importKind === 'backup' ? 'ring-1 ring-[var(--accent-primary)]' : ''}`}
-                onClick={() => {
-                  setImportKind('backup');
-                  setPendingPayload(null);
-                  setConflicts([]);
-                }}
+                aria-pressed={importKind === 'backup'}
+                className={`segment-button ${importKind === 'backup' ? 'segment-button-active' : ''}`}
+                onClick={() => switchImportKind('backup')}
               >
                 {t('connection.importExport.kindBackup')}
               </button>
               <button
                 type="button"
-                className={`industrial-button-secondary justify-center ${importKind === 'openssh' ? 'ring-1 ring-[var(--accent-primary)]' : ''}`}
-                onClick={() => {
-                  setImportKind('openssh');
-                  setPendingPayload(null);
-                  setConflicts([]);
-                }}
+                aria-pressed={importKind === 'openssh'}
+                className={`segment-button ${importKind === 'openssh' ? 'segment-button-active' : ''}`}
+                onClick={() => switchImportKind('openssh')}
               >
                 {t('connection.importExport.kindOpenSsh')}
               </button>
@@ -363,7 +374,7 @@ export function ConnectionImportExportModal({
                   {conflictSummary}
                 </p>
                 {conflicts.length > 0 && (
-                  <ul className="max-h-36 space-y-1 overflow-y-auto text-xs text-fg-muted">
+                  <ul className="scrollbar-thin max-h-36 space-y-1 overflow-y-auto text-xs text-fg-muted">
                     {conflicts.slice(0, 20).map((item) => (
                       <li key={`${item.incoming.id}-${item.existing.id}`}>
                         {item.incoming.name} ← {item.existing.name}
@@ -373,6 +384,9 @@ export function ConnectionImportExportModal({
                           : t('connection.importExport.conflictByEndpoint')})
                       </li>
                     ))}
+                    {conflicts.length > 20 && (
+                      <li className="text-fg-subtle">+{conflicts.length - 20}</li>
+                    )}
                   </ul>
                 )}
                 <p className="text-xs text-fg-muted">
@@ -389,8 +403,8 @@ export function ConnectionImportExportModal({
           <div
             className={`rounded-sm border px-3 py-2 text-sm ${
               status.type === 'success'
-                ? 'border-success bg-success-muted text-success dark:text-success-fg'
-                : 'border-danger bg-danger-muted text-danger dark:text-danger-fg'
+                ? 'border-[color-mix(in_srgb,var(--success)_45%,var(--border-color))] bg-success-muted text-success-fg'
+                : 'border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted text-danger-fg'
             }`}
           >
             {status.text}
@@ -398,7 +412,7 @@ export function ConnectionImportExportModal({
         )}
       </div>
 
-      <div className="industrial-modal-footer">
+      <div className="industrial-modal-footer shrink-0">
         <button type="button" className="industrial-button-secondary" onClick={handleClose}>
           {t('common.close')}
         </button>

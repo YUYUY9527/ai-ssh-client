@@ -1,4 +1,4 @@
-import { AlertTriangle, Info } from 'lucide-react';
+import { AlertTriangle, Info, Loader2 } from 'lucide-react';
 import { useId, useRef } from 'react';
 import { useI18n } from '../i18n';
 import { Modal } from '../shared-ui/Modal';
@@ -27,6 +27,7 @@ export function ConfirmDialog({
   isConfirming = false,
   type = 'warning',
 }: ConfirmDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const messageId = useId();
@@ -41,32 +42,34 @@ export function ConfirmDialog({
       onClose={isConfirming ? () => undefined : onCancel}
       size="md"
       showClose={false}
-      initialFocusRef={confirmButtonRef}
+      initialFocusRef={type === 'warning' ? cancelButtonRef : confirmButtonRef}
       labelledBy={titleId}
       describedBy={messageId}
+      panelClassName="flex flex-col !overflow-hidden"
     >
-      <div className="industrial-modal-header">
-        <div className="flex items-center gap-3">
+      <div className="industrial-modal-header shrink-0">
+        <div className="flex min-w-0 items-center gap-2.5">
           {type === 'warning' ? (
-            <AlertTriangle className="h-5 w-5 text-warning" />
+            <AlertTriangle className="h-5 w-5 shrink-0 text-warning-fg" />
           ) : (
-            <Info className="h-5 w-5 text-accent" />
+            <Info className="h-5 w-5 shrink-0 text-accent" />
           )}
-          <h3 id={titleId} className="font-semibold text-fg dark:text-white">
+          <h3 id={titleId} className="min-w-0 truncate font-semibold text-fg">
             {title}
           </h3>
         </div>
       </div>
 
-      <div className="p-4">
-        <p id={messageId} className="text-sm leading-6 text-fg-secondary">
+      <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
+        <p id={messageId} className="break-words text-sm leading-6 text-fg-secondary">
           {message}
         </p>
       </div>
 
-      <div className="industrial-modal-footer">
+      <div className="industrial-modal-footer shrink-0">
         <button
           type="button"
+          ref={cancelButtonRef}
           onClick={onCancel}
           disabled={isConfirming}
           className="industrial-button-secondary"
@@ -80,6 +83,7 @@ export function ConfirmDialog({
           disabled={isConfirming}
           className={type === 'warning' ? 'industrial-button-danger' : 'industrial-button-primary'}
         >
+          {isConfirming && <Loader2 className="h-4 w-4 animate-spin" />}
           {resolvedConfirmText}
         </button>
       </div>

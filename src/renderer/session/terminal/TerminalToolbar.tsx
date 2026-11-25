@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bot, Download, Palette, Search, SlidersHorizontal, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { ServerMonitorButton } from './ServerMonitorButton';
 import { PortForwardButton } from './PortForwardButton';
@@ -21,6 +22,7 @@ interface TerminalToolbarProps {
   onIncreaseFontSize: () => void;
   onToggleSearch: () => void;
   onToggleThemeSelector: () => void;
+  onCloseThemeSelector?: () => void;
   onSelectTheme: (themeKey: string) => void;
   onSaveLog: () => void;
 }
@@ -41,13 +43,26 @@ export function TerminalToolbar({
   onIncreaseFontSize,
   onToggleSearch,
   onToggleThemeSelector,
+  onCloseThemeSelector,
   onSelectTheme,
   onSaveLog,
 }: TerminalToolbarProps) {
   const [compactOpen, setCompactOpen] = useState(false);
+  const [themeMenuPos, setThemeMenuPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   const toolbarContentId = useId();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const themeTriggerRef = useRef<HTMLButtonElement>(null);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
+
+  const closeThemeMenu = () => {
+    if (!isThemeSelectorOpen) return;
+    if (onCloseThemeSelector) {
+      onCloseThemeSelector();
+    } else {
+      onToggleThemeSelector();
+    }
+  };
 
   useEffect(() => {
     if (!compactOpen) return;
@@ -72,6 +87,62 @@ export function TerminalToolbar({
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [compactOpen]);
+
+  // 主题选择器通过 Portal 挂载到 body，避免被窄分屏折叠工具栏或终端容器裁切
+  useLayoutEffect(() => {
+    if (!isThemeSelectorOpen) {
+      setThemeMenuPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const btn = themeTriggerRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const menuWidth = 176;
+      const margin = 8;
+      const left = Math.max(margin, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - margin));
+      const spaceBelow = window.innerHeight - rect.bottom - margin - 6;
+      const spaceAbove = rect.top - margin - 6;
+      const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(140, Math.min(340, openUp ? spaceAbove : spaceBelow));
+      const top = openUp
+        ? Math.max(margin, rect.top - 6 - maxHeight)
+        : rect.bottom + 6;
+      setThemeMenuPos({ top, left, maxHeight });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isThemeSelectorOpen]);
+
+  useEffect(() => {
+    if (!isThemeSelectorOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (themeTriggerRef.current?.contains(target) || themeMenuRef.current?.contains(target)) {
+        return;
+      }
+      closeThemeMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeThemeMenu();
+        themeTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [isThemeSelectorOpen]);
 
   return (
     <div ref={toolbarRef} className={`terminal-toolbar ${compactOpen ? 'is-open' : ''}`}>
@@ -107,7 +178,6 @@ export function TerminalToolbar({
           onClick={onInsertAgentPrefix}
           disabled={!canInsertAgentPrefix}
           className="terminal-agent-prefix-hint"
-          title={translate('terminal.agentPrefixHint')}
           aria-label={translate('terminal.agentInsertPrefix')}
           data-tooltip={translate('terminal.agentPrefixGuide')}
         >
@@ -136,8 +206,9 @@ export function TerminalToolbar({
           onClick={onDecreaseFontSize}
           className="terminal-control"
           title={translate('terminal.zoomOut')}
+          aria-label={translate('terminal.zoomOut')}
         >
-          <ZoomOut className="w-4 h-4" />
+          <ZoomOut className="h-4 w-4" />
         </button>
         <span className="terminal-toolbar-badge">{fontSize}px</span>
         <button
@@ -145,8 +216,9 @@ export function TerminalToolbar({
           onClick={onIncreaseFontSize}
           className="terminal-control"
           title={translate('terminal.zoomIn')}
+          aria-label={translate('terminal.zoomIn')}
         >
-          <ZoomIn className="w-4 h-4" />
+          <ZoomIn className="h-4 w-4" />
         </button>
         <span className="terminal-toolbar-divider" aria-hidden="true" />
         <button
@@ -154,25 +226,40 @@ export function TerminalToolbar({
           onClick={onToggleSearch}
           className={`terminal-control ${isSearchOpen ? 'terminal-control-active' : ''}`}
           title={translate('terminal.search')}
+          aria-label={translate('terminal.search')}
+          aria-pressed={isSearchOpen}
         >
-          <Search className="w-4 h-4" />
+          <Search className="h-4 w-4" />
         </button>
 
         <div className="relative">
           <button
+            ref={themeTriggerRef}
             type="button"
             onClick={onToggleThemeSelector}
-            className="terminal-control"
+            className={`terminal-control ${isThemeSelectorOpen ? 'terminal-control-active' : ''}`}
             title={translate('terminal.changeTheme')}
+            aria-label={translate('terminal.changeTheme')}
+            aria-expanded={isThemeSelectorOpen}
           >
-            <Palette className="w-4 h-4" />
+            <Palette className="h-4 w-4" />
           </button>
 
-          {isThemeSelectorOpen && (
-            <div className="app-popover right-0 min-w-[160px] py-1">
+          {isThemeSelectorOpen && themeMenuPos && typeof document !== 'undefined' && createPortal(
+            <div
+              ref={themeMenuRef}
+              data-terminal-toolbar-popup="true"
+              className="app-popover fixed top-auto z-overlay mt-0 w-[176px] py-1 scrollbar-thin"
+              style={{
+                top: themeMenuPos.top,
+                left: themeMenuPos.left,
+                maxHeight: themeMenuPos.maxHeight,
+              }}
+            >
               {Object.keys(themes).map((themeKey) => (
                 <button
                   key={themeKey}
+                  type="button"
                   onClick={() => onSelectTheme(themeKey)}
                   className={`app-popover-row text-sm ${
                     terminalTheme === themeKey
@@ -180,16 +267,19 @@ export function TerminalToolbar({
                       : 'text-fg-secondary'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <div
-                      className="w-4 h-4 rounded-sm border border-line-subtle dark:border-line"
+                      className="h-4 w-4 shrink-0 rounded-sm border border-line-subtle dark:border-line"
                       style={{ background: themes[themeKey].background }}
                     />
-                    {themeNames[themeKey].startsWith('terminal.') ? translate(themeNames[themeKey]) : themeNames[themeKey]}
+                    <span className="truncate">
+                      {themeNames[themeKey].startsWith('terminal.') ? translate(themeNames[themeKey]) : themeNames[themeKey]}
+                    </span>
                   </div>
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
       </div>

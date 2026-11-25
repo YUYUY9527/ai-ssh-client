@@ -288,6 +288,11 @@ const enUS: DeepStringify<typeof zhCN> = {
       confirmTitle: 'Confirm {action} container',
       confirmMessage: 'Are you sure you want to {action} container "{name}"? This takes effect immediately on the remote host.',
       execTitle: 'Container shell · {container} · {shell}',
+      detailCommand: 'Command',
+      detailStarted: 'Started',
+      detailRestartCount: 'Restart count',
+      detailNetworks: 'Networks',
+      detailMounts: 'Mounts',
     },
     zoomIn: 'Increase font size',
     search: 'Search terminal output',
@@ -950,6 +955,13 @@ const enUS: DeepStringify<typeof zhCN> = {
   },
   notifications: {
     commandCompleted: 'Command completed',
+  },
+  versionUpdate: {
+    title: 'New version available',
+    countdown: 'Reloading in {seconds}s to load the latest version…',
+    reloading: 'Reloading…',
+    reloadNow: 'Reload now',
+    dismissTitle: 'Dismiss for this session',
   },
   features: {
     connectionGroups: {

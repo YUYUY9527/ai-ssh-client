@@ -77,16 +77,26 @@ export function SftpSidebar({
   return (
     <aside
       className={`sftp-sidebar sftp-sidebar-left ${isOpen ? '' : 'hidden'}`}
-      style={{ width }}
+      style={{ width, maxWidth: 'min(860px, 65vw)' }}
     >
       {/* 把手贴在侧栏右缘外侧（分界线偏右），避免压在列表内容上 */}
       <div
         className={`sftp-sidebar-resizer ${isResizing ? 'sftp-sidebar-resizer-active' : ''}`}
+        tabIndex={0}
         onMouseDown={(event) => {
           event.preventDefault();
           startXRef.current = event.clientX;
           startWidthRef.current = width;
           setIsResizing(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            setSftpSidebarWidth(width - 20);
+          } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            setSftpSidebarWidth(width + 20);
+          }
         }}
         title={t('fileTransfer.resizeSidebar')}
         role="separator"
