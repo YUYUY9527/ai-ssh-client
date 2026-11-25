@@ -26,6 +26,42 @@ export function detectChunkEndsInAltScreen(chunk: string): boolean {
 }
 
 /**
+ * 匹配历史输出中的 OSC 颜色查询（OSC 4 / 10 / 11 / 12 / 17 / 19）：
+ * 仅当载荷包含独立 `?` 参数（如 `\x1b]11;?\x07`、`\x1b]4;0;?;1;?\x1b\\`）时视为查询并剥离，
+ * 正常的颜色设置序列（不含 `?`）以及 OSC 7 / 133 等非颜色序列原样保留。
+ */
+const REPLAY_OSC_COLOR_RE = /\x1b\](4|10|11|12|17|19);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+
+/**
+ * 匹配历史输出中的 CSI / DCS 终端能力与状态查询：
+ * - DA1 / DA2: `\x1b[c`, `\x1b[0c`, `\x1b[>c`, `\x1b[>0c`
+ * - DSR: `\x1b[5n`, `\x1b[6n`, `\x1b[?6n`
+ * - DECRQM: `\x1b[2026$p`, `\x1b[?2026$p`
+ * - XTWINOPS 尺寸查询: `\x1b[14t`, `\x1b[16t`, `\x1b[18t`
+ * - DECRQSS / XTGETTCAP: `\x1bP$q...\x1b\\`, `\x1bP+q...\x1b\\`
+ */
+const REPLAY_CONTROL_QUERY_RE = /\x1b\[(?:>?0?c|\??[56]n|\??\d+\$p|(?:14|16|18)t)|\x1bP[$+]q[^\x1b]*\x1b\\/g;
+
+/**
+ * 剥离历史重放内容中的终端查询序列。
+ *
+ * 历史输出里可能残留 vim / fzf / starship 等程序早前发出的 OSC 颜色查询或 CSI 设备查询。
+ * 这些查询不绘制任何画面，但重放喂进 xterm 后会触发 `onData` 回报 `rgb:...` 等应答，
+ * 一旦发回处于普通提示符的远端 shell，就会把一大串 `11;rgb:...` 敲进命令行输入框。
+ * 仅用于历史 `replay` 路径；实时 `append` 路径不调用，确保直播查询照常应答。
+ */
+export function stripReplayTerminalQueries(chunk: string): string {
+  if (!chunk || !chunk.includes('\x1b')) {
+    return chunk;
+  }
+  return chunk
+    .replace(REPLAY_OSC_COLOR_RE, (full, _code: string, payload: string) => (
+      payload.split(';').includes('?') ? '' : full
+    ))
+    .replace(REPLAY_CONTROL_QUERY_RE, '');
+}
+
+/**
  * 计算重放后需要的校准动作：
  * - `write`：需要补写进 xterm 的序列（xterm 未处于 alt buffer 时补 1049h）
  * - `redraw`：是否应向 PTY 发送 Ctrl+L（\x0c）让全屏程序重绘画面

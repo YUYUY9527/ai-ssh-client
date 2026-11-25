@@ -38,7 +38,7 @@ import {
   shouldReplaceCwd,
 } from './terminal-cwd';
 import { planTerminalOutputSync } from './terminal-output-sync';
-import { planReplayCalibration } from './terminal-replay';
+import { planReplayCalibration, stripReplayTerminalQueries } from './terminal-replay';
 import {
   createProgressWrapState,
   guardCarriageReturnProgress,
@@ -818,8 +818,10 @@ export function TerminalView({
       if (plan.chunk) {
         consumeOutputChunk(plan.chunk);
         consumeShellIntegration(plan.chunk);
+        // 剥离历史中过期的 OSC 颜色 / CSI 设备查询，源头杜绝回放向 PTY 回报 rgb:... 应答
+        const replayChunk = stripReplayTerminalQueries(plan.chunk);
         // write 回调 + 超时保险（见 beginSuspendInputForward）双通道释放
-        writeProgressGuarded(withModeRestore(modeRestore, plan.chunk), () => {
+        writeProgressGuarded(withModeRestore(modeRestore, replayChunk), () => {
           releaseSuspend();
           calibrateAfterReplay(plan.chunk, wasInAlternateScreen);
         });

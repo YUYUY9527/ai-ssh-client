@@ -48,9 +48,10 @@ function tailText(input: string, maxChars: number): string {
 const XTERM_AUTO_REPLY_PATTERNS: readonly RegExp[] = [
   /^\x1b\[\??[\d;]*[cnR]$/, // DA1/DA2 设备属性应答、DSR 光标位置应答
   /^\x1b\[[?>][\d;]*[cn]$/, // 私有设备属性应答
-  /^\x1b\[\?[\d;]*\$y$/, // DECRPM 模式报告应答
+  /^\x1b\[\??[\d;]*\$y$/, // DECRPM 模式报告应答
+  /^\x1b\[[468];\d+;\d+t$/, // XTWINOPS 窗口/单元格尺寸应答
   /^\x1b\[[IO]$/, // 焦点进入 / 离开
-  /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)$/, // OSC 应答
+  /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)$/, // OSC 应答（含 rgb:... 颜色应答）
   /^\x1bP[^\x1b]*\x1b\\$/, // DCS 应答
 ];
 
@@ -431,6 +432,9 @@ export function useTerminalInputTracking({
       if (onDataDisposableRef.current === onDataDisposable) {
         onDataDisposableRef.current = null;
       }
+      // 仅在已绑定的实例销毁或连接切走时清理旧挂起，避免首次挂载 Commit 2
+      // （terminalInstanceVersion 0→1）误把 Commit 1 刚开启的重放挂起清零。
+      forceResumeInputForward();
     };
   }, [
     forceResumeInputForward,
@@ -480,11 +484,6 @@ export function useTerminalInputTracking({
     inputTrackingReliableRef.current = true;
     currentInputRef.current = '';
   }, []);
-
-  // 连接切换或终端实例重建时清掉挂起，避免上一轮回放泄漏
-  useEffect(() => {
-    forceResumeInputForward();
-  }, [forceResumeInputForward, liveConnectionId, terminalInstanceVersion]);
 
   /**
    * 粘贴文本直接下发到远端、不经过 onData，所以要在这里补记，否则回车提交的是残缺内容
