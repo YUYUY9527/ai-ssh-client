@@ -389,7 +389,7 @@
   /* 历史命令：只让列表滚动，避免弹层和列表各出现一条滚动条 */
   .app-popover.command-history-popover {
     display: flex;
-    max-height: calc(100vh - 7rem);
+    max-height: min(32rem, calc(100vh - 5rem));
     flex-direction: column;
     overflow: hidden;
   }
@@ -398,6 +398,162 @@
     min-height: 0;
     flex: 1 1 auto;
     overflow-y: auto;
+  }
+
+  /* 顶栏三大弹窗（连接 / 命令 / 历史）统一精细化容器与子结构 */
+  .app-popover.header-popover {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    background:
+      linear-gradient(160deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 36%),
+      color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 74%, var(--accent-primary));
+    box-shadow:
+      var(--shadow-lg),
+      0 0 0 1px color-mix(in srgb, var(--accent-primary) 9%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  }
+
+  .light .app-popover.header-popover {
+    background:
+      linear-gradient(160deg, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 34%),
+      color-mix(in srgb, var(--bg-elevated) 98%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 78%, var(--accent-primary));
+    box-shadow:
+      0 20px 50px rgba(32, 28, 20, 0.14),
+      0 2px 8px rgba(32, 28, 20, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  }
+
+  .header-popover-header {
+    @apply flex shrink-0 items-center justify-between gap-2.5 border-b px-3.5 py-2.5;
+    border-color: color-mix(in srgb, var(--border-color) 62%, transparent);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 5%, var(--bg-secondary)), color-mix(in srgb, var(--bg-secondary) 72%, transparent));
+  }
+
+  .header-popover-title-wrap {
+    @apply flex min-w-0 items-center gap-2;
+  }
+
+  .header-popover-icon {
+    @apply flex h-6 w-6 shrink-0 items-center justify-center border;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent-primary) 13%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+    color: var(--accent-hover);
+  }
+
+  .light .header-popover-icon {
+    color: var(--accent-primary);
+  }
+
+  .header-popover-title {
+    @apply truncate text-[13px] font-semibold tracking-tight;
+    color: var(--text-primary);
+  }
+
+  .header-popover-count {
+    @apply inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full border px-1.5 font-mono text-[10px] font-medium leading-none tabular-nums;
+    background: color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+    color: var(--text-muted);
+  }
+
+  .header-popover-pill {
+    @apply inline-flex max-w-[11.5rem] items-center truncate rounded-full border px-2 py-0.5 font-mono text-[10.5px] leading-4;
+    background: color-mix(in srgb, var(--bg-sunken) 82%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+    color: var(--text-muted);
+  }
+
+  .header-popover-search-bar {
+    @apply shrink-0 border-b px-3 py-2;
+    border-color: color-mix(in srgb, var(--border-color) 54%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 34%, transparent);
+  }
+
+  .header-popover-search {
+    @apply flex items-center gap-2 border px-2.5 py-1.5 transition-all;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-sunken) 88%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--border-color) 74%, transparent);
+    transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
+  }
+
+  .header-popover-search:hover {
+    border-color: color-mix(in srgb, var(--border-strong) 86%, transparent);
+  }
+
+  .header-popover-search:focus-within {
+    border-color: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  }
+
+  /* 外层 .header-popover-search 已有圆角 focus-within 高亮，抑制全局 input:focus-visible 的内层直角绿框 */
+  .header-popover-search input:focus,
+  .header-popover-search input:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+
+  .light .header-popover-search {
+    background: #ffffff;
+    box-shadow: inset 0 1px 2px rgba(40, 34, 24, 0.05);
+  }
+
+  .header-popover-form {
+    @apply shrink-0 border-b p-3;
+    border-color: color-mix(in srgb, var(--border-color) 66%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 54%, var(--bg-secondary));
+  }
+
+  .header-popover-section {
+    @apply flex items-center gap-1.5 rounded-sm px-2 py-1 text-[11px] font-semibold transition-colors;
+    color: var(--text-secondary);
+  }
+
+  .header-popover-section:hover {
+    background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-hover));
+  }
+
+  .header-popover-item {
+    @apply relative flex items-center gap-2 border border-transparent px-2.5 py-2 transition-all;
+    border-radius: var(--radius-sm);
+    transition-duration: var(--duration-chrome);
+    transition-timing-function: var(--ease-chrome);
+  }
+
+  .header-popover-item:hover {
+    background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent-primary) 26%, var(--border-color));
+  }
+
+  .header-popover-code {
+    @apply flex min-w-0 items-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-[11.5px] leading-4;
+    background: color-mix(in srgb, var(--bg-sunken) 86%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 52%, transparent);
+    color: var(--text-secondary);
+  }
+
+  .header-popover-empty {
+    @apply flex flex-col items-center justify-center gap-2 px-5 py-8 text-center;
+  }
+
+  .header-popover-empty-icon {
+    @apply flex h-10 w-10 items-center justify-center rounded-full border;
+    background: color-mix(in srgb, var(--bg-tertiary) 82%, transparent);
+    border-color: color-mix(in srgb, var(--border-color) 66%, transparent);
+    color: var(--text-subtle);
+  }
+
+  .header-popover-footer {
+    @apply flex shrink-0 items-center justify-between gap-2 border-t px-3 py-2;
+    border-color: color-mix(in srgb, var(--border-color) 60%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 42%, var(--bg-secondary));
   }
 
   .workspace-tabbar {

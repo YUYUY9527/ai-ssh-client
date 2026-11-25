@@ -526,6 +526,7 @@ const zhCN = {
   },
   commandHistory: {
     title: '历史命令',
+    history: '历史',
     searchPlaceholder: '搜索命令...',
     currentOnly: '当前上下文',
     currentServer: '当前服务器',
@@ -533,12 +534,15 @@ const zhCN = {
     empty: '暂无历史命令',
     noMatches: '无匹配结果',
     rerunInDir: '在该目录重新执行',
+    clickToPaste: '点击命令填入终端',
+    copied: '已复制',
   },
   quickCommands: {
     title: '快速命令',
     commands: '命令',
     noCommands: '暂无快速命令，点击 + 添加',
     newCommand: '新建命令',
+    editCommand: '编辑命令',
     newGroup: '新建分组',
     groupName: '分组名称',
     groupColor: '分组颜色',
@@ -548,6 +552,10 @@ const zhCN = {
     commandContent: '命令内容',
     description: '描述（可选）',
     noGroup: '无分组',
+    searchPlaceholder: '搜索命令或描述...',
+    noMatches: '未找到匹配的命令',
+    clickToPaste: '点击命令填入终端',
+    copied: '已复制',
   },
   auth: {
     defaultPasswordBanner: {

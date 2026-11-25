@@ -532,6 +532,7 @@ const enUS: DeepStringify<typeof zhCN> = {
   },
   commandHistory: {
     title: 'Command History',
+    history: 'History',
     searchPlaceholder: 'Search commands...',
     currentOnly: 'Current context',
     currentServer: 'Current server',
@@ -539,12 +540,15 @@ const enUS: DeepStringify<typeof zhCN> = {
     empty: 'No command history yet',
     noMatches: 'No matches',
     rerunInDir: 'Rerun in this directory',
+    clickToPaste: 'Click a command to insert into terminal',
+    copied: 'Copied',
   },
   quickCommands: {
     title: 'Quick Commands',
     commands: 'Commands',
     noCommands: 'No quick commands. Click + to add.',
     newCommand: 'New Command',
+    editCommand: 'Edit Command',
     newGroup: 'New Group',
     groupName: 'Group Name',
     groupColor: 'Group color',
@@ -554,6 +558,10 @@ const enUS: DeepStringify<typeof zhCN> = {
     commandContent: 'Command',
     description: 'Description (optional)',
     noGroup: 'No Group',
+    searchPlaceholder: 'Search commands or notes...',
+    noMatches: 'No matching commands',
+    clickToPaste: 'Click a command to insert into terminal',
+    copied: 'Copied',
   },
   auth: {
     defaultPasswordBanner: {

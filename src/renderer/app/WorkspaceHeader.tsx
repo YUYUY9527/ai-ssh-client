@@ -13,6 +13,7 @@ import {
   Pencil,
   Plug,
   Plus,
+  Search,
   Server,
   Settings,
   Sun,
@@ -102,16 +103,16 @@ export function WorkspaceHeader({
   const [dragOverConnectionId, setDragOverConnectionId] = useState<string | null>(null);
   const [importExportMode, setImportExportMode] = useState<'export' | 'import' | null>(null);
   const normalizedQuery = connectionQuery.trim().toLowerCase();
-  // 按名称/主机/用户名过滤连接，便于在大量连接中快速定位
+  // 按名称/主机/用户名/标签过滤连接，便于在大量连接中快速定位
   const filteredConnections = normalizedQuery
     ? connections.filter((connection) =>
-        `${connection.name} ${connection.username} ${connection.host}`
+        `${connection.name} ${connection.username} ${connection.host} ${(connection.tags || []).join(' ')}`
           .toLowerCase()
           .includes(normalizedQuery),
       )
     : connections;
-  // 连接较多时才显示搜索框，避免少量连接时的冗余
-  const showConnectionSearch = connections.length > 5;
+  // 连接数超过 3 条时显示搜索框，兼顾简洁与快速筛选
+  const showConnectionSearch = connections.length > 3;
   // 分组视图（有分组且未搜索时启用）
   const groupingActive = groupsSupported && groups.length > 0 && !normalizedQuery;
   // 搜索过滤或分组视图下禁用拖拽，避免只对子集/分组排序导致全表错乱
@@ -126,6 +127,25 @@ export function WorkspaceHeader({
       setDragOverConnectionId(null);
     }
   }, [isConnectionDropdownOpen]);
+
+  // Esc 键关闭内联分组编辑或连接下拉弹层
+  useEffect(() => {
+    if (!isConnectionDropdownOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      if (groupModal.open) {
+        setGroupModal({ open: false, editing: null, name: '' });
+        return;
+      }
+      onToggleConnectionDropdown();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [groupModal.open, isConnectionDropdownOpen, onToggleConnectionDropdown]);
 
   // 打开下拉时刷新分组列表
   useEffect(() => {
@@ -222,93 +242,106 @@ export function WorkspaceHeader({
     await loadConnections();
   };
 
-  const renderConnectionRow = (connection: SSHConnection) => (
-    <div
-      key={connection.id}
-      draggable={canReorder}
-      onDragStart={(event) => handleConnectionDragStart(event, connection.id)}
-      onDragOver={(event) => handleConnectionDragOver(event, connection.id)}
-      onDragLeave={handleConnectionDragLeave}
-      onDrop={(event) => handleConnectionDrop(event, connection.id)}
-      onDragEnd={handleConnectionDragEnd}
-      className={`connection-list-row group ${
-        dragOverConnectionId === connection.id
-          ? 'connection-list-row-active ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_45%,transparent)]'
-          : ''
-      } ${
-        draggedConnectionId === connection.id ? 'opacity-50' : ''
-      } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
-    >
-      {canReorder && (
-        <span
-          className="mr-1 flex h-7 w-4 shrink-0 items-center justify-center text-fg-subtle"
-          title={translate('connection.dragToReorder')}
-          aria-hidden
-        >
-          <GripVertical className="h-4 w-4" />
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={() => onConnect(connection.id, connection.name)}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+  const renderConnectionRow = (connection: SSHConnection) => {
+    const isActive = activeTabId === connection.id;
+    return (
+      <div
+        key={connection.id}
+        draggable={canReorder}
+        onDragStart={(event) => handleConnectionDragStart(event, connection.id)}
+        onDragOver={(event) => handleConnectionDragOver(event, connection.id)}
+        onDragLeave={handleConnectionDragLeave}
+        onDrop={(event) => handleConnectionDrop(event, connection.id)}
+        onDragEnd={handleConnectionDragEnd}
+        className={`connection-list-row group ${
+          dragOverConnectionId === connection.id
+            ? 'connection-list-row-active ring-1 ring-[color-mix(in_srgb,var(--accent-primary)_45%,transparent)]'
+            : isActive
+              ? 'connection-list-row-active'
+              : ''
+        } ${
+          draggedConnectionId === connection.id ? 'opacity-50' : ''
+        } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
       >
-        <span className="workspace-empty-card-icon workspace-empty-card-icon-connect">
-          <Server className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold text-fg" title={connection.name}>
-            {connection.name}
-          </div>
-          <div
-            className="truncate font-mono text-[11px] text-fg-muted"
-            title={`${connection.username}@${connection.host}:${connection.port}`}
+        {canReorder && (
+          <span
+            className="mr-1 flex h-7 w-3.5 shrink-0 items-center justify-center text-fg-subtle opacity-40 transition-opacity group-hover:opacity-90"
+            title={translate('connection.dragToReorder')}
+            aria-hidden
           >
-            {connection.username}@{connection.host}:{connection.port}
-          </div>
-          {connection.tags && connection.tags.length > 0 && (
-            <div className="mt-0.5 flex flex-wrap gap-1">
-              {connection.tags.map((tag) => (
+            <GripVertical className="h-3.5 w-3.5" />
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => onConnect(connection.id, connection.name)}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        >
+          <span className="workspace-empty-card-icon workspace-empty-card-icon-connect transition-transform group-hover:scale-105">
+            <Server className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[13px] font-semibold text-fg" title={connection.name}>
+                {connection.name}
+              </span>
+              {isActive && (
                 <span
-                  key={tag}
-                  className="inline-flex items-center gap-0.5 rounded-sm border border-[color-mix(in_srgb,var(--accent-primary)_38%,var(--border-color))] bg-accent-muted px-1 py-0.5 text-[10px] text-accent dark:text-accent-hover"
-                >
-                  <Tag className="h-2.5 w-2.5" />
-                  {tag}
-                </span>
-              ))}
+                  className="status-dot status-dot-connected"
+                  aria-label={translate('connection.status.connected')}
+                />
+              )}
             </div>
-          )}
+            <div
+              className="mt-0.5 truncate font-mono text-[11px] text-fg-muted"
+              title={`${connection.username}@${connection.host}:${connection.port}`}
+            >
+              {connection.username}@{connection.host}:{connection.port}
+            </div>
+            {connection.tags && connection.tags.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {connection.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-0.5 rounded-sm border border-[color-mix(in_srgb,var(--accent-primary)_34%,var(--border-color))] bg-accent-muted px-1.5 py-0.5 text-[10px] leading-none text-accent dark:text-accent-hover"
+                  >
+                    <Tag className="h-2.5 w-2.5" />
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </button>
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onEditConnection(connection);
+            }}
+            className="icon-button h-7 w-7"
+            title={translate('common.edit')}
+            aria-label={translate('common.edit')}
+          >
+            <Edit3 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteConnection(connection.id);
+            }}
+            className="icon-button h-7 w-7 hover:text-danger"
+            title={translate('common.delete')}
+            aria-label={translate('common.delete')}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         </div>
-      </button>
-      <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onEditConnection(connection);
-          }}
-          className="icon-button h-7 w-7"
-          title={translate('common.edit')}
-          aria-label={translate('common.edit')}
-        >
-          <Edit3 className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onDeleteConnection(connection.id);
-          }}
-          className="icon-button h-7 w-7 hover:text-danger"
-          title={translate('common.delete')}
-          aria-label={translate('common.delete')}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderGroupedConnections = () => {
     const knownGroupIds = new Set(groups.map((group) => group.id));
@@ -319,13 +352,13 @@ export function WorkspaceHeader({
       (connection) => !connection.groupId || !knownGroupIds.has(connection.groupId),
     );
     return (
-      <>
+      <div className="space-y-1.5 px-1.5">
         {sortedGroups.map((group) => {
           const members = filteredConnections.filter((connection) => connection.groupId === group.id);
           const collapsed = collapsedGroups.has(group.id);
           return (
-            <div key={group.id} className="mb-0.5">
-              <div className="group flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-[color-mix(in_srgb,var(--accent-primary)_8%,transparent)]">
+            <div key={group.id}>
+              <div className="header-popover-section group justify-between">
                 <button
                   type="button"
                   onClick={() => toggleGroupCollapsed(group.id)}
@@ -336,33 +369,33 @@ export function WorkspaceHeader({
                   />
                   <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
                   <span className="truncate" title={group.name}>{group.name}</span>
-                  <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none text-fg-muted">
-                    {members.length}
-                  </span>
+                  <span className="header-popover-count">{members.length}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
-                  className="icon-button h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-                  title={translate('features.connectionGroups.renameGroup')}
-                  aria-label={translate('features.connectionGroups.renameGroup')}
-                >
-                  <Pencil className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGroupToDelete(group)}
-                  className="icon-button h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:text-danger"
-                  title={translate('features.connectionGroups.deleteGroup')}
-                  aria-label={translate('features.connectionGroups.deleteGroup')}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => setGroupModal({ open: true, editing: group, name: group.name })}
+                    className="icon-button h-6 w-6"
+                    title={translate('features.connectionGroups.renameGroup')}
+                    aria-label={translate('features.connectionGroups.renameGroup')}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGroupToDelete(group)}
+                    className="icon-button h-6 w-6 hover:text-danger"
+                    title={translate('features.connectionGroups.deleteGroup')}
+                    aria-label={translate('features.connectionGroups.deleteGroup')}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
               {!collapsed && (
-                <div className="ml-4 border-l border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pl-1">
+                <div className="ml-3.5 mt-0.5 border-l border-line-subtle pl-1">
                   {members.length === 0 ? (
-                    <p className="px-2 py-1 text-xs text-fg-subtle">
+                    <p className="px-2.5 py-1.5 text-[11px] text-fg-subtle">
                       {translate('features.connectionGroups.emptyGroup')}
                     </p>
                   ) : (
@@ -374,22 +407,20 @@ export function WorkspaceHeader({
           );
         })}
         {ungrouped.length > 0 && (
-          <div className="mb-1">
+          <div>
             {sortedGroups.length > 0 && (
-              <div className="flex items-center gap-1.5 px-1.5 py-1 text-xs font-semibold text-fg-muted">
+              <div className="header-popover-section text-xs font-semibold text-fg-muted">
                 <Folder className="h-3.5 w-3.5 shrink-0" />
                 <span>{translate('features.connectionGroups.ungrouped')}</span>
-                <span className="ml-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-normal leading-none">
-                  {ungrouped.length}
-                </span>
+                <span className="header-popover-count">{ungrouped.length}</span>
               </div>
             )}
-            <div className={sortedGroups.length > 0 ? 'ml-4 border-l border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] pl-1' : ''}>
+            <div className={sortedGroups.length > 0 ? 'ml-3.5 mt-0.5 border-l border-line-subtle pl-1' : ''}>
               {ungrouped.map((connection) => renderConnectionRow(connection))}
             </div>
           </div>
         )}
-      </>
+      </div>
     );
   };
 
@@ -415,19 +446,25 @@ export function WorkspaceHeader({
             {translate('connection.connect')}
           </button>
           {isConnectionDropdownOpen && (
-            <div className="app-popover left-0 flex max-h-[min(28rem,calc(100vh-5rem))] w-[min(20rem,calc(100vw-1rem))] flex-col overflow-hidden">
-              <div className="app-popover-header shrink-0">
-                <span className="truncate">{translate('connection.selectConnection')}</span>
+            <div className="app-popover header-popover left-0 max-h-[min(32rem,calc(100vh-5rem))] w-[min(22.5rem,calc(100vw-1rem))]">
+              <div className="header-popover-header">
+                <div className="header-popover-title-wrap">
+                  <span className="header-popover-icon">
+                    <Plug className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="header-popover-title">{translate('connection.selectConnection')}</span>
+                  <span className="header-popover-count">{connections.length}</span>
+                </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {groupsSupported && (
                     <button
                       type="button"
                       onClick={() => setGroupModal({ open: true, editing: null, name: '' })}
-                      className="icon-button h-7 w-7"
+                      className={`icon-button h-7 w-7 ${groupModal.open && !groupModal.editing ? 'icon-button-active' : ''}`}
                       title={translate('features.connectionGroups.newGroup')}
                       aria-label={translate('features.connectionGroups.newGroup')}
                     >
-                      <FolderPlus className="w-4 h-4" />
+                      <FolderPlus className="h-3.5 w-3.5" />
                     </button>
                   )}
                   <button
@@ -437,72 +474,115 @@ export function WorkspaceHeader({
                     title={translate('connection.newConnection')}
                     aria-label={translate('connection.newConnection')}
                   >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="h-4 w-4" />
                   </button>
                 </div>
               </div>
               {groupModal.open && (
-                <div className="flex shrink-0 items-center gap-1.5 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-2 py-2">
-                  {groupModal.editing ? (
-                    <Pencil className="h-3.5 w-3.5 shrink-0 text-accent" />
-                  ) : (
-                    <FolderPlus className="h-3.5 w-3.5 shrink-0 text-accent" />
-                  )}
-                  <input
-                    type="text"
-                    autoFocus
-                    value={groupModal.name}
-                    onChange={(event) => setGroupModal((previous) => ({ ...previous, name: event.target.value }))}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        void handleSaveGroup();
-                      } else if (event.key === 'Escape') {
-                        setGroupModal({ open: false, editing: null, name: '' });
-                      }
-                    }}
-                    placeholder={translate('features.connectionGroups.groupName')}
-                    className="industrial-input h-7 min-w-0 flex-1 py-1 text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveGroup()}
-                    className="icon-button h-7 w-7 shrink-0 text-accent dark:text-accent-hover"
-                    title={translate('common.save')}
-                    aria-label={translate('common.save')}
-                  >
-                    <Check className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setGroupModal({ open: false, editing: null, name: '' })}
-                    className="icon-button h-7 w-7 shrink-0"
-                    title={translate('common.cancel')}
-                    aria-label={translate('common.cancel')}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                <div className="header-popover-form space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-fg">
+                      {groupModal.editing ? (
+                        <Pencil className="h-3.5 w-3.5 shrink-0 text-accent" />
+                      ) : (
+                        <FolderPlus className="h-3.5 w-3.5 shrink-0 text-accent" />
+                      )}
+                      {groupModal.editing
+                        ? translate('features.connectionGroups.renameGroup')
+                        : translate('features.connectionGroups.newGroup')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setGroupModal({ open: false, editing: null, name: '' })}
+                      className="icon-button h-6 w-6"
+                      title={translate('common.cancel')}
+                      aria-label={translate('common.cancel')}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={groupModal.name}
+                      onChange={(event) => setGroupModal((previous) => ({ ...previous, name: event.target.value }))}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          void handleSaveGroup();
+                        } else if (event.key === 'Escape') {
+                          setGroupModal({ open: false, editing: null, name: '' });
+                        }
+                      }}
+                      placeholder={translate('features.connectionGroups.groupName')}
+                      className="industrial-input h-8 min-w-0 flex-1 py-1 text-xs"
+                    />
+                    <button
+                      type="button"
+                      disabled={!groupModal.name.trim()}
+                      onClick={() => void handleSaveGroup()}
+                      className="industrial-button-primary h-8 shrink-0 px-2.5 text-xs"
+                      title={translate('common.save')}
+                      aria-label={translate('common.save')}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               )}
               {showConnectionSearch && (
-                <div className="shrink-0 border-b border-[color-mix(in_srgb,var(--border-color)_60%,transparent)] px-2 py-2">
-                  <input
-                    type="text"
-                    value={connectionQuery}
-                    onChange={(event) => setConnectionQuery(event.target.value)}
-                    placeholder={translate('connection.searchPlaceholder')}
-                    className="industrial-input w-full py-1.5 text-sm"
-                    autoFocus={!groupModal.open}
-                  />
+                <div className="header-popover-search-bar">
+                  <div className="header-popover-search">
+                    <Search className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
+                    <input
+                      type="text"
+                      value={connectionQuery}
+                      onChange={(event) => setConnectionQuery(event.target.value)}
+                      placeholder={translate('connection.searchPlaceholder')}
+                      className="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none placeholder:text-fg-subtle"
+                      autoFocus={!groupModal.open}
+                    />
+                    {connectionQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setConnectionQuery('')}
+                        className="icon-button h-5 w-5 shrink-0"
+                        title={translate('common.close')}
+                        aria-label={translate('common.close')}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                    <span className="header-popover-count">{filteredConnections.length}</span>
+                  </div>
                 </div>
               )}
-              <div className="scrollbar-modern min-h-0 flex-1 overflow-y-auto py-1">
+              <div className="scrollbar-modern min-h-0 flex-1 overflow-y-auto py-1.5">
                 {connections.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-fg-muted">
-                    {translate('connection.noConnections')}
+                  <div className="header-popover-empty">
+                    <span className="header-popover-empty-icon">
+                      <Server className="h-4 w-4" />
+                    </span>
+                    <p className="text-xs text-fg-muted">
+                      {translate('connection.noConnections')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onCreateConnection}
+                      className="industrial-button-primary mt-1 px-3 py-1.5 text-xs"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {translate('connection.newConnection')}
+                    </button>
                   </div>
                 ) : filteredConnections.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-fg-muted">
-                    {translate('connection.noMatches')}
+                  <div className="header-popover-empty">
+                    <span className="header-popover-empty-icon">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <p className="text-xs text-fg-muted">
+                      {translate('connection.noMatches')}
+                    </p>
                   </div>
                 ) : (
                   <>
@@ -511,7 +591,7 @@ export function WorkspaceHeader({
                     ) : (
                       <>
                         {canReorder && (
-                          <div className="px-3 pb-1 text-[11px] text-fg-muted">
+                          <div className="px-3 pb-1 pt-0.5 text-[10.5px] text-fg-subtle">
                             {translate('connection.dragToReorder')}
                           </div>
                         )}
@@ -522,10 +602,10 @@ export function WorkspaceHeader({
                 )}
               </div>
               {/* 连接下拉底部：导入 / 导出 */}
-              <div className="flex shrink-0 gap-1.5 border-t border-[color-mix(in_srgb,var(--border-color)_76%,transparent)] p-2">
+              <div className="header-popover-footer">
                 <button
                   type="button"
-                  className="industrial-button-secondary flex-1 justify-center px-2 py-1.5 text-xs"
+                  className="industrial-button-secondary flex-1 justify-center px-2.5 py-1.5 text-xs"
                   onClick={() => {
                     // 先关下拉再开弹窗，避免遮挡与焦点错乱
                     if (isConnectionDropdownOpen) {
@@ -539,7 +619,7 @@ export function WorkspaceHeader({
                 </button>
                 <button
                   type="button"
-                  className="industrial-button-secondary flex-1 justify-center px-2 py-1.5 text-xs"
+                  className="industrial-button-secondary flex-1 justify-center px-2.5 py-1.5 text-xs"
                   onClick={() => {
                     if (isConnectionDropdownOpen) {
                       onToggleConnectionDropdown();
