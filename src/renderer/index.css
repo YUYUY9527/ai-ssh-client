@@ -1820,15 +1820,15 @@
     @apply flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg;
   }
 
-  .docker-panel-content { @apply p-5; }
+  .docker-panel-content { @apply p-4; }
 
   .docker-overview {
-    @apply grid grid-cols-3 gap-2.5;
+    @apply flex flex-wrap items-center gap-2;
   }
 
   .docker-stat-tile {
-    @apply flex min-w-0 items-center gap-3 border px-3.5 py-3 text-left transition-all;
-    border-radius: var(--radius-md);
+    @apply inline-flex min-w-0 items-center gap-2 border px-2.5 py-1.5 text-left transition-all;
+    border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--bg-tertiary) 64%, var(--bg-secondary));
     border-color: color-mix(in srgb, var(--border-color) 66%, transparent);
     box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 5%, transparent);
@@ -1839,41 +1839,37 @@
   .docker-stat-tile:hover {
     background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--accent-primary) 36%, var(--border-strong));
-    transform: translateY(-1px);
   }
 
   .docker-stat-tile.is-active {
-    background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-tertiary));
+    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--accent-primary) 54%, var(--border-color));
-    box-shadow: inset 0 2px 0 var(--accent-primary), 0 6px 16px color-mix(in srgb, var(--accent-primary) 10%, transparent);
   }
 
   .docker-stat-tile.is-running.is-active {
-    background: color-mix(in srgb, var(--success) 11%, var(--bg-tertiary));
+    background: color-mix(in srgb, var(--success) 12%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--success) 54%, var(--border-color));
-    box-shadow: inset 0 2px 0 var(--success), 0 6px 16px color-mix(in srgb, var(--success) 10%, transparent);
   }
 
   .docker-stat-tile.is-stopped.is-active {
-    background: color-mix(in srgb, var(--warning) 11%, var(--bg-tertiary));
+    background: color-mix(in srgb, var(--warning) 12%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--warning) 54%, var(--border-color));
-    box-shadow: inset 0 2px 0 var(--warning), 0 6px 16px color-mix(in srgb, var(--warning) 10%, transparent);
   }
 
   .docker-stat-tile.is-running .docker-stat-icon { color: var(--success-fg); background: var(--success-muted); }
   .docker-stat-tile.is-stopped .docker-stat-icon { color: var(--warning-fg); background: var(--warning-muted); }
 
   .docker-stat-icon {
-    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-accent;
+    @apply flex h-5 w-5 shrink-0 items-center justify-center rounded text-accent;
     background: var(--accent-muted);
   }
 
-  .docker-stat-tile > span:last-child { @apply flex min-w-0 flex-col; }
-  .docker-stat-label { @apply truncate text-[11px] text-fg-muted; }
-  .docker-stat-value { @apply mt-0.5 text-xl font-semibold leading-6 text-fg; }
+  .docker-stat-tile > span:last-child { @apply flex min-w-0 items-center gap-1.5; }
+  .docker-stat-label { @apply truncate text-xs text-fg-secondary; }
+  .docker-stat-value { @apply font-mono text-xs font-semibold leading-none text-fg; }
 
   .docker-list-heading {
-    @apply mt-5 flex items-center justify-between gap-3 border-b px-0.5 pb-2.5;
+    @apply mt-3 flex items-center justify-between gap-3 border-b px-0.5 pb-2;
     border-color: color-mix(in srgb, var(--border-color) 68%, transparent);
   }
 

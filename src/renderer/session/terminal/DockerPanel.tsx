@@ -633,13 +633,13 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
           </div>
         ) : (
           <div
-            className="min-h-0 flex-1 overflow-auto"
+            className={`min-h-0 flex-1 ${activeTab === 'compose' && composeEditor ? 'flex flex-col overflow-hidden' : 'overflow-auto'}`}
             onScroll={() => {
               if (openMenu) setOpenMenu(null);
             }}
           >
-            <div className="docker-panel-content">
-              <div className="mb-3 flex flex-wrap items-center gap-1 border-b border-line-subtle pb-2">
+            <div className={`docker-panel-content ${activeTab === 'compose' && composeEditor ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+              <div className="mb-3 flex shrink-0 flex-wrap items-center gap-1 border-b border-line-subtle pb-2">
                 {([
                   { id: 'containers', label: translate('terminal.docker.tabs.containers'), icon: Container },
                   { id: 'images', label: translate('terminal.docker.tabs.images'), icon: HardDrive },
@@ -756,10 +756,10 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
               )}
 
               {activeTab === 'compose' && (
-                <div className="space-y-3">
+                <div className={composeEditor ? 'flex min-h-0 flex-1 flex-col' : 'space-y-3'}>
                   {composeEditor ? (
-                    <div className="space-y-2 rounded-md border border-line bg-surface p-3">
-                      <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-h-0 flex-1 flex-col gap-2.5 rounded-md border border-line bg-surface p-3">
+                      <div className="flex shrink-0 items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-xs font-semibold text-fg">{composeEditor.project}</div>
                           <div className="truncate font-mono text-[11px] text-fg-muted">{composeEditor.path}</div>
@@ -805,10 +805,9 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         </div>
                       </div>
                       <textarea
-                        rows={16}
                         value={composeEditor.content}
                         onChange={(e) => setComposeEditor((prev) => (prev ? { ...prev, content: e.target.value } : null))}
-                        className="industrial-input w-full font-mono text-xs"
+                        className="industrial-input min-h-0 w-full flex-1 resize-none font-mono text-xs leading-relaxed"
                         spellCheck={false}
                       />
                     </div>
@@ -852,27 +851,20 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
 
               {activeTab === 'containers' && (
               <>
-              <div className="docker-overview">
+              <div className="docker-overview mb-3">
                 <button type="button" aria-pressed={containerFilter === 'all'} className={`docker-stat-tile ${containerFilter === 'all' ? 'is-active' : ''}`} onClick={() => setContainerFilter('all')}>
-                  <span className="docker-stat-icon"><Layers3 className="h-4 w-4" /></span>
+                  <span className="docker-stat-icon"><Layers3 className="h-3.5 w-3.5" /></span>
                   <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.total')}</span><span className="docker-stat-value tabular-nums">{available === null ? '—' : containers.length}</span></span>
                 </button>
                 <button type="button" aria-pressed={containerFilter === 'running'} className={`docker-stat-tile is-running ${containerFilter === 'running' ? 'is-active' : ''}`} onClick={() => setContainerFilter('running')}>
-                  <span className="docker-stat-icon"><Activity className="h-4 w-4" /></span>
+                  <span className="docker-stat-icon"><Activity className="h-3.5 w-3.5" /></span>
                   <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.running')}</span><span className="docker-stat-value tabular-nums">{available === null ? '—' : runningCount}</span></span>
                 </button>
                 <button type="button" aria-pressed={containerFilter === 'stopped'} className={`docker-stat-tile is-stopped ${containerFilter === 'stopped' ? 'is-active' : ''}`} onClick={() => setContainerFilter('stopped')}>
-                  <span className="docker-stat-icon"><Box className="h-4 w-4" /></span>
+                  <span className="docker-stat-icon"><Box className="h-3.5 w-3.5" /></span>
                   <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.stopped')}</span><span className="docker-stat-value tabular-nums">{available === null ? '—' : stoppedCount}</span></span>
                 </button>
-              </div>
-
-              <div className="docker-list-heading">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="truncate text-sm font-semibold text-fg">{translate('terminal.docker.instances')}</h3>
-                  <span className="docker-count tabular-nums">{available === null ? '—' : `${filtered.length} / ${containers.length}`}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+                <div className="ml-auto flex items-center gap-1.5 text-[11px] text-fg-muted">
                   <span className="docker-live-dot" />{translate('terminal.docker.liveStatus')}
                 </div>
               </div>

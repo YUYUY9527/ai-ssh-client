@@ -57,6 +57,7 @@ import type {
   SystemdServiceItem,
   BatchCommandResponse,
   BatchDistributeResponse,
+  SftpOpProgressEvent,
   SftpSearchMode,
   SftpSearchResult,
   SftpPreviewResult,
@@ -211,8 +212,9 @@ declare global {
       /** 修改远端文件/目录权限（mode 为 0–0o7777）。 */
       setSftpPermissions: (connectionId: string, remotePath: string, mode: number) => Promise<IPCResult>;
       /** SFTP 进阶操作：压缩 / 解压 / 同机复制移动 / 软链接 / 修改属主 / 目录书签。 */
-      archiveSftpItems?: (connectionId: string, request: { baseDir: string; names: string[]; archiveName?: string; format?: 'tar.gz' | 'zip' }) => Promise<IPCResult<{ archivePath: string; format: string; count: number }>>;
-      extractSftpArchive?: (connectionId: string, request: { archivePath: string; destinationDir?: string }) => Promise<IPCResult<{ archivePath: string; destinationDir: string }>>;
+      archiveSftpItems?: (connectionId: string, request: { baseDir: string; names: string[]; archiveName?: string; format?: 'tar.gz' | 'zip'; opId?: string }) => Promise<IPCResult<{ archivePath: string; format: string; count: number }>>;
+      extractSftpArchive?: (connectionId: string, request: { archivePath: string; destinationDir?: string; opId?: string }) => Promise<IPCResult<{ archivePath: string; destinationDir: string }>>;
+      onSftpOpProgress?: (callback: (event: SftpOpProgressEvent) => void) => () => void;
       copySftpItems?: (connectionId: string, request: { sources: string[]; destinationDir: string }) => Promise<IPCResult<{ mode: string; count: number; destinationDir: string }>>;
       moveSftpItems?: (connectionId: string, request: { sources: string[]; destinationDir: string }) => Promise<IPCResult<{ mode: string; count: number; destinationDir: string }>>;
       createSftpSymlink?: (connectionId: string, request: { targetPath: string; linkPath: string }) => Promise<IPCResult<{ targetPath: string; linkPath: string }>>;

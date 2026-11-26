@@ -46,6 +46,7 @@ import type {
   SftpBatchDeleteResult,
   SftpCrossServerTransferRequest,
   SftpCrossServerTransferResult,
+  SftpOpProgressEvent,
   SftpPreviewResult,
   SftpSearchMode,
   SftpSearchResult,
@@ -84,6 +85,7 @@ type EventMap = {
   'ssh-host-trust-prompt': HostTrustPromptEvent;
   'ssh-kb-interactive-prompt': SshKeyboardInteractivePrompt;
   'sftp-transfer-event': SftpTransferEvent;
+  'sftp-op-progress': SftpOpProgressEvent;
   'agent-terminal-output': { connectionId: string; data: string };
   'system-resume': { timestamp: number };
 };
@@ -1909,6 +1911,7 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${encodeURIComponent(connectionId)}/extract`,
     { method: 'POST', body: JSON.stringify(payload) },
   ),
+  onSftpOpProgress: (callback) => on('sftp-op-progress', callback),
   copySftpItems: (connectionId, payload) => sftpApiRequest<{ mode: string; count: number; destinationDir: string }>(
     connectionId,
     `/api/sftp/${encodeURIComponent(connectionId)}/copy`,

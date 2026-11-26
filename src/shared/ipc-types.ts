@@ -769,3 +769,15 @@ export interface BatchDistributeResponse {
   results: BatchDistributeResultItem[];
 }
 
+export interface SftpOpProgressEvent {
+  opId: string;
+  connectionId: string;
+  kind: 'archive' | 'extract';
+  label: string;
+  phase: 'counting' | 'running' | 'done' | 'error';
+  percent: number | null;
+  processedFiles: number;
+  totalFiles: number | null;
+  currentFile?: string;
+}
+

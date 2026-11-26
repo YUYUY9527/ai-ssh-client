@@ -219,6 +219,44 @@ describe('SFTP advanced ops (archive/extract/copy/move/symlink/chown)', () => {
     await expect(sftpOps.archiveRemoteItems(client, { baseDir: '/tmp', names: ['../etc'] })).rejects.toThrow(/Invalid archive entry/);
     await expect(sftpOps.chownRemoteItem(client, { remotePath: '/tmp/x', owner: 'root;rm -rf /' })).rejects.toThrow(/Invalid owner\/group/);
   });
+
+  it('streams archive & extract progress events with file counts and percentages', async () => {
+    const progressEvents: Array<{ phase: string; percent: number | null; processedFiles: number }> = [];
+    const client = makeMockExecClient((cmd) => {
+      if (cmd.includes('find ') && cmd.includes('wc -l')) {
+        return { stdout: '2\n', exitCode: 0 };
+      }
+      if (cmd.includes('tar -czvf')) {
+        return { stdout: 'a.txt\nb.txt\n', exitCode: 0 };
+      }
+      if (cmd.includes('unzip -Z1')) {
+        return { stdout: '2\n', exitCode: 0 };
+      }
+      if (cmd.includes('unzip -o')) {
+        return { stdout: '  inflating: a.txt\n  inflating: b.txt\n', exitCode: 0 };
+      }
+      return { stdout: '', exitCode: 0 };
+    });
+
+    await sftpOps.archiveRemoteItems(client, {
+      baseDir: '/tmp',
+      names: ['a.txt', 'b.txt'],
+      archiveName: 'out.tar.gz',
+      format: 'tar.gz',
+      onProgress: (ev: { phase: string; percent: number | null; processedFiles: number }) => progressEvents.push(ev),
+    });
+    expect(progressEvents[0].phase).toBe('counting');
+    expect(progressEvents[progressEvents.length - 1]).toMatchObject({ phase: 'done', percent: 100, processedFiles: 2 });
+
+    const extractEvents: Array<{ phase: string; percent: number | null; processedFiles: number }> = [];
+    await sftpOps.extractRemoteArchive(client, {
+      archivePath: '/tmp/out.zip',
+      destinationDir: '/tmp/out',
+      onProgress: (ev: { phase: string; percent: number | null; processedFiles: number }) => extractEvents.push(ev),
+    });
+    expect(extractEvents[0].phase).toBe('counting');
+    expect(extractEvents[extractEvents.length - 1]).toMatchObject({ phase: 'done', percent: 100, processedFiles: 2 });
+  });
 });
 
 describe('Cross-platform Monitor, Ports, Services & Process Kill', () => {

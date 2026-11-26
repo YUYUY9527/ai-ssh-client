@@ -2460,15 +2460,27 @@ app.post('/api/sftp/:id/permissions', route(async (request) => {
 
 // SFTP 进阶文件操作：压缩 / 解压 / 同机复制移动 / 创建软链接 / 修改属主 / 目录书签
 app.post('/api/sftp/:id/archive', route(async (request) => {
-  const session = getSession(request.params.id, requireClientId(request));
-  const { baseDir, names, archiveName, format } = request.body || {};
-  return success(await sftpOps.archiveRemoteItems(session.client, { baseDir, names, archiveName, format }));
+  const clientId = requireClientId(request);
+  const connectionId = request.params.id;
+  const session = getSession(connectionId, clientId);
+  const { baseDir, names, archiveName, format, opId } = request.body || {};
+  const label = String(archiveName || (Array.isArray(names) ? names[0] : '') || 'archive');
+  const onProgress = opId
+    ? (progress) => emitToClient(clientId, 'sftp-op-progress', { opId, connectionId, kind: 'archive', label, ...progress })
+    : undefined;
+  return success(await sftpOps.archiveRemoteItems(session.client, { baseDir, names, archiveName, format, onProgress }));
 }));
 
 app.post('/api/sftp/:id/extract', route(async (request) => {
-  const session = getSession(request.params.id, requireClientId(request));
-  const { archivePath, destinationDir } = request.body || {};
-  return success(await sftpOps.extractRemoteArchive(session.client, { archivePath, destinationDir }));
+  const clientId = requireClientId(request);
+  const connectionId = request.params.id;
+  const session = getSession(connectionId, clientId);
+  const { archivePath, destinationDir, opId } = request.body || {};
+  const label = path.posix.basename(String(archivePath || '')) || 'archive';
+  const onProgress = opId
+    ? (progress) => emitToClient(clientId, 'sftp-op-progress', { opId, connectionId, kind: 'extract', label, ...progress })
+    : undefined;
+  return success(await sftpOps.extractRemoteArchive(session.client, { archivePath, destinationDir, onProgress }));
 }));
 
 app.post('/api/sftp/:id/copy', route(async (request) => {

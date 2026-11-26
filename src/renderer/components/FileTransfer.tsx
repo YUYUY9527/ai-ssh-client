@@ -5,6 +5,7 @@ import {
   Archive,
   ArrowRightLeft,
   Bookmark,
+  CheckCircle2,
   ChevronRight,
   ClipboardPaste,
   Copy,
@@ -40,6 +41,7 @@ import { useI18n } from '../i18n';
 import { normalizeHistoryPath } from '../history/command-history-index';
 import { useSessionStore } from '../session/useSessionStore';
 import { Modal } from '../shared-ui/Modal';
+import { IndustrialSelect } from '../shared-ui/IndustrialSelect';
 import { useSessionOverlay } from '../workspace/SessionOverlayContext';
 import {
   useSftpTransferStore,
@@ -55,7 +57,7 @@ import {
   DEFAULT_REMOTE_PATH,
   type RemoteFileItem,
 } from '../transfer/transfer-types';
-import { MAX_SFTP_EDIT_BYTES, type SftpConflictPolicy } from '../../shared/ipc-types';
+import { MAX_SFTP_EDIT_BYTES, type SftpConflictPolicy, type SftpOpProgressEvent } from '../../shared/ipc-types';
 
 /**
  * 是否展示「预览」入口 / 双击直接预览：
@@ -322,6 +324,27 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const [symlinkModal, setSymlinkModal] = useState<{ targetPath: string; linkName: string } | null>(null);
   const [chownModal, setChownModal] = useState<{ item: RemoteFileItem; owner: string; group: string; recursive: boolean } | null>(null);
   const [opsBusy, setOpsBusy] = useState(false);
+  const [opProgress, setOpProgress] = useState<SftpOpProgressEvent | null>(null);
+  const opProgressTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onSftpOpProgress?.((event) => {
+      if (event.connectionId !== connectionId) return;
+      setOpProgress((prev) => {
+        if (prev && prev.opId !== event.opId && prev.phase !== 'done') return prev;
+        return event;
+      });
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [connectionId]);
+
+  useEffect(() => () => {
+    if (opProgressTimerRef.current !== null) {
+      window.clearTimeout(opProgressTimerRef.current);
+    }
+  }, []);
 
   const loadBookmarks = useCallback(async () => {
     if (!window.electronAPI?.listSftpBookmarks) return;
@@ -342,12 +365,13 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
     const api = clipboard.mode === 'move' ? window.electronAPI?.moveSftpItems : window.electronAPI?.copySftpItems;
     if (!api) return;
     setOpsBusy(true);
+    setActionError(null);
     try {
       const result = await api(connectionId, { sources: clipboard.paths, destinationDir: currentPath });
       if (!result.success) {
         setActionError(result.error);
       } else {
-        if (clipboard.mode === 'move') setClipboard(null);
+        setClipboard(null);
         await loadDirectory(currentPath);
       }
     } finally {
@@ -355,20 +379,51 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
     }
   };
 
+  const scheduleClearOpProgress = (opId: string) => {
+    if (opProgressTimerRef.current !== null) {
+      window.clearTimeout(opProgressTimerRef.current);
+    }
+    opProgressTimerRef.current = window.setTimeout(() => {
+      setOpProgress((prev) => (prev?.opId === opId ? null : prev));
+      opProgressTimerRef.current = null;
+    }, 1400);
+  };
+
   const handleConfirmArchive = async () => {
     if (!archiveModal || !window.electronAPI?.archiveSftpItems) return;
+    const modalSnapshot = archiveModal;
+    const opId = `arch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setArchiveModal(null);
     setOpsBusy(true);
+    setActionError(null);
+    setOpProgress({
+      opId,
+      connectionId,
+      kind: 'archive',
+      label: modalSnapshot.archiveName,
+      phase: 'counting',
+      percent: 0,
+      processedFiles: 0,
+      totalFiles: null,
+    });
     try {
       const result = await window.electronAPI.archiveSftpItems(connectionId, {
         baseDir: currentPath,
-        names: archiveModal.names,
-        archiveName: archiveModal.archiveName,
-        format: archiveModal.format,
+        names: modalSnapshot.names,
+        archiveName: modalSnapshot.archiveName,
+        format: modalSnapshot.format,
+        opId,
       });
       if (!result.success) {
+        setOpProgress(null);
         setActionError(result.error);
       } else {
-        setArchiveModal(null);
+        setOpProgress((prev) => (
+          prev?.opId === opId
+            ? { ...prev, phase: 'done', percent: 100 }
+            : prev
+        ));
+        scheduleClearOpProgress(opId);
         await loadDirectory(currentPath);
       }
     } finally {
@@ -378,15 +433,35 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
 
   const handleExtractArchive = async (item: RemoteFileItem) => {
     if (!window.electronAPI?.extractSftpArchive) return;
+    const opId = `ext-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setOpsBusy(true);
+    setActionError(null);
+    setOpProgress({
+      opId,
+      connectionId,
+      kind: 'extract',
+      label: item.name,
+      phase: 'counting',
+      percent: 0,
+      processedFiles: 0,
+      totalFiles: null,
+    });
     try {
       const result = await window.electronAPI.extractSftpArchive(connectionId, {
         archivePath: item.path,
         destinationDir: currentPath,
+        opId,
       });
       if (!result.success) {
+        setOpProgress(null);
         setActionError(result.error);
       } else {
+        setOpProgress((prev) => (
+          prev?.opId === opId
+            ? { ...prev, phase: 'done', percent: 100 }
+            : prev
+        ));
+        scheduleClearOpProgress(opId);
         await loadDirectory(currentPath);
       }
     } finally {
@@ -641,6 +716,10 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   }, [connectionId, currentPath, isLive, navigationVersion, setBrowserView]);
 
   useEffect(() => {
+    setClipboard(null);
+  }, [connectionId]);
+
+  useEffect(() => {
     if (!contextMenu) {
       return;
     }
@@ -656,14 +735,21 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
         close();
       }
     };
+    const handleScroll = (event: Event) => {
+      // 右键菜单自身滚动时不关闭菜单，只有外部列表/页面滚动才收起
+      if (contextMenuRef.current && event.target instanceof Node && contextMenuRef.current.contains(event.target)) {
+        return;
+      }
+      close();
+    };
 
     document.addEventListener('click', handleClick);
     document.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('scroll', close, true);
+    window.addEventListener('scroll', handleScroll, true);
     return () => {
       document.removeEventListener('click', handleClick);
       document.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('scroll', handleScroll, true);
     };
   }, [contextMenu]);
 
@@ -1584,16 +1670,28 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
               </div>
             )}
             {clipboard && (
-              <button
-                type="button"
-                onClick={() => void handlePasteClipboard()}
-                disabled={!isLive || opsBusy}
-                className="icon-button h-7 px-1.5 text-xs text-accent"
-                title={t('fileTransfer.ops.pasteHere', { count: clipboard.paths.length })}
-              >
-                <ClipboardPaste className="h-3.5 w-3.5" />
-                <span className="ml-0.5 font-mono text-[10px]">{clipboard.paths.length}</span>
-              </button>
+              <div className="inline-flex items-center rounded-sm border border-accent/40 bg-accent-muted">
+                <button
+                  type="button"
+                  onClick={() => void handlePasteClipboard()}
+                  disabled={!isLive || opsBusy}
+                  className="icon-button h-7 px-1.5 text-xs text-accent"
+                  title={t('fileTransfer.ops.pasteHere', { count: clipboard.paths.length })}
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5" />
+                  <span className="ml-0.5 font-mono text-[10px]">{clipboard.paths.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClipboard(null)}
+                  disabled={opsBusy}
+                  className="icon-button h-7 w-6 text-fg-muted hover:text-danger"
+                  title={t('fileTransfer.ops.clearClipboard')}
+                  aria-label={t('fileTransfer.ops.clearClipboard')}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -1834,20 +1932,6 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
             className={`relative h-full overflow-hidden ${isDragOver ? 'bg-accent-muted ring-2 ring-inset ring-accent' : ''}`}
           >
             <div className="file-transfer-scroll h-full overflow-y-auto p-2">
-            {actionError && (
-              <div className="mb-2 flex items-center gap-2 rounded-sm border border-[color-mix(in_srgb,var(--danger)_45%,var(--border-color))] bg-danger-muted px-3 py-2 text-xs text-danger-fg">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 break-words">{actionError}</span>
-                <button
-                  type="button"
-                  onClick={() => setActionError(null)}
-                  className="icon-button h-6 w-6"
-                  title={t('common.close')}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
             {!isLive ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-fg-muted">
                 <AlertCircle className="h-6 w-6 text-warning" />
@@ -1977,7 +2061,7 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
               <div
                 ref={contextMenuRef}
                 role="menu"
-                className="app-popover fixed top-auto z-overlay mt-0 min-w-[168px] py-1"
+                className="app-popover fixed top-auto z-overlay mt-0 max-h-[calc(100vh-16px)] min-w-[168px] overflow-y-auto py-1 scrollbar-thin"
                 style={{
                   left: contextMenuPosition.x,
                   top: contextMenuPosition.y,
@@ -2128,18 +2212,31 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                       {t('fileTransfer.ops.cut')}
                     </button>
                     {clipboard && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setContextMenu(null);
-                          void handlePasteClipboard();
-                        }}
-                        className="app-popover-row text-sm text-accent"
-                        disabled={!isLive || opsBusy}
-                      >
-                        <ClipboardPaste className="h-4 w-4" />
-                        {t('fileTransfer.ops.pasteHere', { count: clipboard.paths.length })}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setContextMenu(null);
+                            void handlePasteClipboard();
+                          }}
+                          className="app-popover-row text-sm text-accent"
+                          disabled={!isLive || opsBusy}
+                        >
+                          <ClipboardPaste className="h-4 w-4" />
+                          {t('fileTransfer.ops.pasteHere', { count: clipboard.paths.length })}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setClipboard(null);
+                            setContextMenu(null);
+                          }}
+                          className="app-popover-row text-sm text-fg-muted"
+                        >
+                          <X className="h-4 w-4" />
+                          {t('fileTransfer.ops.clearClipboard')}
+                        </button>
+                      </>
                     )}
                     <button
                       type="button"
@@ -2160,21 +2257,26 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                       <Archive className="h-4 w-4" />
                       {t('fileTransfer.ops.compress')}
                     </button>
-                    {!contextMenu.item.isDirectory && isExtractableArchive(contextMenu.item.name) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const target = contextMenu.item;
-                          setContextMenu(null);
-                          void handleExtractArchive(target);
-                        }}
-                        className="app-popover-row text-sm text-fg-secondary"
-                        disabled={!isLive || opsBusy}
-                      >
-                        <FolderArchive className="h-4 w-4" />
-                        {t('fileTransfer.ops.extractHere')}
-                      </button>
-                    )}
+                    {(() => {
+                      const canExtract = !contextMenu.item.isDirectory && isExtractableArchive(contextMenu.item.name);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!canExtract) return;
+                            const target = contextMenu.item;
+                            setContextMenu(null);
+                            void handleExtractArchive(target);
+                          }}
+                          className="app-popover-row text-sm text-fg-secondary disabled:opacity-40"
+                          disabled={!isLive || opsBusy || !canExtract}
+                          title={canExtract ? t('fileTransfer.ops.extractHere') : t('fileTransfer.ops.extractUnsupportedHint')}
+                        >
+                          <FolderArchive className="h-4 w-4" />
+                          {t('fileTransfer.ops.extractHere')}
+                        </button>
+                      );
+                    })()}
                     <button
                       type="button"
                       onClick={() => {
@@ -2372,18 +2474,19 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
               </div>
               <div>
                 <label className="industrial-field-label">{t('fileTransfer.ops.archiveFormat')}</label>
-                <select
+                <IndustrialSelect
                   value={archiveModal.format}
-                  onChange={(e) => {
-                    const fmt = e.target.value as 'tar.gz' | 'zip';
+                  options={[
+                    { value: 'tar.gz', label: 'tar.gz' },
+                    { value: 'zip', label: 'zip' },
+                  ]}
+                  onChange={(value) => {
+                    const fmt = value as 'tar.gz' | 'zip';
                     const base = archiveModal.archiveName.replace(/\.(tar\.gz|zip)$/i, '');
                     setArchiveModal({ ...archiveModal, format: fmt, archiveName: `${base}.${fmt}` });
                   }}
-                  className="industrial-input w-full text-xs"
-                >
-                  <option value="tar.gz">tar.gz</option>
-                  <option value="zip">zip</option>
-                </select>
+                  className="w-full"
+                />
               </div>
             </div>
             <div className="industrial-modal-footer">
@@ -2735,6 +2838,88 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
           </div>
         </form>
       </Modal>
+
+      {opProgress && overlay.isActive && typeof document !== 'undefined' && createPortal(
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-10 left-1/2 z-toast w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border border-line-strong bg-surface-elevated px-3.5 py-3 shadow-lg"
+        >
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <div className="flex min-w-0 items-center gap-2">
+              {opProgress.phase === 'done' ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+              ) : (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+              )}
+              <span className="truncate font-medium text-fg">
+                {opProgress.kind === 'archive'
+                  ? t('fileTransfer.ops.compressing', { name: opProgress.label })
+                  : t('fileTransfer.ops.extracting', { name: opProgress.label })}
+              </span>
+            </div>
+            <span className="shrink-0 font-mono text-[11px] font-medium text-fg-secondary tabular-nums">
+              {opProgress.phase === 'done'
+                ? t('fileTransfer.ops.opDone')
+                : opProgress.percent !== null
+                  ? `${opProgress.percent}%`
+                  : t('fileTransfer.ops.processedFiles', { count: opProgress.processedFiles })}
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+            {opProgress.percent !== null ? (
+              <div
+                className={`h-full rounded-full transition-all duration-150 ${
+                  opProgress.phase === 'done' ? 'bg-success' : 'bg-accent'
+                }`}
+                style={{ width: `${Math.max(0, Math.min(100, opProgress.percent))}%` }}
+              />
+            ) : (
+              <div className="h-full w-2/5 animate-pulse rounded-full bg-accent" />
+            )}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+            <span className="min-w-0 flex-1 truncate font-mono">
+              {opProgress.phase === 'counting'
+                ? t('fileTransfer.ops.preparing')
+                : opProgress.currentFile || opProgress.label}
+            </span>
+            {opProgress.totalFiles !== null && opProgress.totalFiles > 0 ? (
+              <span className="shrink-0 font-mono tabular-nums">
+                {t('fileTransfer.ops.processedOfTotal', {
+                  done: Math.min(opProgress.processedFiles, opProgress.totalFiles),
+                  total: opProgress.totalFiles,
+                })}
+              </span>
+            ) : opProgress.processedFiles > 0 ? (
+              <span className="shrink-0 font-mono tabular-nums">
+                {t('fileTransfer.ops.processedFiles', { count: opProgress.processedFiles })}
+              </span>
+            ) : null}
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {actionError && overlay.isActive && typeof document !== 'undefined' && createPortal(
+        <div
+          role="alert"
+          className="fixed bottom-10 left-1/2 z-toast flex w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-2.5 rounded-md border border-[color-mix(in_srgb,var(--danger)_55%,var(--border-color))] bg-surface-elevated px-3.5 py-2.5 text-xs text-danger-fg shadow-lg"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+          <span className="min-w-0 flex-1 break-words leading-5">{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="icon-button h-6 w-6 shrink-0"
+            title={t('common.close')}
+            aria-label={t('common.close')}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>,
+        document.body,
+      )}
 
       {statusNotice && overlay.isActive && (
         <div
