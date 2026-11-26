@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileCode2, Loader2, RotateCcw, Save, Wand2 } from 'lucide-react';
+import { FileCode2, GitCompare, Loader2, RotateCcw, Save, Wand2 } from 'lucide-react';
+import { computeLineDiff } from './line-diff';
 
 import { useI18n } from '../i18n';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -54,6 +55,12 @@ export function SftpFileEditor({
   const [sudoRequired, setSudoRequired] = useState(false);
   const sudoInputRef = useRef<HTMLInputElement>(null);
   const [confirmKind, setConfirmKind] = useState<'yaml-format' | 'discard' | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
+
+  const editDiff = useMemo(
+    () => (showDiff ? computeLineDiff(original, draft) : null),
+    [showDiff, original, draft],
+  );
 
   useEffect(() => {
     if (sudoRequired) {
@@ -286,6 +293,16 @@ export function SftpFileEditor({
               {t('fileTransfer.editFormat')}
             </button>
           )}
+          <button
+            type="button"
+            className={`industrial-button-secondary px-3 py-1.5 text-xs ${showDiff ? 'border-accent text-accent' : ''}`}
+            disabled={loading || !loaded || !dirty}
+            onClick={() => setShowDiff((prev) => !prev)}
+            title={t('fileTransfer.editDiffToggle')}
+          >
+            <GitCompare className="h-3.5 w-3.5" />
+            {showDiff ? t('fileTransfer.editDiffBack') : t('fileTransfer.editDiffToggle')}
+          </button>
         </div>
         <span className={`shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums ${overLimit ? 'text-danger-fg' : 'text-fg-muted'}`}>
           {formatBytes(draftBytes)} / {formatBytes(maxBytes)}
@@ -303,6 +320,39 @@ export function SftpFileEditor({
         ) : !loaded && error ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-danger-fg">
             {error}
+          </div>
+        ) : showDiff && editDiff ? (
+          <div className="scrollbar-thin h-full overflow-auto bg-[var(--bg-primary)] font-mono text-[11px] leading-5">
+            <div className="sticky top-0 flex items-center gap-3 border-b border-line-subtle bg-surface px-3 py-1.5 text-[11px]">
+              <span className="text-success">+{editDiff.added}</span>
+              <span className="text-danger">-{editDiff.removed}</span>
+              <span className="text-fg-muted">{t('fileTransfer.diffUnchanged', { count: editDiff.unchanged })}</span>
+            </div>
+            <div className="py-1">
+              {editDiff.lines.map((line, index) => (
+                <div
+                  key={index}
+                  className={`flex whitespace-pre-wrap break-all px-3 ${
+                    line.kind === 'add'
+                      ? 'bg-success-muted text-success'
+                      : line.kind === 'remove'
+                        ? 'bg-danger-muted text-danger'
+                        : 'text-fg-secondary'
+                  }`}
+                >
+                  <span className="w-9 shrink-0 select-none pr-2 text-right text-fg-subtle tabular-nums">
+                    {line.leftLine ?? ''}
+                  </span>
+                  <span className="w-9 shrink-0 select-none pr-2 text-right text-fg-subtle tabular-nums">
+                    {line.rightLine ?? ''}
+                  </span>
+                  <span className="w-4 shrink-0 select-none font-semibold">
+                    {line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' '}
+                  </span>
+                  <span className="min-w-0 flex-1">{line.text}</span>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <Suspense

@@ -12,6 +12,10 @@ import { useI18n, useI18nStore, localeNames, detectSystemLocale } from '../i18n'
 import type { Locale } from '../i18n';
 import type { AppSettings, HostTrustRecord } from '../../shared/types';
 import {
+  DEFAULT_TERMINAL_HIGHLIGHT_RULES,
+} from '../session/terminal/terminal-highlight';
+import type { TerminalHighlightColor, TerminalHighlightRule } from '../../shared/types';
+import {
   MAX_TERMINAL_SCROLLBACK,
   MIN_TERMINAL_SCROLLBACK,
   clampTerminalScrollback,
@@ -106,6 +110,10 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
         terminalCursorBlink: terminalRuntime.cursorBlink,
         terminalCopyOnSelect: terminalRuntime.copyOnSelect,
         terminalShellIntegration: terminalRuntime.shellIntegration,
+        terminalWebgl: terminalRuntime.webgl,
+        terminalHighlightsEnabled: terminalRuntime.highlightsEnabled,
+        terminalZmodem: terminalRuntime.zmodem,
+        terminalHighlightRules: localSettings.terminalHighlightRules,
         agentSemanticSummaryContextLength: Math.max(
           1000,
           Math.floor(localSettings.agentSemanticSummaryContextLength ?? 12000),
@@ -410,6 +418,124 @@ export function SettingsPanel({ settings, onSave, onClose, initialTab = 'termina
                       })}
                     />
                   </SettingsItem>
+
+                  <SettingsItem
+                    label={t('settings.terminal.webgl')}
+                    description={t('settings.terminal.webglDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={terminalRuntimePreview.webgl}
+                      label={t('settings.terminal.webgl')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, terminalWebgl: value })}
+                    />
+                  </SettingsItem>
+
+                  <SettingsItem
+                    label={t('settings.terminal.zmodem')}
+                    description={t('settings.terminal.zmodemDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={terminalRuntimePreview.zmodem}
+                      label={t('settings.terminal.zmodem')}
+                      onChange={(value) => setLocalSettings({ ...localSettings, terminalZmodem: value })}
+                    />
+                  </SettingsItem>
+                </SettingsSection>
+
+                <SettingsSection title={t('settings.terminal.highlights')}>
+                  <SettingsItem
+                    label={t('settings.terminal.highlightsEnabled')}
+                    description={t('settings.terminal.highlightsDesc')}
+                  >
+                    <ToggleSwitch
+                      enabled={terminalRuntimePreview.highlightsEnabled}
+                      label={t('settings.terminal.highlightsEnabled')}
+                      onChange={(value) => setLocalSettings({
+                        ...localSettings,
+                        terminalHighlightsEnabled: value,
+                        terminalHighlightRules: localSettings.terminalHighlightRules ?? DEFAULT_TERMINAL_HIGHLIGHT_RULES,
+                      })}
+                    />
+                  </SettingsItem>
+                  {terminalRuntimePreview.highlightsEnabled && (() => {
+                    const rules: TerminalHighlightRule[] = localSettings.terminalHighlightRules ?? DEFAULT_TERMINAL_HIGHLIGHT_RULES;
+                    const updateRule = (id: string, patch: Partial<TerminalHighlightRule>) => {
+                      setLocalSettings({
+                        ...localSettings,
+                        terminalHighlightRules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+                      });
+                    };
+                    return (
+                      <div className="space-y-2 pt-1">
+                        {rules.map((rule) => (
+                          <div key={rule.id} className="flex flex-wrap items-center gap-1.5 rounded-sm border border-line-subtle bg-surface p-2">
+                            <input
+                              type="checkbox"
+                              checked={rule.enabled}
+                              onChange={(e) => updateRule(rule.id, { enabled: e.target.checked })}
+                              aria-label={rule.pattern}
+                            />
+                            <input
+                              type="text"
+                              value={rule.pattern}
+                              onChange={(e) => updateRule(rule.id, { pattern: e.target.value })}
+                              placeholder="ERROR|WARN"
+                              className="industrial-input h-7 min-w-[140px] flex-1 font-mono text-xs"
+                            />
+                            <div className="w-24 shrink-0">
+                              <IndustrialSelect
+                                value={rule.color}
+                                onChange={(val) => updateRule(rule.id, { color: val as TerminalHighlightColor })}
+                                options={[
+                                  { value: 'danger', label: t('settings.terminal.highlightColorDanger') },
+                                  { value: 'warning', label: t('settings.terminal.highlightColorWarning') },
+                                  { value: 'success', label: t('settings.terminal.highlightColorSuccess') },
+                                  { value: 'info', label: t('settings.terminal.highlightColorInfo') },
+                                  { value: 'accent', label: t('settings.terminal.highlightColorAccent') },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setLocalSettings({
+                                ...localSettings,
+                                terminalHighlightRules: rules.filter((r) => r.id !== rule.id),
+                              })}
+                              className="icon-button h-7 w-7 text-danger"
+                              title={t('common.delete')}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setLocalSettings({
+                              ...localSettings,
+                              terminalHighlightRules: [
+                                ...rules,
+                                { id: `hl-${Date.now()}`, pattern: '', color: 'warning', enabled: true, caseInsensitive: false },
+                              ],
+                            })}
+                            className="industrial-button-secondary px-2.5 py-1 text-xs"
+                          >
+                            + {t('settings.terminal.highlightAddRule')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLocalSettings({
+                              ...localSettings,
+                              terminalHighlightRules: DEFAULT_TERMINAL_HIGHLIGHT_RULES,
+                            })}
+                            className="text-xs text-fg-muted hover:text-fg"
+                          >
+                            {t('settings.terminal.highlightReset')}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </SettingsSection>
               </SettingsPage>
             )}

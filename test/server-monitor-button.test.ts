@@ -56,7 +56,7 @@ describe('ServerMonitorButton popup', () => {
     expect(panel!.parentElement).toBe(document.body);
     expect(panel!.dataset.terminalToolbarPopup).toBe('true');
     expect(panel!.style.position).toBe('fixed');
-    expect(panel!.style.width).toBe('340px');
+    expect(panel!.style.width).toBe('400px');
     expect(panel!.style.visibility).toBe('visible');
 
     const close = panel!.querySelector<HTMLButtonElement>('button[title="common.close"]');

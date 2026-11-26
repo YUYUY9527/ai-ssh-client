@@ -1556,9 +1556,17 @@ const webApi: Window['electronAPI'] = {
   listDockerImages: (connectionId) => sftpRequest<{ images: import('../../shared/ipc-types').DockerImageItem[] }>(
     `/api/ssh/${encodeURIComponent(connectionId)}/docker/images`,
   ),
+  pullDockerImage: (connectionId, image) => sftpRequest<{ image: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/images/pull`,
+    { method: 'POST', body: JSON.stringify({ image }) },
+  ),
   removeDockerImage: (connectionId, imageId, force = false) => sftpRequest<{ imageId: string; output: string }>(
     `/api/ssh/${encodeURIComponent(connectionId)}/docker/images/${encodeURIComponent(imageId)}?force=${force ? '1' : '0'}`,
     { method: 'DELETE' },
+  ),
+  runDockerContainer: (connectionId, spec) => sftpRequest<{ containerId: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/containers/run`,
+    { method: 'POST', body: JSON.stringify(spec) },
   ),
   listDockerVolumes: (connectionId) => sftpRequest<{ volumes: import('../../shared/ipc-types').DockerVolumeItem[] }>(
     `/api/ssh/${encodeURIComponent(connectionId)}/docker/volumes`,
@@ -1583,6 +1591,13 @@ const webApi: Window['electronAPI'] = {
   saveDockerComposeFile: (connectionId, configFile, content, project, options) => sftpRequest<{ path: string; output: string; applied?: boolean }>(
     `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose/file`,
     { method: 'PUT', body: JSON.stringify({ path: configFile, content, project, apply: options?.apply }) },
+  ),
+  dockerComposeAction: (connectionId, configFile, project, action) => sftpRequest<{ project: string; action: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose/action`,
+    { method: 'POST', body: JSON.stringify({ path: configFile, project, action }) },
+  ),
+  dockerComposeLogs: (connectionId, configFile, project, tail = 300) => sftpRequest<import('../../shared/ipc-types').DockerLogsResult>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose/logs?path=${encodeURIComponent(configFile)}&project=${encodeURIComponent(project)}&tail=${encodeURIComponent(String(tail))}`,
   ),
   sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
     `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,
@@ -1681,6 +1696,13 @@ const webApi: Window['electronAPI'] = {
     method: 'PUT',
     body: JSON.stringify({ connectionIds }),
   }),
+  probeConnections: (connectionIds, timeoutMs = 3000) => request<import('../../shared/ipc-types').ConnectionProbeResult>(
+    '/api/connections/probe',
+    {
+      method: 'POST',
+      body: JSON.stringify({ connectionIds, timeoutMs }),
+    },
+  ),
 
   getSettings: () => request<SettingsResult<AppSettings>>('/api/settings'),
   saveSettings: (settings) => request<void>('/api/settings', {
@@ -1947,6 +1969,17 @@ const webApi: Window['electronAPI'] = {
     `/api/sftp/${connectionId}/text?path=${encodeURIComponent(remotePath)}`,
     sudoPassword ? { headers: { 'x-sudo-password': sudoPassword } } : {},
   ),
+  readSftpFileChunk: (connectionId, options) => {
+    const params = new URLSearchParams({ path: options.remotePath });
+    if (options.mode) params.set('mode', options.mode);
+    if (options.offset != null) params.set('offset', String(options.offset));
+    if (options.length != null) params.set('length', String(options.length));
+    if (options.lines != null) params.set('lines', String(options.lines));
+    return sftpApiRequest<import('../../shared/ipc-types').SftpFileChunkResult>(
+      connectionId,
+      `/api/sftp/${encodeURIComponent(connectionId)}/chunk?${params.toString()}`,
+    );
+  },
   writeSftpTextFile: (connectionId, remotePath, content, sudoPassword) => sftpApiRequest<void>(
     connectionId,
     `/api/sftp/${connectionId}/text`,
@@ -2010,6 +2043,23 @@ const webApi: Window['electronAPI'] = {
   controlSystemdService: (connectionId, name, action) => sftpRequest<{ name: string; action: string }>(
     `/api/ssh/${encodeURIComponent(connectionId)}/services/${encodeURIComponent(name)}/${encodeURIComponent(action)}`,
     { method: 'POST', body: '{}' },
+  ),
+  getSystemdServiceLogs: (connectionId, name, lines = 200) => sftpRequest<{ name: string; logs: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/services/${encodeURIComponent(name)}/logs?lines=${encodeURIComponent(String(lines))}`,
+  ),
+  getCrontab: (connectionId) => sftpRequest<import('../../shared/ipc-types').CrontabResult>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/crontab`,
+  ),
+  saveCrontab: (connectionId, raw) => sftpRequest<{ saved: boolean; cleared: boolean; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/crontab`,
+    { method: 'PUT', body: JSON.stringify({ raw }) },
+  ),
+  getFirewallStatus: (connectionId) => sftpRequest<import('../../shared/ipc-types').FirewallStatusResult>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/firewall`,
+  ),
+  manageFirewallRule: (connectionId, rule) => sftpRequest<{ backend: string; action: string; output: string }>(
+    `/api/ssh/${encodeURIComponent(connectionId)}/firewall/rule`,
+    { method: 'POST', body: JSON.stringify(rule) },
   ),
   runBatchCommand: (payload) => request<import('../../shared/ipc-types').BatchCommandResponse>(
     '/api/batch/exec',

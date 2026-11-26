@@ -344,10 +344,97 @@ async function chownRemoteItem(client, { remotePath, owner, group, recursive = f
   return { remotePath: target, spec, recursive: Boolean(recursive) };
 }
 
+/**
+ * 分段或尾部读取远端大文本文件（不整文件拉取，适合大日志）。
+ * - mode='tail': 读取末尾 lines 行（默认 300，上限 5000）
+ * - mode='chunk': 读取从 offset 字节开始的 length 字节（默认 64KB，上限 256KB）
+ */
+async function readRemoteFileChunk(client, { remotePath, mode = 'chunk', offset = 0, length = 65536, lines = 300 } = {}) {
+  const target = requireValidPath(remotePath, 'remotePath');
+  const sizeRes = await execCommand(
+    client,
+    `stat -c %s -- ${quoteArg(target)} 2>/dev/null || stat -f %z -- ${quoteArg(target)} 2>/dev/null || wc -c < ${quoteArg(target)} 2>/dev/null`,
+    { timeoutMs: 8000 },
+  );
+  const totalBytes = parsePositiveInt(sizeRes.output) ?? 0;
+
+  if (mode === 'tail') {
+    const safeLines = Number.isInteger(Number(lines)) && Number(lines) > 0 ? Math.min(Number(lines), 5000) : 300;
+    const res = await execCommand(
+      client,
+      `tail -n ${safeLines} -- ${quoteArg(target)}`,
+      { timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 },
+    );
+    if (res.exitCode !== 0 && !res.output) {
+      throw new Error(String(res.stderr || 'Failed to read file tail').trim());
+    }
+    return {
+      path: target,
+      mode: 'tail',
+      totalBytes,
+      offset: Math.max(0, totalBytes - Buffer.byteLength(res.output || '', 'utf8')),
+      length: Buffer.byteLength(res.output || '', 'utf8'),
+      content: res.output || '',
+      hasMore: false,
+    };
+  }
+
+  const safeLen = Math.max(1024, Math.min(Number(length) || 65536, 256 * 1024));
+  const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+  const startOneBased = safeOffset + 1;
+  const res = await execCommand(
+    client,
+    `tail -c +${startOneBased} -- ${quoteArg(target)} | head -c ${safeLen}`,
+    { timeoutMs: 15000, maxBytes: safeLen + 4096 },
+  );
+  if (res.exitCode !== 0 && !res.output && totalBytes > 0 && safeOffset < totalBytes) {
+    throw new Error(String(res.stderr || 'Failed to read file chunk').trim());
+  }
+  const content = res.output || '';
+  const readBytes = Buffer.byteLength(content, 'utf8');
+  return {
+    path: target,
+    mode: 'chunk',
+    totalBytes,
+    offset: safeOffset,
+    length: readBytes,
+    content,
+    hasMore: safeOffset + readBytes < totalBytes,
+  };
+}
+
+/** 打开远端文件实时追踪流（tail -f，供 SSE 端点使用）。 */
+function openRemoteFileTailStream(client, remotePath, lines = 200, handlers = {}) {
+  const target = requireValidPath(remotePath, 'remotePath');
+  const safeLines = Number.isInteger(Number(lines)) && Number(lines) > 0 ? Math.min(Number(lines), 2000) : 200;
+  const cmd = `tail -n ${safeLines} -F -- ${quoteArg(target)} 2>/dev/null || tail -n ${safeLines} -f -- ${quoteArg(target)}`;
+  let channel = null;
+  const stream = client.exec(cmd, (error, execChannel) => {
+    if (error) {
+      handlers.onError?.(error);
+      return;
+    }
+    channel = execChannel;
+    execChannel.on('data', (chunk) => handlers.onData?.(chunk.toString('utf8')));
+    execChannel.stderr.on('data', (chunk) => handlers.onData?.(chunk.toString('utf8')));
+    execChannel.on('close', () => handlers.onClose?.());
+    execChannel.on('error', (err) => handlers.onError?.(err));
+  });
+  stream.on('error', (err) => handlers.onError?.(err));
+  return {
+    close() {
+      try { channel?.close(); } catch { /* ignore */ }
+      try { stream.close(); } catch { /* ignore */ }
+    },
+  };
+}
+
 module.exports = {
   archiveRemoteItems,
   extractRemoteArchive,
   copyOrMoveRemoteItems,
   createRemoteSymlink,
   chownRemoteItem,
+  readRemoteFileChunk,
+  openRemoteFileTailStream,
 };

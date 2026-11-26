@@ -196,6 +196,9 @@ cm=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2-); if [ -z "$
 echo "cpu_model=$cm"
 echo "logged_users=$(who 2>/dev/null | wc -l)"
 if [ -r /etc/os-release ]; then . /etc/os-release; echo "os=$PRETTY_NAME"; else echo "os=$(uname -s)"; fi
+if command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits 2>/dev/null | awk -F', ' '{gsub(/\|/,"",$2); print "gpu|"$1"|"$2"|"$3"|"$4"|"$5"|"$6"|"$7}'
+fi
 `.trim();
 
 function buildMonitorCommand() {
@@ -213,6 +216,7 @@ function parseMonitorOutput(text) {
   const netLines = [];
   const diskMountLines = [];
   const processCpuLines = [];
+  const gpuLines = [];
   for (const rawLine of String(text || '').split('\n')) {
     const line = rawLine.replace(/\r$/, '');
     if (!line) continue;
@@ -226,6 +230,10 @@ function parseMonitorOutput(text) {
     }
     if (line.startsWith('process_cpu|')) {
       processCpuLines.push(line);
+      continue;
+    }
+    if (line.startsWith('gpu|')) {
+      gpuLines.push(line);
       continue;
     }
     const index = line.indexOf('=');
@@ -270,6 +278,22 @@ function parseMonitorOutput(text) {
       usedKb: toNumber(usedKb),
       availableKb: toNumber(availableKb),
       percent: toNumber(percent),
+    };
+  });
+
+  const gpus = gpuLines.map((line) => {
+    const [, index, name, util, memUsedMb, memTotalMb, tempC, powerW] = line.split('|');
+    const used = toNumber(memUsedMb);
+    const total = toNumber(memTotalMb);
+    return {
+      index: toNumber(index),
+      name: String(name || '').trim(),
+      utilizationPercent: toNumber(util),
+      memoryUsedMb: used,
+      memoryTotalMb: total,
+      memoryPercent: total > 0 ? Math.round((100 * used) / total) : 0,
+      temperatureC: toNumber(tempC),
+      powerW: toNumber(powerW),
     };
   });
 
@@ -319,6 +343,7 @@ function parseMonitorOutput(text) {
     },
     processCpu,
     network,
+    gpus,
     processes: { running: procRunning, total: procTotal },
     loggedInUsers: toNumber(map.logged_users),
     hostname: String(map.hostname || ''),
@@ -377,18 +402,28 @@ async function killRemoteProcess(client, pid, signal = 'TERM') {
   return { pid: numPid, signal: sig };
 }
 
-/** 列出 systemd 服务单元。 */
+/** 列出 systemd 服务单元（附带开机自启状态）。 */
 async function listSystemdServices(client) {
-  const cmd = 'command -v systemctl >/dev/null 2>&1 && systemctl list-units --type=service --all --no-pager --no-legend --plain 2>/dev/null | head -n 200 || echo "__NO_SYSTEMD__"';
+  const cmd = [
+    'if ! command -v systemctl >/dev/null 2>&1; then echo "__NO_SYSTEMD__"; exit 0; fi',
+    'systemctl list-unit-files --type=service --no-pager --no-legend --plain 2>/dev/null | awk \'{print "__UF__|" $1 "|" $2}\'',
+    'systemctl list-units --type=service --all --no-pager --no-legend --plain 2>/dev/null | head -n 200',
+  ].join('\n');
   const result = await execCommand(client, cmd, { timeoutMs: 15000, maxBytes: 1024 * 1024 });
   const out = String(result.output || '');
   if (out.includes('__NO_SYSTEMD__')) {
     return { available: false, services: [] };
   }
+  const enabledMap = new Map();
   const services = [];
   for (const rawLine of out.split('\n')) {
     const line = rawLine.trim();
     if (!line) continue;
+    if (line.startsWith('__UF__|')) {
+      const [, unitName, state] = line.split('|');
+      if (unitName) enabledMap.set(unitName.trim(), String(state || '').trim());
+      continue;
+    }
     const parts = line.split(/\s+/);
     if (parts.length < 4) continue;
     const [unit, load, active, sub, ...descParts] = parts;
@@ -397,15 +432,16 @@ async function listSystemdServices(client) {
       load,
       active,
       sub,
+      enabledState: enabledMap.get(unit) || '',
       description: descParts.join(' '),
     });
   }
   return { available: true, services };
 }
 
-const SERVICE_ACTIONS = new Set(['start', 'stop', 'restart', 'reload']);
+const SERVICE_ACTIONS = new Set(['start', 'stop', 'restart', 'reload', 'enable', 'disable']);
 
-/** 控制 systemd 服务（启停/重启/重载）。 */
+/** 控制 systemd 服务（启停/重启/重载/开机自启）。 */
 async function controlSystemdService(client, serviceName, action) {
   const name = String(serviceName || '').trim();
   if (!name || !/^[A-Za-z0-9@_.:-]+$/.test(name)) {
@@ -425,6 +461,228 @@ async function controlSystemdService(client, serviceName, action) {
   return { name, action };
 }
 
+/** 读取指定 systemd 服务的 journalctl 日志。 */
+async function getSystemdServiceLogs(client, serviceName, lines = 200) {
+  const name = String(serviceName || '').trim();
+  if (!name || !/^[A-Za-z0-9@_.:-]+$/.test(name)) {
+    throw new Error('Invalid systemd service name');
+  }
+  const safeLines = Number.isInteger(Number(lines)) && Number(lines) > 0 ? Math.min(Number(lines), 2000) : 200;
+  let result = await execCommand(
+    client,
+    `journalctl -u ${quoteArg(name)} -n ${safeLines} --no-pager -o short-iso 2>&1`,
+    { timeoutMs: 15000, maxBytes: 1024 * 1024 },
+  );
+  if (
+    result.exitCode !== 0
+    || /No journal files were found|not seeing messages|permission denied/i.test(String(result.output || result.stderr || ''))
+  ) {
+    const sudoRes = await execCommand(
+      client,
+      `sudo -n journalctl -u ${quoteArg(name)} -n ${safeLines} --no-pager -o short-iso 2>&1`,
+      { timeoutMs: 15000, maxBytes: 1024 * 1024 },
+    );
+    if (sudoRes.exitCode === 0 && sudoRes.output) result = sudoRes;
+  }
+  return {
+    name,
+    logs: String(result.output || result.stderr || '').trim(),
+  };
+}
+
+/** 读取当前用户的 Crontab 内容。 */
+async function getCrontab(client) {
+  const check = await execCommand(client, 'command -v crontab >/dev/null 2>&1 && echo __OK__ || echo __NO__', { timeoutMs: 8000 });
+  if (!String(check.output || '').includes('__OK__')) {
+    return { available: false, raw: '', entries: [] };
+  }
+  const result = await execCommand(client, 'crontab -l 2>&1', { timeoutMs: 10000, maxBytes: 512 * 1024 });
+  const text = String(result.output || '');
+  if (result.exitCode !== 0 && /no crontab for/i.test(text)) {
+    return { available: true, raw: '', entries: [] };
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(String(result.stderr || text || 'crontab -l failed').trim());
+  }
+  const entries = [];
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(line)) continue;
+    if (line.startsWith('@')) {
+      const m = line.match(/^(@\S+)\s+(.+)$/);
+      if (m) entries.push({ schedule: m[1], command: m[2] });
+      continue;
+    }
+    const parts = line.split(/\s+/);
+    if (parts.length >= 6) {
+      entries.push({
+        schedule: parts.slice(0, 5).join(' '),
+        command: parts.slice(5).join(' '),
+      });
+    }
+  }
+  return { available: true, raw: text, entries };
+}
+
+/** 保存当前用户的 Crontab 内容（保留注释与环境变量）。 */
+async function saveCrontab(client, rawContent) {
+  const normalized = String(rawContent ?? '').replace(/\r\n/g, '\n');
+  if (!normalized.trim()) {
+    const res = await execCommand(client, 'crontab -r 2>&1 || true', { timeoutMs: 10000 });
+    return { saved: true, cleared: true, output: String(res.output || '').trim() };
+  }
+  const withNewline = normalized.endsWith('\n') ? normalized : `${normalized}\n`;
+  const b64 = Buffer.from(withNewline, 'utf8').toString('base64');
+  const res = await execCommand(
+    client,
+    `printf '%s' '${b64}' | base64 -d | crontab -`,
+    { timeoutMs: 12000 },
+  );
+  if (res.exitCode !== 0) {
+    throw new Error(String(res.stderr || res.output || 'Failed to save crontab').trim());
+  }
+  return { saved: true, cleared: false, output: String(res.output || '').trim() };
+}
+
+/** 探测远端防火墙状态与规则（自动识别 ufw / firewalld，带 sudo -n 降级）。 */
+async function getFirewallStatus(client) {
+  const script = `
+if command -v ufw >/dev/null 2>&1; then
+  echo "__FW_BACKEND__=ufw"
+  OUT=$(ufw status numbered 2>&1)
+  if echo "$OUT" | grep -qiE "need to be root|permission denied"; then
+    OUT=$(sudo -n ufw status numbered 2>&1)
+  fi
+  printf '%s\\n' "$OUT"
+elif command -v firewall-cmd >/dev/null 2>&1; then
+  echo "__FW_BACKEND__=firewalld"
+  ST=$(firewall-cmd --state 2>&1)
+  if echo "$ST" | grep -qiE "authorization|permission|not authorized"; then
+    ST=$(sudo -n firewall-cmd --state 2>&1)
+    LIST=$(sudo -n firewall-cmd --list-all 2>&1)
+  else
+    LIST=$(firewall-cmd --list-all 2>&1)
+  fi
+  echo "__FW_STATE__=$ST"
+  printf '%s\\n' "$LIST"
+else
+  echo "__FW_BACKEND__=none"
+fi
+`.trim();
+  const result = await execCommand(client, script, { timeoutMs: 15000, maxBytes: 512 * 1024 });
+  const lines = String(result.output || '').split('\n').map((l) => l.replace(/\r$/, ''));
+  const backendLine = lines.find((l) => l.startsWith('__FW_BACKEND__='));
+  const backend = backendLine ? backendLine.split('=')[1].trim() : 'none';
+  if (backend === 'none') {
+    return { backend: 'none', active: false, rules: [], raw: '' };
+  }
+  const bodyLines = lines.filter((l) => !l.startsWith('__FW_BACKEND__=') && !l.startsWith('__FW_STATE__='));
+  const raw = bodyLines.join('\n').trim();
+  const rules = [];
+  let active = false;
+
+  if (backend === 'ufw') {
+    active = /Status:\s*active/i.test(raw);
+    for (const line of bodyLines) {
+      const m = line.match(/^\[\s*(\d+)\]\s+(.+?)\s{2,}(ALLOW|DENY|REJECT|LIMIT)(?:\s+(IN|OUT|FWD))?\s+(.*)$/i);
+      if (m) {
+        rules.push({
+          id: m[1],
+          target: m[2].trim(),
+          action: m[3].toUpperCase(),
+          direction: (m[4] || 'IN').toUpperCase(),
+          from: m[5].trim() || 'Anywhere',
+        });
+      }
+    }
+  } else if (backend === 'firewalld') {
+    const stateLine = lines.find((l) => l.startsWith('__FW_STATE__='));
+    active = /running/i.test(stateLine || '');
+    for (const line of bodyLines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('ports:')) {
+        const items = trimmed.slice(6).trim().split(/\s+/).filter(Boolean);
+        for (const item of items) {
+          rules.push({ id: `port:${item}`, target: item, action: 'ALLOW', direction: 'IN', from: 'zone' });
+        }
+      } else if (trimmed.startsWith('services:')) {
+        const items = trimmed.slice(9).trim().split(/\s+/).filter(Boolean);
+        for (const item of items) {
+          rules.push({ id: `service:${item}`, target: `service:${item}`, action: 'ALLOW', direction: 'IN', from: 'zone' });
+        }
+      }
+    }
+  }
+  return { backend, active, rules, raw };
+}
+
+/** 管理防火墙端口规则（ufw / firewalld，支持 allow / deny / delete）。 */
+async function manageFirewallRule(client, options = {}) {
+  const backend = String(options.backend || '').trim().toLowerCase();
+  const action = String(options.action || '').trim().toLowerCase();
+  const port = String(options.port || '').trim();
+  const protocol = String(options.protocol || 'tcp').trim().toLowerCase();
+  const ruleId = String(options.ruleId || '').trim();
+
+  if (!['ufw', 'firewalld'].includes(backend)) {
+    throw new Error('Unsupported firewall backend');
+  }
+  if (!['allow', 'deny', 'delete'].includes(action)) {
+    throw new Error('Unsupported firewall action');
+  }
+  if (!['tcp', 'udp', 'any'].includes(protocol)) {
+    throw new Error('Unsupported protocol');
+  }
+
+  let cmd = '';
+  if (backend === 'ufw') {
+    if (action === 'delete') {
+      if (!/^\d+$/.test(ruleId)) throw new Error('Invalid UFW rule number');
+      cmd = `yes | ufw delete ${ruleId}`;
+    } else {
+      if (!/^[0-9]{1,5}(:[0-9]{1,5})?$/.test(port)) throw new Error('Invalid port specification');
+      const spec = protocol === 'any' ? port : `${port}/${protocol}`;
+      cmd = `ufw ${action} ${spec}`;
+    }
+  } else {
+    if (action === 'delete') {
+      if (ruleId.startsWith('port:')) {
+        const portSpec = ruleId.slice(5);
+        if (!/^[0-9]{1,5}(-[0-9]{1,5})?\/(tcp|udp)$/.test(portSpec)) throw new Error('Invalid firewalld port rule');
+        cmd = `firewall-cmd --permanent --remove-port=${portSpec} && firewall-cmd --reload`;
+      } else if (ruleId.startsWith('service:')) {
+        const svc = ruleId.slice(8);
+        if (!/^[A-Za-z0-9_.-]+$/.test(svc)) throw new Error('Invalid firewalld service rule');
+        cmd = `firewall-cmd --permanent --remove-service=${svc} && firewall-cmd --reload`;
+      } else {
+        throw new Error('Unsupported firewalld rule id');
+      }
+    } else {
+      if (!/^[0-9]{1,5}(-[0-9]{1,5})?$/.test(port)) throw new Error('Invalid port specification');
+      const proto = protocol === 'any' ? 'tcp' : protocol;
+      if (action === 'allow') {
+        cmd = `firewall-cmd --permanent --add-port=${port}/${proto} && firewall-cmd --reload`;
+      } else {
+        cmd = `firewall-cmd --permanent --remove-port=${port}/${proto} && firewall-cmd --reload`;
+      }
+    }
+  }
+
+  let res = await execCommand(client, cmd, { timeoutMs: 20000 });
+  if (res.exitCode !== 0 && /need to be root|permission denied|authorization|not authorized/i.test(String(res.stderr || res.output || ''))) {
+    const sudoCmd = cmd.includes('yes |')
+      ? cmd.replace('yes | ufw', 'yes | sudo -n ufw')
+      : cmd.split(' && ').map((part) => `sudo -n ${part}`).join(' && ');
+    const sudoRes = await execCommand(client, sudoCmd, { timeoutMs: 20000 });
+    if (sudoRes.exitCode === 0) res = sudoRes;
+  }
+  if (res.exitCode !== 0) {
+    throw new Error(String(res.stderr || res.output || 'Firewall command failed').trim());
+  }
+  return { backend, action, output: String(res.output || '').trim() };
+}
+
 module.exports = {
   buildMonitorCommand,
   parseMonitorOutput,
@@ -433,4 +691,9 @@ module.exports = {
   killRemoteProcess,
   listSystemdServices,
   controlSystemdService,
+  getSystemdServiceLogs,
+  getCrontab,
+  saveCrontab,
+  getFirewallStatus,
+  manageFirewallRule,
 };

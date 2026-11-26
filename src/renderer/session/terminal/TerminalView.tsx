@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { SearchAddon } from '@xterm/addon-search';
-import { AlertCircle, ChevronDown, ChevronUp, Clock3, Search, Terminal as TerminalIcon, WifiOff, X } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, Clock3, Download, Search, Terminal as TerminalIcon, Upload, WifiOff, X } from 'lucide-react';
 import { useSessionStore } from '../useSessionStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useI18n } from '../../i18n';
@@ -57,6 +57,18 @@ import {
   scanTerminalModes,
   type TerminalModeState,
 } from './terminal-modes';
+import {
+  applyTerminalHighlights,
+  compileHighlightRules,
+} from './terminal-highlight';
+import {
+  ZMODEM_CANCEL_SEQUENCE,
+  detectZmodemSequence,
+  parseSzCommandFiles,
+  resolveRemotePath,
+  type ZmodemTriggerKind,
+} from './terminal-zmodem';
+import { useCommandHistoryStore } from '../../history/useCommandHistoryStore';
 import { ALT_ENTER_SEQUENCE } from './terminal-alt';
 import { useTerminalClipboard } from './useTerminalClipboard';
 import { useTerminalInputTracking } from './useTerminalInputTracking';
@@ -501,14 +513,25 @@ export function TerminalView({
     }, 500);
   }, []);
 
-  /** 写入终端输出；对超宽 \r 进度条临时关闭自动换行，避免每帧新增一行。 */
+  const compiledHighlightRules = useMemo(
+    () => (settings?.terminalHighlightsEnabled ? compileHighlightRules(settings?.terminalHighlightRules) : []),
+    [settings?.terminalHighlightsEnabled, settings?.terminalHighlightRules],
+  );
+  const [zmodemPrompt, setZmodemPrompt] = useState<{ kind: ZmodemTriggerKind; files: string[]; busy: boolean; message?: string } | null>(null);
+  const lastZmodemTriggerRef = useRef(0);
+
+  /** 写入终端输出；对超宽 \r 进度条临时关闭自动换行，并按需应用关键词高亮。 */
   const writeProgressGuarded = useCallback((chunk: string, onWritten?: () => void) => {
     const term = xtermRef.current;
     if (!term) {
       onWritten?.();
       return;
     }
-    const guarded = guardCarriageReturnProgress(chunk, progressWrapStateRef.current);
+    const isAlt = term.buffer.active.type === 'alternate';
+    const highlighted = compiledHighlightRules.length > 0
+      ? applyTerminalHighlights(chunk, compiledHighlightRules, isAlt)
+      : chunk;
+    const guarded = guardCarriageReturnProgress(highlighted, progressWrapStateRef.current);
     if (onWritten) {
       term.write(guarded, onWritten);
     } else {
@@ -520,7 +543,7 @@ export function TerminalView({
       window.clearTimeout(progressWrapTimerRef.current);
       progressWrapTimerRef.current = null;
     }
-  }, [scheduleProgressWrapRelease]);
+  }, [compiledHighlightRules, scheduleProgressWrapRelease]);
 
   useEffect(() => () => {
     if (progressWrapTimerRef.current != null) {
@@ -769,19 +792,44 @@ export function TerminalView({
       return;
     }
 
-    const applyChunk = (chunk: string) => {
+    const applyChunk = (chunk: string, allowZmodem = false) => {
       if (!chunk) {
         return;
       }
-      feedModes(chunk);
-      consumeOutputChunk(chunk);
-      consumeShellIntegration(chunk);
-      writeProgressGuarded(chunk);
+      let nextChunk = chunk;
+      if (allowZmodem && settings?.terminalZmodem !== false && liveConnectionId) {
+        const zmodem = detectZmodemSequence(chunk);
+        if (zmodem.kind) {
+          nextChunk = zmodem.cleanedChunk;
+          const now = Date.now();
+          if (now - lastZmodemTriggerRef.current > 1500) {
+            lastZmodemTriggerRef.current = now;
+            // 立刻发送取消序列让远端 rz/sz 退出，避免终端被二进制帧锁死
+            try {
+              window.electronAPI?.sshExecuteSync(liveConnectionId, ZMODEM_CANCEL_SEQUENCE);
+            } catch { /* ignore */ }
+            let szFiles: string[] = [];
+            if (zmodem.kind === 'sz') {
+              const history = useCommandHistoryStore.getState().items;
+              const latest = history.find((item) => item.connectionId === liveConnectionId || item.connectionId === sessionId);
+              if (latest?.command) {
+                szFiles = parseSzCommandFiles(latest.command);
+              }
+            }
+            setZmodemPrompt({ kind: zmodem.kind, files: szFiles, busy: false });
+          }
+        }
+      }
+      if (!nextChunk) return;
+      feedModes(nextChunk);
+      consumeOutputChunk(nextChunk);
+      consumeShellIntegration(nextChunk);
+      writeProgressGuarded(nextChunk);
     };
 
     if (plan.action === 'append') {
       // 增量写入：允许 xterm 对直播 OSC 查询正常 onData 应答
-      applyChunk(plan.chunk);
+      applyChunk(plan.chunk, true);
       setRenderedOutput(currentOutput);
       return;
     }
@@ -1124,6 +1172,93 @@ export function TerminalView({
         translate={t}
         onClose={() => setCastPlayerOpen(false)}
       />
+
+      {zmodemPrompt && liveConnectionId && (
+        <div className="absolute bottom-3 left-1/2 z-raised flex max-w-[92%] -translate-x-1/2 flex-wrap items-center gap-2 rounded-md border border-accent bg-surface px-3 py-2 text-xs shadow-lg">
+          {zmodemPrompt.kind === 'rz' ? (
+            <Upload className="h-3.5 w-3.5 shrink-0 text-accent" />
+          ) : (
+            <Download className="h-3.5 w-3.5 shrink-0 text-accent" />
+          )}
+          <span className="font-medium text-fg">
+            {zmodemPrompt.kind === 'rz'
+              ? t('terminal.zmodemRzDetected')
+              : t('terminal.zmodemSzDetected', {
+                files: zmodemPrompt.files.join(', ') || t('terminal.zmodemChooseInSftp'),
+              })}
+          </span>
+          {zmodemPrompt.message && (
+            <span className="text-[11px] text-fg-muted">{zmodemPrompt.message}</span>
+          )}
+          <button
+            type="button"
+            disabled={zmodemPrompt.busy}
+            onClick={async () => {
+              if (!window.electronAPI) return;
+              setZmodemPrompt((prev) => (prev ? { ...prev, busy: true, message: undefined } : null));
+              try {
+                let remoteDir = activeSession?.cwd || DEFAULT_REMOTE_PATH;
+                if (window.electronAPI.sshProbePwd) {
+                  const probed = await window.electronAPI.sshProbePwd(liveConnectionId);
+                  if (probed.success && probed.data?.cwd) remoteDir = probed.data.cwd;
+                }
+                if (zmodemPrompt.kind === 'rz') {
+                  const pick = await window.electronAPI.selectSftpFiles();
+                  if (!pick.success || pick.data.canceled || pick.data.files.length === 0) {
+                    setZmodemPrompt(null);
+                    return;
+                  }
+                  const res = await window.electronAPI.startSftpUpload({
+                    connectionId: liveConnectionId,
+                    files: pick.data.files,
+                    remoteDirectory: remoteDir,
+                  });
+                  if (!res.success) {
+                    setZmodemPrompt((prev) => (prev ? { ...prev, busy: false, message: res.error } : null));
+                  } else {
+                    setZmodemPrompt(null);
+                  }
+                } else {
+                  if (zmodemPrompt.files.length === 0) {
+                    setZmodemPrompt(null);
+                    handleOpenFileTransfer();
+                    return;
+                  }
+                  const dest = await window.electronAPI.selectSftpDownloadDestination();
+                  if (!dest.success || dest.data.canceled || !dest.data.destination) {
+                    setZmodemPrompt(null);
+                    return;
+                  }
+                  const remotePaths = zmodemPrompt.files.map((file) => resolveRemotePath(remoteDir, file));
+                  const res = await window.electronAPI.startSftpDownload({
+                    connectionId: liveConnectionId,
+                    remotePaths,
+                    destination: dest.data.destination,
+                  });
+                  if (!res.success) {
+                    setZmodemPrompt((prev) => (prev ? { ...prev, busy: false, message: res.error } : null));
+                  } else {
+                    setZmodemPrompt(null);
+                  }
+                }
+              } finally {
+                setZmodemPrompt((prev) => (prev ? { ...prev, busy: false } : null));
+              }
+            }}
+            className="industrial-button-primary h-6 px-2 text-[11px]"
+          >
+            {zmodemPrompt.kind === 'rz' ? t('terminal.zmodemUploadNow') : t('terminal.zmodemDownloadNow')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setZmodemPrompt(null)}
+            className="icon-button h-6 w-6"
+            aria-label={t('common.close')}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="relative z-raised mt-auto">
         <MobileKeyBar

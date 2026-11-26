@@ -43,6 +43,7 @@ import { collectLeaves } from '../workspace/paneLayout';
 interface Tab {
   id: string;
   name: string;
+  envTag?: 'prod' | 'staging' | 'dev' | 'test';
   isConnected: boolean;
   isConnecting: boolean;
   lastError?: string;
@@ -57,6 +58,7 @@ function areTabsEqual(left: Tab[], right: Tab[]): boolean {
       return next
         && tab.id === next.id
         && tab.name === next.name
+        && tab.envTag === next.envTag
         && tab.isConnected === next.isConnected
         && tab.isConnecting === next.isConnecting
         && tab.state === next.state
@@ -431,9 +433,11 @@ export function AppController() {
         return null;
       }
 
+      const conn = connections.find((item) => item.id === session.connectionId || item.id === session.id);
       return {
         id: session.id,
         name: session.title,
+        envTag: conn?.envTag,
         isConnected: session.state === 'connected',
         isConnecting: session.state === 'connecting' || session.state === 'reconnecting',
         lastError: session.lastError,
@@ -467,7 +471,7 @@ export function AppController() {
         setActiveSession(sessionIds[0]);
       }
     }
-  }, [activeTabId, sessionIds, sessionRecords, setActiveSession]);
+  }, [activeTabId, connections, sessionIds, sessionRecords, setActiveSession]);
 
   useEffect(() => {
     if (!window.electronAPI) {
@@ -712,13 +716,17 @@ export function AppController() {
     setDragState({ isDragging: false, draggedTabId: null, dragOverTabId: null });
   };
 
-  // 点击外部关闭右键菜单
+  // 点击外部关闭右键菜单与连接下拉（结合 composedPath，避免按钮内图标切换卸载触发误关闭）
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (tabContextMenuRef.current && !tabContextMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node | null;
+      const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+      const isInside = (container: HTMLElement | null) =>
+        Boolean(container && ((target && container.contains(target)) || path.includes(container)));
+      if (tabContextMenuRef.current && !isInside(tabContextMenuRef.current)) {
         setTabContextMenu(null);
       }
-      if (connectionDropdownRef.current && !connectionDropdownRef.current.contains(e.target as Node)) {
+      if (connectionDropdownRef.current && !isInside(connectionDropdownRef.current)) {
         setShowConnectionDropdown(false);
       }
     };

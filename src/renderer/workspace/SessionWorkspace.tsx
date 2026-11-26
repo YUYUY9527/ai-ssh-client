@@ -34,6 +34,7 @@ interface DropHint {
 export interface WorkspaceTab {
   id: string;
   name: string;
+  envTag?: 'prod' | 'staging' | 'dev' | 'test';
   isConnected: boolean;
   isConnecting: boolean;
   lastError?: string;

@@ -14,6 +14,9 @@ export interface TerminalRuntimeSettings {
   cursorBlink: boolean;
   copyOnSelect: boolean;
   shellIntegration: boolean;
+  webgl: boolean;
+  highlightsEnabled: boolean;
+  zmodem: boolean;
 }
 
 /** 将 scrollback 行数限制在合法区间。 */
@@ -50,6 +53,21 @@ export function normalizeShellIntegration(value: boolean | undefined): boolean {
   return value !== false;
 }
 
+/** 归一化 WebGL 硬件加速开关，默认关闭（按需开启，避免老旧 GPU 兼容性问题）。 */
+export function normalizeTerminalWebgl(value: boolean | undefined): boolean {
+  return value === true;
+}
+
+/** 归一化终端关键词高亮开关，默认关闭。 */
+export function normalizeTerminalHighlights(value: boolean | undefined): boolean {
+  return value === true;
+}
+
+/** 归一化 ZMODEM (rz/sz) 桥接开关，默认开启。 */
+export function normalizeTerminalZmodem(value: boolean | undefined): boolean {
+  return value !== false;
+}
+
 /** 从 AppSettings 片段解析出可应用到 xterm 的运行时设置。 */
 export function resolveTerminalRuntimeSettings(input?: {
   terminalScrollback?: number;
@@ -57,6 +75,9 @@ export function resolveTerminalRuntimeSettings(input?: {
   terminalCursorBlink?: boolean;
   terminalCopyOnSelect?: boolean;
   terminalShellIntegration?: boolean;
+  terminalWebgl?: boolean;
+  terminalHighlightsEnabled?: boolean;
+  terminalZmodem?: boolean;
 }): TerminalRuntimeSettings {
   return {
     scrollback: clampTerminalScrollback(input?.terminalScrollback),
@@ -64,6 +85,9 @@ export function resolveTerminalRuntimeSettings(input?: {
     cursorBlink: normalizeCursorBlink(input?.terminalCursorBlink),
     copyOnSelect: normalizeCopyOnSelect(input?.terminalCopyOnSelect),
     shellIntegration: normalizeShellIntegration(input?.terminalShellIntegration),
+    webgl: normalizeTerminalWebgl(input?.terminalWebgl),
+    highlightsEnabled: normalizeTerminalHighlights(input?.terminalHighlightsEnabled),
+    zmodem: normalizeTerminalZmodem(input?.terminalZmodem),
   };
 }
 

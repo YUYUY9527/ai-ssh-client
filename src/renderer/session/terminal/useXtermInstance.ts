@@ -108,6 +108,7 @@ export function useXtermInstance({
   const copySelectionRef = useRef(copyTerminalSelectionToClipboard);
   const shellParserRef = useRef(new ShellIntegrationParser());
   const selectionDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const webglAddonRef = useRef<{ dispose: () => void } | null>(null);
   const [renderedOutput, setRenderedOutput] = useState('');
   const runtimeSettings = resolveTerminalRuntimeSettings(settings);
 
@@ -492,6 +493,10 @@ export function useXtermInstance({
       // 实例销毁后不要再触发 Ctrl+V 的剪贴板兜底，避免把内容发到下一个会话。
       pasteFallback.cancel();
       writeParsedDisposable.dispose();
+      if (webglAddonRef.current) {
+        try { webglAddonRef.current.dispose(); } catch { /* ignore */ }
+        webglAddonRef.current = null;
+      }
       term.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;
@@ -607,6 +612,40 @@ export function useXtermInstance({
     runtimeSettings.cursorBlink,
     xtermRef,
   ]);
+
+  // 按需加载/卸载 WebGL 渲染器，GPU 上下文丢失或不支持时自动平滑回退到默认渲染器
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return undefined;
+    if (!runtimeSettings.webgl) {
+      if (webglAddonRef.current) {
+        try { webglAddonRef.current.dispose(); } catch { /* ignore */ }
+        webglAddonRef.current = null;
+      }
+      return undefined;
+    }
+    if (webglAddonRef.current) return undefined;
+    let cancelled = false;
+    void import('@xterm/addon-webgl')
+      .then(({ WebglAddon }) => {
+        if (cancelled || xtermRef.current !== term || webglAddonRef.current) return;
+        try {
+          const addon = new WebglAddon();
+          addon.onContextLoss(() => {
+            try { addon.dispose(); } catch { /* ignore */ }
+            if (webglAddonRef.current === addon) webglAddonRef.current = null;
+          });
+          term.loadAddon(addon);
+          webglAddonRef.current = addon;
+        } catch {
+          // 浏览器不支持 WebGL2 或处于无头测试环境时静默回退
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [runtimeSettings.webgl, sessionId, xtermRef]);
 
   /** 消费输出分片中的 Shell Integration OSC（不阻断写流）。 */
   const consumeShellIntegration = useCallback((chunk: string): ShellIntegrationState => {

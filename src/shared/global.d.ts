@@ -53,10 +53,16 @@ import type {
   DockerVolumeItem,
   DockerNetworkItem,
   DockerComposeProject,
+  DockerComposeAction,
+  DockerRunContainerSpec,
   ListeningPortItem,
   SystemdServiceItem,
+  CrontabResult,
+  FirewallStatusResult,
   BatchCommandResponse,
   BatchDistributeResponse,
+  ConnectionProbeResult,
+  SftpFileChunkResult,
   SftpOpProgressEvent,
   SftpSearchMode,
   SftpSearchResult,
@@ -120,7 +126,9 @@ declare global {
       /** Docker 资源统计 / 镜像 / 数据卷 / 网络 / Compose 项目。 */
       getDockerStats?: (connectionId: string) => Promise<IPCResult<{ stats: DockerContainerStat[] }>>;
       listDockerImages?: (connectionId: string) => Promise<IPCResult<{ images: DockerImageItem[] }>>;
+      pullDockerImage?: (connectionId: string, image: string) => Promise<IPCResult<{ image: string; output: string }>>;
       removeDockerImage?: (connectionId: string, imageId: string, force?: boolean) => Promise<IPCResult<{ imageId: string; output: string }>>;
+      runDockerContainer?: (connectionId: string, spec: DockerRunContainerSpec) => Promise<IPCResult<{ containerId: string; output: string }>>;
       listDockerVolumes?: (connectionId: string) => Promise<IPCResult<{ volumes: DockerVolumeItem[] }>>;
       removeDockerVolume?: (connectionId: string, name: string) => Promise<IPCResult<{ name: string; output: string }>>;
       listDockerNetworks?: (connectionId: string) => Promise<IPCResult<{ networks: DockerNetworkItem[] }>>;
@@ -128,11 +136,18 @@ declare global {
       listDockerComposeProjects?: (connectionId: string) => Promise<IPCResult<{ projects: DockerComposeProject[] }>>;
       readDockerComposeFile?: (connectionId: string, configFile: string) => Promise<IPCResult<{ path: string; content: string }>>;
       saveDockerComposeFile?: (connectionId: string, configFile: string, content: string, project?: string, options?: { apply?: boolean }) => Promise<IPCResult<{ path: string; output: string; applied?: boolean }>>;
+      dockerComposeAction?: (connectionId: string, configFile: string, project: string, action: DockerComposeAction) => Promise<IPCResult<{ project: string; action: string; output: string }>>;
+      dockerComposeLogs?: (connectionId: string, configFile: string, project: string, tail?: number) => Promise<IPCResult<DockerLogsResult>>;
       /** 监听端口、进程终止、Systemd 服务管理。 */
       listListeningPorts?: (connectionId: string) => Promise<IPCResult<{ ports: ListeningPortItem[] }>>;
       killRemoteProcess?: (connectionId: string, pid: number, signal?: 'TERM' | 'KILL' | 'HUP') => Promise<IPCResult<{ pid: number; signal: string }>>;
       listSystemdServices?: (connectionId: string) => Promise<IPCResult<{ available: boolean; services: SystemdServiceItem[] }>>;
-      controlSystemdService?: (connectionId: string, name: string, action: 'start' | 'stop' | 'restart' | 'reload') => Promise<IPCResult<{ name: string; action: string }>>;
+      controlSystemdService?: (connectionId: string, name: string, action: 'start' | 'stop' | 'restart' | 'reload' | 'enable' | 'disable') => Promise<IPCResult<{ name: string; action: string }>>;
+      getSystemdServiceLogs?: (connectionId: string, name: string, lines?: number) => Promise<IPCResult<{ name: string; logs: string }>>;
+      getCrontab?: (connectionId: string) => Promise<IPCResult<CrontabResult>>;
+      saveCrontab?: (connectionId: string, raw: string) => Promise<IPCResult<{ saved: boolean; cleared: boolean; output: string }>>;
+      getFirewallStatus?: (connectionId: string) => Promise<IPCResult<FirewallStatusResult>>;
+      manageFirewallRule?: (connectionId: string, rule: { backend: 'ufw' | 'firewalld'; action: 'allow' | 'deny' | 'delete'; port?: string; protocol?: 'tcp' | 'udp' | 'any'; ruleId?: string }) => Promise<IPCResult<{ backend: string; action: string; output: string }>>;
       /** 多机批量任务执行与文件分发。 */
       runBatchCommand?: (request: { connectionIds: string[]; command: string; concurrency?: number; timeoutMs?: number }) => Promise<IPCResult<BatchCommandResponse>>;
       runBatchDistribute?: (request: { connectionIds: string[]; remotePath: string; contentBase64: string; concurrency?: number; timeoutMs?: number }) => Promise<IPCResult<BatchDistributeResponse>>;
@@ -172,6 +187,7 @@ declare global {
       saveConnection: (connection: SSHConnection) => Promise<IPCResult>;
       deleteConnection: (connectionId: string) => Promise<IPCResult>;
       reorderConnections: (connectionIds: string[]) => Promise<IPCResult>;
+      probeConnections?: (connectionIds?: string[], timeoutMs?: number) => Promise<IPCResult<ConnectionProbeResult>>;
 
       getSettings: () => Promise<IPCResult<SettingsResult<AppSettings>>>;
       saveSettings: (settings: AppSettings) => Promise<IPCResult>;
@@ -242,6 +258,8 @@ declare global {
       deleteItem: (connectionId: string, remotePath: string) => Promise<IPCResult>;
       /** 读取远端文本文件（受 MAX_SFTP_EDIT_BYTES 限制）。 */
       readSftpTextFile: (connectionId: string, remotePath: string, sudoPassword?: string) => Promise<IPCResult<import('./ipc-types').SftpTextFileContent>>;
+      /** 分段/尾部读取远端大文本文件（不受 MAX_SFTP_EDIT_BYTES 限制）。 */
+      readSftpFileChunk?: (connectionId: string, options: { remotePath: string; mode?: 'chunk' | 'tail'; offset?: number; length?: number; lines?: number }) => Promise<IPCResult<SftpFileChunkResult>>;
       /** 覆盖写入远端文本文件。 */
       writeSftpTextFile: (connectionId: string, remotePath: string, content: string, sudoPassword?: string) => Promise<IPCResult>;
 

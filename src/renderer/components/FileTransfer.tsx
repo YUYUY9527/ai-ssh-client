@@ -18,6 +18,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderUp,
+  GitCompare,
   Globe,
   Home,
   Link2,
@@ -27,6 +28,7 @@ import {
   Pencil,
   RefreshCw,
   Scissors,
+  ScrollText,
   Search,
   Shield,
   Trash2,
@@ -47,6 +49,8 @@ import {
   useSftpTransferStore,
 } from '../store/useSftpTransferStore';
 import { SftpFileEditor } from '../transfer/SftpFileEditor';
+import { SftpTailViewerModal } from '../transfer/SftpTailViewerModal';
+import { FileDiffModal } from '../transfer/FileDiffModal';
 import { CrossServerTransferModal } from '../transfer/CrossServerTransferModal';
 import { FilePreviewModal } from '../transfer/FilePreviewModal';
 import { RemoteSearchPanel } from '../transfer/RemoteSearchPanel';
@@ -326,6 +330,10 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
   const [opsBusy, setOpsBusy] = useState(false);
   const [opProgress, setOpProgress] = useState<SftpOpProgressEvent | null>(null);
   const opProgressTimerRef = useRef<number | null>(null);
+  const [tailTarget, setTailTarget] = useState<{ item: RemoteFileItem; mode: 'tail' | 'chunk' } | null>(null);
+  const [diffTarget, setDiffTarget] = useState<RemoteFileItem | null>(null);
+  const [draggedSftpPaths, setDraggedSftpPaths] = useState<string[]>([]);
+  const [dropTargetDir, setDropTargetDir] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onSftpOpProgress?.((event) => {
@@ -1021,6 +1029,10 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
 
   const openFileForEdit = (file: RemoteFileItem) => {
     if (typeof file.size === 'number' && file.size > MAX_SFTP_EDIT_BYTES) {
+      if (typeof window.electronAPI?.readSftpFileChunk === 'function') {
+        setTailTarget({ item: file, mode: 'chunk' });
+        return;
+      }
       setEditAlert(t('fileTransfer.editTooLarge', {
         size: formatSize(file.size),
         max: formatSize(MAX_SFTP_EDIT_BYTES),
@@ -1083,6 +1095,26 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
       clearTimeout(statusNoticeTimerRef.current);
     }
   }, []);
+
+  const handleDropMoveToDir = useCallback(async (sources: string[], destinationDir: string) => {
+    if (!isLive || !window.electronAPI?.moveSftpItems || sources.length === 0 || !destinationDir) return;
+    const validSources = sources.filter((src) => src !== destinationDir && !destinationDir.startsWith(`${src.replace(/\/+$/, '')}/`));
+    if (validSources.length === 0) return;
+    setOpsBusy(true);
+    setActionError(null);
+    try {
+      const res = await window.electronAPI.moveSftpItems(connectionId, { sources: validSources, destinationDir });
+      if (!res.success) {
+        setActionError(res.error);
+      } else {
+        setBrowserSelectedPaths(connectionId, []);
+        await loadDirectory(currentPath);
+        showStatusNotice(t('fileTransfer.ops.moveDone', { count: validSources.length }));
+      }
+    } finally {
+      setOpsBusy(false);
+    }
+  }, [connectionId, currentPath, isLive, loadDirectory, setBrowserSelectedPaths, showStatusNotice, t]);
 
   /** 复制远端路径到剪贴板。 */
   const handleCopyPath = async (item: RemoteFileItem) => {
@@ -1829,25 +1861,66 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
               <div className="file-path-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
                 <button
                   onClick={() => navigateTo(pathRoot)}
-                  className="whitespace-nowrap text-fg-muted hover:text-accent disabled:opacity-50"
+                  onDragOver={(event) => {
+                    if (draggedSftpPaths.length === 0) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    setDropTargetDir(pathRoot);
+                  }}
+                  onDragLeave={() => {
+                    if (dropTargetDir === pathRoot) setDropTargetDir(null);
+                  }}
+                  onDrop={(event) => {
+                    if (draggedSftpPaths.length === 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const sources = draggedSftpPaths;
+                    setDraggedSftpPaths([]);
+                    setDropTargetDir(null);
+                    void handleDropMoveToDir(sources, pathRoot);
+                  }}
+                  className={`whitespace-nowrap rounded-sm px-1 text-fg-muted hover:text-accent disabled:opacity-50 ${
+                    dropTargetDir === pathRoot ? 'bg-accent-muted text-accent ring-1 ring-accent' : ''
+                  }`}
                   disabled={!isLive}
                 >
                   {pathRoot}
                 </button>
-                {pathParts.map((part, index) => (
-                  <span key={`${part}-${index}`} className="flex items-center">
-                    <ChevronRight className="mx-0.5 h-3 w-3 shrink-0 text-fg-subtle" />
-                    <button
-                      onClick={() => navigateTo(
-                        `${isHomePath ? '~/' : '/'}${pathParts.slice(0, index + 1).join('/')}`,
-                      )}
-                      className="whitespace-nowrap text-fg-muted hover:text-accent disabled:opacity-50"
-                      disabled={!isLive}
-                    >
-                      {part}
-                    </button>
-                  </span>
-                ))}
+                {pathParts.map((part, index) => {
+                  const crumbPath = `${isHomePath ? '~/' : '/'}${pathParts.slice(0, index + 1).join('/')}`;
+                  return (
+                    <span key={`${part}-${index}`} className="flex items-center">
+                      <ChevronRight className="mx-0.5 h-3 w-3 shrink-0 text-fg-subtle" />
+                      <button
+                        onClick={() => navigateTo(crumbPath)}
+                        onDragOver={(event) => {
+                          if (draggedSftpPaths.length === 0) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          setDropTargetDir(crumbPath);
+                        }}
+                        onDragLeave={() => {
+                          if (dropTargetDir === crumbPath) setDropTargetDir(null);
+                        }}
+                        onDrop={(event) => {
+                          if (draggedSftpPaths.length === 0) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const sources = draggedSftpPaths;
+                          setDraggedSftpPaths([]);
+                          setDropTargetDir(null);
+                          void handleDropMoveToDir(sources, crumbPath);
+                        }}
+                        className={`whitespace-nowrap rounded-sm px-1 text-fg-muted hover:text-accent disabled:opacity-50 ${
+                          dropTargetDir === crumbPath ? 'bg-accent-muted text-accent ring-1 ring-accent' : ''
+                        }`}
+                        disabled={!isLive}
+                      >
+                        {part}
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
               {isLive && (
                 <button
@@ -1978,11 +2051,45 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
               <div className="space-y-0.5">
                 {visibleFiles.map((file) => {
                   const isSelected = selectedPaths.includes(file.path);
+                  const isDropTarget = file.isDirectory && dropTargetDir === file.path;
                   return (
                     <div
                       key={file.path}
                       role="button"
                       tabIndex={0}
+                      draggable={isLive && typeof window.electronAPI?.moveSftpItems === 'function'}
+                      onDragStart={(event) => {
+                        const sources = selectedPaths.includes(file.path) && selectedPaths.length > 1
+                          ? selectedPaths
+                          : [file.path];
+                        setDraggedSftpPaths(sources);
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('application/x-aissh-sftp-move', JSON.stringify(sources));
+                      }}
+                      onDragEnd={() => {
+                        setDraggedSftpPaths([]);
+                        setDropTargetDir(null);
+                      }}
+                      onDragOver={(event) => {
+                        if (!file.isDirectory || draggedSftpPaths.length === 0) return;
+                        if (draggedSftpPaths.includes(file.path)) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.dataTransfer.dropEffect = 'move';
+                        setDropTargetDir(file.path);
+                      }}
+                      onDragLeave={() => {
+                        if (dropTargetDir === file.path) setDropTargetDir(null);
+                      }}
+                      onDrop={(event) => {
+                        if (!file.isDirectory || draggedSftpPaths.length === 0) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const sources = draggedSftpPaths;
+                        setDraggedSftpPaths([]);
+                        setDropTargetDir(null);
+                        void handleDropMoveToDir(sources, file.path);
+                      }}
                       onClick={(event) => {
                         setHoverDetail(null);
                         handleItemClick(event, file);
@@ -2025,9 +2132,11 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                         setContextMenu({ x: event.clientX, y: event.clientY, item: file });
                       }}
                       className={`sftp-file-row group grid cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 transition-colors ${
-                        isSelected
-                          ? 'bg-[color-mix(in_srgb,var(--accent-primary)_22%,transparent)]'
-                          : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
+                        isDropTarget
+                          ? 'bg-accent-muted ring-1 ring-accent'
+                          : isSelected
+                            ? 'bg-[color-mix(in_srgb,var(--accent-primary)_22%,transparent)]'
+                            : 'hover:bg-[color-mix(in_srgb,var(--bg-hover)_68%,transparent)]'
                       }`}
                     >
                       <div className="flex min-w-0 items-center gap-2">
@@ -2109,6 +2218,32 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
                     >
                       <FileCode2 className="h-4 w-4" />
                       {t('fileTransfer.edit')}
+                    </button>
+                    {typeof window.electronAPI?.readSftpFileChunk === 'function' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const item = contextMenu.item;
+                          setContextMenu(null);
+                          setTailTarget({ item, mode: 'tail' });
+                        }}
+                        className="app-popover-row text-sm text-fg-secondary"
+                      >
+                        <ScrollText className="h-4 w-4" />
+                        {t('fileTransfer.tailView')}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const item = contextMenu.item;
+                        setContextMenu(null);
+                        setDiffTarget(item);
+                      }}
+                      className="app-popover-row text-sm text-fg-secondary"
+                    >
+                      <GitCompare className="h-4 w-4" />
+                      {t('fileTransfer.diffAction')}
                     </button>
                     <button
                       type="button"
@@ -2928,6 +3063,25 @@ export function FileTransfer({ connectionId, isLive }: FileTransferProps) {
         >
           {statusNotice}
         </div>
+      )}
+
+      {tailTarget && (
+        <SftpTailViewerModal
+          isOpen
+          connectionId={connectionId}
+          remotePath={tailTarget.item.path}
+          initialMode={tailTarget.mode}
+          onClose={() => setTailTarget(null)}
+        />
+      )}
+
+      {diffTarget && (
+        <FileDiffModal
+          isOpen
+          leftConnectionId={connectionId}
+          leftPath={diffTarget.path}
+          onClose={() => setDiffTarget(null)}
+        />
       )}
 
       <ConfirmDialog

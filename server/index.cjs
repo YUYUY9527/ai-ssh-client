@@ -46,6 +46,11 @@ const {
   killRemoteProcess,
   listSystemdServices,
   controlSystemdService,
+  getSystemdServiceLogs,
+  getCrontab,
+  saveCrontab,
+  getFirewallStatus,
+  manageFirewallRule,
 } = require('./monitor.cjs');
 const {
   listContainers,
@@ -59,7 +64,9 @@ const {
   pruneDocker,
   containerStats,
   listImages,
+  pullImage,
   removeImage,
+  runContainer,
   listVolumes,
   removeVolume,
   listNetworks,
@@ -67,6 +74,8 @@ const {
   listComposeProjects,
   readComposeFile,
   saveComposeAndUp,
+  composeProjectAction,
+  composeProjectLogs,
   quoteArg: quoteDockerArg,
 } = require('./docker-manager.cjs');
 const { buildSearchCommand, parseSearchOutput } = require('./sftp-search.cjs');
@@ -1753,6 +1762,58 @@ app.delete('/api/connections/:id', route((request) => {
   return success();
 }));
 
+/** 探测主机 TCP 连通性与往返延迟（毫秒），并发上限 12，默认超时 3s。 */
+function probeTcpEndpoint(host, port, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const net = require('node:net');
+    const startedAt = Date.now();
+    let settled = false;
+    const finish = (reachable, error) => {
+      if (settled) return;
+      settled = true;
+      try { socket.destroy(); } catch { /* ignore */ }
+      resolve({
+        reachable,
+        latencyMs: reachable ? Math.max(1, Date.now() - startedAt) : null,
+        error: error || undefined,
+        checkedAt: Date.now(),
+      });
+    };
+    const socket = net.createConnection({ host, port: Number(port) || 22 });
+    socket.setTimeout(Math.max(500, Math.min(Number(timeoutMs) || 3000, 10000)));
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false, 'timeout'));
+    socket.once('error', (err) => finish(false, err?.code || err?.message || 'error'));
+  });
+}
+
+app.post('/api/connections/probe', route(async (request) => {
+  const store = readStore();
+  const requestedIds = Array.isArray(request.body?.connectionIds) && request.body.connectionIds.length > 0
+    ? new Set(request.body.connectionIds.map(String))
+    : null;
+  const timeoutMs = Number(request.body?.timeoutMs || 3000);
+  const targets = (store.connections || []).filter((conn) => !requestedIds || requestedIds.has(conn.id));
+  const results = {};
+  const concurrency = 12;
+  let index = 0;
+  const worker = async () => {
+    while (index < targets.length) {
+      const conn = targets[index++];
+      const probeHost = conn.proxy?.host || conn.jumpHosts?.[0]?.host || conn.host;
+      const probePort = conn.proxy?.port || conn.jumpHosts?.[0]?.port || conn.port || 22;
+      if (!probeHost) {
+        results[conn.id] = { connectionId: conn.id, reachable: false, latencyMs: null, error: 'no-host', checkedAt: Date.now() };
+        continue;
+      }
+      const res = await probeTcpEndpoint(probeHost, probePort, timeoutMs);
+      results[conn.id] = { connectionId: conn.id, ...res };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, targets.length)) }, () => worker()));
+  return success({ results });
+}));
+
 app.get('/api/settings', route(() => success({ settings: readStore().settings })));
 app.post('/api/settings', route((request) => {
   updateStore((store) => {
@@ -1995,9 +2056,35 @@ app.get('/api/ssh/:id/services', route(async (request) => {
   return success(await listSystemdServices(session.client));
 }));
 
+app.get('/api/ssh/:id/services/:name/logs', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const lines = Number(request.query.lines || 200);
+  return success(await getSystemdServiceLogs(session.client, request.params.name, lines));
+}));
+
 app.post('/api/ssh/:id/services/:name/:action', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
   return success(await controlSystemdService(session.client, request.params.name, request.params.action));
+}));
+
+app.get('/api/ssh/:id/crontab', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await getCrontab(session.client));
+}));
+
+app.put('/api/ssh/:id/crontab', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await saveCrontab(session.client, request.body?.raw ?? ''));
+}));
+
+app.get('/api/ssh/:id/firewall', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await getFirewallStatus(session.client));
+}));
+
+app.post('/api/ssh/:id/firewall/rule', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await manageFirewallRule(session.client, request.body || {}));
 }));
 
 // Docker 容器管理：复用当前 SSH 会话执行 docker CLI（列表/详情/日志/生命周期/资源/镜像/卷/网络/Compose）。
@@ -2011,10 +2098,22 @@ app.get('/api/ssh/:id/docker/images', route(async (request) => {
   return success(await listImages(session.client));
 }));
 
+app.post('/api/ssh/:id/docker/images/pull', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  return success(await pullImage(session.client, request.body?.image));
+}));
+
 app.delete('/api/ssh/:id/docker/images/:imageId', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
   const force = request.query.force === '1' || Boolean(request.body?.force);
   return success(await removeImage(session.client, request.params.imageId, { force }));
+}));
+
+app.post('/api/ssh/:id/docker/containers/run', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const result = await runContainer(session.client, request.body || {});
+  emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
+  return success(result);
 }));
 
 app.get('/api/ssh/:id/docker/volumes', route(async (request) => {
@@ -2053,6 +2152,25 @@ app.put('/api/ssh/:id/docker/compose/file', route(async (request) => {
   return success(await saveComposeAndUp(session.client, configFile, content, project, { apply: apply !== false }));
 }));
 
+app.post('/api/ssh/:id/docker/compose/action', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const { path: configFile, project, action } = request.body || {};
+  const result = await composeProjectAction(session.client, configFile, project, action);
+  emitToClient(requestClientId(request), 'docker-containers-changed', { connectionId: request.params.id });
+  return success(result);
+}));
+
+app.get('/api/ssh/:id/docker/compose/logs', route(async (request) => {
+  const session = getSession(request.params.id, requestClientId(request));
+  const tail = Number(request.query.tail || 300);
+  return success(await composeProjectLogs(
+    session.client,
+    String(request.query.path || ''),
+    String(request.query.project || ''),
+    tail,
+  ));
+}));
+
 app.get('/api/ssh/:id/docker/containers', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
   return success(await listContainers(session.client));
@@ -2066,7 +2184,8 @@ app.get('/api/ssh/:id/docker/containers/:containerId', route(async (request) => 
 app.get('/api/ssh/:id/docker/containers/:containerId/logs', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
   const tail = Number(request.query.tail || 300);
-  return success(await containerLogs(session.client, request.params.containerId, tail));
+  const since = String(request.query.since || '');
+  return success(await containerLogs(session.client, request.params.containerId, tail, { since }));
 }));
 
 // 容器日志实时流（SSE）：EventSource 不能带自定义头，clientId 走 query，鉴权仍用同源 Cookie。
@@ -2080,6 +2199,7 @@ app.get('/api/ssh/:id/docker/containers/:containerId/logs/stream', (request, res
     return;
   }
   const tail = Number(request.query.tail || 300);
+  const since = String(request.query.since || '');
   response.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -2107,7 +2227,7 @@ app.get('/api/ssh/:id/docker/containers/:containerId/logs/stream', (request, res
       send('error', { message: error?.message || 'log stream failed' });
       response.end();
     },
-  });
+  }, { since });
   // 心跳：防止代理/浏览器在长时间无日志时断开连接
   const heartbeat = setInterval(() => {
     if (!closed) response.write(': ping\n\n');
@@ -2506,6 +2626,77 @@ app.post('/api/sftp/:id/chown', route(async (request) => {
   const { remotePath, owner, group, recursive } = request.body || {};
   return success(await sftpOps.chownRemoteItem(session.client, { remotePath, owner, group, recursive }));
 }));
+
+app.get('/api/sftp/:id/chunk', route(async (request) => {
+  const session = getSession(request.params.id, requireClientId(request));
+  const remotePath = String(request.query.path || '');
+  const mode = request.query.mode === 'tail' ? 'tail' : 'chunk';
+  const offset = Number(request.query.offset || 0);
+  const length = Number(request.query.length || 65536);
+  const lines = Number(request.query.lines || 300);
+  return success(await sftpOps.readRemoteFileChunk(session.client, {
+    remotePath,
+    mode,
+    offset,
+    length,
+    lines,
+  }));
+}));
+
+app.get('/api/sftp/:id/tail/stream', (request, response) => {
+  let session;
+  try {
+    const clientId = String(request.query.clientId || requestClientId(request));
+    session = getSession(request.params.id, clientId);
+  } catch (error) {
+    response.status(400).json({ success: false, error: error.message });
+    return;
+  }
+  const remotePath = String(request.query.path || '');
+  const lines = Number(request.query.lines || 200);
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (event, data) => {
+    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  let closed = false;
+  let stream;
+  try {
+    stream = sftpOps.openRemoteFileTailStream(session.client, remotePath, lines, {
+      onData: (text) => {
+        if (!closed) send('data', { text });
+      },
+      onClose: () => {
+        if (closed) return;
+        closed = true;
+        send('end', {});
+        response.end();
+      },
+      onError: (err) => {
+        if (closed) return;
+        closed = true;
+        send('error', { message: err?.message || 'tail stream failed' });
+        response.end();
+      },
+    });
+  } catch (err) {
+    send('error', { message: err?.message || 'Invalid path' });
+    response.end();
+    return;
+  }
+  const heartbeat = setInterval(() => {
+    if (!closed) response.write(': ping\n\n');
+  }, 15000);
+  request.on('close', () => {
+    closed = true;
+    clearInterval(heartbeat);
+    stream?.close();
+  });
+});
 
 app.get('/api/sftp/bookmarks', route((request) => {
   const connectionId = String(request.query.connectionId || '');

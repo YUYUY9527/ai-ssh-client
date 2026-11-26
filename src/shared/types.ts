@@ -28,6 +28,8 @@ export interface SSHConnection {
   groupId?: string;
   /** 自由标签，用于跨分组的筛选与归类。 */
   tags?: string[];
+  /** 环境标识（生产/预发/开发/测试），用于视觉警示防误操作。 */
+  envTag?: 'prod' | 'staging' | 'dev' | 'test';
   /** 代理：先经由该代理连到第一跳（有跳板机时是第一台，否则是目标主机）。 */
   proxy?: SshProxyConfig;
   /** 多级跳板机，按顺序逐跳建连；最后一跳之后连到目标主机。 */
@@ -295,6 +297,16 @@ export interface SSHSessionState {
   lastError?: string;
 }
 
+export type TerminalHighlightColor = 'danger' | 'warning' | 'success' | 'info' | 'accent';
+
+export interface TerminalHighlightRule {
+  id: string;
+  pattern: string;
+  color: TerminalHighlightColor;
+  enabled: boolean;
+  caseInsensitive?: boolean;
+}
+
 // 应用设置
 export interface AppSettings {
   language: string;
@@ -320,6 +332,14 @@ export interface AppSettings {
   terminalCopyOnSelect?: boolean;
   /** 客户端识别 Shell Integration OSC 序列 */
   terminalShellIntegration?: boolean;
+  /** 启用 xterm WebGL 硬件加速渲染（大日志流更流畅） */
+  terminalWebgl?: boolean;
+  /** 启用终端关键词高亮着色 */
+  terminalHighlightsEnabled?: boolean;
+  /** 自定义终端关键词高亮规则 */
+  terminalHighlightRules?: TerminalHighlightRule[];
+  /** 启用 ZMODEM (rz/sz) 握手检测与 SFTP 透明桥接（默认开启） */
+  terminalZmodem?: boolean;
   agentEnabled?: boolean;
   agentSemanticSummaryContextLength?: number;
   /** 只读模式：Agent 只允许执行不改动远端状态的命令。 */

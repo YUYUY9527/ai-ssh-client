@@ -185,11 +185,24 @@ async function inspectContainer(client, containerId) {
   return summarizeInspect(first);
 }
 
-async function containerLogs(client, containerId, tail = DEFAULT_LOG_TAIL) {
+function sanitizeSince(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^[0-9]+[smhd]$/.test(text) || /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+Z?$/.test(text)) {
+    return text;
+  }
+  return '';
+}
+
+async function containerLogs(client, containerId, tail = DEFAULT_LOG_TAIL, options = {}) {
   const safeTail = Number.isInteger(Number(tail)) && Number(tail) > 0 ? Math.min(Number(tail), 5000) : DEFAULT_LOG_TAIL;
+  const args = ['logs', '--tail', String(safeTail), '--timestamps'];
+  const since = sanitizeSince(options.since);
+  if (since) args.push('--since', since);
+  args.push(containerId);
   const result = await runDocker(
     client,
-    ['logs', '--tail', String(safeTail), '--timestamps', containerId],
+    args,
     { maxBytes: 2 * 1024 * 1024, timeoutMs: 20000 },
   );
   if (result.exitCode !== 0 && !result.output) {
@@ -202,9 +215,14 @@ async function containerLogs(client, containerId, tail = DEFAULT_LOG_TAIL) {
  * 打开一条 `docker logs -f` 的实时流（SSE 后端用）。
  * 返回 { close }，调用方在客户端断开时关闭底层 ssh 通道。
  */
-function openContainerLogStream(client, containerId, tail = DEFAULT_LOG_TAIL, handlers = {}) {
+function openContainerLogStream(client, containerId, tail = DEFAULT_LOG_TAIL, handlers = {}, options = {}) {
   const safeTail = Number.isInteger(Number(tail)) && Number(tail) > 0 ? Math.min(Number(tail), 5000) : DEFAULT_LOG_TAIL;
-  const command = `docker logs -f --tail ${safeTail} --timestamps ${shellArg(containerId)}`;
+  const since = sanitizeSince(options.since);
+  const prefix = (client && typeof client === 'object' && sudoPrefixCache.has(client))
+    ? sudoPrefixCache.get(client).join(' ')
+    : 'docker';
+  const sincePart = since ? ` --since ${shellArg(since)}` : '';
+  const command = `${prefix} logs -f --tail ${safeTail} --timestamps${sincePart} ${shellArg(containerId)}`;
   let channel = null;
   const stream = client.exec(command, (error, execChannel) => {
     if (error) {
@@ -576,7 +594,86 @@ async function readComposeFile(client, configFile) {
   return { path: target, content: result.output || '' };
 }
 
-/** 保存修改后的 docker-compose.yml；apply=true（默认）时随后执行 docker compose up -d，apply=false 时仅保存文件。 */
+/** 拉取远端镜像。 */
+async function pullImage(client, imageRef) {
+  const image = String(imageRef || '').trim();
+  if (!image || /[\s\0]/.test(image)) {
+    throw new Error('Invalid image reference');
+  }
+  const result = await runDocker(client, ['pull', image], {
+    timeoutMs: UPDATE_TIMEOUT_MS,
+    maxBytes: 4 * 1024 * 1024,
+  });
+  const output = `${result.output || ''}${result.stderr || ''}`.trim();
+  if (result.exitCode !== 0) {
+    throw new Error(output || 'docker pull failed');
+  }
+  return { image, output };
+}
+
+const ALLOWED_RESTART_POLICIES = new Set(['no', 'always', 'unless-stopped', 'on-failure']);
+
+/** 新建并启动容器（docker run -d）。 */
+async function runContainer(client, spec = {}) {
+  const image = String(spec.image || '').trim();
+  if (!image || /[\s\0]/.test(image)) {
+    throw new Error('Image is required');
+  }
+  const args = ['run', '-d'];
+  const name = String(spec.name || '').trim();
+  if (name) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) {
+      throw new Error('Invalid container name');
+    }
+    args.push('--name', name);
+  }
+  const restart = String(spec.restart || '').trim();
+  if (restart && ALLOWED_RESTART_POLICIES.has(restart)) {
+    args.push('--restart', restart);
+  }
+  const network = String(spec.network || '').trim();
+  if (network && !/[\s\0]/.test(network)) {
+    args.push('--network', network);
+  }
+  for (const rawPort of Array.isArray(spec.ports) ? spec.ports : []) {
+    const port = String(rawPort || '').trim();
+    if (!port || /[\s\0]/.test(port)) continue;
+    args.push('-p', port);
+  }
+  for (const rawVol of Array.isArray(spec.volumes) ? spec.volumes : []) {
+    const vol = String(rawVol || '').trim();
+    if (!vol || vol.includes('\0')) continue;
+    args.push('-v', vol);
+  }
+  for (const rawEnv of Array.isArray(spec.env) ? spec.env : []) {
+    const env = String(rawEnv || '').trim();
+    if (!env || env.includes('\0') || env.includes('\n')) continue;
+    args.push('-e', env);
+  }
+  args.push(image);
+  const cmdText = String(spec.command || '').trim();
+  if (cmdText) {
+    const tokens = cmdText.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    for (const token of tokens) {
+      const stripped = token.replace(/^(['"])(.*)\1$/, '$2');
+      if (stripped) args.push(stripped);
+    }
+  }
+  const result = await runDocker(client, args, {
+    timeoutMs: UPDATE_TIMEOUT_MS,
+    maxBytes: 2 * 1024 * 1024,
+  });
+  const output = `${result.output || ''}${result.stderr || ''}`.trim();
+  if (result.exitCode !== 0) {
+    throw new Error(output || 'docker run failed');
+  }
+  const containerId = String(result.output || '').trim().split('\n').pop()?.trim() || '';
+  return { containerId, output };
+}
+
+const ALLOWED_COMPOSE_ACTIONS = new Set(['up', 'stop', 'restart', 'down', 'pull']);
+
+/** 保存修改后的 docker-compose.yml（自动创建父目录）；apply=true（默认）时随后执行 docker compose up -d，apply=false 时仅保存文件。 */
 async function saveComposeAndUp(client, configFile, content, projectName, options = {}) {
   const target = String(configFile || '').split(',')[0].trim();
   if (!target || target.includes('\0')) throw new Error('Invalid compose file path');
@@ -585,7 +682,7 @@ async function saveComposeAndUp(client, configFile, content, projectName, option
   const b64 = Buffer.from(content, 'utf8').toString('base64');
   const writeRes = await execCommand(
     client,
-    `printf '%s' '${b64}' | base64 -d > ${quoteArg(target)}`,
+    `mkdir -p -- "$(dirname -- ${quoteArg(target)})" && printf '%s' '${b64}' | base64 -d > ${quoteArg(target)}`,
     { timeoutMs: 15000 },
   );
   if (writeRes.exitCode !== 0) {
@@ -605,6 +702,49 @@ async function saveComposeAndUp(client, configFile, content, projectName, option
   return { path: target, output, applied: true };
 }
 
+/** 对 Compose 项目执行生命周期操作（up / stop / restart / down / pull）。 */
+async function composeProjectAction(client, configFile, projectName, action) {
+  const act = String(action || '').trim().toLowerCase();
+  if (!ALLOWED_COMPOSE_ACTIONS.has(act)) {
+    throw new Error(`Unsupported compose action: ${action}`);
+  }
+  const target = String(configFile || '').split(',')[0].trim();
+  const project = String(projectName || '').trim();
+  if (!target && !project) {
+    throw new Error('Compose file or project name is required');
+  }
+  const args = ['compose'];
+  if (target) args.push('-f', target);
+  if (project) args.push('-p', project);
+  if (act === 'up') args.push('up', '-d');
+  else args.push(act);
+  const res = await runDocker(client, args, { timeoutMs: UPDATE_TIMEOUT_MS, maxBytes: 4 * 1024 * 1024 });
+  const output = `${res.output || ''}${res.stderr || ''}`.trim();
+  if (res.exitCode !== 0) {
+    throw new Error(output || `docker compose ${act} failed`);
+  }
+  return { project: project || target, action: act, output };
+}
+
+/** 读取 Compose 项目聚合日志。 */
+async function composeProjectLogs(client, configFile, projectName, tail = DEFAULT_LOG_TAIL) {
+  const target = String(configFile || '').split(',')[0].trim();
+  const project = String(projectName || '').trim();
+  if (!target && !project) {
+    throw new Error('Compose file or project name is required');
+  }
+  const safeTail = Number.isInteger(Number(tail)) && Number(tail) > 0 ? Math.min(Number(tail), 5000) : DEFAULT_LOG_TAIL;
+  const args = ['compose'];
+  if (target) args.push('-f', target);
+  if (project) args.push('-p', project);
+  args.push('logs', '--tail', String(safeTail), '--timestamps', '--no-color');
+  const res = await runDocker(client, args, { timeoutMs: 30000, maxBytes: 2 * 1024 * 1024 });
+  if (res.exitCode !== 0 && !res.output) {
+    throw new Error(String(res.stderr || '').trim() || 'docker compose logs failed');
+  }
+  return { logs: `${res.output || ''}${res.stderr || ''}`, truncated: Boolean(res.truncated) };
+}
+
 module.exports = {
   quoteArg,
   parseContainerLines,
@@ -620,7 +760,9 @@ module.exports = {
   pruneDocker,
   containerStats,
   listImages,
+  pullImage,
   removeImage,
+  runContainer,
   listVolumes,
   removeVolume,
   listNetworks,
@@ -628,6 +770,9 @@ module.exports = {
   listComposeProjects,
   readComposeFile,
   saveComposeAndUp,
+  composeProjectAction,
+  composeProjectLogs,
   ALLOWED_ACTIONS,
   ALLOWED_PRUNE_TARGETS,
+  ALLOWED_COMPOSE_ACTIONS,
 };

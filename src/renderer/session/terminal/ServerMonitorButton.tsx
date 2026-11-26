@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, Cpu, HardDrive, Loader2, MemoryStick, Network, Play, RefreshCw, RotateCcw, Server, Skull, Square, X } from 'lucide-react';
-import type { ListeningPortItem, ServerMonitorMetrics, SystemdServiceItem } from '../../../shared/ipc-types';
+import { Activity, Clock, Cpu, HardDrive, Loader2, MemoryStick, Network, Play, Plus, Power, RefreshCw, RotateCcw, Save, ScrollText, Server, Shield, Skull, Square, Trash2, X } from 'lucide-react';
+import type { CrontabResult, FirewallStatusResult, ListeningPortItem, ServerMonitorMetrics, SystemdServiceItem } from '../../../shared/ipc-types';
 import { useConnectionStore } from '../../store/useConnectionStore';
+import { IndustrialSelect } from '../../shared-ui/IndustrialSelect';
 
 interface ServerMonitorButtonProps {
   connectionId: string | null;
@@ -165,14 +166,23 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   const supported = typeof window !== 'undefined'
     && typeof window.electronAPI?.getServerMonitor === 'function';
   const [open, setOpen] = useState(false);
-  const [monitorTab, setMonitorTab] = useState<'overview' | 'ports' | 'services'>('overview');
+  const [monitorTab, setMonitorTab] = useState<'overview' | 'ports' | 'services' | 'crontab' | 'firewall'>('overview');
   const [metrics, setMetrics] = useState<ServerMonitorMetrics | null>(null);
   const [history, setHistory] = useState<number[]>([]);
   const [memHistory, setMemHistory] = useState<number[]>([]);
   const [netHistory, setNetHistory] = useState<number[]>([]);
   const [ports, setPorts] = useState<ListeningPortItem[]>([]);
   const [services, setServices] = useState<SystemdServiceItem[]>([]);
+  const [serviceFilter, setServiceFilter] = useState('');
+  const [serviceLogs, setServiceLogs] = useState<{ name: string; logs: string; loading: boolean } | null>(null);
   const [servicesAvailable, setServicesAvailable] = useState(true);
+  const [crontab, setCrontab] = useState<CrontabResult | null>(null);
+  const [crontabDraft, setCrontabDraft] = useState('');
+  const [crontabSaving, setCrontabSaving] = useState(false);
+  const [firewall, setFirewall] = useState<FirewallStatusResult | null>(null);
+  const [fwPort, setFwPort] = useState('');
+  const [fwProtocol, setFwProtocol] = useState<'tcp' | 'udp' | 'any'>('tcp');
+  const [fwBusy, setFwBusy] = useState(false);
   const [extraLoading, setExtraLoading] = useState(false);
   const [confirmKillPid, setConfirmKillPid] = useState<number | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -239,10 +249,11 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
     return () => clearInterval(timer);
   }, [open, supported, connectionId, fetchMetrics, connections.length, loadConnections]);
 
-  const fetchExtraTab = useCallback(async (tab: 'ports' | 'services') => {
+  const fetchExtraTab = useCallback(async (tab: 'ports' | 'services' | 'crontab' | 'firewall') => {
     if (!connectionId) return;
     setExtraLoading(true);
     setActionMsg(null);
+    setError(null);
     try {
       if (tab === 'ports' && window.electronAPI?.listListeningPorts) {
         const res = await window.electronAPI.listListeningPorts(connectionId);
@@ -256,6 +267,21 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
         } else {
           setError(res.error);
         }
+      } else if (tab === 'crontab' && window.electronAPI?.getCrontab) {
+        const res = await window.electronAPI.getCrontab(connectionId);
+        if (res.success) {
+          setCrontab(res.data);
+          setCrontabDraft(res.data.raw || '');
+        } else {
+          setError(res.error);
+        }
+      } else if (tab === 'firewall' && window.electronAPI?.getFirewallStatus) {
+        const res = await window.electronAPI.getFirewallStatus(connectionId);
+        if (res.success) {
+          setFirewall(res.data);
+        } else {
+          setError(res.error);
+        }
       }
     } finally {
       setExtraLoading(false);
@@ -264,7 +290,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
 
   useEffect(() => {
     if (!open || !connectionId) return;
-    if (monitorTab === 'ports' || monitorTab === 'services') {
+    if (monitorTab !== 'overview') {
       void fetchExtraTab(monitorTab);
     }
   }, [open, connectionId, monitorTab, fetchExtraTab]);
@@ -277,6 +303,12 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
     setNetHistory([]);
     setPorts([]);
     setServices([]);
+    setServiceFilter('');
+    setServiceLogs(null);
+    setCrontab(null);
+    setCrontabDraft('');
+    setFirewall(null);
+    setFwPort('');
     setMonitorTab('overview');
     setConfirmKillPid(null);
     setActionMsg(null);
@@ -290,8 +322,12 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
   useEffect(() => {
     if (!open) return undefined;
     const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
       if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) {
+        return;
+      }
+      if (target.closest('[data-monitor-submodal]') || target.closest('[role="listbox"]')) {
         return;
       }
       setOpen(false);
@@ -323,8 +359,8 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
       const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
       const viewportHeight = window.innerHeight;
       const margin = 12;
-      const width = Math.max(0, Math.min(340, viewportWidth - margin * 2));
-      const maxHeight = Math.max(0, Math.min(viewportHeight * 0.78, viewportHeight - margin * 2));
+      const width = Math.max(0, Math.min(400, viewportWidth - margin * 2));
+      const maxHeight = Math.max(0, Math.min(viewportHeight * 0.82, viewportHeight - margin * 2));
       panel.style.width = `${width}px`;
       panel.style.maxHeight = `${maxHeight}px`;
 
@@ -388,7 +424,7 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
       {open && createPortal(
         <div
           ref={panelRef}
-          className="app-popover fixed left-3 top-3 z-overlay mt-0 max-h-[78vh] w-[340px] space-y-2.5 overflow-y-auto p-3 scrollbar-thin"
+          className="app-popover fixed left-3 top-3 z-overlay mt-0 max-h-[82vh] w-[400px] space-y-2.5 overflow-y-auto p-3 scrollbar-thin"
           data-terminal-monitor-panel
           data-terminal-toolbar-popup
           style={{
@@ -426,11 +462,13 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
             </div>
           </div>
 
-          <div className="flex items-center gap-1 border-b border-line-subtle pb-1.5">
+          <div className="flex flex-wrap items-center gap-1 border-b border-line-subtle pb-1.5">
             {([
               { id: 'overview', label: translate('features.monitor.tabs.overview') },
               { id: 'ports', label: translate('features.monitor.tabs.ports') },
               { id: 'services', label: translate('features.monitor.tabs.services') },
+              { id: 'crontab', label: translate('features.monitor.tabs.crontab') },
+              { id: 'firewall', label: translate('features.monitor.tabs.firewall') },
             ] as const).map((tab) => (
               <button
                 key={tab.id}
@@ -497,6 +535,15 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
 
           {monitorTab === 'services' && (
             <div className="space-y-1.5">
+              {servicesAvailable && services.length > 0 && (
+                <input
+                  type="text"
+                  value={serviceFilter}
+                  onChange={(event) => setServiceFilter(event.target.value)}
+                  placeholder={translate('features.monitor.filterServices')}
+                  className="industrial-input h-7 w-full text-[11px]"
+                />
+              )}
               {extraLoading ? (
                 <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-muted">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
@@ -508,45 +555,258 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                 <p className="py-3 text-center text-xs text-fg-muted">{translate('features.monitor.noServices')}</p>
               ) : (
                 <div className="max-h-80 space-y-1 overflow-y-auto scrollbar-thin">
-                  {services.map((svc) => {
-                    const active = svc.active === 'active';
-                    const runSvc = async (action: 'start' | 'stop' | 'restart') => {
-                      if (!window.electronAPI?.controlSystemdService || !connectionId) return;
-                      const res = await window.electronAPI.controlSystemdService(connectionId, svc.name, action);
-                      if (!res.success) {
-                        setError(res.error);
-                      } else {
-                        setActionMsg(`${svc.name}: ${action}`);
-                        await fetchExtraTab('services');
-                      }
-                    };
-                    return (
-                      <div key={svc.name} className="flex items-center justify-between gap-2 rounded-sm border border-line-subtle bg-surface px-2 py-1.5 text-[11px]">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-success' : 'bg-fg-subtle'}`} />
-                            <span className="truncate font-mono font-medium text-fg" title={svc.name}>{svc.name}</span>
+                  {services
+                    .filter((svc) => !serviceFilter.trim() || svc.name.toLowerCase().includes(serviceFilter.trim().toLowerCase()))
+                    .map((svc) => {
+                      const active = svc.active === 'active';
+                      const isEnabled = svc.enabledState === 'enabled';
+                      const canToggleEnable = svc.enabledState === 'enabled' || svc.enabledState === 'disabled';
+                      const runSvc = async (action: 'start' | 'stop' | 'restart' | 'enable' | 'disable') => {
+                        if (!window.electronAPI?.controlSystemdService || !connectionId) return;
+                        const res = await window.electronAPI.controlSystemdService(connectionId, svc.name, action);
+                        if (!res.success) {
+                          setError(res.error);
+                        } else {
+                          setActionMsg(`${svc.name}: ${action}`);
+                          await fetchExtraTab('services');
+                        }
+                      };
+                      const openLogs = async () => {
+                        if (!window.electronAPI?.getSystemdServiceLogs || !connectionId) return;
+                        setServiceLogs({ name: svc.name, logs: '', loading: true });
+                        const res = await window.electronAPI.getSystemdServiceLogs(connectionId, svc.name, 200);
+                        if (!res.success) {
+                          setServiceLogs({ name: svc.name, logs: res.error || 'Failed to load logs', loading: false });
+                        } else {
+                          setServiceLogs({ name: svc.name, logs: res.data.logs || '', loading: false });
+                        }
+                      };
+                      return (
+                        <div key={svc.name} className="flex items-center justify-between gap-2 rounded-sm border border-line-subtle bg-surface px-2 py-1.5 text-[11px]">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-success' : 'bg-fg-subtle'}`} />
+                              <span className="truncate font-mono font-medium text-fg" title={svc.name}>{svc.name}</span>
+                              {svc.enabledState && (
+                                <span className={`shrink-0 rounded-sm px-1 py-0.2 font-mono text-[9.5px] ${isEnabled ? 'bg-accent-muted text-accent' : 'bg-surface-raised text-fg-subtle'}`}>
+                                  {svc.enabledState}
+                                </span>
+                              )}
+                            </div>
+                            <div className="truncate text-[10px] text-fg-subtle">{svc.active} ({svc.sub})</div>
                           </div>
-                          <div className="truncate text-[10px] text-fg-subtle">{svc.active} ({svc.sub})</div>
+                          <div className="flex shrink-0 items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => { void openLogs(); }}
+                              className="icon-button h-6 w-6 text-info"
+                              title={translate('features.monitor.serviceLogs')}
+                            >
+                              <ScrollText className="h-3 w-3" />
+                            </button>
+                            {canToggleEnable && (
+                              <button
+                                type="button"
+                                onClick={() => { void runSvc(isEnabled ? 'disable' : 'enable'); }}
+                                className={`icon-button h-6 w-6 ${isEnabled ? 'text-accent' : 'text-fg-subtle'}`}
+                                title={isEnabled ? translate('features.monitor.disableAutostart') : translate('features.monitor.enableAutostart')}
+                              >
+                                <Power className="h-3 w-3" />
+                              </button>
+                            )}
+                            {!active ? (
+                              <button type="button" onClick={() => void runSvc('start')} className="icon-button h-6 w-6 text-success" title={translate('terminal.docker.start')}>
+                                <Play className="h-3 w-3" />
+                              </button>
+                            ) : (
+                              <button type="button" onClick={() => void runSvc('stop')} className="icon-button h-6 w-6 text-danger" title={translate('terminal.docker.stop')}>
+                                <Square className="h-3 w-3" />
+                              </button>
+                            )}
+                            <button type="button" onClick={() => void runSvc('restart')} className="icon-button h-6 w-6" title={translate('terminal.docker.restart')}>
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-0.5">
-                          {!active ? (
-                            <button type="button" onClick={() => void runSvc('start')} className="icon-button h-6 w-6 text-success" title={translate('terminal.docker.start')}>
-                              <Play className="h-3 w-3" />
-                            </button>
-                          ) : (
-                            <button type="button" onClick={() => void runSvc('stop')} className="icon-button h-6 w-6 text-danger" title={translate('terminal.docker.stop')}>
-                              <Square className="h-3 w-3" />
-                            </button>
-                          )}
-                          <button type="button" onClick={() => void runSvc('restart')} className="icon-button h-6 w-6" title={translate('terminal.docker.restart')}>
-                            <RotateCcw className="h-3 w-3" />
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {monitorTab === 'crontab' && (
+            <div className="space-y-2">
+              {extraLoading ? (
+                <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                  <span>{translate('common.loading')}</span>
+                </div>
+              ) : crontab && !crontab.available ? (
+                <p className="py-3 text-center text-xs text-fg-muted">{translate('features.monitor.noCrontab')}</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-[11px] text-fg-muted">
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5 text-accent" />
+                      {translate('features.monitor.crontabCount', { count: crontab?.entries.length ?? 0 })}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={crontabSaving}
+                      onClick={async () => {
+                        if (!window.electronAPI?.saveCrontab || !connectionId) return;
+                        setCrontabSaving(true);
+                        setError(null);
+                        try {
+                          const res = await window.electronAPI.saveCrontab(connectionId, crontabDraft);
+                          if (!res.success) {
+                            setError(res.error);
+                          } else {
+                            setActionMsg(translate('features.monitor.crontabSaved'));
+                            await fetchExtraTab('crontab');
+                          }
+                        } finally {
+                          setCrontabSaving(false);
+                        }
+                      }}
+                      className="industrial-button-primary h-6 px-2 text-[11px]"
+                    >
+                      {crontabSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                      <span>{translate('common.save')}</span>
+                    </button>
+                  </div>
+                  <textarea
+                    rows={10}
+                    value={crontabDraft}
+                    onChange={(event) => setCrontabDraft(event.target.value)}
+                    placeholder={'# m h dom mon dow command\n0 3 * * * /usr/local/bin/backup.sh'}
+                    className="industrial-input w-full resize-y font-mono text-[11px] leading-5"
+                    spellCheck={false}
+                  />
+                  <p className="text-[10px] text-fg-subtle">{translate('features.monitor.crontabHint')}</p>
+                </>
+              )}
+            </div>
+          )}
+
+          {monitorTab === 'firewall' && (
+            <div className="space-y-2">
+              {extraLoading ? (
+                <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                  <span>{translate('common.loading')}</span>
+                </div>
+              ) : !firewall || firewall.backend === 'none' ? (
+                <p className="py-3 text-center text-xs text-fg-muted">{translate('features.monitor.noFirewall')}</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between rounded-sm border border-line-subtle bg-surface px-2.5 py-1.5 text-[11px]">
+                    <span className="flex items-center gap-1.5 font-medium text-fg">
+                      <Shield className="h-3.5 w-3.5 text-accent" />
+                      <span className="uppercase">{firewall.backend}</span>
+                    </span>
+                    <span className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${firewall.active ? 'bg-success-muted text-success' : 'bg-surface-raised text-fg-muted'}`}>
+                      {firewall.active ? translate('features.monitor.firewallActive') : translate('features.monitor.firewallInactive')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={fwPort}
+                      onChange={(event) => setFwPort(event.target.value)}
+                      placeholder={translate('features.monitor.firewallPortPlaceholder')}
+                      className="industrial-input h-7 min-w-0 flex-1 font-mono text-[11px]"
+                    />
+                    <div className="w-20 shrink-0">
+                      <IndustrialSelect
+                        value={fwProtocol}
+                        onChange={(val) => setFwProtocol(val as 'tcp' | 'udp' | 'any')}
+                        options={[
+                          { value: 'tcp', label: 'TCP' },
+                          { value: 'udp', label: 'UDP' },
+                          { value: 'any', label: 'ANY' },
+                        ]}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={fwBusy || !fwPort.trim()}
+                      onClick={async () => {
+                        if (!window.electronAPI?.manageFirewallRule || !connectionId || firewall.backend === 'none') return;
+                        setFwBusy(true);
+                        setError(null);
+                        try {
+                          const res = await window.electronAPI.manageFirewallRule(connectionId, {
+                            backend: firewall.backend,
+                            action: 'allow',
+                            port: fwPort.trim(),
+                            protocol: fwProtocol,
+                          });
+                          if (!res.success) setError(res.error);
+                          else {
+                            setFwPort('');
+                            setActionMsg(translate('features.monitor.firewallRuleUpdated'));
+                            await fetchExtraTab('firewall');
+                          }
+                        } finally {
+                          setFwBusy(false);
+                        }
+                      }}
+                      className="industrial-button-primary h-7 shrink-0 px-2 text-[11px]"
+                      title={translate('features.monitor.firewallAllow')}
+                    >
+                      {fwBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                      <span>{translate('features.monitor.firewallAllow')}</span>
+                    </button>
+                  </div>
+                  {firewall.rules.length === 0 ? (
+                    <p className="py-2 text-center text-[11px] text-fg-muted">{translate('features.monitor.firewallNoRules')}</p>
+                  ) : (
+                    <div className="max-h-60 space-y-1 overflow-y-auto scrollbar-thin">
+                      {firewall.rules.map((rule) => (
+                        <div key={`${rule.id}-${rule.target}`} className="flex items-center justify-between gap-2 rounded-sm border border-line-subtle bg-surface px-2 py-1.5 text-[11px]">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate font-mono font-medium text-fg">{rule.target}</span>
+                              <span className={`shrink-0 rounded-sm px-1 py-0.2 font-mono text-[9.5px] ${rule.action === 'ALLOW' ? 'bg-success-muted text-success' : 'bg-danger-muted text-danger'}`}>
+                                {rule.action}
+                              </span>
+                            </div>
+                            <div className="truncate text-[10px] text-fg-subtle">{rule.direction} · {rule.from}</div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={fwBusy}
+                            onClick={async () => {
+                              if (!window.electronAPI?.manageFirewallRule || !connectionId || firewall.backend === 'none') return;
+                              setFwBusy(true);
+                              setError(null);
+                              try {
+                                const res = await window.electronAPI.manageFirewallRule(connectionId, {
+                                  backend: firewall.backend,
+                                  action: 'delete',
+                                  ruleId: rule.id,
+                                });
+                                if (!res.success) setError(res.error);
+                                else {
+                                  setActionMsg(translate('features.monitor.firewallRuleUpdated'));
+                                  await fetchExtraTab('firewall');
+                                }
+                              } finally {
+                                setFwBusy(false);
+                              }
+                            }}
+                            className="icon-button h-6 w-6 text-danger"
+                            title={translate('common.delete')}
+                          >
+                            <Trash2 className="h-3 w-3" />
                           </button>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -714,6 +974,40 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
                 )}
               </Card>
 
+              {/* GPU（仅存在 NVIDIA GPU 时显示） */}
+              {metrics.gpus && metrics.gpus.length > 0 && (
+                <Card
+                  icon={<Cpu className="w-3 h-3 text-success" />}
+                  tint="bg-success-muted"
+                  title={translate('features.monitor.gpu')}
+                >
+                  <div className="space-y-2.5">
+                    {metrics.gpus.map((gpu) => (
+                      <div key={gpu.index} className="space-y-1.5 rounded-sm border border-line-subtle bg-surface p-2">
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="truncate font-medium text-fg" title={gpu.name}>
+                            GPU {gpu.index} · {gpu.name}
+                          </span>
+                          <span className="shrink-0 font-mono text-[10.5px] text-fg-muted tabular-nums">
+                            {gpu.temperatureC}°C{gpu.powerW > 0 ? ` · ${gpu.powerW.toFixed(0)}W` : ''}
+                          </span>
+                        </div>
+                        <Meter
+                          label={translate('features.monitor.gpuUtil')}
+                          percent={gpu.utilizationPercent}
+                          detail={`${gpu.utilizationPercent}%`}
+                        />
+                        <Meter
+                          label={translate('features.monitor.gpuMem')}
+                          percent={gpu.memoryPercent}
+                          detail={`${gpu.memoryUsedMb} MB / ${gpu.memoryTotalMb} MB`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
               {/* 内存 */}
               <Card
                 icon={<MemoryStick className="w-3 h-3 text-accent-alt" />}
@@ -810,6 +1104,56 @@ export function ServerMonitorButton({ connectionId, translate }: ServerMonitorBu
               </Card>
             </>
           )}
+        </div>,
+        document.body,
+      )}
+
+      {serviceLogs && createPortal(
+        <div
+          data-monitor-submodal
+          className="fixed inset-0 z-modal flex items-center justify-center p-4"
+          onClick={() => setServiceLogs(null)}
+        >
+          <div className="modal-backdrop" />
+          <div
+            className="industrial-modal relative flex h-[72vh] w-full max-w-4xl flex-col overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="industrial-modal-header shrink-0 text-sm font-semibold text-fg">
+              <span className="truncate font-mono">journalctl · {serviceLogs.name}</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={serviceLogs.loading}
+                  onClick={async () => {
+                    if (!window.electronAPI?.getSystemdServiceLogs || !connectionId) return;
+                    setServiceLogs((prev) => (prev ? { ...prev, loading: true } : null));
+                    const res = await window.electronAPI.getSystemdServiceLogs(connectionId, serviceLogs.name, 200);
+                    setServiceLogs({
+                      name: serviceLogs.name,
+                      logs: res.success ? (res.data.logs || '') : (res.error || ''),
+                      loading: false,
+                    });
+                  }}
+                  className="icon-button h-7 w-7"
+                  title={translate('common.refresh')}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${serviceLogs.loading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setServiceLogs(null)}
+                  className="icon-button h-7 w-7"
+                  title={translate('common.close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <pre className="scrollbar-thin min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-[var(--bg-primary)] p-3 font-mono text-[11px] leading-5 text-fg-secondary">
+              {serviceLogs.loading ? translate('common.loading') : (serviceLogs.logs || translate('terminal.docker.logsEmpty'))}
+            </pre>
+          </div>
         </div>,
         document.body,
       )}

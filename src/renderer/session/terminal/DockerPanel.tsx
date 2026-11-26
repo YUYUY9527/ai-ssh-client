@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, ArrowDownCircle, Box, ChevronDown, Container, Copy, Database, FileCode2, HardDrive, Info, Layers3, Loader2, MoreHorizontal, Network, Play, Power, RefreshCw, RotateCcw, Save, ScrollText, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
+import { Activity, ArrowDownCircle, Box, ChevronDown, Container, Copy, Database, Download, FileCode2, HardDrive, Info, Layers3, Loader2, MoreHorizontal, Network, Play, Plus, Power, RefreshCw, RotateCcw, Save, ScrollText, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type {
+  DockerComposeAction,
   DockerComposeProject,
   DockerContainerDetail,
   DockerContainerStat,
@@ -13,6 +14,7 @@ import type {
 } from '../../../shared/ipc-types';
 import { DockerExecTerminal } from './DockerExecTerminal';
 import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
+import { IndustrialSelect } from '../../shared-ui/IndustrialSelect';
 import { getWebSftpClientId } from '../../lib/web';
 import { useSessionOverlay } from '../../workspace/SessionOverlayContext';
 import { detectCodeLanguage } from '../../transfer/code-format';
@@ -86,8 +88,10 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [pruneMenu, setPruneMenu] = useState<PruneMenuState | null>(null);
   const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
   const [detailLoadingName, setDetailLoadingName] = useState<string | null>(null);
-  const [logs, setLogs] = useState<{ containerId: string; text: string } | null>(null);
+  const [logs, setLogs] = useState<{ containerId: string; title?: string; text: string; stream?: boolean } | null>(null);
   const [logSearch, setLogSearch] = useState('');
+  const [logSince, setLogSince] = useState('');
+  const [logFilterOnly, setLogFilterOnly] = useState(true);
   const [follow, setFollow] = useState(true);
   const logPreRef = useRef<HTMLPreElement | null>(null);
   const rowMenuRef = useRef<HTMLDivElement | null>(null);
@@ -99,15 +103,32 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [activeTab, setActiveTab] = useState<DockerTab>('containers');
   const [statsById, setStatsById] = useState<Record<string, DockerContainerStat>>({});
   const [images, setImages] = useState<DockerImageItem[]>([]);
+  const [pullImageInput, setPullImageInput] = useState('');
+  const [pullingImage, setPullingImage] = useState(false);
+  const [runModalOpen, setRunModalOpen] = useState(false);
+  const [runBusy, setRunBusy] = useState(false);
+  const [runForm, setRunForm] = useState({
+    image: '',
+    name: '',
+    ports: '',
+    volumes: '',
+    env: '',
+    restart: 'unless-stopped' as 'no' | 'always' | 'unless-stopped' | 'on-failure',
+    network: '',
+    command: '',
+  });
   const [volumes, setVolumes] = useState<DockerVolumeItem[]>([]);
   const [networks, setNetworks] = useState<DockerNetworkItem[]>([]);
   const [composeProjects, setComposeProjects] = useState<DockerComposeProject[]>([]);
+  const [composeBusyKey, setComposeBusyKey] = useState<string | null>(null);
+  const [pendingComposeDown, setPendingComposeDown] = useState<DockerComposeProject | null>(null);
   const [composeEditor, setComposeEditor] = useState<{
     project: string;
     path: string;
     content: string;
     originalContent: string;
     savingMode: null | 'save' | 'apply';
+    isNew?: boolean;
   } | null>(null);
   const [resourceLoading, setResourceLoading] = useState(false);
 
@@ -366,8 +387,130 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
 
   const openLogs = (container: DockerContainerSummary) => {
     setLogSearch('');
+    setLogSince('');
     setFollow(true);
-    setLogs({ containerId: container.id, text: '' });
+    setLogs({ containerId: container.id, title: container.name || container.id.slice(0, 12), text: '', stream: true });
+  };
+
+  const handlePullImage = async () => {
+    const ref = pullImageInput.trim();
+    if (!ref || !window.electronAPI?.pullDockerImage) return;
+    setPullingImage(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await window.electronAPI.pullDockerImage(connectionId, ref);
+      if (!res.success) {
+        setError(res.error || translate('terminal.docker.pullFailed'));
+      } else {
+        setPullImageInput('');
+        setNotice(translate('terminal.docker.pullDone', { image: res.data.image }));
+        await loadResourceTab('images');
+      }
+    } finally {
+      setPullingImage(false);
+    }
+  };
+
+  const handleRunContainer = async () => {
+    const image = runForm.image.trim();
+    if (!image || !window.electronAPI?.runDockerContainer) return;
+    setRunBusy(true);
+    setError(null);
+    setNotice(null);
+    const splitLines = (text: string) => text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    try {
+      const res = await window.electronAPI.runDockerContainer(connectionId, {
+        image,
+        name: runForm.name.trim() || undefined,
+        ports: splitLines(runForm.ports),
+        volumes: splitLines(runForm.volumes),
+        env: splitLines(runForm.env),
+        restart: runForm.restart,
+        network: runForm.network.trim() || undefined,
+        command: runForm.command.trim() || undefined,
+      });
+      if (!res.success) {
+        setError(res.error || translate('terminal.docker.runFailed'));
+      } else {
+        setNotice(translate('terminal.docker.runDone', {
+          name: runForm.name.trim() || res.data.containerId.slice(0, 12),
+        }));
+        setRunModalOpen(false);
+        setRunForm({
+          image: '',
+          name: '',
+          ports: '',
+          volumes: '',
+          env: '',
+          restart: 'unless-stopped',
+          network: '',
+          command: '',
+        });
+        await refresh();
+      }
+    } finally {
+      setRunBusy(false);
+    }
+  };
+
+  const runComposeAction = async (proj: DockerComposeProject, action: DockerComposeAction) => {
+    if (!window.electronAPI?.dockerComposeAction) return;
+    const key = `${proj.name}:${action}`;
+    setComposeBusyKey(key);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await window.electronAPI.dockerComposeAction(connectionId, proj.configFiles, proj.name, action);
+      if (!res.success) {
+        setError(res.error || `compose ${action} failed`);
+      } else {
+        setNotice(translate('terminal.docker.composeActionDone', { project: proj.name, action }));
+        await refresh();
+        await loadResourceTab('compose');
+      }
+    } finally {
+      setComposeBusyKey(null);
+    }
+  };
+
+  const openComposeLogs = async (proj: DockerComposeProject) => {
+    if (!window.electronAPI?.dockerComposeLogs) return;
+    const key = `${proj.name}:logs`;
+    setComposeBusyKey(key);
+    setError(null);
+    try {
+      const res = await window.electronAPI.dockerComposeLogs(connectionId, proj.configFiles, proj.name, 500);
+      if (!res.success) {
+        setError(res.error || 'compose logs failed');
+      } else {
+        setLogSearch('');
+        setFollow(false);
+        setLogs({
+          containerId: `compose:${proj.name}`,
+          title: `Compose · ${proj.name}`,
+          text: res.data.logs || '',
+          stream: false,
+        });
+      }
+    } finally {
+      setComposeBusyKey(null);
+    }
+  };
+
+  const downloadCurrentLogs = () => {
+    if (!logs) return;
+    const content = logFilterOnly && logSearch.trim() ? visibleLogLines.join('\n') : logs.text;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = (logs.title || logs.containerId).replace(/[^A-Za-z0-9_.-]+/g, '_');
+    a.href = url;
+    a.download = `${safeName}.log`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const toggleRowMenu = (container: DockerContainerSummary, trigger: HTMLButtonElement) => {
@@ -417,10 +560,11 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   };
 
   // 真流式跟随：SSE 订阅 `docker logs -f`，新日志实时追加；暂停/关闭即断开连接冻结内容。
-  const logContainerId = logs?.containerId ?? null;
+  const logContainerId = logs?.stream !== false ? (logs?.containerId ?? null) : null;
   useEffect(() => {
     if (!logContainerId || !follow) return undefined;
     const params = new URLSearchParams({ tail: '500', clientId: getWebSftpClientId() });
+    if (logSince) params.set('since', logSince);
     const source = new EventSource(
       `/api/ssh/${encodeURIComponent(connectionId)}/docker/containers/${encodeURIComponent(logContainerId)}/logs/stream?${params.toString()}`,
     );
@@ -432,7 +576,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
         if (!payload?.text) return;
         setLogs((current) =>
           current && current.containerId === logContainerId
-            ? { containerId: logContainerId, text: current.text + payload.text }
+            ? { ...current, text: current.text + payload.text }
             : current,
         );
       } catch {
@@ -452,7 +596,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
       disposed = true;
       source.close();
     };
-  }, [logContainerId, follow, connectionId]);
+  }, [logContainerId, follow, logSince, connectionId]);
 
   // 内容更新后（且处于跟随/首次打开）自动滚到最下方，显示最新日志。
   useEffect(() => {
@@ -470,15 +614,13 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
     if (distanceFromBottom > 24) setFollow(false);
   };
 
-  const visibleLogs = useMemo(() => {
-    if (!logs) return '';
+  const visibleLogLines = useMemo(() => {
+    if (!logs || !logs.text) return [];
+    const lines = logs.text.split('\n');
     const keyword = logSearch.trim().toLowerCase();
-    if (!keyword) return logs.text;
-    return logs.text
-      .split('\n')
-      .filter((line) => line.toLowerCase().includes(keyword))
-      .join('\n');
-  }, [logs, logSearch]);
+    if (!keyword || !logFilterOnly) return lines;
+    return lines.filter((line) => line.toLowerCase().includes(keyword));
+  }, [logs, logSearch, logFilterOnly]);
 
   const runningCount = useMemo(() => containers.filter((item) => item.state === 'running').length, [containers]);
   const stoppedCount = containers.length - runningCount;
@@ -497,6 +639,20 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   }, [containers, filter, containerFilter]);
 
   const confirmDialogConfig = useMemo(() => {
+    if (pendingComposeDown) {
+      const targetProj = pendingComposeDown;
+      return {
+        isOpen: true,
+        title: translate('terminal.docker.composeDownConfirmTitle', { project: targetProj.name }),
+        message: translate('terminal.docker.composeDownConfirmMessage', { project: targetProj.name }),
+        confirmText: translate('terminal.docker.composeDown'),
+        onConfirm: () => {
+          setPendingComposeDown(null);
+          void runComposeAction(targetProj, 'down');
+        },
+        onCancel: () => setPendingComposeDown(null),
+      };
+    }
     if (pendingPrune) {
       const targetLabel = pendingPrune === 'containers'
         ? translate('terminal.docker.pruneContainers')
@@ -561,7 +717,7 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
       },
       onCancel: () => setPendingAction(null),
     };
-  }, [pendingPrune, pendingAction, translate]);
+  }, [pendingComposeDown, pendingPrune, pendingAction, translate]);
 
   const portalTarget = overlay.container ?? document.body;
   const layerClass = isSessionScoped
@@ -673,7 +829,34 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
               </div>
 
               {activeTab === 'images' && (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-line-subtle bg-surface p-2.5">
+                    <input
+                      type="text"
+                      value={pullImageInput}
+                      onChange={(event) => setPullImageInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !pullingImage && pullImageInput.trim()) {
+                          void handlePullImage();
+                        }
+                      }}
+                      placeholder={translate('terminal.docker.pullImagePlaceholder')}
+                      className="industrial-input h-8 min-w-[200px] flex-1 font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      disabled={pullingImage || !pullImageInput.trim()}
+                      onClick={() => { void handlePullImage(); }}
+                      className="industrial-button-primary h-8 px-3 text-xs"
+                    >
+                      {pullingImage ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      <span>{translate('terminal.docker.pullImage')}</span>
+                    </button>
+                  </div>
                   {resourceLoading ? (
                     <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
                   ) : images.length === 0 ? (
@@ -684,19 +867,34 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         <div className="truncate font-mono font-medium text-fg">{img.repository}:{img.tag}</div>
                         <div className="mt-0.5 font-mono text-[11px] text-fg-muted">{img.id} · {img.size} · {img.createdSince}</div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.electronAPI?.removeDockerImage) return;
-                          const res = await window.electronAPI.removeDockerImage(connectionId, img.id, false);
-                          if (!res.success) setError(res.error);
-                          else await loadResourceTab('images');
-                        }}
-                        className="icon-button h-7 w-7 text-danger"
-                        title={translate('common.delete')}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const fullRef = img.tag && img.tag !== '<none>' ? `${img.repository}:${img.tag}` : img.repository;
+                            setRunForm((prev) => ({ ...prev, image: fullRef }));
+                            setRunModalOpen(true);
+                          }}
+                          className="industrial-button-secondary h-7 px-2 text-[11px]"
+                          title={translate('terminal.docker.runContainer')}
+                        >
+                          <Play className="h-3 w-3" />
+                          <span>{translate('terminal.docker.runShort')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.electronAPI?.removeDockerImage) return;
+                            const res = await window.electronAPI.removeDockerImage(connectionId, img.id, false);
+                            if (!res.success) setError(res.error);
+                            else await loadResourceTab('images');
+                          }}
+                          className="icon-button h-7 w-7 text-danger"
+                          title={translate('common.delete')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -793,14 +991,44 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                       }}
                     >
                       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-fg">
-                            <span>{composeEditor.project}</span>
-                            {composeEditor.content !== composeEditor.originalContent && (
-                              <span className="h-1.5 w-1.5 rounded-full bg-warning" title="*" />
-                            )}
-                          </div>
-                          <div className="truncate font-mono text-[11px] text-fg-muted">{composeEditor.path}</div>
+                        <div className="min-w-0 flex-1">
+                          {composeEditor.isNew ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                value={composeEditor.project}
+                                onChange={(event) => {
+                                  const nextName = event.target.value;
+                                  setComposeEditor((prev) => (prev ? {
+                                    ...prev,
+                                    project: nextName,
+                                    path: prev.path.startsWith('/opt/docker/')
+                                      ? `/opt/docker/${nextName.trim() || 'app'}/docker-compose.yml`
+                                      : prev.path,
+                                  } : null));
+                                }}
+                                placeholder={translate('terminal.docker.composeProjectName')}
+                                className="industrial-input h-7 w-40 font-mono text-xs"
+                              />
+                              <input
+                                type="text"
+                                value={composeEditor.path}
+                                onChange={(event) => setComposeEditor((prev) => (prev ? { ...prev, path: event.target.value } : null))}
+                                placeholder="/opt/docker/my-app/docker-compose.yml"
+                                className="industrial-input h-7 min-w-[220px] flex-1 font-mono text-xs"
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-fg">
+                                <span>{composeEditor.project}</span>
+                                {composeEditor.content !== composeEditor.originalContent && (
+                                  <span className="h-1.5 w-1.5 rounded-full bg-warning" title="*" />
+                                )}
+                              </div>
+                              <div className="truncate font-mono text-[11px] text-fg-muted">{composeEditor.path}</div>
+                            </>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button
@@ -904,42 +1132,132 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                         </Suspense>
                       </div>
                     </div>
-                  ) : resourceLoading ? (
-                    <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
-                  ) : composeProjects.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-fg-muted">{translate('terminal.docker.empty')}</div>
-                  ) : composeProjects.map((proj) => (
-                    <div key={proj.name} className="flex items-center justify-between gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2 text-xs">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-semibold text-fg">{proj.name}</div>
-                        <div className="mt-0.5 truncate font-mono text-[11px] text-fg-muted">{proj.status} · {proj.configFiles}</div>
-                      </div>
-                      {proj.configFiles && (
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-end">
                         <button
                           type="button"
-                          onClick={async () => {
-                            if (!window.electronAPI?.readDockerComposeFile) return;
-                            const res = await window.electronAPI.readDockerComposeFile(connectionId, proj.configFiles);
-                            if (!res.success) {
-                              setError(res.error);
-                            } else {
-                              setComposeEditor({
-                                project: proj.name,
-                                path: res.data.path,
-                                content: res.data.content,
-                                originalContent: res.data.content,
-                                savingMode: null,
-                              });
-                            }
+                          onClick={() => {
+                            const template = 'services:\n  app:\n    image: nginx:alpine\n    restart: unless-stopped\n    ports:\n      - "8080:80"\n';
+                            setComposeEditor({
+                              project: 'my-app',
+                              path: '/opt/docker/my-app/docker-compose.yml',
+                              content: template,
+                              originalContent: '',
+                              savingMode: null,
+                              isNew: true,
+                            });
                           }}
-                          className="industrial-button-secondary px-2.5 py-1 text-xs"
+                          className="industrial-button-primary px-2.5 py-1 text-xs"
                         >
-                          <FileCode2 className="h-3.5 w-3.5" />
-                          {translate('terminal.docker.editCompose')}
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>{translate('terminal.docker.newCompose')}</span>
                         </button>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                      {resourceLoading ? (
+                        <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
+                      ) : composeProjects.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-fg-muted">{translate('terminal.docker.empty')}</div>
+                      ) : composeProjects.map((proj) => {
+                        const rowBusy = composeBusyKey?.startsWith(`${proj.name}:`);
+                        return (
+                          <div key={proj.name} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line-subtle bg-surface px-3 py-2 text-xs">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate font-semibold text-fg">{proj.name}</div>
+                              <div className="mt-0.5 truncate font-mono text-[11px] text-fg-muted">{proj.status} · {proj.configFiles}</div>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={Boolean(rowBusy)}
+                                onClick={() => { void runComposeAction(proj, 'up'); }}
+                                className="docker-action-button is-start"
+                                title={translate('terminal.docker.composeUp')}
+                                aria-label={translate('terminal.docker.composeUp')}
+                              >
+                                {composeBusyKey === `${proj.name}:up` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={Boolean(rowBusy)}
+                                onClick={() => { void runComposeAction(proj, 'stop'); }}
+                                className="docker-action-button is-stop"
+                                title={translate('terminal.docker.composeStop')}
+                                aria-label={translate('terminal.docker.composeStop')}
+                              >
+                                {composeBusyKey === `${proj.name}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={Boolean(rowBusy)}
+                                onClick={() => { void runComposeAction(proj, 'restart'); }}
+                                className="docker-action-button is-restart"
+                                title={translate('terminal.docker.composeRestart')}
+                                aria-label={translate('terminal.docker.composeRestart')}
+                              >
+                                {composeBusyKey === `${proj.name}:restart` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={Boolean(rowBusy)}
+                                onClick={() => { void runComposeAction(proj, 'pull'); }}
+                                className="docker-action-button is-more"
+                                title={translate('terminal.docker.composePull')}
+                                aria-label={translate('terminal.docker.composePull')}
+                              >
+                                {composeBusyKey === `${proj.name}:pull` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowDownCircle className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={Boolean(rowBusy)}
+                                onClick={() => { void openComposeLogs(proj); }}
+                                className="docker-action-button is-more"
+                                title={translate('terminal.docker.logs')}
+                                aria-label={translate('terminal.docker.logs')}
+                              >
+                                {composeBusyKey === `${proj.name}:logs` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScrollText className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={Boolean(rowBusy)}
+                                onClick={() => setPendingComposeDown(proj)}
+                                className="docker-action-button is-stop"
+                                title={translate('terminal.docker.composeDown')}
+                                aria-label={translate('terminal.docker.composeDown')}
+                              >
+                                {composeBusyKey === `${proj.name}:down` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                              </button>
+                              {proj.configFiles && (
+                                <button
+                                  type="button"
+                                  disabled={Boolean(rowBusy)}
+                                  onClick={async () => {
+                                    if (!window.electronAPI?.readDockerComposeFile) return;
+                                    const res = await window.electronAPI.readDockerComposeFile(connectionId, proj.configFiles);
+                                    if (!res.success) {
+                                      setError(res.error);
+                                    } else {
+                                      setComposeEditor({
+                                        project: proj.name,
+                                        path: res.data.path,
+                                        content: res.data.content,
+                                        originalContent: res.data.content,
+                                        savingMode: null,
+                                      });
+                                    }
+                                  }}
+                                  className="industrial-button-secondary ml-1 px-2.5 py-1 text-xs"
+                                >
+                                  <FileCode2 className="h-3.5 w-3.5" />
+                                  {translate('terminal.docker.editCompose')}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -958,8 +1276,18 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                   <span className="docker-stat-icon"><Box className="h-3.5 w-3.5" /></span>
                   <span className="min-w-0"><span className="docker-stat-label">{translate('terminal.docker.stopped')}</span><span className="docker-stat-value tabular-nums">{available === null ? '—' : stoppedCount}</span></span>
                 </button>
-                <div className="ml-auto flex items-center gap-1.5 text-[11px] text-fg-muted">
-                  <span className="docker-live-dot" />{translate('terminal.docker.liveStatus')}
+                <div className="ml-auto flex items-center gap-2.5 text-[11px] text-fg-muted">
+                  <button
+                    type="button"
+                    onClick={() => setRunModalOpen(true)}
+                    className="industrial-button-primary h-7 px-2.5 text-xs"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>{translate('terminal.docker.runContainer')}</span>
+                  </button>
+                  <span className="flex items-center gap-1.5">
+                    <span className="docker-live-dot" />{translate('terminal.docker.liveStatus')}
+                  </span>
                 </div>
               </div>
 
@@ -1336,13 +1664,32 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
           <div className="modal-backdrop" />
           <div className={`industrial-modal relative my-auto flex ${logsPanelHeightClass} w-full max-w-5xl flex-col overflow-hidden`} onClick={(event) => event.stopPropagation()}>
             <div className="industrial-modal-header shrink-0 flex-wrap gap-2 text-sm font-semibold text-fg">
-              <span className="min-w-0 flex-1 truncate" title={translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}>
-                {translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}
+              <span className="min-w-0 flex-1 truncate" title={logs.title || translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}>
+                {logs.title ? translate('terminal.docker.logsTitle', { container: logs.title }) : translate('terminal.docker.logsTitle', { container: logs.containerId.slice(0, 12) })}
               </span>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {logs.stream !== false && (
+                  <div className="w-28">
+                    <IndustrialSelect
+                      value={logSince}
+                      onChange={(nextSince) => {
+                        setLogSince(nextSince);
+                        setLogs((prev) => (prev ? { ...prev, text: '' } : null));
+                        setFollow(true);
+                      }}
+                      options={[
+                        { value: '', label: translate('terminal.docker.logsSinceAll') },
+                        { value: '15m', label: translate('terminal.docker.logsSince15m') },
+                        { value: '1h', label: translate('terminal.docker.logsSince1h') },
+                        { value: '6h', label: translate('terminal.docker.logsSince6h') },
+                        { value: '24h', label: translate('terminal.docker.logsSince24h') },
+                      ]}
+                    />
+                  </div>
+                )}
                 <div className="relative flex items-center">
                   <input
-                    className="industrial-input h-7 w-44 py-1 pr-7 text-xs sm:w-52"
+                    className="industrial-input h-7 w-40 py-1 pr-7 text-xs sm:w-48"
                     placeholder={translate('terminal.docker.logsSearchPlaceholder')}
                     aria-label={translate('terminal.docker.logsSearchPlaceholder')}
                     value={logSearch}
@@ -1360,14 +1707,34 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                     </button>
                   )}
                 </div>
+                {logSearch.trim() && (
+                  <button
+                    type="button"
+                    className={`toolbar-button h-7 shrink-0 px-2 text-xs ${logFilterOnly ? 'text-accent' : 'text-fg-muted'}`}
+                    onClick={() => setLogFilterOnly((v) => !v)}
+                  >
+                    {logFilterOnly ? translate('terminal.docker.logsFilterMode') : translate('terminal.docker.logsHighlightMode')}
+                  </button>
+                )}
                 <button
                   type="button"
-                  className={`toolbar-button h-7 shrink-0 px-2 text-xs ${follow ? 'text-accent' : 'text-fg-muted'}`}
-                  onClick={() => setFollow((value) => !value)}
-                  title={follow ? translate('terminal.docker.logsFollowOn') : translate('terminal.docker.logsFollowOff')}
+                  className="toolbar-button h-7 shrink-0 px-2 text-xs text-fg-muted hover:text-fg"
+                  onClick={downloadCurrentLogs}
+                  title={translate('terminal.docker.logsDownload')}
                 >
-                  {follow ? translate('terminal.docker.logsFollowing') : translate('terminal.docker.logsPaused')}
+                  <Download className="h-3.5 w-3.5" />
+                  <span>{translate('terminal.docker.logsDownload')}</span>
                 </button>
+                {logs.stream !== false && (
+                  <button
+                    type="button"
+                    className={`toolbar-button h-7 shrink-0 px-2 text-xs ${follow ? 'text-accent' : 'text-fg-muted'}`}
+                    onClick={() => setFollow((value) => !value)}
+                    title={follow ? translate('terminal.docker.logsFollowOn') : translate('terminal.docker.logsFollowOff')}
+                  >
+                    {follow ? translate('terminal.docker.logsFollowing') : translate('terminal.docker.logsPaused')}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="icon-button shrink-0"
@@ -1379,7 +1746,162 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                 </button>
               </div>
             </div>
-            <pre ref={logPreRef} onScroll={handleLogScroll} className="scrollbar-thin min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-[var(--bg-primary)] p-3 font-mono text-[11px] leading-5 text-fg-secondary">{visibleLogs || translate('terminal.docker.logsEmpty')}</pre>
+            <pre ref={logPreRef} onScroll={handleLogScroll} className="scrollbar-thin min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-[var(--bg-primary)] p-3 font-mono text-[11px] leading-5 text-fg-secondary">
+              {visibleLogLines.length === 0 ? (
+                translate('terminal.docker.logsEmpty')
+              ) : !logSearch.trim() ? (
+                visibleLogLines.join('\n')
+              ) : (
+                visibleLogLines.map((line, lineIdx) => {
+                  const needle = logSearch.trim();
+                  const lowerNeedle = needle.toLowerCase();
+                  const lowerLine = line.toLowerCase();
+                  const parts: Array<{ text: string; match: boolean }> = [];
+                  let cursor = 0;
+                  let found = lowerLine.indexOf(lowerNeedle, cursor);
+                  while (found !== -1) {
+                    if (found > cursor) parts.push({ text: line.slice(cursor, found), match: false });
+                    parts.push({ text: line.slice(found, found + needle.length), match: true });
+                    cursor = found + needle.length;
+                    found = lowerLine.indexOf(lowerNeedle, cursor);
+                  }
+                  if (cursor < line.length) parts.push({ text: line.slice(cursor), match: false });
+                  return (
+                    <div key={lineIdx}>
+                      {parts.map((part, idx) => part.match ? (
+                        <mark key={idx} className="rounded-sm bg-warning-muted px-0.5 text-warning">{part.text}</mark>
+                      ) : (
+                        <span key={idx}>{part.text}</span>
+                      ))}
+                    </div>
+                  );
+                })
+              )}
+            </pre>
+          </div>
+        </div>
+      ) : null}
+
+      {runModalOpen ? (
+        <div className={layerClass} onClick={() => { if (!runBusy) setRunModalOpen(false); }}>
+          <div className="modal-backdrop" />
+          <div className="industrial-modal relative my-auto flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
+            <div className="industrial-modal-header shrink-0 text-sm font-semibold text-fg">
+              <span>{translate('terminal.docker.runContainer')}</span>
+              <button
+                type="button"
+                className="icon-button shrink-0"
+                disabled={runBusy}
+                onClick={() => setRunModalOpen(false)}
+                aria-label={translate('common.close')}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-auto p-4 text-xs">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-fg-muted">{translate('terminal.docker.image')} *</span>
+                  <input
+                    className="industrial-input w-full font-mono text-xs"
+                    placeholder="nginx:alpine"
+                    value={runForm.image}
+                    onChange={(event) => setRunForm((prev) => ({ ...prev, image: event.target.value }))}
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-fg-muted">{translate('terminal.docker.name')}</span>
+                  <input
+                    className="industrial-input w-full font-mono text-xs"
+                    placeholder="my-nginx"
+                    value={runForm.name}
+                    onChange={(event) => setRunForm((prev) => ({ ...prev, name: event.target.value }))}
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <span className="text-fg-muted">{translate('terminal.docker.restartPolicy')}</span>
+                  <IndustrialSelect
+                    value={runForm.restart}
+                    onChange={(val) => setRunForm((prev) => ({ ...prev, restart: val as typeof prev.restart }))}
+                    options={[
+                      { value: 'unless-stopped', label: 'unless-stopped' },
+                      { value: 'always', label: 'always' },
+                      { value: 'on-failure', label: 'on-failure' },
+                      { value: 'no', label: 'no' },
+                    ]}
+                  />
+                </div>
+                <label className="space-y-1">
+                  <span className="text-fg-muted">{translate('terminal.docker.tabs.networks')}</span>
+                  <input
+                    className="industrial-input w-full font-mono text-xs"
+                    placeholder="bridge"
+                    value={runForm.network}
+                    onChange={(event) => setRunForm((prev) => ({ ...prev, network: event.target.value }))}
+                  />
+                </label>
+              </div>
+              <label className="block space-y-1">
+                <span className="text-fg-muted">{translate('terminal.docker.runPortsHint')}</span>
+                <textarea
+                  rows={2}
+                  className="industrial-input w-full font-mono text-xs"
+                  placeholder={'8080:80\n8443:443'}
+                  value={runForm.ports}
+                  onChange={(event) => setRunForm((prev) => ({ ...prev, ports: event.target.value }))}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-fg-muted">{translate('terminal.docker.runVolumesHint')}</span>
+                <textarea
+                  rows={2}
+                  className="industrial-input w-full font-mono text-xs"
+                  placeholder="/host/data:/container/data"
+                  value={runForm.volumes}
+                  onChange={(event) => setRunForm((prev) => ({ ...prev, volumes: event.target.value }))}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-fg-muted">{translate('terminal.docker.runEnvHint')}</span>
+                <textarea
+                  rows={2}
+                  className="industrial-input w-full font-mono text-xs"
+                  placeholder={'TZ=Asia/Shanghai\nNODE_ENV=production'}
+                  value={runForm.env}
+                  onChange={(event) => setRunForm((prev) => ({ ...prev, env: event.target.value }))}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-fg-muted">{translate('terminal.docker.detailCommand')}</span>
+                <input
+                  className="industrial-input w-full font-mono text-xs"
+                  placeholder="optional override command"
+                  value={runForm.command}
+                  onChange={(event) => setRunForm((prev) => ({ ...prev, command: event.target.value }))}
+                />
+              </label>
+            </div>
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line-subtle px-4 py-3">
+              <button
+                type="button"
+                disabled={runBusy}
+                onClick={() => setRunModalOpen(false)}
+                className="industrial-button-secondary px-3 py-1.5 text-xs"
+              >
+                {translate('common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={runBusy || !runForm.image.trim()}
+                onClick={() => { void handleRunContainer(); }}
+                className="industrial-button-primary px-3 py-1.5 text-xs"
+              >
+                {runBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                <span>{translate('terminal.docker.runContainer')}</span>
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

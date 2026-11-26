@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { DragEvent, RefObject } from 'react';
 import {
+  Activity,
   Check,
   ChevronRight,
   Download,
@@ -9,6 +10,7 @@ import {
   FolderPlus,
   GripVertical,
   Layers,
+  Loader2,
   Monitor,
   Moon,
   Pencil,
@@ -110,6 +112,21 @@ export function WorkspaceHeader({
   const [dragOverConnectionId, setDragOverConnectionId] = useState<string | null>(null);
   const [importExportMode, setImportExportMode] = useState<'export' | 'import' | null>(null);
   const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probeMap, setProbeMap] = useState<Record<string, { reachable: boolean; latencyMs: number | null; error?: string }>>({});
+
+  const handleProbeAll = async () => {
+    if (!window.electronAPI?.probeConnections || probing || connections.length === 0) return;
+    setProbing(true);
+    try {
+      const res = await window.electronAPI.probeConnections(connections.map((c) => c.id), 3000);
+      if (res.success && res.data?.results) {
+        setProbeMap(res.data.results);
+      }
+    } finally {
+      setProbing(false);
+    }
+  };
   const normalizedQuery = connectionQuery.trim().toLowerCase();
   // 按名称/主机/用户名/标签过滤连接，便于在大量连接中快速定位
   const filteredConnections = normalizedQuery
@@ -294,11 +311,42 @@ export function WorkspaceHeader({
               <span className="truncate text-[13px] font-semibold text-fg" title={connection.name}>
                 {connection.name}
               </span>
+              {connection.envTag && (
+                <span
+                  className={`shrink-0 rounded-sm px-1 py-0.2 font-mono text-[9.5px] font-semibold uppercase leading-tight ${
+                    connection.envTag === 'prod'
+                      ? 'bg-danger-muted text-danger'
+                      : connection.envTag === 'staging'
+                        ? 'bg-warning-muted text-warning'
+                        : connection.envTag === 'dev'
+                          ? 'bg-info-muted text-info'
+                          : 'bg-accent-muted text-accent'
+                  }`}
+                >
+                  {translate(`connection.env.${connection.envTag}`)}
+                </span>
+              )}
               {isActive && (
                 <span
                   className="status-dot status-dot-connected"
                   aria-label={translate('connection.status.connected')}
                 />
+              )}
+              {probeMap[connection.id] && (
+                <span
+                  className={`ml-auto shrink-0 rounded-sm px-1 py-0.2 font-mono text-[10px] tabular-nums ${
+                    probeMap[connection.id].reachable
+                      ? (probeMap[connection.id].latencyMs ?? 0) > 150
+                        ? 'bg-warning-muted text-warning'
+                        : 'bg-success-muted text-success'
+                      : 'bg-danger-muted text-danger'
+                  }`}
+                  title={probeMap[connection.id].error || ''}
+                >
+                  {probeMap[connection.id].reachable
+                    ? `${probeMap[connection.id].latencyMs}ms`
+                    : translate('connection.probeOffline')}
+                </span>
               )}
             </div>
             <div
@@ -470,6 +518,25 @@ export function WorkspaceHeader({
                   <span className="header-popover-count">{connections.length}</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
+                  {typeof window !== 'undefined' && typeof window.electronAPI?.probeConnections === 'function' && connections.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={probing}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleProbeAll();
+                      }}
+                      className="icon-button h-7 w-7"
+                      title={translate('connection.probeAll')}
+                      aria-label={translate('connection.probeAll')}
+                    >
+                      {probing ? (
+                        <Loader2 className="pointer-events-none h-3.5 w-3.5 animate-spin text-accent" />
+                      ) : (
+                        <Activity className="pointer-events-none h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
                   {groupsSupported && (
                     <button
                       type="button"

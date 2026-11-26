@@ -247,9 +247,24 @@ export function ConnectionList({ onConnect, triggerAddConnection, onAddConnectio
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Server className="w-3 h-3 text-fg-subtle flex-shrink-0" />
             <span className="font-medium text-sm truncate text-fg dark:text-white">{connection.name}</span>
+            {connection.envTag && (
+              <span
+                className={`shrink-0 rounded-sm px-1 py-0.2 font-mono text-[9.5px] font-semibold uppercase leading-tight ${
+                  connection.envTag === 'prod'
+                    ? 'bg-danger-muted text-danger'
+                    : connection.envTag === 'staging'
+                      ? 'bg-warning-muted text-warning'
+                      : connection.envTag === 'dev'
+                        ? 'bg-info-muted text-info'
+                        : 'bg-accent-muted text-accent'
+                }`}
+              >
+                {t(`connection.env.${connection.envTag}`)}
+              </span>
+            )}
           </div>
           <p className="text-xs text-fg-muted mt-1 truncate flex items-center gap-1">
             <Globe className="w-3 h-3" />

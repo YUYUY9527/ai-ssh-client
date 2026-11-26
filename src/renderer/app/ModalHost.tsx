@@ -330,6 +330,27 @@ export function ModalHost({
                 </div>
                 <div>
                   <label className="industrial-field-label">
+                    {translate('connection.form.envTag')}
+                  </label>
+                  <IndustrialSelect
+                    value={editingConnection.envTag || ''}
+                    options={[
+                      { value: '', label: translate('connection.env.none') },
+                      { value: 'prod', label: translate('connection.env.prod') },
+                      { value: 'staging', label: translate('connection.env.staging') },
+                      { value: 'dev', label: translate('connection.env.dev') },
+                      { value: 'test', label: translate('connection.env.test') },
+                    ]}
+                    onChange={(value) => onChangeEditingConnection((previous) => (
+                      previous
+                        ? { ...previous, envTag: (value || undefined) as SSHConnection['envTag'] }
+                        : null
+                    ))}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="industrial-field-label">
                     {translate('features.connectionGroups.tags')}
                   </label>
                   <input

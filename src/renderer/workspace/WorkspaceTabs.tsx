@@ -98,6 +98,21 @@ export function WorkspaceTabs({
             }`}
           >
             <span className={`status-dot ${getTabStatusClass(tab)}`} />
+            {tab.envTag && (
+              <span
+                className={`shrink-0 rounded-sm px-1 py-0.2 font-mono text-[9.5px] font-semibold uppercase leading-tight ${
+                  tab.envTag === 'prod'
+                    ? 'bg-danger-muted text-danger'
+                    : tab.envTag === 'staging'
+                      ? 'bg-warning-muted text-warning'
+                      : tab.envTag === 'dev'
+                        ? 'bg-info-muted text-info'
+                        : 'bg-accent-muted text-accent'
+                }`}
+              >
+                {t(`connection.env.${tab.envTag}`)}
+              </span>
+            )}
             <span className="max-w-36 truncate" title={tab.name}>{tab.name}</span>
             <button
               type="button"

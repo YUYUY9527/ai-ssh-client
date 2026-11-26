@@ -200,6 +200,8 @@ export interface ServerMonitorMetrics {
   processCpu?: Array<{ pid: number; name: string; percent: number }>;
   /** 各网卡实时上下行速率。旧版服务端可能不返回。 */
   network?: Array<{ name: string; rxBytesPerSec: number; txBytesPerSec: number }>;
+  /** NVIDIA GPU 指标（存在 nvidia-smi 时采集）。 */
+  gpus?: ServerGpuMetrics[];
   /** 进程数（running / 总）。 */
   processes?: { running: number; total: number };
   /** 当前登录用户数。 */
@@ -714,6 +716,19 @@ export interface DockerComposeProject {
   configFiles: string;
 }
 
+export type DockerComposeAction = 'up' | 'stop' | 'restart' | 'down' | 'pull';
+
+export interface DockerRunContainerSpec {
+  image: string;
+  name?: string;
+  ports?: string[];
+  volumes?: string[];
+  env?: string[];
+  restart?: 'no' | 'always' | 'unless-stopped' | 'on-failure';
+  network?: string;
+  command?: string;
+}
+
 export interface ListeningPortItem {
   protocol: string;
   state: string;
@@ -721,12 +736,50 @@ export interface ListeningPortItem {
   process: string;
 }
 
+export interface ServerGpuMetrics {
+  index: number;
+  name: string;
+  utilizationPercent: number;
+  memoryUsedMb: number;
+  memoryTotalMb: number;
+  memoryPercent: number;
+  temperatureC: number;
+  powerW: number;
+}
+
 export interface SystemdServiceItem {
   name: string;
   load: string;
   active: string;
   sub: string;
+  enabledState?: string;
   description: string;
+}
+
+export interface CrontabEntryItem {
+  schedule: string;
+  command: string;
+}
+
+export interface CrontabResult {
+  available: boolean;
+  raw: string;
+  entries: CrontabEntryItem[];
+}
+
+export interface FirewallRuleItem {
+  id: string;
+  target: string;
+  action: string;
+  direction: string;
+  from: string;
+}
+
+export interface FirewallStatusResult {
+  backend: 'ufw' | 'firewalld' | 'none';
+  active: boolean;
+  rules: FirewallRuleItem[];
+  raw: string;
 }
 
 export interface BatchCommandResultItem {
@@ -767,6 +820,28 @@ export interface BatchDistributeResponse {
   succeeded: number;
   failed: number;
   results: BatchDistributeResultItem[];
+}
+
+export interface ConnectionProbeItem {
+  connectionId: string;
+  reachable: boolean;
+  latencyMs: number | null;
+  error?: string;
+  checkedAt: number;
+}
+
+export interface ConnectionProbeResult {
+  results: Record<string, ConnectionProbeItem>;
+}
+
+export interface SftpFileChunkResult {
+  path: string;
+  mode: 'chunk' | 'tail';
+  totalBytes: number;
+  offset: number;
+  length: number;
+  content: string;
+  hasMore: boolean;
 }
 
 export interface SftpOpProgressEvent {
