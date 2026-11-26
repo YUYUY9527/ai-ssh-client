@@ -289,6 +289,8 @@ const zhCN = {
         compose: 'Compose 项目',
       },
       editCompose: '编辑编排文件',
+      composeSaveOnly: '仅保存',
+      composeSaved: '已保存编排文件。',
       composeSaveAndUp: '保存并部署 (up -d)',
       composeApplied: '已保存编排文件并完成 docker compose up -d。',
       logsEmpty: '（暂无日志）',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Activity, ArrowDownCircle, Box, ChevronDown, Container, Copy, Database, FileCode2, HardDrive, Info, Layers3, Loader2, MoreHorizontal, Network, Play, Power, RefreshCw, RotateCcw, Save, ScrollText, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type {
@@ -15,6 +15,9 @@ import { DockerExecTerminal } from './DockerExecTerminal';
 import { ConfirmDialog } from '../../shared-ui/ConfirmDialog';
 import { getWebSftpClientId } from '../../lib/web';
 import { useSessionOverlay } from '../../workspace/SessionOverlayContext';
+import { detectCodeLanguage } from '../../transfer/code-format';
+
+const CodeEditor = lazy(() => import('../../transfer/CodeEditor').then((module) => ({ default: module.CodeEditor })));
 
 interface DockerPanelProps {
   connectionId: string;
@@ -99,7 +102,13 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
   const [volumes, setVolumes] = useState<DockerVolumeItem[]>([]);
   const [networks, setNetworks] = useState<DockerNetworkItem[]>([]);
   const [composeProjects, setComposeProjects] = useState<DockerComposeProject[]>([]);
-  const [composeEditor, setComposeEditor] = useState<{ project: string; path: string; content: string; saving: boolean } | null>(null);
+  const [composeEditor, setComposeEditor] = useState<{
+    project: string;
+    path: string;
+    content: string;
+    originalContent: string;
+    savingMode: null | 'save' | 'apply';
+  } | null>(null);
   const [resourceLoading, setResourceLoading] = useState(false);
 
   const loadResourceTab = useCallback(async (tab: DockerTab) => {
@@ -758,15 +767,45 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
               {activeTab === 'compose' && (
                 <div className={composeEditor ? 'flex min-h-0 flex-1 flex-col' : 'space-y-3'}>
                   {composeEditor ? (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2.5 rounded-md border border-line bg-surface p-3">
-                      <div className="flex shrink-0 items-center justify-between gap-2">
+                    <div
+                      className="flex min-h-0 flex-1 flex-col gap-2.5 rounded-md border border-line bg-surface p-3"
+                      onKeyDown={(event) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+                          event.preventDefault();
+                          if (composeEditor.savingMode || !window.electronAPI?.saveDockerComposeFile) return;
+                          const snap = composeEditor;
+                          setComposeEditor((prev) => (prev ? { ...prev, savingMode: 'save' } : null));
+                          void window.electronAPI
+                            .saveDockerComposeFile(connectionId, snap.path, snap.content, snap.project, { apply: false })
+                            .then((res) => {
+                              if (!res.success) {
+                                setError(res.error);
+                              } else {
+                                setError(null);
+                                setNotice(translate('terminal.docker.composeSaved'));
+                                setComposeEditor((prev) => (prev ? { ...prev, originalContent: snap.content } : null));
+                              }
+                            })
+                            .finally(() => {
+                              setComposeEditor((prev) => (prev ? { ...prev, savingMode: null } : null));
+                            });
+                        }
+                      }}
+                    >
+                      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-xs font-semibold text-fg">{composeEditor.project}</div>
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-fg">
+                            <span>{composeEditor.project}</span>
+                            {composeEditor.content !== composeEditor.originalContent && (
+                              <span className="h-1.5 w-1.5 rounded-full bg-warning" title="*" />
+                            )}
+                          </div>
                           <div className="truncate font-mono text-[11px] text-fg-muted">{composeEditor.path}</div>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
+                            disabled={composeEditor.savingMode !== null}
                             onClick={() => setComposeEditor(null)}
                             className="industrial-button-secondary px-2.5 py-1 text-xs"
                           >
@@ -774,42 +813,96 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                           </button>
                           <button
                             type="button"
-                            disabled={composeEditor.saving}
+                            disabled={composeEditor.savingMode !== null}
                             onClick={async () => {
                               if (!window.electronAPI?.saveDockerComposeFile) return;
-                              setComposeEditor((prev) => (prev ? { ...prev, saving: true } : null));
+                              const snap = composeEditor;
+                              setComposeEditor((prev) => (prev ? { ...prev, savingMode: 'save' } : null));
                               try {
                                 const res = await window.electronAPI.saveDockerComposeFile(
                                   connectionId,
-                                  composeEditor.path,
-                                  composeEditor.content,
-                                  composeEditor.project,
+                                  snap.path,
+                                  snap.content,
+                                  snap.project,
+                                  { apply: false },
                                 );
                                 if (!res.success) {
                                   setError(res.error);
                                 } else {
+                                  setError(null);
+                                  setNotice(translate('terminal.docker.composeSaved'));
+                                  setComposeEditor((prev) => (prev ? { ...prev, originalContent: snap.content } : null));
+                                }
+                              } finally {
+                                setComposeEditor((prev) => (prev ? { ...prev, savingMode: null } : null));
+                              }
+                            }}
+                            className="industrial-button-secondary px-2.5 py-1 text-xs"
+                          >
+                            {composeEditor.savingMode === 'save' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Save className="h-3.5 w-3.5" />
+                            )}
+                            {translate('terminal.docker.composeSaveOnly')}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={composeEditor.savingMode !== null}
+                            onClick={async () => {
+                              if (!window.electronAPI?.saveDockerComposeFile) return;
+                              const snap = composeEditor;
+                              setComposeEditor((prev) => (prev ? { ...prev, savingMode: 'apply' } : null));
+                              try {
+                                const res = await window.electronAPI.saveDockerComposeFile(
+                                  connectionId,
+                                  snap.path,
+                                  snap.content,
+                                  snap.project,
+                                  { apply: true },
+                                );
+                                if (!res.success) {
+                                  setError(res.error);
+                                } else {
+                                  setError(null);
                                   setNotice(translate('terminal.docker.composeApplied'));
                                   setComposeEditor(null);
                                   await refresh();
                                   await loadResourceTab('compose');
                                 }
                               } finally {
-                                setComposeEditor((prev) => (prev ? { ...prev, saving: false } : null));
+                                setComposeEditor((prev) => (prev ? { ...prev, savingMode: null } : null));
                               }
                             }}
                             className="industrial-button-primary px-2.5 py-1 text-xs"
                           >
-                            <Save className="h-3.5 w-3.5" />
+                            {composeEditor.savingMode === 'apply' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Play className="h-3.5 w-3.5" />
+                            )}
                             {translate('terminal.docker.composeSaveAndUp')}
                           </button>
                         </div>
                       </div>
-                      <textarea
-                        value={composeEditor.content}
-                        onChange={(e) => setComposeEditor((prev) => (prev ? { ...prev, content: e.target.value } : null))}
-                        className="industrial-input min-h-0 w-full flex-1 resize-none font-mono text-xs leading-relaxed"
-                        spellCheck={false}
-                      />
+                      <div className="min-h-0 flex-1 overflow-hidden rounded-sm border border-line-subtle bg-app">
+                        <Suspense
+                          fallback={(
+                            <div className="flex h-full items-center justify-center gap-2 text-xs text-fg-muted">
+                              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                              <span>{translate('common.loading')}</span>
+                            </div>
+                          )}
+                        >
+                          <CodeEditor
+                            key={composeEditor.path}
+                            value={composeEditor.content}
+                            language={detectCodeLanguage(composeEditor.path) === 'text' ? 'yaml' : detectCodeLanguage(composeEditor.path)}
+                            readOnly={composeEditor.savingMode !== null}
+                            onChange={(nextValue) => setComposeEditor((prev) => (prev ? { ...prev, content: nextValue } : null))}
+                          />
+                        </Suspense>
+                      </div>
                     </div>
                   ) : resourceLoading ? (
                     <div className="py-8 text-center text-xs text-fg-muted">{translate('common.loading')}</div>
@@ -834,7 +927,8 @@ export function DockerPanel({ connectionId, translate, onClose }: DockerPanelPro
                                 project: proj.name,
                                 path: res.data.path,
                                 content: res.data.content,
-                                saving: false,
+                                originalContent: res.data.content,
+                                savingMode: null,
                               });
                             }
                           }}

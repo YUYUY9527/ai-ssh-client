@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { basicSetup } from 'codemirror';
+import { indentWithTab } from '@codemirror/commands';
+import { indentUnit } from '@codemirror/language';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 import type { CodeLanguage } from './code-format';
@@ -32,7 +34,7 @@ const baseTheme = EditorView.theme({
   },
   '.cm-scroller': {
     overflow: 'auto',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+    fontFamily: 'var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace)',
     lineHeight: '1.55',
   },
   '.cm-content': {
@@ -87,6 +89,8 @@ export function CodeEditor({ value, language, readOnly = false, onChange }: Code
         doc: value,
         extensions: [
           basicSetup,
+          keymap.of([indentWithTab]),
+          indentUnit.of('  '),
           EditorState.tabSize.of(2),
           EditorView.contentAttributes.of({ spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' }),
           languageCompartment.of(languageExtension(language)),

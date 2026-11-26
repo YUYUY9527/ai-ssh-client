@@ -127,7 +127,7 @@ declare global {
       removeDockerNetwork?: (connectionId: string, networkId: string) => Promise<IPCResult<{ id: string; output: string }>>;
       listDockerComposeProjects?: (connectionId: string) => Promise<IPCResult<{ projects: DockerComposeProject[] }>>;
       readDockerComposeFile?: (connectionId: string, configFile: string) => Promise<IPCResult<{ path: string; content: string }>>;
-      saveDockerComposeFile?: (connectionId: string, configFile: string, content: string, project?: string) => Promise<IPCResult<{ path: string; output: string }>>;
+      saveDockerComposeFile?: (connectionId: string, configFile: string, content: string, project?: string, options?: { apply?: boolean }) => Promise<IPCResult<{ path: string; output: string; applied?: boolean }>>;
       /** 监听端口、进程终止、Systemd 服务管理。 */
       listListeningPorts?: (connectionId: string) => Promise<IPCResult<{ ports: ListeningPortItem[] }>>;
       killRemoteProcess?: (connectionId: string, pid: number, signal?: 'TERM' | 'KILL' | 'HUP') => Promise<IPCResult<{ pid: number; signal: string }>>;

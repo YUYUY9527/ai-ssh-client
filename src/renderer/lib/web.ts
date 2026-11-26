@@ -1580,9 +1580,9 @@ const webApi: Window['electronAPI'] = {
   readDockerComposeFile: (connectionId, configFile) => sftpRequest<{ path: string; content: string }>(
     `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose/file?path=${encodeURIComponent(configFile)}`,
   ),
-  saveDockerComposeFile: (connectionId, configFile, content, project) => sftpRequest<{ path: string; output: string }>(
+  saveDockerComposeFile: (connectionId, configFile, content, project, options) => sftpRequest<{ path: string; output: string; applied?: boolean }>(
     `/api/ssh/${encodeURIComponent(connectionId)}/docker/compose/file`,
-    { method: 'PUT', body: JSON.stringify({ path: configFile, content, project }) },
+    { method: 'PUT', body: JSON.stringify({ path: configFile, content, project, apply: options?.apply }) },
   ),
   sshGetHostTrustRecord: (host, port) => request<{ record: HostTrustRecord | null }>(
     `/api/ssh/host-trust/record?host=${encodeURIComponent(host)}&port=${encodeURIComponent(String(port))}`,

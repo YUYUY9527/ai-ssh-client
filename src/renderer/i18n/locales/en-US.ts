@@ -295,6 +295,8 @@ const enUS: DeepStringify<typeof zhCN> = {
         compose: 'Compose',
       },
       editCompose: 'Edit compose file',
+      composeSaveOnly: 'Save only',
+      composeSaved: 'Compose file saved.',
       composeSaveAndUp: 'Save & up -d',
       composeApplied: 'Saved compose file and applied docker compose up -d.',
       logsEmpty: '(no logs)',

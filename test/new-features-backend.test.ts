@@ -316,6 +316,22 @@ describe('Docker extended management & sudo fallback', () => {
 
     const statsRes = await dockerManager.containerStats(client);
     expect(statsRes.stats[0]).toMatchObject({ id: 'c1', name: 'web', cpuPerc: '1.50%' });
+
+    const saveOnlyCmds: string[] = [];
+    const composeClient = makeMockExecClient((cmd) => {
+      saveOnlyCmds.push(cmd);
+      return { stdout: '', exitCode: 0 };
+    });
+    const saveOnly = await dockerManager.saveComposeAndUp(
+      composeClient,
+      '/srv/app/docker-compose.yml',
+      'services:\n  web:\n    image: nginx\n',
+      'app',
+      { apply: false },
+    );
+    expect(saveOnly).toMatchObject({ path: '/srv/app/docker-compose.yml', applied: false });
+    expect(saveOnlyCmds).toHaveLength(1);
+    expect(saveOnlyCmds[0]).toContain('base64 -d');
   });
 });
 

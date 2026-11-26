@@ -576,11 +576,12 @@ async function readComposeFile(client, configFile) {
   return { path: target, content: result.output || '' };
 }
 
-/** 保存修改后的 docker-compose.yml 并执行 docker compose up -d。 */
-async function saveComposeAndUp(client, configFile, content, projectName) {
+/** 保存修改后的 docker-compose.yml；apply=true（默认）时随后执行 docker compose up -d，apply=false 时仅保存文件。 */
+async function saveComposeAndUp(client, configFile, content, projectName, options = {}) {
   const target = String(configFile || '').split(',')[0].trim();
   if (!target || target.includes('\0')) throw new Error('Invalid compose file path');
   if (typeof content !== 'string') throw new Error('Compose file content is required');
+  const shouldApply = options?.apply !== false;
   const b64 = Buffer.from(content, 'utf8').toString('base64');
   const writeRes = await execCommand(
     client,
@@ -590,6 +591,9 @@ async function saveComposeAndUp(client, configFile, content, projectName) {
   if (writeRes.exitCode !== 0) {
     throw new Error(String(writeRes.stderr || 'Failed to write compose file').trim());
   }
+  if (!shouldApply) {
+    return { path: target, output: '', applied: false };
+  }
   const args = ['compose', '-f', target];
   if (projectName) args.push('-p', projectName);
   args.push('up', '-d');
@@ -598,7 +602,7 @@ async function saveComposeAndUp(client, configFile, content, projectName) {
   if (upRes.exitCode !== 0) {
     throw new Error(output || 'docker compose up -d failed');
   }
-  return { path: target, output };
+  return { path: target, output, applied: true };
 }
 
 module.exports = {

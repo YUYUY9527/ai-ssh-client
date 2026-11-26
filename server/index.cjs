@@ -2049,8 +2049,8 @@ app.get('/api/ssh/:id/docker/compose/file', route(async (request) => {
 
 app.put('/api/ssh/:id/docker/compose/file', route(async (request) => {
   const session = getSession(request.params.id, requestClientId(request));
-  const { path: configFile, content, project } = request.body || {};
-  return success(await saveComposeAndUp(session.client, configFile, content, project));
+  const { path: configFile, content, project, apply } = request.body || {};
+  return success(await saveComposeAndUp(session.client, configFile, content, project, { apply: apply !== false }));
 }));
 
 app.get('/api/ssh/:id/docker/containers', route(async (request) => {

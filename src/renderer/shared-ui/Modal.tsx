@@ -144,6 +144,11 @@ export function Modal({
       if (event.key !== 'Tab') {
         return;
       }
+      const active = document.activeElement as HTMLElement | null;
+      // 焦点在 CodeMirror 编辑器内时，把 Tab / Shift+Tab 留给编辑器做缩进，不触发弹窗焦点循环
+      if (active?.closest('.cm-content')) {
+        return;
+      }
       const focusable = Array.from(
         panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
       ).filter((element) => element.offsetParent !== null);
@@ -153,7 +158,6 @@ export function Modal({
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      const active = document.activeElement as HTMLElement | null;
       if (event.shiftKey && (active === first || active === panel || !active || !panel.contains(active))) {
         event.preventDefault();
         last.focus();
